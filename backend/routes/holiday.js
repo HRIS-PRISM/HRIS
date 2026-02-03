@@ -4,20 +4,52 @@ const path = require('path');
 const fs = require('fs');
 const db = require('../db');
 const { upload } = require('../middleware/upload');
-const { broadcastToRoles } = require('../socket/socketService');
+const { broadcastToRoles, notifyMultipleUsers } = require('../socket/socketService');
 const { notifyPayrollChanged } = require('../socket/socketService');
 
-// GET all holiday records (normalize title/about/date_start/date_end for backward compat)
+// GET all holiday records — always 200 + array (DB errors or missing table → [])
 router.get('/holiday', (req, res) => {
-  const sql = `SELECT id, COALESCE(title, description) AS title, COALESCE(about, '') AS about, COALESCE(date_start, date) AS date_start, COALESCE(date_end, date) AS date_end, status, image, description, date FROM holiday`;
+  const send = (data) => {
+    if (!res.headersSent) res.status(200).json(data);
+  };
 
-  db.query(sql, (err, result) => {
-    if (err) {
-      console.error('Database Query Error:', err.message);
-      return res.status(500).json({ error: 'Internal Server Error' });
+  const queryHolidays = () => {
+    db.query('SELECT * FROM holiday', (err, result) => {
+      if (err) {
+        console.error('Holiday GET Database Error:', err.message);
+        return send([]);
+      }
+      try {
+        const rows = Array.isArray(result) ? result : [];
+        const normalized = rows.map((row) => ({
+          id: row.id,
+          title: row.title != null ? row.title : row.description,
+          about: row.about != null ? row.about : '',
+          date_start: row.date_start != null ? row.date_start : row.date,
+          date_end: row.date_end != null ? row.date_end : row.date,
+          description: row.description,
+          date: row.date,
+          status: row.status,
+          image: row.image,
+        }));
+        send(normalized);
+      } catch (e) {
+        console.error('Holiday GET normalize error:', e.message);
+        send([]);
+      }
+    });
+  };
+
+  try {
+    if (db && typeof db.query === 'function') {
+      queryHolidays();
+    } else {
+      send([]);
     }
-    res.json(result);
-  });
+  } catch (e) {
+    console.error('Holiday GET error:', e.message);
+    send([]);
+  }
 });
 
 // POST: Create holiday record (Title, About, Date Range, same as announcement)
@@ -36,20 +68,69 @@ router.post('/holiday', upload.single('image'), (req, res) => {
       return res.status(500).json({ error: 'Internal Server Error' });
     }
 
+    const holidayId = result.insertId;
+    const notificationDescription = 'New holiday has been scheduled. Click to see details.';
+
     notifyPayrollChanged('created', {
       module: 'holiday',
-      holidayId: result.insertId,
+      holidayId,
     });
 
     broadcastToRoles(
       ['administrator', 'superadmin', 'technical'],
       'adminDashboardUpdated',
-      { source: 'holiday', action: 'created', holidayId: result.insertId },
+      { source: 'holiday', action: 'created', holidayId },
+    );
+
+    // Create notifications for all employees (same as announcements)
+    db.query(
+      `SELECT DISTINCT employeeNumber FROM users WHERE employeeNumber IS NOT NULL AND employeeNumber != ""
+       UNION
+       SELECT DISTINCT agencyEmployeeNum AS employeeNumber FROM person_table WHERE agencyEmployeeNum IS NOT NULL AND agencyEmployeeNum != ""`,
+      (userErr, users) => {
+        if (userErr) {
+          console.error('Error fetching users for holiday notifications:', userErr.message);
+          return res.status(201).json({ message: 'Holiday record added successfully', id: holidayId });
+        }
+        const employeeNumbers = Array.from(
+          new Set(
+            (users || [])
+              .map((u) => String(u.employeeNumber || '').trim())
+              .filter(Boolean),
+          ),
+        );
+        if (employeeNumbers.length === 0) {
+          return res.status(201).json({ message: 'Holiday record added successfully', id: holidayId });
+        }
+        let completed = 0;
+        employeeNumbers.forEach((empNum) => {
+          db.query(
+            'INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) VALUES (?, ?, 0, ?, NULL)',
+            [empNum, notificationDescription, 'holiday'],
+            (notifErr) => {
+              if (notifErr) {
+                db.query(
+                  'INSERT INTO notifications (employeeNumber, description, read_status) VALUES (?, ?, 0)',
+                  [empNum, notificationDescription],
+                  () => {},
+                );
+              }
+              completed++;
+              if (completed === employeeNumbers.length) {
+                notifyMultipleUsers(employeeNumbers, 'notificationCreated', {
+                  notification_type: 'holiday',
+                  description: notificationDescription,
+                });
+              }
+            },
+          );
+        });
+      },
     );
 
     res.status(201).json({
       message: 'Holiday record added successfully',
-      id: result.insertId,
+      id: holidayId,
     });
   });
 });

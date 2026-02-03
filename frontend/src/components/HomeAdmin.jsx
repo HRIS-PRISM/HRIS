@@ -451,6 +451,7 @@ const useDashboardData = (settings) => {
   ]);
 
   const [announcements, setAnnouncements] = useState([]);
+  const [suspensions, setSuspensions] = useState([]);
   const [holidays, setHolidays] = useState([]);
   const [rawHolidays, setRawHolidays] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -723,6 +724,17 @@ const useDashboardData = (settings) => {
         }
 
         try {
+          console.log(" Fetching suspensions...");
+          const suspRes = await axios.get(`${API_BASE_URL}/api/suspensions`, { headers });
+          const suspensionData = Array.isArray(suspRes.data) ? suspRes.data : [];
+          setSuspensions(suspensionData);
+          console.log("Suspensions loaded:", suspensionData.length);
+        } catch (err) {
+          console.error(" Failed to fetch suspensions:", err?.message);
+          setSuspensions([]);
+        }
+
+        try {
           console.log(" Fetching holidays...");
           const res = await axios.get(`${API_BASE_URL}/holiday`, { headers });
           if (Array.isArray(res.data)) {
@@ -810,6 +822,7 @@ const useDashboardData = (settings) => {
     payrollTrendData,
     attendanceChartData,
     announcements,
+    suspensions,
     holidays,
     rawHolidays,
     loading,
@@ -1214,7 +1227,7 @@ const AnnouncementCarousel = ({
                         ? buildImageUrl(announcements[currentSlide].image)
                         : "/api/placeholder/800/400"
                     }
-              alt={announcements[currentSlide]?.title || "Announcement"}
+              alt={announcements[currentSlide]?.title || (announcements[currentSlide]?.id?.toString().startsWith("holiday-") ? "Holiday" : announcements[currentSlide]?.id?.toString().startsWith("suspension-") ? "Suspension" : "Announcement")}
               sx={{
                 width: "100%",
                 height: "100%",
@@ -1317,7 +1330,7 @@ const AnnouncementCarousel = ({
               }}
             >
               <Chip
-                label="ANNOUNCEMENT"
+                label={announcements[currentSlide]?.id?.toString().startsWith("holiday-") ? "HOLIDAY" : announcements[currentSlide]?.id?.toString().startsWith("suspension-") ? "SUSPENSION" : "ANNOUNCEMENT"}
                 size="small"
                 sx={{
                   mb: 2,
@@ -1406,7 +1419,7 @@ const AnnouncementCarousel = ({
               sx={{ fontSize: 80, color: `${settings.primaryColor}4D` }}
             />
             <Typography variant="h5" sx={{ color: settings.textPrimaryColor }}>
-              No announcements available
+              No announcements, suspensions, or holidays available
             </Typography>
           </Box>
         )}
@@ -3006,6 +3019,7 @@ const AdminHome = () => {
     payrollTrendData,
     attendanceChartData,
     announcements,
+    suspensions,
     holidays,
     rawHolidays,
     loading,
@@ -3027,10 +3041,18 @@ const AdminHome = () => {
     if (fb) return today >= fb;
     return false;
   };
-  const scheduledHolidaysForCarousel = (rawHolidays || [])
+  // Show holidays when: status is active AND (today in range OR not yet ended); fallback to recent
+  let scheduledHolidaysForCarousel = (rawHolidays || [])
+    .filter((h) => (h.status || "").toLowerCase() === "active")
     .filter((h) => {
-      if ((h.status || "").toLowerCase() !== "active") return false;
-      return todayInRange(h.date_start, h.date_end, h.date);
+      if (todayInRange(h.date_start, h.date_end, h.date)) return true;
+      const endDate = h.date_end || h.date;
+      if (!endDate) return true;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(0, 0, 0, 0);
+      return today <= end;
     })
     .map((h) => ({
       id: `holiday-${h.id}`,
@@ -3041,11 +3063,70 @@ const AdminHome = () => {
       date_end: h.date_end || h.date,
       image: h.image || null,
     }));
-  const announcementsInRange = (announcements || []).filter((a) =>
-    todayInRange(a.date_start, a.date_end, a.date)
-  );
+  if (scheduledHolidaysForCarousel.length === 0 && Array.isArray(rawHolidays) && rawHolidays.length > 0) {
+    const active = rawHolidays.filter((h) => (h.status || "").toLowerCase() === "active");
+    scheduledHolidaysForCarousel = active
+      .slice()
+      .sort((a, b) => new Date(b.date_start || b.date) - new Date(a.date_start || a.date))
+      .slice(0, 10)
+      .map((h) => ({
+        id: `holiday-${h.id}`,
+        title: h.title || h.description || "",
+        about: h.about || "Official holiday.",
+        date: h.date_start || h.date_end || h.date,
+        date_start: h.date_start || h.date,
+        date_end: h.date_end || h.date,
+        image: h.image || null,
+      }));
+  }
+  // Show announcements when: today is in range OR announcement hasn't ended yet (date_end >= today)
+  // This ensures single-date and past-range announcements still show until end date
+  let announcementsInRange = (announcements || []).filter((a) => {
+    if (todayInRange(a.date_start, a.date_end, a.date)) return true;
+    const endDate = a.date_end || a.date;
+    if (!endDate) return true; // no end date: include so something shows
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(0, 0, 0, 0);
+    return today <= end; // still "active" (not yet ended)
+  });
+  // Fallback: if no announcements pass the filter, show most recent so carousel isn't empty
+  if (announcementsInRange.length === 0 && Array.isArray(announcements) && announcements.length > 0) {
+    announcementsInRange = announcements
+      .slice()
+      .sort((a, b) => new Date(b.date_start || b.date) - new Date(a.date_start || a.date))
+      .slice(0, 10);
+  }
+  // Show suspensions when: today is in range OR suspension hasn't ended yet; fallback to recent
+  let suspensionsInRange = (suspensions || []).filter((s) => {
+    if (todayInRange(s.date_start, s.date_end, s.date)) return true;
+    const endDate = s.date_end || s.date;
+    if (!endDate) return true;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(0, 0, 0, 0);
+    return today <= end;
+  });
+  if (suspensionsInRange.length === 0 && Array.isArray(suspensions) && suspensions.length > 0) {
+    suspensionsInRange = suspensions
+      .slice()
+      .sort((a, b) => new Date(b.date_start || b.date) - new Date(a.date_start || a.date))
+      .slice(0, 10);
+  }
+  const suspensionsForCarousel = suspensionsInRange.map((s) => ({
+    id: `suspension-${s.id}`,
+    title: s.title || "",
+    about: s.about || "",
+    date: s.date_start || s.date_end || s.date,
+    date_start: s.date_start || s.date,
+    date_end: s.date_end || s.date,
+    image: s.image || null,
+  }));
   const carouselItems = [
     ...scheduledHolidaysForCarousel,
+    ...suspensionsForCarousel,
     ...announcementsInRange,
   ].sort((a, b) => new Date(b.date_start || b.date) - new Date(a.date_start || a.date));
 
@@ -3269,6 +3350,66 @@ const AdminHome = () => {
         }
       } catch (err) {
         console.error("Error fetching announcement:", err);
+        setNotifModalOpen(false);
+      }
+    } else if (notification.notification_type === "holiday") {
+      try {
+        const token = localStorage.getItem("token");
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const holidayRes = await axios.get(`${API_BASE_URL}/holiday`, { headers });
+        const holidayList = Array.isArray(holidayRes.data) ? holidayRes.data : [];
+        let matchingHoliday = null;
+        if (holidayList.length > 0) {
+          matchingHoliday = holidayList[0]; // Most recent
+        }
+        if (matchingHoliday) {
+          const holidayItem = {
+            id: `holiday-${matchingHoliday.id}`,
+            title: matchingHoliday.title || matchingHoliday.description || "",
+            about: matchingHoliday.about || "Official holiday.",
+            date: matchingHoliday.date_start || matchingHoliday.date_end || matchingHoliday.date,
+            date_start: matchingHoliday.date_start || matchingHoliday.date,
+            date_end: matchingHoliday.date_end || matchingHoliday.date,
+            image: matchingHoliday.image || null,
+          };
+          setNotifModalOpen(false);
+          setSelectedAnnouncement(holidayItem);
+          setOpenModal(true);
+        } else {
+          setNotifModalOpen(false);
+        }
+      } catch (err) {
+        console.error("Error fetching holiday:", err);
+        setNotifModalOpen(false);
+      }
+    } else if (notification.notification_type === "suspension") {
+      try {
+        const token = localStorage.getItem("token");
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const suspRes = await axios.get(`${API_BASE_URL}/api/suspensions`, { headers });
+        const suspensionList = Array.isArray(suspRes.data) ? suspRes.data : [];
+        let matchingSuspension = null;
+        if (suspensionList.length > 0) {
+          matchingSuspension = suspensionList[0]; // Most recent
+        }
+        if (matchingSuspension) {
+          const suspensionItem = {
+            id: `suspension-${matchingSuspension.id}`,
+            title: matchingSuspension.title || "",
+            about: matchingSuspension.about || "",
+            date: matchingSuspension.date_start || matchingSuspension.date_end || matchingSuspension.date,
+            date_start: matchingSuspension.date_start || matchingSuspension.date,
+            date_end: matchingSuspension.date_end || matchingSuspension.date,
+            image: matchingSuspension.image || null,
+          };
+          setNotifModalOpen(false);
+          setSelectedAnnouncement(suspensionItem);
+          setOpenModal(true);
+        } else {
+          setNotifModalOpen(false);
+        }
+      } catch (err) {
+        console.error("Error fetching suspension:", err);
         setNotifModalOpen(false);
       }
     } else if (notification.action_link) {
@@ -3921,6 +4062,10 @@ const AdminHome = () => {
                                 ? "rgba(76, 175, 80, 0.1)"
                                 : notif.notification_type === "contact"
                                 ? "rgba(255, 152, 0, 0.1)"
+                                : notif.notification_type === "holiday"
+                                ? "rgba(237, 108, 2, 0.1)"
+                                : notif.notification_type === "suspension"
+                                ? "rgba(211, 47, 47, 0.1)"
                                 : `${settings.primaryColor}1A`
                               : `${settings.primaryColor}0A`,
                           border: `1px solid ${settings.primaryColor}26`,
@@ -3930,6 +4075,10 @@ const AdminHome = () => {
                                 ? "4px solid #4caf50"
                                 : notif.notification_type === "contact"
                                 ? "4px solid #ff9800"
+                                : notif.notification_type === "holiday"
+                                ? "4px solid #ed6c02"
+                                : notif.notification_type === "suspension"
+                                ? "4px solid #d32f2f"
                                 : `4px solid ${settings.primaryColor}`
                               : `1px solid ${settings.primaryColor}26`,
                           cursor: "pointer",
@@ -3961,6 +4110,10 @@ const AdminHome = () => {
                                   ? `linear-gradient(135deg, #4caf50, #2e7d32)`
                                   : notif.notification_type === "contact"
                                   ? `linear-gradient(135deg, #ff9800, #f57c00)`
+                                  : notif.notification_type === "holiday"
+                                  ? `linear-gradient(135deg, #ed6c02, #e65100)`
+                                  : notif.notification_type === "suspension"
+                                  ? `linear-gradient(135deg, #d32f2f, #b71c1c)`
                                   : `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
                               mt: 0.5,
                               flexShrink: 0,
@@ -3982,6 +4135,10 @@ const AdminHome = () => {
                                 ? "Payslip Available"
                                 : notif.notification_type === "contact"
                                 ? "New Ticket"
+                                : notif.notification_type === "holiday"
+                                ? "New Holiday"
+                                : notif.notification_type === "suspension"
+                                ? "New Suspension"
                                 : "Notification"}
                             </Typography>
                             <Typography
