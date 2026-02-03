@@ -23,6 +23,8 @@ import {
   InputLabel,
   Select,
   Divider,
+  ListSubheader,
+  ListItemIcon,
 } from '@mui/material';
 import {
   PersonOutline,
@@ -40,7 +42,9 @@ import {
   AccountBalanceWallet,
   Business,
   AssignmentOutlined,
+  Circle,
 } from '@mui/icons-material';
+
 import AccessDenied from './AccessDenied';
 
 const Registration = () => {
@@ -185,7 +189,7 @@ const Registration = () => {
         [name]: name === 'employmentCategory' ? Number(value) : value,
       };
 
-      // If lastName is being updated, also update the password
+      // If lastName is being updated, also update to password
       if (name === 'lastName') {
         // Convert to uppercase and remove all spaces
         newData.password = value.toUpperCase().replace(/\s+/g, '');
@@ -445,7 +449,7 @@ const Registration = () => {
                     lineHeight: 1.6,
                   }}
                 >
-                  Before registering users, ensure the following tables are
+                  Before registering users, ensure following tables are
                   properly configured:
                 </Typography>
 
@@ -1098,7 +1102,7 @@ const Registration = () => {
                               setFocusedField('employmentCategory')
                             }
                             onBlur={() => setFocusedField(null)}
-                            displayEmpty // This is the key prop!
+                            displayEmpty // This is key prop!
                             startAdornment={
                               <InputAdornment position="start">
                                 <WorkOutline
@@ -1116,8 +1120,40 @@ const Registration = () => {
                             <MenuItem value="" disabled>
                               <em>Select Employment Category</em>
                             </MenuItem>
-                            <MenuItem value={0}>Job Order</MenuItem>
-                            <MenuItem value={1}>Regular</MenuItem>
+                            
+                            <ListSubheader>Job Order (JO)</ListSubheader>
+                            <MenuItem value={0}>
+                              <ListItemIcon sx={{ minWidth: 30 }}>
+                                <Circle sx={{ fontSize: 12, color: '#F57C00' }} />
+                              </ListItemIcon>
+                              Graduate
+                            </MenuItem>
+                            <MenuItem value={1}>
+                              <ListItemIcon sx={{ minWidth: 30 }}>
+                                <Circle sx={{ fontSize: 12, color: '#E64A19' }} />
+                              </ListItemIcon>
+                              UnderGrad
+                            </MenuItem>
+                            
+                            <ListSubheader>Regular</ListSubheader>
+                            <MenuItem value={2}>
+                              <ListItemIcon sx={{ minWidth: 30 }}>
+                                <Circle sx={{ fontSize: 12, color: '#2E7D32' }} />
+                              </ListItemIcon>
+                              Non-Teaching
+                            </MenuItem>
+                            <MenuItem value={3}>
+                              <ListItemIcon sx={{ minWidth: 30 }}>
+                                <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
+                              </ListItemIcon>
+                              Teaching (Designated)
+                            </MenuItem>
+                            <MenuItem value={4}>
+                              <ListItemIcon sx={{ minWidth: 30 }}>
+                                <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
+                              </ListItemIcon>
+                              30Hrs
+                            </MenuItem>
                           </Select>
                         </FormControl>
                       </Grid>
@@ -1191,7 +1227,7 @@ const Registration = () => {
                           fullWidth
                           value={formData.password}
                           InputProps={{
-                            readOnly: true, // Made the field read-only
+                            readOnly: true, // Made to field read-only
                             startAdornment: (
                               <InputAdornment position="start">
                                 <LockOutlined
@@ -1210,7 +1246,7 @@ const Registration = () => {
                             required: false,
                             sx: { fontWeight: 600 },
                           }}
-                          helperText="Password is automatically set to the last name in all caps with no spaces"
+                          helperText="Password is automatically set to last name in all caps with no spaces"
                           sx={{
                             '& .MuiOutlinedInput-root': {
                               borderRadius: 2,
@@ -1230,14 +1266,10 @@ const Registration = () => {
                                 borderColor: '#6d2323',
                                 borderWidth: 2,
                               },
-                              '& .MuiInputBase-input.Mui-disabled': {
-                                WebkitTextFillColor: '#6d2323',
-                                cursor: 'not-allowed',
-                              },
                             },
-                            '& .MuiInputLabel-root.Mui-focused': {
-                              color: '#6d2323',
-                              fontWeight: 700,
+                            '& .MuiInputBase-input.Mui-disabled': {
+                              WebkitTextFillColor: '#6d2323',
+                              cursor: 'not-allowed',
                             },
                           }}
                         />

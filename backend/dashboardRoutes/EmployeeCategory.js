@@ -57,8 +57,11 @@ router.get('/employment-category', authenticateToken, (req, res) => {
       ec.employmentCategory,
       CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) AS employeeName,
       CASE 
-        WHEN ec.employmentCategory = 0 THEN 'Job Order'
-        WHEN ec.employmentCategory = 1 THEN 'Regular'
+        WHEN ec.employmentCategory = 0 THEN 'Job Order - Graduate'
+        WHEN ec.employmentCategory = 1 THEN 'Job Order - UnderGrad'
+        WHEN ec.employmentCategory = 2 THEN 'Regular - Non-Teaching'
+        WHEN ec.employmentCategory = 3 THEN 'Regular - Teaching (Designated)'
+        WHEN ec.employmentCategory = 4 THEN 'Regular - 30Hrs'
         ELSE 'Unknown'
       END AS categoryLabel
     FROM employment_category ec
@@ -95,8 +98,11 @@ router.get(
       ec.employmentCategory,
       CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) AS employeeName,
       CASE 
-        WHEN ec.employmentCategory = 0 THEN 'Job Order'
-        WHEN ec.employmentCategory = 1 THEN 'Regular'
+        WHEN ec.employmentCategory = 0 THEN 'Job Order - Graduate'
+        WHEN ec.employmentCategory = 1 THEN 'Job Order - UnderGrad'
+        WHEN ec.employmentCategory = 2 THEN 'Regular - Non-Teaching'
+        WHEN ec.employmentCategory = 3 THEN 'Regular - Teaching (Designated)'
+        WHEN ec.employmentCategory = 4 THEN 'Regular - 30Hrs'
         ELSE 'Unknown'
       END AS categoryLabel
     FROM employment_category ec
@@ -130,7 +136,6 @@ router.get(
   }
 );
 
-
 router.get(
   '/employment-category/search/:searchTerm',
   authenticateToken,
@@ -148,8 +153,11 @@ router.get(
         ec.employmentCategory,
         CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) AS employeeName,
         CASE 
-          WHEN ec.employmentCategory = 0 THEN 'Job Order'
-          WHEN ec.employmentCategory = 1 THEN 'Regular'
+          WHEN ec.employmentCategory = 0 THEN 'Job Order - Graduate'
+          WHEN ec.employmentCategory = 1 THEN 'Job Order - UnderGrad'
+          WHEN ec.employmentCategory = 2 THEN 'Regular - Non-Teaching'
+          WHEN ec.employmentCategory = 3 THEN 'Regular - Teaching (Designated)'
+          WHEN ec.employmentCategory = 4 THEN 'Regular - 30Hrs'
           ELSE 'Unknown'
         END AS categoryLabel
       FROM employment_category ec
@@ -193,20 +201,26 @@ router.get(
 );
 
 // ========================================
-// COMPLETE UPDATE ROUTE - Update employment category
+// UPDATE ROUTE - Update employment category
 // ========================================
 router.put('/employment-category/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
   const { employeeNumber, employmentCategory } = req.body;
 
-  // Validation
+  // Validation: Allow integers 0 through 4
   if (!employeeNumber) {
     return res.status(400).json({ error: 'Employee number is required' });
   }
 
-  if (employmentCategory !== 0 && employmentCategory !== 1) {
+  if (
+    employmentCategory === undefined ||
+    employmentCategory === null ||
+    isNaN(employmentCategory) ||
+    employmentCategory < 0 ||
+    employmentCategory > 4
+  ) {
     return res.status(400).json({
-      error: 'Employment category must be 0 (Job Order) or 1 (Regular)',
+      error: 'Invalid employment category. Must be between 0 and 4.',
     });
   }
 
@@ -255,7 +269,6 @@ router.put('/employment-category/:id', authenticateToken, (req, res) => {
       performUpdate();
     }
 
-    // Function to perform the actual update
     function performUpdate() {
       const updateSql = `
         UPDATE employment_category 
@@ -278,7 +291,7 @@ router.put('/employment-category/:id', authenticateToken, (req, res) => {
             return res.status(404).json({ message: 'Employment category not found' });
           }
 
-          // ✅ SYNC: Also update users table
+          // SYNC: Also update users table
           const updateUsersSql = `
             UPDATE users 
             SET employmentCategory = ? 
@@ -318,6 +331,7 @@ router.put('/employment-category/:id', authenticateToken, (req, res) => {
     }
   });
 });
+
 // ========================================
 // CREATE - Add new employment category
 // ========================================
@@ -329,11 +343,17 @@ router.post('/employment-category', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Employee number is required' });
   }
 
-  if (employmentCategory !== 0 && employmentCategory !== 1) {
+  if (
+    employmentCategory === undefined ||
+    employmentCategory === null ||
+    isNaN(employmentCategory) ||
+    employmentCategory < 0 ||
+    employmentCategory > 4
+  ) {
     return res
       .status(400)
       .json({
-        error: 'Employment category must be 0 (Job Order) or 1 (Regular)',
+        error: 'Invalid employment category. Must be between 0 and 4.',
       });
   }
 
@@ -418,144 +438,15 @@ router.post('/employment-category', authenticateToken, (req, res) => {
 });
 
 // ========================================
-// UPDATE - Update employment category
-// ========================================
-router.put('/employment-category/:id', authenticateToken, (req, res) => {
-  const { id } = req.params;
-  const { employeeNumber, employmentCategory } = req.body;
-
-  // Validation
-  if (!employeeNumber) {
-    return res.status(400).json({ error: 'Employee number is required' });
-  }
-
-  if (employmentCategory !== 0 && employmentCategory !== 1) {
-    return res.status(400).json({
-      error: 'Employment category must be 0 (Job Order) or 1 (Regular)',
-    });
-  }
-
-  // Check if record exists
-  const checkSql = `SELECT employeeNumber FROM employment_category WHERE id = ?`;
-
-  db.query(checkSql, [id], (err, results) => {
-    if (err) {
-      console.error('Error checking record:', err);
-      return res.status(500).json({ message: 'Error checking record' });
-    }
-
-    if (results.length === 0) {
-      return res.status(404).json({ message: 'Employment category not found' });
-    }
-
-    const oldEmployeeNumber = results[0].employeeNumber;
-
-    // Check for duplicate if changing employee number
-    if (oldEmployeeNumber !== employeeNumber) {
-      const duplicateCheckSql = `SELECT id FROM employment_category WHERE employeeNumber = ? AND id != ?`;
-
-      db.query(
-        duplicateCheckSql,
-        [employeeNumber, id],
-        (err, duplicateResults) => {
-          if (err) {
-            console.error('Error checking duplicate:', err);
-            return res
-              .status(500)
-              .json({ message: 'Error checking duplicate' });
-          }
-
-          if (duplicateResults.length > 0) {
-            return res.status(409).json({
-              error: 'Employment category already exists for this employee',
-            });
-          }
-
-          // No duplicate found, proceed with update
-          performUpdate();
-        }
-      );
-    } else {
-      // Employee number not changed, proceed with update
-      performUpdate();
-    }
-
-    // Function to perform the actual update
-    function performUpdate() {
-      const updateSql = `
-        UPDATE employment_category 
-        SET employeeNumber = ?, employmentCategory = ?
-        WHERE id = ?
-      `;
-
-      db.query(
-        updateSql,
-        [employeeNumber, employmentCategory, id],
-        (err, result) => {
-          if (err) {
-            console.error('Error updating employment category:', err);
-            return res
-              .status(500)
-              .json({ message: 'Error updating employment category' });
-          }
-
-          if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'Employment category not found' });
-          }
-
-          // ✅ SYNC: Also update users table
-          const updateUsersSql = `
-            UPDATE users 
-            SET employmentCategory = ? 
-            WHERE employeeNumber = ?
-          `;
-          
-          db.query(
-            updateUsersSql,
-            [employmentCategory, employeeNumber],
-            (updateErr, updateResult) => {
-              if (updateErr) {
-                console.error('Error updating users table:', updateErr);
-                // Don't fail the whole operation, just log the error
-                // You might want to handle this differently based on your requirements
-              }
-
-              // Log audit trail
-              logAudit(
-                req.user,
-                'update',
-                'employment_category',
-                id,
-                employeeNumber
-              );
-              
-              // Send success response
-              res.json({
-                message: 'Employment category updated successfully',
-                id,
-                employeeNumber,
-                employmentCategory,
-              });
-            }
-          );
-        }
-      );
-    }
-  });
-});
-
-// ========================================
-// COMPLETE DELETE ROUTE - Delete employment category
+// DELETE - Delete employment category
 // ========================================
 router.delete('/employment-category/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
 
-  // Validate ID
   if (!id || isNaN(id)) {
     return res.status(400).json({ error: 'Invalid ID provided' });
   }
 
-  // Get employee number before deleting (needed for audit log)
   const getEmployeeNumberSql = `SELECT employeeNumber FROM employment_category WHERE id = ?`;
 
   db.query(getEmployeeNumberSql, [id], (err, results) => {
@@ -570,7 +461,6 @@ router.delete('/employment-category/:id', authenticateToken, (req, res) => {
 
     const employeeNumber = results[0].employeeNumber;
 
-    // Delete the record from employment_category table
     const deleteSql = `DELETE FROM employment_category WHERE id = ?`;
 
     db.query(deleteSql, [id], (err, result) => {
@@ -585,7 +475,7 @@ router.delete('/employment-category/:id', authenticateToken, (req, res) => {
         return res.status(404).json({ message: 'Employment category not found' });
       }
 
-      // ✅ SYNC: Set employmentCategory to NULL (or 0) in users table
+      // SYNC: Set employmentCategory to NULL (or 0) in users table
       // You can choose NULL or a default value like 0
       const updateUsersSql = `
         UPDATE users 
