@@ -62,7 +62,7 @@ const app = express();
 // Allow localhost, any 192.168.* (LAN), and specific public origins so other devices can load data
 const allowedOrigins = [
   'http://localhost:5137',
-  'http://192.168.50.42:5137',
+  'http://192.168.50.52:5137',
   'http://192.168.50.45:5137',
   'http://136.239.248.42:5137',
   'http://192.168.50.97:5137',
@@ -152,6 +152,15 @@ db.query(ensureAuthSessionsTableSQL, (err) => {
   } else {
     console.log('Auth sessions table ready');
   }
+});
+
+// Holiday: Title, About, Date Range (same as announcement)
+['ALTER TABLE holiday ADD COLUMN title VARCHAR(255) NULL', 'ALTER TABLE holiday ADD COLUMN about TEXT NULL', 'ALTER TABLE holiday ADD COLUMN date_start DATE NULL', 'ALTER TABLE holiday ADD COLUMN date_end DATE NULL'].forEach((sql) => {
+  db.query(sql, (err) => { if (err && err.code !== 'ER_DUP_FIELDNAME') console.error('Holiday migration:', err.message); });
+});
+// Announcements: Date Range for carousel visibility
+['ALTER TABLE announcements ADD COLUMN date_start DATE NULL', 'ALTER TABLE announcements ADD COLUMN date_end DATE NULL'].forEach((sql) => {
+  db.query(sql, (err) => { if (err && err.code !== 'ER_DUP_FIELDNAME') console.error('Announcements migration:', err.message); });
 });
 
 // Mount existing dashboard and payroll routes

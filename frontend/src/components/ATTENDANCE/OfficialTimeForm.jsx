@@ -210,6 +210,9 @@ const OfficialTimeForm = () => {
   const [selectedUsers, setSelectedUsers] = useState(new Set());
   const [settingDefault, setSettingDefault] = useState(false);
 
+  // Schedule table view: 'workDays' | 'honorarium' | 'serviceCredits' | 'overtime'
+  const [scheduleView, setScheduleView] = useState('workDays');
+
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
     return {
@@ -732,18 +735,24 @@ const OfficialTimeForm = () => {
           <Fade in timeout={500}>
             <Box sx={{ mb: 4 }}>
               <GlassCard
-                sx={{ border: `1px solid ${alpha(accentColor, 0.1)}` }}
+                sx={{
+                  background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
+                  boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
+                  border: `1px solid ${alpha(accentColor, 0.1)}`,
+                  '&:hover': {
+                    boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
+                  },
+                }}
               >
                 <Box
                   sx={{
                     p: 5,
                     background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: accentColor,
+                    color: textPrimaryColor,
                     position: 'relative',
                     overflow: 'hidden',
                   }}
                 >
-                  {/* Decorative elements */}
                   <Box
                     sx={{
                       position: 'absolute',
@@ -751,8 +760,7 @@ const OfficialTimeForm = () => {
                       right: -50,
                       width: 200,
                       height: 200,
-                      background:
-                        'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)',
+                      background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, ${alpha(accentColor, 0)} 70%)`,
                     }}
                   />
                   <Box
@@ -762,8 +770,7 @@ const OfficialTimeForm = () => {
                       left: '30%',
                       width: 150,
                       height: 150,
-                      background:
-                        'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
+                      background: `radial-gradient(circle, ${alpha(accentColor, 0.08)} 0%, ${alpha(accentColor, 0)} 70%)`,
                     }}
                   />
 
@@ -777,14 +784,14 @@ const OfficialTimeForm = () => {
                     <Box display="flex" alignItems="center">
                       <Avatar
                         sx={{
-                          bgcolor: 'rgba(109,35,35,0.15)',
+                          bgcolor: alpha(accentColor, 0.15),
                           mr: 4,
                           width: 64,
                           height: 64,
-                          boxShadow: '0 8px 24px rgba(109,35,35,0.15)',
+                          boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`,
                         }}
                       >
-                        <Schedule sx={{ color: accentColor, fontSize: 32 }} />
+                        <Schedule sx={{ color: textPrimaryColor, fontSize: 32 }} />
                       </Avatar>
                       <Box>
                         <Typography
@@ -794,7 +801,7 @@ const OfficialTimeForm = () => {
                             fontWeight: 700,
                             mb: 1,
                             lineHeight: 1.2,
-                            color: accentColor,
+                            color: textPrimaryColor,
                           }}
                         >
                           Official Time Schedule
@@ -804,7 +811,7 @@ const OfficialTimeForm = () => {
                           sx={{
                             opacity: 0.8,
                             fontWeight: 400,
-                            color: accentDark,
+                            color: textPrimaryColor,
                           }}
                         >
                           Manage and update official time schedules for
@@ -817,8 +824,8 @@ const OfficialTimeForm = () => {
                         label="System Generated"
                         size="small"
                         sx={{
-                          bgcolor: 'rgba(109,35,35,0.15)',
-                          color: accentColor,
+                          bgcolor: alpha(accentColor, 0.15),
+                          color: textPrimaryColor,
                           fontWeight: 500,
                           '& .MuiChip-label': { px: 1 },
                         }}
@@ -834,7 +841,7 @@ const OfficialTimeForm = () => {
                         startIcon={<PeopleIcon />}
                         sx={{
                           bgcolor: showAllUsers ? accentColor : 'transparent',
-                          color: showAllUsers ? primaryColor : accentColor,
+                          color: showAllUsers ? primaryColor : textPrimaryColor,
                           borderColor: accentColor,
                           '&:hover': {
                             bgcolor: showAllUsers ? accentDark : alpha(accentColor, 0.1),
@@ -848,14 +855,14 @@ const OfficialTimeForm = () => {
                           onClick={handleSearch}
                           disabled={!employeeID}
                           sx={{
-                            bgcolor: 'rgba(109,35,35,0.1)',
-                            '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
-                            color: accentColor,
+                            bgcolor: alpha(accentColor, 0.1),
+                            '&:hover': { bgcolor: alpha(accentColor, 0.2) },
+                            color: textPrimaryColor,
                             width: 48,
                             height: 48,
                             '&:disabled': {
-                              bgcolor: 'rgba(109,35,35,0.05)',
-                              color: 'rgba(109,35,35,0.3)',
+                              bgcolor: alpha(accentColor, 0.05),
+                              color: alpha(accentColor, 0.3),
                             },
                           }}
                         >
@@ -872,111 +879,62 @@ const OfficialTimeForm = () => {
           {/* Controls */}
           <Fade in timeout={700}>
             <GlassCard
-              sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}
+              sx={{
+                mb: 4,
+                background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
+                boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
+                border: `1px solid ${alpha(accentColor, 0.1)}`,
+                '&:hover': {
+                  boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
+                },
+              }}
             >
-              <CardHeader
-                title={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar
-                      sx={{
-                        bgcolor: alpha(primaryColor, 0.8),
-                        color: accentColor,
-                      }}
-                    >
-                      <FilterList />
-                    </Avatar>
-                    <Box>
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{ color: accentDark }}
-                      >
-                        Search for employee or upload Excel file with time
-                        schedules
-                      </Typography>
-                    </Box>
-                  </Box>
-                }
-                sx={{
-                  bgcolor: alpha(primaryColor, 0.5),
-                  pb: 2,
-                  borderBottom: '1px solid rgba(109,35,35,0.1)',
-                }}
-              />
               <CardContent sx={{ p: 4 }}>
-                <Grid container spacing={4}>
-                  <Grid item xs={12} md={6}>
-                    <Typography
-                      variant="h6"
-                      gutterBottom
-                      sx={{
-                        fontWeight: 600,
-                        color: accentColor,
-                        display: 'flex',
-                        alignItems: 'center',
-                        mb: 3,
-                      }}
-                    >
-                      <Person sx={{ mr: 2, fontSize: 24 }} />
-                      Employee Search
-                    </Typography>
-                    <Box display="flex" gap={2} alignItems="flex-end">
-                      <Box sx={{ flexGrow: 1 }}>
-                        <ModernTextField
-                          fullWidth
-                          label="Employee Number"
-                          value={employeeID}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            if (value === '' || /^\d+$/.test(value)) {
-                              setemployeeID(value);
-                            }
-                          }}
-                          onKeyPress={(e) => {
-                            if (!/[0-9]/.test(e.key)) {
-                              e.preventDefault();
-                            }
-                          }}
-                          InputProps={{
-                            startAdornment: (
-                              <InputAdornment position="start">
-                                <Person sx={{ color: accentColor }} />
-                              </InputAdornment>
-                            ),
-                          }}
-                        />
-                      </Box>
-                      <ProfessionalButton
-                        variant="contained"
-                        onClick={handleSearch}
-                        startIcon={<SearchIcon />}
-                        disabled={!employeeID}
-                        sx={{
-                          bgcolor: accentColor,
-                          color: primaryColor,
+                <Box component="form">
+                  <Grid container spacing={4} sx={{ mb: 3 }}>
+                    <Grid item xs={12} md={4}>
+                      <ModernTextField
+                        fullWidth
+                        label="Employee Number"
+                        value={employeeID}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value === '' || /^\d+$/.test(value)) {
+                            setemployeeID(value);
+                          }
                         }}
-                      >
-                        Search
-                      </ProfessionalButton>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <Typography
-                      variant="h6"
-                      gutterBottom
-                      sx={{
-                        fontWeight: 600,
-                        color: accentColor,
-                        display: 'flex',
-                        alignItems: 'center',
-                        mb: 3,
-                      }}
-                    >
-                      <UploadFile sx={{ mr: 2, fontSize: 24 }} />
-                      File Upload
-                    </Typography>
-                    <Box display="flex" gap={2} alignItems="flex-end">
-                      <Box sx={{ flexGrow: 1 }}>
+                        onKeyPress={(e) => {
+                          if (!/[0-9]/.test(e.key)) {
+                            e.preventDefault();
+                          }
+                        }}
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <Person sx={{ color: textPrimaryColor }} />
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <Box display="flex" gap={2} alignItems="flex-end">
+                        <ProfessionalButton
+                          variant="contained"
+                          onClick={handleSearch}
+                          startIcon={<SearchIcon />}
+                          disabled={!employeeID}
+                          sx={{
+                            bgcolor: accentColor,
+                            color: primaryColor,
+                          }}
+                        >
+                          Search
+                        </ProfessionalButton>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <Box display="flex" gap={2} alignItems="center" flexWrap="wrap">
                         <input
                           type="file"
                           accept=".xlsx,.xls"
@@ -988,11 +946,10 @@ const OfficialTimeForm = () => {
                           <ProfessionalButton
                             variant="outlined"
                             component="span"
-                            fullWidth
                             startIcon={<CloudUploadIcon />}
                             sx={{
                               borderColor: accentColor,
-                              color: accentColor,
+                              color: textPrimaryColor,
                               '&:hover': {
                                 backgroundColor: alpha(accentColor, 0.1),
                               },
@@ -1001,36 +958,34 @@ const OfficialTimeForm = () => {
                             Choose File
                           </ProfessionalButton>
                         </label>
+                        <ProfessionalButton
+                          variant="contained"
+                          onClick={handleUpload}
+                          disabled={!file}
+                          startIcon={<CloudUploadIcon />}
+                          sx={{
+                            bgcolor: accentColor,
+                            color: primaryColor,
+                          }}
+                        >
+                          Upload
+                        </ProfessionalButton>
                         {file && (
-                          <Box
-                            sx={{
-                              mt: 2,
-                              p: 2,
-                              bgcolor: alpha(accentColor, 0.1),
-                              borderRadius: 2,
-                            }}
-                          >
-                            <Typography variant="body2" color={accentColor}>
-                              Selected: {file.name}
-                            </Typography>
-                          </Box>
+                          <Typography variant="body2" sx={{ color: alpha(textPrimaryColor, 0.8) }}>
+                            {file.name}
+                          </Typography>
                         )}
                       </Box>
-                      <ProfessionalButton
-                        variant="contained"
-                        onClick={handleUpload}
-                        disabled={!file}
-                        startIcon={<CloudUploadIcon />}
-                        sx={{
-                          bgcolor: accentColor,
-                          color: primaryColor,
-                        }}
-                      >
-                        Upload
-                      </ProfessionalButton>
-                    </Box>
+                    </Grid>
                   </Grid>
-                </Grid>
+                  <Divider sx={{ my: 2, borderColor: alpha(accentColor, 0.1) }} />
+                  <Typography
+                    variant="body2"
+                    sx={{ color: alpha(textPrimaryColor, 0.7) }}
+                  >
+                    Search for employee by number or upload Excel file with time schedules
+                  </Typography>
+                </Box>
               </CardContent>
             </GlassCard>
           </Fade>
@@ -1039,13 +994,21 @@ const OfficialTimeForm = () => {
           {records.length > 0 && (
             <Fade in={!loading} timeout={500}>
               <GlassCard
-                sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}
+                sx={{
+                  mb: 4,
+                  background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
+                  boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
+                  border: `1px solid ${alpha(accentColor, 0.1)}`,
+                  '&:hover': {
+                    boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
+                  },
+                }}
               >
                 <Box
                   sx={{
                     p: 4,
                     background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: accentColor,
+                    color: textPrimaryColor,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
@@ -1056,7 +1019,7 @@ const OfficialTimeForm = () => {
                       variant="body2"
                       sx={{
                         opacity: 0.8,
-                        mb: 1,
+                        mb: 0.5,
                         textTransform: 'uppercase',
                         letterSpacing: '0.1em',
                         color: accentDark,
@@ -1076,6 +1039,7 @@ const OfficialTimeForm = () => {
                         alignItems: 'center',
                         gap: 2,
                         mt: 2,
+                        flexWrap: 'wrap',
                       }}
                     >
                       <Chip
@@ -1083,21 +1047,90 @@ const OfficialTimeForm = () => {
                         label={found ? 'Existing Schedule' : 'New Schedule'}
                         size="small"
                         sx={{
-                          bgcolor: 'rgba(109,35,35,0.15)',
-                          color: accentColor,
+                          bgcolor: alpha(accentColor, 0.15),
+                          color: textPrimaryColor,
                           fontWeight: 500,
                         }}
                       />
+                      <Divider orientation="vertical" flexItem sx={{ borderColor: alpha(accentColor, 0.3) }} />
+                      <Button
+                        variant={scheduleView === 'workDays' ? 'contained' : 'outlined'}
+                        size="small"
+                        onClick={() => setScheduleView('workDays')}
+                        sx={{
+                          textTransform: 'none',
+                          fontWeight: 600,
+                          bgcolor: scheduleView === 'workDays' ? accentColor : 'transparent',
+                          color: scheduleView === 'workDays' ? primaryColor : accentColor,
+                          borderColor: accentColor,
+                          '&:hover': {
+                            bgcolor: scheduleView === 'workDays' ? accentDark : alpha(accentColor, 0.1),
+                          },
+                        }}
+                      >
+                        Work Days
+                      </Button>
+                      <Button
+                        variant={scheduleView === 'honorarium' ? 'contained' : 'outlined'}
+                        size="small"
+                        onClick={() => setScheduleView('honorarium')}
+                        sx={{
+                          textTransform: 'none',
+                          fontWeight: 600,
+                          bgcolor: scheduleView === 'honorarium' ? accentColor : 'transparent',
+                          color: scheduleView === 'honorarium' ? primaryColor : accentColor,
+                          borderColor: accentColor,
+                          '&:hover': {
+                            bgcolor: scheduleView === 'honorarium' ? accentDark : alpha(accentColor, 0.1),
+                          },
+                        }}
+                      >
+                        Honorarium
+                      </Button>
+                      <Button
+                        variant={scheduleView === 'serviceCredits' ? 'contained' : 'outlined'}
+                        size="small"
+                        onClick={() => setScheduleView('serviceCredits')}
+                        sx={{
+                          textTransform: 'none',
+                          fontWeight: 600,
+                          bgcolor: scheduleView === 'serviceCredits' ? accentColor : 'transparent',
+                          color: scheduleView === 'serviceCredits' ? primaryColor : accentColor,
+                          borderColor: accentColor,
+                          '&:hover': {
+                            bgcolor: scheduleView === 'serviceCredits' ? accentDark : alpha(accentColor, 0.1),
+                          },
+                        }}
+                      >
+                        Service Credits
+                      </Button>
+                      <Button
+                        variant={scheduleView === 'overtime' ? 'contained' : 'outlined'}
+                        size="small"
+                        onClick={() => setScheduleView('overtime')}
+                        sx={{
+                          textTransform: 'none',
+                          fontWeight: 600,
+                          bgcolor: scheduleView === 'overtime' ? accentColor : 'transparent',
+                          color: scheduleView === 'overtime' ? primaryColor : accentColor,
+                          borderColor: accentColor,
+                          '&:hover': {
+                            bgcolor: scheduleView === 'overtime' ? accentDark : alpha(accentColor, 0.1),
+                          },
+                        }}
+                      >
+                        OverTime
+                      </Button>
                     </Box>
                   </Box>
                   <Avatar
                     sx={{
-                      bgcolor: 'rgba(109,35,35,0.15)',
+                      bgcolor: alpha(accentColor, 0.15),
                       width: 80,
                       height: 80,
                       fontSize: '2rem',
                       fontWeight: 600,
-                      color: accentColor,
+                      color: textPrimaryColor,
                     }}
                   >
                     <Schedule />
@@ -1109,33 +1142,35 @@ const OfficialTimeForm = () => {
                     <Table
                       stickyHeader
                       sx={{
-                        minWidth: '1400px', // Set minimum width to ensure horizontal scrolling
+                        minWidth: scheduleView === 'workDays' ? '900px' : '700px',
                       }}
                     >
-                      <TableHead>
-                        <TableRow sx={{ bgcolor: 'rgba(254, 249, 225, 0.7)' }}>
-                          {[
-                            'Employee Number',
-                            'Day',
-                            'Time In',
-                            'Break In',
-                            'Break Out',
-                            'Time Out',
-                            'Honorarium Time In',
-                            'Honorarium Time Out',
-                            'Service Credit Time In',
-                            'Service Credit Time Out',
-                            'Over-Time In',
-                            'Over-Time Out',
-                          ].map((header, i) => (
-                            <PremiumTableCell
-                              key={i}
-                              isHeader
-                              sx={{ color: accentColor }}
-                            >
-                              {header}
-                            </PremiumTableCell>
-                          ))}
+                      <TableHead sx={{ bgcolor: alpha(primaryColor, 0.7) }}>
+                        <TableRow>
+                          {scheduleView === 'workDays' &&
+                            ['Employee Number', 'Day', 'Time In', 'Break In', 'Break Out', 'Time Out'].map((header, i) => (
+                              <PremiumTableCell key={i} isHeader sx={{ color: accentColor }}>
+                                {header}
+                              </PremiumTableCell>
+                            ))}
+                          {scheduleView === 'honorarium' &&
+                            ['Employee Number', 'Day', 'Honorarium Time In', 'Honorarium Time Out'].map((header, i) => (
+                              <PremiumTableCell key={i} isHeader sx={{ color: accentColor }}>
+                                {header}
+                              </PremiumTableCell>
+                            ))}
+                          {scheduleView === 'serviceCredits' &&
+                            ['Employee Number', 'Day', 'Service Credit Time In', 'Service Credit Time Out'].map((header, i) => (
+                              <PremiumTableCell key={i} isHeader sx={{ color: accentColor }}>
+                                {header}
+                              </PremiumTableCell>
+                            ))}
+                          {scheduleView === 'overtime' &&
+                            ['Employee Number', 'Day', 'Over-Time In', 'Over-Time Out'].map((header, i) => (
+                              <PremiumTableCell key={i} isHeader sx={{ color: accentColor }}>
+                                {header}
+                              </PremiumTableCell>
+                            ))}
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -1144,168 +1179,172 @@ const OfficialTimeForm = () => {
                             key={index}
                             sx={{
                               '&:nth-of-type(even)': {
-                                bgcolor: 'rgba(254, 249, 225, 0.3)',
+                                bgcolor: alpha(primaryColor, 0.3),
                               },
-                              '&:hover': { bgcolor: 'rgba(109, 35, 35, 0.05)' },
+                              '&:hover': { bgcolor: alpha(accentColor, 0.05) },
                               transition: 'all 0.2s ease',
                             }}
                           >
-                            <PremiumTableCell>
-                              <ModernTextField
-                                variant="outlined"
-                                size="small"
-                                value={record.employeeID}
-                                InputProps={{ readOnly: true }}
-                              />
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <ModernTextField
-                                variant="outlined"
-                                size="small"
-                                value={record.day}
-                                InputProps={{ readOnly: true }}
-                              />
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <ModernTextField
-                                variant="outlined"
-                                size="small"
-                                value={record.officialTimeIN}
-                                onChange={(e) =>
-                                  handleChange(
-                                    index,
-                                    'officialTimeIN',
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <ModernTextField
-                                variant="outlined"
-                                size="small"
-                                value={record.officialBreaktimeIN}
-                                onChange={(e) =>
-                                  handleChange(
-                                    index,
-                                    'officialBreaktimeIN',
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <ModernTextField
-                                variant="outlined"
-                                size="small"
-                                value={record.officialBreaktimeOUT}
-                                onChange={(e) =>
-                                  handleChange(
-                                    index,
-                                    'officialBreaktimeOUT',
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <ModernTextField
-                                variant="outlined"
-                                size="small"
-                                value={record.officialTimeOUT}
-                                onChange={(e) =>
-                                  handleChange(
-                                    index,
-                                    'officialTimeOUT',
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <ModernTextField
-                                variant="outlined"
-                                size="small"
-                                value={record.officialHonorariumTimeIN}
-                                onChange={(e) =>
-                                  handleChange(
-                                    index,
-                                    'officialHonorariumTimeIN',
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <ModernTextField
-                                variant="outlined"
-                                size="small"
-                                value={record.officialHonorariumTimeOUT}
-                                onChange={(e) =>
-                                  handleChange(
-                                    index,
-                                    'officialHonorariumTimeOUT',
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <ModernTextField
-                                variant="outlined"
-                                size="small"
-                                value={record.officialServiceCreditTimeIN}
-                                onChange={(e) =>
-                                  handleChange(
-                                    index,
-                                    'officialServiceCreditTimeIN',
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <ModernTextField
-                                variant="outlined"
-                                size="small"
-                                value={record.officialServiceCreditTimeOUT}
-                                onChange={(e) =>
-                                  handleChange(
-                                    index,
-                                    'officialServiceCreditTimeOUT',
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <ModernTextField
-                                variant="outlined"
-                                size="small"
-                                value={record.officialOverTimeIN}
-                                onChange={(e) =>
-                                  handleChange(
-                                    index,
-                                    'officialOverTimeIN',
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <ModernTextField
-                                variant="outlined"
-                                size="small"
-                                value={record.officialOverTimeOUT}
-                                onChange={(e) =>
-                                  handleChange(
-                                    index,
-                                    'officialOverTimeOUT',
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </PremiumTableCell>
+                            {scheduleView === 'workDays' && (
+                              <>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.employeeID}
+                                    InputProps={{ readOnly: true }}
+                                  />
+                                </PremiumTableCell>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.day}
+                                    InputProps={{ readOnly: true }}
+                                  />
+                                </PremiumTableCell>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.officialTimeIN}
+                                    onChange={(e) => handleChange(index, 'officialTimeIN', e.target.value)}
+                                  />
+                                </PremiumTableCell>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.officialBreaktimeIN}
+                                    onChange={(e) => handleChange(index, 'officialBreaktimeIN', e.target.value)}
+                                  />
+                                </PremiumTableCell>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.officialBreaktimeOUT}
+                                    onChange={(e) => handleChange(index, 'officialBreaktimeOUT', e.target.value)}
+                                  />
+                                </PremiumTableCell>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.officialTimeOUT}
+                                    onChange={(e) => handleChange(index, 'officialTimeOUT', e.target.value)}
+                                  />
+                                </PremiumTableCell>
+                              </>
+                            )}
+                            {scheduleView === 'honorarium' && (
+                              <>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.employeeID}
+                                    InputProps={{ readOnly: true }}
+                                  />
+                                </PremiumTableCell>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.day}
+                                    InputProps={{ readOnly: true }}
+                                  />
+                                </PremiumTableCell>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.officialHonorariumTimeIN}
+                                    onChange={(e) => handleChange(index, 'officialHonorariumTimeIN', e.target.value)}
+                                  />
+                                </PremiumTableCell>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.officialHonorariumTimeOUT}
+                                    onChange={(e) => handleChange(index, 'officialHonorariumTimeOUT', e.target.value)}
+                                  />
+                                </PremiumTableCell>
+                              </>
+                            )}
+                            {scheduleView === 'serviceCredits' && (
+                              <>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.employeeID}
+                                    InputProps={{ readOnly: true }}
+                                  />
+                                </PremiumTableCell>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.day}
+                                    InputProps={{ readOnly: true }}
+                                  />
+                                </PremiumTableCell>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.officialServiceCreditTimeIN}
+                                    onChange={(e) => handleChange(index, 'officialServiceCreditTimeIN', e.target.value)}
+                                  />
+                                </PremiumTableCell>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.officialServiceCreditTimeOUT}
+                                    onChange={(e) => handleChange(index, 'officialServiceCreditTimeOUT', e.target.value)}
+                                  />
+                                </PremiumTableCell>
+                              </>
+                            )}
+                            {scheduleView === 'overtime' && (
+                              <>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.employeeID}
+                                    InputProps={{ readOnly: true }}
+                                  />
+                                </PremiumTableCell>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.day}
+                                    InputProps={{ readOnly: true }}
+                                  />
+                                </PremiumTableCell>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.officialOverTimeIN}
+                                    onChange={(e) => handleChange(index, 'officialOverTimeIN', e.target.value)}
+                                  />
+                                </PremiumTableCell>
+                                <PremiumTableCell>
+                                  <ModernTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={record.officialOverTimeOUT}
+                                    onChange={(e) => handleChange(index, 'officialOverTimeOUT', e.target.value)}
+                                  />
+                                </PremiumTableCell>
+                              </>
+                            )}
                           </TableRow>
                         ))}
                       </TableBody>
@@ -1347,6 +1386,9 @@ const OfficialTimeForm = () => {
                         py: 2,
                         px: 6,
                         fontSize: '1rem',
+                        bgcolor: accentColor,
+                        color: primaryColor,
+                        '&:hover': { bgcolor: accentDark },
                       }}
                     >
                       {found ? 'Update' : 'Save'}
@@ -1361,13 +1403,21 @@ const OfficialTimeForm = () => {
           {showAllUsers && (
             <Fade in timeout={500}>
               <GlassCard
-                sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}
+                sx={{
+                  mb: 4,
+                  background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
+                  boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
+                  border: `1px solid ${alpha(accentColor, 0.1)}`,
+                  '&:hover': {
+                    boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
+                  },
+                }}
               >
                 <Box
                   sx={{
                     p: 4,
                     background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: accentColor,
+                    color: textPrimaryColor,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
@@ -1376,25 +1426,25 @@ const OfficialTimeForm = () => {
                   <Box>
                     <Typography
                       variant="h5"
-                      sx={{ fontWeight: 600, mb: 1, color: accentColor }}
+                      sx={{ fontWeight: 600, mb: 0.5, color: textPrimaryColor }}
                     >
                       All Users - Official Time Status
                     </Typography>
                     <Typography
                       variant="body2"
-                      sx={{ opacity: 0.8, color: accentDark }}
+                      sx={{ opacity: 0.8, color: textPrimaryColor }}
                     >
                       View and manage default official time for all users
                     </Typography>
                   </Box>
                   <Avatar
                     sx={{
-                      bgcolor: 'rgba(109,35,35,0.15)',
+                      bgcolor: alpha(accentColor, 0.15),
                       width: 64,
                       height: 64,
                     }}
                   >
-                    <PeopleIcon sx={{ fontSize: 32, color: accentColor }} />
+                    <PeopleIcon sx={{ fontSize: 32, color: textPrimaryColor }} />
                   </Avatar>
                 </Box>
 
@@ -1409,7 +1459,7 @@ const OfficialTimeForm = () => {
                       InputProps={{
                         startAdornment: (
                           <InputAdornment position="start">
-                            <SearchIcon sx={{ color: accentColor }} />
+                            <SearchIcon sx={{ color: textPrimaryColor }} />
                           </InputAdornment>
                         ),
                       }}
@@ -1436,8 +1486,11 @@ const OfficialTimeForm = () => {
                       }
                       sx={{
                         borderColor: accentColor,
-                        color: accentColor,
+                        color: textPrimaryColor,
                         minWidth: 200,
+                        '&:hover': {
+                          backgroundColor: alpha(accentColor, 0.1),
+                        },
                       }}
                     >
                       Set Default for All Missing
@@ -1452,8 +1505,8 @@ const OfficialTimeForm = () => {
                   ) : (
                     <PremiumTableContainer>
                       <Table stickyHeader>
-                        <TableHead>
-                          <TableRow sx={{ bgcolor: 'rgba(254, 249, 225, 0.7)' }}>
+                        <TableHead sx={{ bgcolor: alpha(primaryColor, 0.7) }}>
+                          <TableRow>
                             <PremiumTableCell>
                               <Checkbox
                                 checked={
@@ -1494,9 +1547,9 @@ const OfficialTimeForm = () => {
                               key={user.employeeNumber}
                               sx={{
                                 '&:nth-of-type(even)': {
-                                  bgcolor: 'rgba(254, 249, 225, 0.3)',
+                                  bgcolor: alpha(primaryColor, 0.3),
                                 },
-                                '&:hover': { bgcolor: 'rgba(109, 35, 35, 0.05)' },
+                                '&:hover': { bgcolor: alpha(accentColor, 0.05) },
                                 transition: 'all 0.2s ease',
                               }}
                             >

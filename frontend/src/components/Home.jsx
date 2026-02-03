@@ -893,9 +893,9 @@ const Home = () => {
           <Box>
             <Typography
               variant="h5"
-              sx={{ color: settings.textPrimaryColor, fontWeight: 700 }}
+              sx={{ color: settings.textPrimaryColor }}
             >
-              Hello, {fullName || username}!
+              Hello, <b>{fullName || username}!</b>
             </Typography>
             <Typography
               variant="body2"
@@ -914,7 +914,7 @@ const Home = () => {
                 day: "numeric",
                 year: "numeric",
               })}
-              <span style={{ marginLeft: "8px" }}>
+              <span style={{ marginLeft: "8px",}}>
                 {currentDate.toLocaleTimeString("en-US", {
                   hour: "2-digit",
                   minute: "2-digit",
@@ -1583,7 +1583,7 @@ const Home = () => {
                       fontSize: "1rem",
                     }}
                   >
-                    Panel / Quick Actions
+                    Employee Panel
                   </Typography>
                 </Box>
                 <Grid container spacing={1.5}>
@@ -1719,7 +1719,7 @@ const Home = () => {
                     <ArrowForwardIosIcon fontSize="small" />
                   </IconButton>
                 </Box>
-                <Grid container spacing={0.5} sx={{ mb: 0.5 }}>
+                <Grid container spacing={0.5} sx={{ mb: 1, mt: 1 }}>
                   {["M", "T", "W", "T", "F", "S", "S"].map((day, i) => (
                     <Grid item xs={12 / 7} key={i}>
                       <Typography
@@ -1736,7 +1736,7 @@ const Home = () => {
                     </Grid>
                   ))}
                 </Grid>
-                <Grid container spacing={0.5}>
+                <Grid container spacing={1}>
                   {calendarDays.map((day, index) => {
                     const currentDateStr = `${year}-${String(
                       month + 1
@@ -2066,7 +2066,26 @@ const Home = () => {
                     Notes and Events
                   </Typography>
                 </Box>
-                <Box sx={{ maxHeight: 215, overflowY: "auto" }}>
+<Box
+  sx={{
+    maxHeight: 222,
+    overflowY: "auto",
+
+    "&::-webkit-scrollbar": {
+      width: 8,
+    },
+    "&::-webkit-scrollbar-track": {
+      background: "#f1f1f1",
+    },
+    "&::-webkit-scrollbar-thumb": {
+      backgroundColor: "#6d2323",
+      borderRadius: 4,
+    },
+    "&::-webkit-scrollbar-thumb:hover": {
+      backgroundColor: "#5a1c1c",
+    },
+  }}
+>
                   {getRecentActivity().length > 0 ? (
                     getRecentActivity().map((item, idx) => (
                       <Grow in timeout={300 + idx * 50} key={idx}>
@@ -2987,3 +3006,5 @@ const Home = () => {
 };
 
 export default Home;
+
+

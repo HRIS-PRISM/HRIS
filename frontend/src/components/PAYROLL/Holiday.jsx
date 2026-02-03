@@ -16,7 +16,8 @@ import {
   Save as SaveIcon, Cancel as CancelIcon, Cancel,
   Event as EventIcon, Reorder as ReorderIcon,
   Search as SearchIcon, Close as CloseIcon, Home,
-  FilterList, Refresh, CheckCircle, Error, Info, Warning
+  FilterList, Refresh, CheckCircle, Error, Info, Warning,
+  Image as ImageIcon
 } from "@mui/icons-material";
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
@@ -85,9 +86,12 @@ const useSystemSettings = () => {
 const Holiday = () => {
   const [data, setData] = useState([]);
   const [newHoliday, setNewHoliday] = useState({
-    description: "",
-    date: "",
+    title: "",
+    about: "",
+    date_start: "",
+    date_end: "",
     status: "Active",
+    image: null,
   });
 
   const [editingId, setEditingId] = useState(null);
@@ -103,7 +107,7 @@ const Holiday = () => {
   // Delete confirmation dialog states
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteItemId, setDeleteItemId] = useState(null);
-  const [deleteItemDescription, setDeleteItemDescription] = useState("");
+  const [deleteItemTitle, setDeleteItemTitle] = useState("");
 
   const statusOptions = ["Active", "Inactive"];
 
@@ -194,8 +198,9 @@ const Holiday = () => {
 
   const filteredData = data.filter(
     (item) =>
-      item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.status.toLowerCase().includes(searchQuery.toLowerCase())
+      (item.title || item.description || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (item.about || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (item.status || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   useEffect(() => {
@@ -231,7 +236,23 @@ const Holiday = () => {
   });
 
   const handleNewChange = (e) => {
-    setNewHoliday({ ...newHoliday, [e.target.name]: e.target.value });
+    const { name, value, files } = e.target;
+    if (name === "image") {
+      setNewHoliday({ ...newHoliday, image: files ? files[0] : null });
+    } else {
+      setNewHoliday({ ...newHoliday, [name]: value });
+    }
+  };
+
+  const getImageUrl = (image) => {
+    if (!image) return "";
+    if (image instanceof File) return URL.createObjectURL(image);
+    if (typeof image === "string") {
+      if (image.startsWith("http")) return image;
+      if (image.startsWith("/uploads")) return `${API_BASE_URL}${image}`;
+      return `${API_BASE_URL}/${image.replace(/^\//, "")}`;
+    }
+    return "";
   };
 
   const handleAdd = async () => {
@@ -240,15 +261,25 @@ const Holiday = () => {
       setSuccessOpen(false);
       setLoading(true);
       
-      if (!newHoliday.description || !newHoliday.date || !newHoliday.status) {
-        setError("Please fill in all fields");
+      if (!newHoliday.title || !newHoliday.date_start || !newHoliday.date_end || !newHoliday.status) {
+        setError("Please fill in Title, Date Range (Start & End), and Status");
         setLoading(false);
         return;
       }
 
-      await axios.post(`${API_BASE_URL}/holiday`, newHoliday, getAuthHeaders());
+      const formData = new FormData();
+      formData.append("title", newHoliday.title);
+      formData.append("about", newHoliday.about || "");
+      formData.append("date_start", newHoliday.date_start);
+      formData.append("date_end", newHoliday.date_end);
+      formData.append("status", newHoliday.status);
+      if (newHoliday.image) formData.append("image", newHoliday.image);
+
+      await axios.post(`${API_BASE_URL}/holiday`, formData, {
+        headers: { Authorization: getAuthHeaders().headers.Authorization },
+      });
       fetchHoliday();
-      setNewHoliday({ description: "", date: "", status: "Active" });
+      setNewHoliday({ title: "", about: "", date_start: "", date_end: "", status: "Active", image: null });
       setSuccessAction("create");
       setSuccessOpen(true);
       setLoading(false);
@@ -262,9 +293,12 @@ const Holiday = () => {
   const handleEdit = (item) => {
     setEditingId(item.id);
     setEditForm({
-      description: item.description,
-      date: item.date ? new Date(item.date).toISOString().split("T")[0] : "",
-      status: item.status,
+      title: item.title || item.description || "",
+      about: item.about || "",
+      date_start: item.date_start ? new Date(item.date_start).toISOString().split("T")[0] : "",
+      date_end: item.date_end ? new Date(item.date_end).toISOString().split("T")[0] : "",
+      status: item.status || "Active",
+      image: item.image || null,
     });
     setOpenEditModal(true);
     setError("");
@@ -275,8 +309,20 @@ const Holiday = () => {
       setError("");
       setSuccessOpen(false);
       setLoading(true);
-      
-      await axios.put(`${API_BASE_URL}/holiday/${editingId}`, editForm, getAuthHeaders());
+
+      const payload = new FormData();
+      payload.append("title", editForm.title || "");
+      payload.append("about", editForm.about || "");
+      payload.append("date_start", editForm.date_start || "");
+      payload.append("date_end", editForm.date_end || "");
+      payload.append("status", editForm.status || "Active");
+      if (editForm.image && editForm.image instanceof File) {
+        payload.append("image", editForm.image);
+      }
+
+      await axios.put(`${API_BASE_URL}/holiday/${editingId}`, payload, {
+        headers: { Authorization: getAuthHeaders().headers.Authorization },
+      });
       setOpenEditModal(false);
       setEditingId(null);
       fetchHoliday();
@@ -290,9 +336,9 @@ const Holiday = () => {
     }
   };
 
-  const handleDelete = (id, description) => {
+  const handleDelete = (id, titleOrDescription) => {
     setDeleteItemId(id);
-    setDeleteItemDescription(description);
+    setDeleteItemTitle(titleOrDescription);
     setDeleteDialogOpen(true);
   };
 
@@ -306,7 +352,7 @@ const Holiday = () => {
       setLoading(false);
       setDeleteDialogOpen(false);
       setDeleteItemId(null);
-      setDeleteItemDescription("");
+      setDeleteItemTitle("");
     } catch (error) {
       console.error("Error deleting holiday record", error);
       setError("Failed to delete record");
@@ -318,7 +364,7 @@ const Holiday = () => {
   const cancelDelete = () => {
     setDeleteDialogOpen(false);
     setDeleteItemId(null);
-    setDeleteItemDescription("");
+    setDeleteItemTitle("");
   };
 
   const formatDateForDisplay = (dateString) => {
@@ -333,6 +379,14 @@ const Holiday = () => {
     } catch (error) {
       return dateString;
     }
+  };
+
+  const formatDateRange = (start, end) => {
+    if (!start && !end) return "—";
+    const s = formatDateForDisplay(start);
+    const e = formatDateForDisplay(end);
+    if (s === e) return s;
+    return `${s} – ${e}`;
   };
 
   const getStatusColor = (status) => {
@@ -617,20 +671,43 @@ const Holiday = () => {
                 <Grid item xs={12} md={6}>
                   <ModernTextField
                     fullWidth
-                    label="Description"
-                    name="description"
-                    value={newHoliday.description}
+                    label="Title"
+                    name="title"
+                    value={newHoliday.title}
                     onChange={handleNewChange}
+                    required
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <ModernTextField
+                    fullWidth
+                    label="About"
+                    name="about"
+                    value={newHoliday.about}
+                    onChange={handleNewChange}
+                    multiline
+                    rows={2}
+                  />
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <ModernTextField
+                    fullWidth
+                    label="Date Range Start"
+                    name="date_start"
+                    type="date"
+                    value={newHoliday.date_start}
+                    onChange={handleNewChange}
+                    InputLabelProps={{ shrink: true }}
                     required
                   />
                 </Grid>
                 <Grid item xs={12} md={3}>
                   <ModernTextField
                     fullWidth
-                    label="Date"
-                    name="date"
+                    label="Date Range End"
+                    name="date_end"
                     type="date"
-                    value={newHoliday.date}
+                    value={newHoliday.date_end}
                     onChange={handleNewChange}
                     InputLabelProps={{ shrink: true }}
                     required
@@ -680,6 +757,41 @@ const Holiday = () => {
                       ))}
                     </Select>
                   </FormControl>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography variant="subtitle2" sx={{ mb: 1, color: settings?.textPrimaryColor || '#6D2323', fontWeight: 600 }}>
+                    Picture (optional) — shown in announcements & carousel
+                  </Typography>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                    <ProfessionalButton
+                      variant="outlined"
+                      component="label"
+                      startIcon={<ImageIcon />}
+                      sx={{
+                        borderColor: settings?.primaryColor || '#894444',
+                        color: settings?.primaryColor || '#894444',
+                        "&:hover": {
+                          borderColor: settings?.secondaryColor || '#6d2323',
+                          bgcolor: alpha(settings?.primaryColor || '#894444', 0.05),
+                        },
+                      }}
+                    >
+                      Upload Picture
+                      <input type="file" hidden name="image" accept="image/*" onChange={handleNewChange} />
+                    </ProfessionalButton>
+                    {newHoliday.image && (
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                        <Typography variant="body2" sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
+                          {newHoliday.image.name}
+                        </Typography>
+                        <img
+                          src={getImageUrl(newHoliday.image)}
+                          alt="Preview"
+                          style={{ maxWidth: 120, maxHeight: 70, borderRadius: 8 }}
+                        />
+                      </Box>
+                    )}
+                  </Box>
                 </Grid>
                 <Grid item xs={12}>
                   <ProfessionalButton
@@ -776,16 +888,22 @@ const Holiday = () => {
                         <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "10%" }}>
                           No.
                         </PremiumTableCell>
-                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "35%" }}>
-                          Description
-                        </PremiumTableCell>
                         <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "20%" }}>
-                          Date
+                          Title
                         </PremiumTableCell>
-                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "15%" }}>
+                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "18%" }}>
+                          About
+                        </PremiumTableCell>
+                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "10%" }}>
+                          Image
+                        </PremiumTableCell>
+                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "18%" }}>
+                          Date Range
+                        </PremiumTableCell>
+                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "12%" }}>
                           Status
                         </PremiumTableCell>
-                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "20%", textAlign: "center" }}>
+                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "18%", textAlign: "center" }}>
                           Actions
                         </PremiumTableCell>
                       </TableRow>
@@ -794,7 +912,7 @@ const Holiday = () => {
                       {filteredData.length === 0 ? (
                         <TableRow>
                           <TableCell
-                            colSpan={5}
+                            colSpan={6}
                             sx={{ textAlign: "center", py: 8 }}
                           >
                             <Box sx={{ textAlign: "center" }}>
@@ -839,13 +957,27 @@ const Holiday = () => {
                             <PremiumTableCell sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323', width: "10%" }}>
                               {index + 1}
                             </PremiumTableCell>
-                            <PremiumTableCell sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "35%" }}>
-                              {item.description}
-                            </PremiumTableCell>
                             <PremiumTableCell sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "20%" }}>
-                              {formatDateForDisplay(item.date)}
+                              {item.title || item.description}
                             </PremiumTableCell>
-                            <PremiumTableCell sx={{ width: "15%" }}>
+                            <PremiumTableCell sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "18%" }}>
+                              {(item.about || "").slice(0, 50)}{(item.about && item.about.length > 50) ? "…" : ""}
+                            </PremiumTableCell>
+                            <PremiumTableCell sx={{ width: "10%" }}>
+                              {item.image ? (
+                                <img
+                                  src={getImageUrl(item.image)}
+                                  alt={item.title || item.description}
+                                  style={{ width: 56, height: 40, objectFit: "cover", borderRadius: 8 }}
+                                />
+                              ) : (
+                                <Typography variant="body2" sx={{ color: alpha(settings?.textPrimaryColor || '#6D2323', 0.5) }}>—</Typography>
+                              )}
+                            </PremiumTableCell>
+                            <PremiumTableCell sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "18%" }}>
+                              {formatDateRange(item.date_start, item.date_end) || formatDateForDisplay(item.date)}
+                            </PremiumTableCell>
+                            <PremiumTableCell sx={{ width: "12%" }}>
                               <Chip
                                 label={item.status}
                                 size="small"
@@ -857,7 +989,7 @@ const Holiday = () => {
                                 }}
                               />
                             </PremiumTableCell>
-                            <PremiumTableCell sx={{ textAlign: "center", width: "20%" }}>
+                            <PremiumTableCell sx={{ textAlign: "center", width: "18%" }}>
                               <Box sx={{ display: "flex", justifyContent: "center", gap: 1 }}>
                                 <Tooltip title="Edit Holiday">
                                   <ProfessionalButton
@@ -875,7 +1007,7 @@ const Holiday = () => {
                                 </Tooltip>
                                 <Tooltip title="Delete Holiday">
                                   <ProfessionalButton
-                                    onClick={() => handleDelete(item.id, item.description)}
+                                    onClick={() => handleDelete(item.id, item.title || item.description)}
                                     variant="contained"
                                     startIcon={<DeleteIcon />}
                                     sx={{
@@ -942,21 +1074,43 @@ const Holiday = () => {
               <Grid item xs={12}>
                 <ModernTextField
                   fullWidth
-                  label="Description"
-                  name="description"
-                  value={editForm.description || ""}
-                  onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                  label="Title"
+                  name="title"
+                  value={editForm.title || ""}
+                  onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
                   sx={{ marginTop: 5}}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <ModernTextField
+                  fullWidth
+                  label="About"
+                  name="about"
+                  value={editForm.about || ""}
+                  onChange={(e) => setEditForm({ ...editForm, about: e.target.value })}
+                  multiline
+                  rows={2}
                 />
               </Grid>
               <Grid item xs={12} md={6}>
                 <ModernTextField
                   fullWidth
-                  label="Date"
-                  name="date"
+                  label="Date Range Start"
+                  name="date_start"
                   type="date"
-                  value={editForm.date || ""}
-                  onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
+                  value={editForm.date_start || ""}
+                  onChange={(e) => setEditForm({ ...editForm, date_start: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <ModernTextField
+                  fullWidth
+                  label="Date Range End"
+                  name="date_end"
+                  type="date"
+                  value={editForm.date_end || ""}
+                  onChange={(e) => setEditForm({ ...editForm, date_end: e.target.value })}
                   InputLabelProps={{ shrink: true }}
                 />
               </Grid>
@@ -1004,6 +1158,50 @@ const Holiday = () => {
                     ))}
                   </Select>
                 </FormControl>
+              </Grid>
+              <Grid item xs={12}>
+                {editForm.image && (
+                  <Box sx={{ mt: 1, mb: 2 }}>
+                    <Typography variant="body2" sx={{ mb: 1, color: settings?.textPrimaryColor || '#6D2323' }}>
+                      Current picture:
+                    </Typography>
+                    <img
+                      src={getImageUrl(editForm.image)}
+                      alt="Current"
+                      style={{ maxWidth: 160, maxHeight: 90, borderRadius: 8 }}
+                    />
+                  </Box>
+                )}
+                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <ProfessionalButton
+                    variant="outlined"
+                    component="label"
+                    startIcon={<ImageIcon />}
+                    sx={{
+                      borderColor: settings?.primaryColor || '#894444',
+                      color: settings?.primaryColor || '#894444',
+                      "&:hover": {
+                        borderColor: settings?.secondaryColor || '#6d2323',
+                        bgcolor: alpha(settings?.primaryColor || '#894444', 0.05),
+                      },
+                    }}
+                  >
+                    {editForm.image ? "Replace Picture" : "Upload Picture (for announcement/carousel)"}
+                    <input
+                      type="file"
+                      hidden
+                      accept="image/*"
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, image: e.target.files?.[0] ?? editForm.image })
+                      }
+                    />
+                  </ProfessionalButton>
+                  {editForm.image && editForm.image instanceof File && (
+                    <Typography variant="body2" sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
+                      {editForm.image.name}
+                    </Typography>
+                  )}
+                </Box>
               </Grid>
             </Grid>
           </DialogContent>
@@ -1070,7 +1268,7 @@ const Holiday = () => {
             <Typography sx={{ color: settings?.textPrimaryColor || '#6D2323', fontSize: "1.1rem", mt: 3 }}>
               Are you sure you want to delete this holiday?
             </Typography>
-            {deleteItemDescription && (
+            {deleteItemTitle && (
               <Box sx={{ 
                 mt: 2, 
                 p: 2, 
@@ -1079,7 +1277,7 @@ const Holiday = () => {
                 border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.2)}`
               }}>
                 <Typography variant="body2" sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}>
-                  {deleteItemDescription}
+                  {deleteItemTitle}
                 </Typography>
               </Box>
             )}

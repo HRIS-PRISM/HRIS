@@ -1,12 +1,15 @@
 const express = require('express');
 const router = express.Router();
+const path = require('path');
+const fs = require('fs');
 const db = require('../db');
+const { upload } = require('../middleware/upload');
 const { broadcastToRoles } = require('../socket/socketService');
 const { notifyPayrollChanged } = require('../socket/socketService');
 
-// GET all holiday records
+// GET all holiday records (normalize title/about/date_start/date_end for backward compat)
 router.get('/holiday', (req, res) => {
-  const sql = `SELECT * FROM holiday`;
+  const sql = `SELECT id, COALESCE(title, description) AS title, COALESCE(about, '') AS about, COALESCE(date_start, date) AS date_start, COALESCE(date_end, date) AS date_end, status, image, description, date FROM holiday`;
 
   db.query(sql, (err, result) => {
     if (err) {
@@ -17,16 +20,17 @@ router.get('/holiday', (req, res) => {
   });
 });
 
-// POST: Create holiday record
-router.post('/holiday', (req, res) => {
-  const { description, date, status } = req.body;
+// POST: Create holiday record (Title, About, Date Range, same as announcement)
+router.post('/holiday', upload.single('image'), (req, res) => {
+  const { title, about, date_start, date_end, status } = req.body;
+  const image = req.file ? `/uploads/${req.file.filename}` : null;
 
-  if (!description) {
-    return res.status(400).json({ error: 'Description is required' });
+  if (!title) {
+    return res.status(400).json({ error: 'Title is required' });
   }
 
-  const sql = `INSERT INTO holiday (description, date, status) VALUES (?, ?, ?)`;
-  db.query(sql, [description, date, status], (err, result) => {
+  const sql = `INSERT INTO holiday (title, about, date_start, date_end, description, date, status, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+  db.query(sql, [title, about || null, date_start || null, date_end || null, title, date_start || date_end, status || 'Active', image], (err, result) => {
     if (err) {
       console.error('Database Insert Error:', err.message);
       return res.status(500).json({ error: 'Internal Server Error' });
@@ -50,20 +54,30 @@ router.post('/holiday', (req, res) => {
   });
 });
 
-// PUT: Update holiday record
-router.put('/holiday/:id', (req, res) => {
+// PUT: Update holiday record (Title, About, Date Range, optional image)
+router.put('/holiday/:id', upload.single('image'), (req, res) => {
   const { id } = req.params;
   if (isNaN(id)) {
     return res.status(400).json({ error: 'Invalid ID format' });
   }
 
-  const { description, date, status } = req.body;
-  if (!description) {
-    return res.status(400).json({ error: 'Description is required' });
+  const { title, about, date_start, date_end, status } = req.body;
+  if (!title) {
+    return res.status(400).json({ error: 'Title is required' });
   }
 
-  const sql = `UPDATE holiday SET description = ?, date = ?, status = ? WHERE id = ?`;
-  db.query(sql, [description, date, status, id], (err, result) => {
+  const image = req.file ? `/uploads/${req.file.filename}` : null;
+
+  let sql, params;
+  if (image) {
+    sql = `UPDATE holiday SET title = ?, about = ?, date_start = ?, date_end = ?, description = ?, date = ?, status = ?, image = ? WHERE id = ?`;
+    params = [title, about || null, date_start || null, date_end || null, title, date_start || date_end, status || 'Active', image, id];
+  } else {
+    sql = `UPDATE holiday SET title = ?, about = ?, date_start = ?, date_end = ?, description = ?, date = ?, status = ? WHERE id = ?`;
+    params = [title, about || null, date_start || null, date_end || null, title, date_start || date_end, status || 'Active', id];
+  }
+
+  db.query(sql, params, (err, result) => {
     if (err) {
       console.error('Database Update Error:', err.message);
       return res.status(500).json({ error: 'Internal Server Error' });
@@ -85,7 +99,7 @@ router.put('/holiday/:id', (req, res) => {
   });
 });
 
-// DELETE: Delete holiday record
+// DELETE: Delete holiday record (and image file if present)
 router.delete('/holiday/:id', (req, res) => {
   const { id } = req.params;
 
@@ -93,31 +107,46 @@ router.delete('/holiday/:id', (req, res) => {
     return res.status(400).json({ error: 'Invalid ID format' });
   }
 
-  const sql = `DELETE FROM holiday WHERE id = ?`;
-  db.query(sql, [id], (err, result) => {
+  const getQuery = 'SELECT image FROM holiday WHERE id = ?';
+  db.query(getQuery, [id], (err, rows) => {
     if (err) {
-      console.error('Database Delete Error:', err.message);
+      console.error('Database Query Error:', err.message);
       return res.status(500).json({ error: 'Internal Server Error' });
     }
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: 'Hol record not found' });
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Holiday record not found' });
     }
 
-    notifyPayrollChanged('deleted', { module: 'holiday', holidayId: id });
+    const imagePath = rows[0].image;
+    if (imagePath) {
+      const fullPath = path.join(__dirname, '..', imagePath);
+      fs.unlink(fullPath, (unlinkErr) => {
+        if (unlinkErr) console.error('Error deleting holiday image:', unlinkErr);
+      });
+    }
 
-    broadcastToRoles(
-      ['administrator', 'superadmin', 'technical'],
-      'adminDashboardUpdated',
-      { source: 'holiday', action: 'deleted', holidayId: id },
-    );
+    const sql = `DELETE FROM holiday WHERE id = ?`;
+    db.query(sql, [id], (err, result) => {
+      if (err) {
+        console.error('Database Delete Error:', err.message);
+        return res.status(500).json({ error: 'Internal Server Error' });
+      }
 
-    res.json({ message: 'Hol record deleted successfully' });
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: 'Holiday record not found' });
+      }
+
+      notifyPayrollChanged('deleted', { module: 'holiday', holidayId: id });
+
+      broadcastToRoles(
+        ['administrator', 'superadmin', 'technical'],
+        'adminDashboardUpdated',
+        { source: 'holiday', action: 'deleted', holidayId: id },
+      );
+
+      res.json({ message: 'Holiday record deleted successfully' });
+    });
   });
 });
 
 module.exports = router;
-
-
-
-

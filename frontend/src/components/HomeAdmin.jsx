@@ -452,6 +452,7 @@ const useDashboardData = (settings) => {
 
   const [announcements, setAnnouncements] = useState([]);
   const [holidays, setHolidays] = useState([]);
+  const [rawHolidays, setRawHolidays] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -725,6 +726,7 @@ const useDashboardData = (settings) => {
           console.log(" Fetching holidays...");
           const res = await axios.get(`${API_BASE_URL}/holiday`, { headers });
           if (Array.isArray(res.data)) {
+            setRawHolidays(res.data);
             const transformedHolidays = res.data.map((item) => {
               const d = new Date(item.date);
               const normalizedDate = !isNaN(d)
@@ -809,6 +811,7 @@ const useDashboardData = (settings) => {
     attendanceChartData,
     announcements,
     holidays,
+    rawHolidays,
     loading,
   };
 };
@@ -3004,8 +3007,48 @@ const AdminHome = () => {
     attendanceChartData,
     announcements,
     holidays,
+    rawHolidays,
     loading,
   } = useDashboardData(settings);
+
+  // Only show in carousel when today is within the item's date range
+  const todayInRange = (start, end, fallbackDate) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const s = start ? new Date(start) : null;
+    const e = end ? new Date(end) : null;
+    const fb = fallbackDate ? new Date(fallbackDate) : null;
+    if (s) s.setHours(0, 0, 0, 0);
+    if (e) e.setHours(0, 0, 0, 0);
+    if (fb) fb.setHours(0, 0, 0, 0);
+    if (s && e) return today >= s && today <= e;
+    if (s && !e) return today >= s;
+    if (!s && e) return today <= e;
+    if (fb) return today >= fb;
+    return false;
+  };
+  const scheduledHolidaysForCarousel = (rawHolidays || [])
+    .filter((h) => {
+      if ((h.status || "").toLowerCase() !== "active") return false;
+      return todayInRange(h.date_start, h.date_end, h.date);
+    })
+    .map((h) => ({
+      id: `holiday-${h.id}`,
+      title: h.title || h.description || "",
+      about: h.about || "Official holiday.",
+      date: h.date_start || h.date_end || h.date,
+      date_start: h.date_start || h.date,
+      date_end: h.date_end || h.date,
+      image: h.image || null,
+    }));
+  const announcementsInRange = (announcements || []).filter((a) =>
+    todayInRange(a.date_start, a.date_end, a.date)
+  );
+  const carouselItems = [
+    ...scheduledHolidaysForCarousel,
+    ...announcementsInRange,
+  ].sort((a, b) => new Date(b.date_start || b.date) - new Date(a.date_start || a.date));
+
   const {
     currentSlide,
     isPlaying,
@@ -3013,7 +3056,7 @@ const AdminHome = () => {
     handleNextSlide,
     handleSlideSelect,
     togglePlayPause,
-  } = useCarousel(announcements);
+  } = useCarousel(carouselItems);
   const currentTime = useTime();
 
   // Add user role state
@@ -3537,7 +3580,7 @@ const AdminHome = () => {
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <Grid item xs={12} md={7}>
             <AnnouncementCarousel
-              announcements={announcements}
+              announcements={carouselItems}
               currentSlide={currentSlide}
               isPlaying={isPlaying}
               handlePrevSlide={handlePrevSlide}

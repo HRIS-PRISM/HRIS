@@ -16,7 +16,7 @@ import {
   Announcement as AnnouncementIcon, Reorder as ReorderIcon,
   Search as SearchIcon, Close as CloseIcon, Home,
   Image as ImageIcon, FilterList, Refresh, CheckCircle,
-  Error, Info, Warning
+  Error, Info, Warning, Event as EventIcon
 } from "@mui/icons-material";
 import usePageAccess from '../hooks/usePageAccess';
 import AccessDenied from './AccessDenied';
@@ -83,10 +83,12 @@ const useSystemSettings = () => {
 
 const AnnouncementForm = () => {
   const [announcements, setAnnouncements] = useState([]);
+  const [holidays, setHolidays] = useState([]);
   const [newAnnouncement, setNewAnnouncement] = useState({
     title: "",
     about: "",
-    date: "",
+    date_start: "",
+    date_end: "",
     image: null,
   });
 
@@ -187,7 +189,17 @@ const AnnouncementForm = () => {
 
   useEffect(() => {
     fetchAnnouncements();
+    fetchHolidays();
   }, []);
+
+  const fetchHolidays = async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/holiday`, getAuthHeaders());
+      setHolidays(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      console.error("Error fetching holidays for announcements", err.message);
+    }
+  };
 
   const fetchAnnouncements = async () => {
     try {
@@ -227,8 +239,8 @@ const AnnouncementForm = () => {
       setError("");
       setLoading(true);
       
-      if (!newAnnouncement.title || !newAnnouncement.about || !newAnnouncement.date) {
-        setError("Please fill in all required fields");
+      if (!newAnnouncement.title || !newAnnouncement.about || !newAnnouncement.date_start || !newAnnouncement.date_end) {
+        setError("Please fill in Title, About, and Date Range (Start & End)");
         setLoading(false);
         return;
       }
@@ -236,7 +248,8 @@ const AnnouncementForm = () => {
       const formData = new FormData();
       formData.append("title", newAnnouncement.title);
       formData.append("about", newAnnouncement.about);
-      formData.append("date", newAnnouncement.date);
+      formData.append("date_start", newAnnouncement.date_start);
+      formData.append("date_end", newAnnouncement.date_end);
       if (newAnnouncement.image) formData.append("image", newAnnouncement.image);
 
       await axios.post(`${API_BASE_URL}/api/announcements`, formData, {
@@ -244,7 +257,7 @@ const AnnouncementForm = () => {
       });
 
       fetchAnnouncements();
-      setNewAnnouncement({ title: "", about: "", date: "", image: null });
+      setNewAnnouncement({ title: "", about: "", date_start: "", date_end: "", image: null });
       setSuccessAction("create");
       setSuccessOpen(true);
       setLoading(false);
@@ -260,7 +273,8 @@ const AnnouncementForm = () => {
     setEditForm({
       title: item.title,
       about: item.about,
-      date: item.date ? new Date(item.date).toISOString().split("T")[0] : "",
+      date_start: item.date_start || item.date ? new Date(item.date_start || item.date).toISOString().split("T")[0] : "",
+      date_end: item.date_end || item.date ? new Date(item.date_end || item.date).toISOString().split("T")[0] : "",
       image: item.image || null,
     });
     setOpenEditModal(true);
@@ -281,7 +295,8 @@ const AnnouncementForm = () => {
       const payload = new FormData();
       payload.append("title", editForm.title || "");
       payload.append("about", editForm.about || "");
-      payload.append("date", editForm.date || "");
+      payload.append("date_start", editForm.date_start || "");
+      payload.append("date_end", editForm.date_end || "");
 
       if (editForm.image && editForm.image instanceof File) {
         payload.append("image", editForm.image);
@@ -324,10 +339,48 @@ const AnnouncementForm = () => {
     }
   };
 
-  const filteredAnnouncements = announcements.filter(
+  // Helper: is today within date range (inclusive)
+  const todayInRange = (start, end) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const s = start ? new Date(start) : null;
+    const e = end ? new Date(end) : null;
+    if (s) s.setHours(0, 0, 0, 0);
+    if (e) e.setHours(0, 0, 0, 0);
+    if (!s && !e) return true;
+    if (s && !e) return today >= s;
+    if (!s && e) return today <= e;
+    return today >= s && today <= e;
+  };
+
+  // Active holidays (same structure as announcement: Title, About, Date Range)
+  const scheduledHolidays = holidays
+    .filter((h) => (h.status || "").toLowerCase() === "active")
+    .map((h) => ({
+      id: `holiday-${h.id}`,
+      title: h.title || h.description || "",
+      about: h.about || "Official holiday.",
+      date_start: h.date_start || h.date,
+      date_end: h.date_end || h.date,
+      date: h.date_start || h.date_end || h.date,
+      image: h.image || null,
+      isHoliday: true,
+    }));
+
+  const combinedItems = [
+    ...scheduledHolidays,
+    ...announcements.map((a) => ({
+      ...a,
+      date_start: a.date_start || a.date,
+      date_end: a.date_end || a.date,
+      isHoliday: false,
+    })),
+  ].sort((a, b) => new Date(b.date_start || b.date) - new Date(a.date_start || a.date));
+
+  const filteredAnnouncements = combinedItems.filter(
     (item) =>
       item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.about.toLowerCase().includes(searchQuery.toLowerCase())
+      (item.about && item.about.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const formatDateForDisplay = (dateString) => {
@@ -342,6 +395,14 @@ const AnnouncementForm = () => {
     } catch (error) {
       return dateString;
     }
+  };
+
+  const formatDateRange = (start, end) => {
+    if (!start && !end) return "—";
+    const s = formatDateForDisplay(start);
+    const e = formatDateForDisplay(end);
+    if (s === e) return s;
+    return `${s} – ${e}`;
   };
 
   // Helper to build correct image URL for previews
@@ -498,7 +559,7 @@ const AnnouncementForm = () => {
                   
                   <Box display="flex" alignItems="center" gap={2}>
                     <Chip
-                      label={`${announcements.length} Announcements`}
+                      label={`${announcements.length} Announcements${scheduledHolidays.length ? ` + ${scheduledHolidays.length} Holiday(s)` : ""}`}
                       size="small"
                       sx={{
                         bgcolor: alpha(settings?.primaryColor || '#894444', 0.15),
@@ -507,9 +568,9 @@ const AnnouncementForm = () => {
                         "& .MuiChip-label": { px: 1 },
                       }}
                     />
-                    <Tooltip title="Refresh Announcements">
+                    <Tooltip title="Refresh Announcements & Holidays">
                       <IconButton
-                        onClick={fetchAnnouncements}
+                        onClick={() => { fetchAnnouncements(); fetchHolidays(); }}
                         disabled={loading}
                         sx={{
                           bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
@@ -640,10 +701,22 @@ const AnnouncementForm = () => {
                 <Grid item xs={12} md={6}>
                   <ModernTextField
                     fullWidth
-                    label="Date"
-                    name="date"
+                    label="Date Range Start"
+                    name="date_start"
                     type="date"
-                    value={newAnnouncement.date}
+                    value={newAnnouncement.date_start}
+                    onChange={handleNewChange}
+                    InputLabelProps={{ shrink: true }}
+                    required
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <ModernTextField
+                    fullWidth
+                    label="Date Range End"
+                    name="date_end"
+                    type="date"
+                    value={newAnnouncement.date_end}
                     onChange={handleNewChange}
                     InputLabelProps={{ shrink: true }}
                     required
@@ -765,8 +838,8 @@ const AnnouncementForm = () => {
                     sx={{ opacity: 0.8, color: settings?.accentColor || '#FEF9E1' }}
                   >
                     {searchQuery
-                      ? `Showing ${filteredAnnouncements.length} of ${announcements.length} announcements matching "${searchQuery}"`
-                      : `Total: ${announcements.length} announcements`}
+                      ? `Showing ${filteredAnnouncements.length} of ${combinedItems.length} items matching "${searchQuery}"`
+                      : `Total: ${combinedItems.length} items (${announcements.length} announcements${scheduledHolidays.length ? `, ${scheduledHolidays.length} scheduled holiday(s)` : ""})`}
                   </Typography>
                 </Box>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
@@ -796,16 +869,19 @@ const AnnouncementForm = () => {
                         <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "10%" }}>
                           No.
                         </PremiumTableCell>
-                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "25%" }}>
+                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "12%" }}>
+                          Type
+                        </PremiumTableCell>
+                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "23%" }}>
                           Title
                         </PremiumTableCell>
-                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "35%" }}>
+                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "30%" }}>
                           About
                         </PremiumTableCell>
                         <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "15%" }}>
-                          Date
+                          Date Range
                         </PremiumTableCell>
-                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "15%", textAlign: "center" }}>
+                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "20%", textAlign: "center" }}>
                           Actions
                         </PremiumTableCell>
                       </TableRow>
@@ -813,10 +889,10 @@ const AnnouncementForm = () => {
                     <TableBody>
                       {filteredAnnouncements.length === 0 ? (
                         <TableRow>
-                          <TableCell
-                            colSpan={5}
-                            sx={{ textAlign: "center", py: 8 }}
-                          >
+                            <TableCell
+                                colSpan={6}
+                                sx={{ textAlign: "center", py: 8 }}
+                              >
                             <Box sx={{ textAlign: "center" }}>
                               <Info
                                 sx={{
@@ -831,7 +907,7 @@ const AnnouncementForm = () => {
                                 gutterBottom
                                 sx={{ fontWeight: 600 }}
                               >
-                                No Announcements Found
+                                No Announcements or Holidays
                               </Typography>
                               <Typography
                                 variant="body1"
@@ -839,7 +915,7 @@ const AnnouncementForm = () => {
                               >
                                 {searchQuery
                                   ? "Try adjusting your search criteria"
-                                  : "No announcements available"}
+                                  : "No announcements or scheduled holidays. Active holidays (today or future) appear here automatically."}
                               </Typography>
                             </Box>
                           </TableCell>
@@ -859,46 +935,79 @@ const AnnouncementForm = () => {
                             <PremiumTableCell sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323', width: "10%" }}>
                               {index + 1}
                             </PremiumTableCell>
-                            <PremiumTableCell sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "25%" }}>
+                            <PremiumTableCell sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "12%" }}>
+                              {item.isHoliday ? (
+                                <Chip
+                                  size="small"
+                                  icon={<EventIcon sx={{ fontSize: 18 }} />}
+                                  label="Holiday"
+                                  sx={{
+                                    bgcolor: alpha(settings?.primaryColor || "#894444", 0.15),
+                                    color: settings?.primaryColor || "#894444",
+                                    fontWeight: 600,
+                                    "& .MuiChip-icon": { color: "inherit" },
+                                  }}
+                                />
+                              ) : (
+                                <Chip
+                                  size="small"
+                                  icon={<AnnouncementIcon sx={{ fontSize: 18 }} />}
+                                  label="Announcement"
+                                  sx={{
+                                    bgcolor: alpha(settings?.secondaryColor || "#6d2323", 0.15),
+                                    color: settings?.secondaryColor || "#6d2323",
+                                    fontWeight: 600,
+                                    "& .MuiChip-icon": { color: "inherit" },
+                                  }}
+                                />
+                              )}
+                            </PremiumTableCell>
+                            <PremiumTableCell sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "23%" }}>
                               {item.title}
                             </PremiumTableCell>
-                            <PremiumTableCell sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "35%" }}>
+                            <PremiumTableCell sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "30%" }}>
                               {item.about}
                             </PremiumTableCell>
                             <PremiumTableCell sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "15%" }}>
-                              {formatDateForDisplay(item.date)}
+                              {formatDateRange(item.date_start, item.date_end) || formatDateForDisplay(item.date)}
                             </PremiumTableCell>
-                            <PremiumTableCell sx={{ textAlign: "center", width: "15%" }}>
-                              <Box sx={{ display: "flex", justifyContent: "center", gap: 1 }}>
-                                <Tooltip title="Edit Announcement">
-                                  <ProfessionalButton
-                                    onClick={() => handleEdit(item)}
-                                    variant="contained"
-                                    startIcon={<EditIcon />}
-                                    sx={{
-                                      bgcolor: settings?.primaryColor || '#894444',
-                                      color: settings?.accentColor || '#FEF9E1',
-                                      "&:hover": { bgcolor: settings?.secondaryColor || '#6d2323' },
-                                    }}
-                                  >
-                                    Edit
-                                  </ProfessionalButton>
-                                </Tooltip>
-                                <Tooltip title="Delete Announcement">
-                                  <ProfessionalButton
-                                    onClick={() => handleDelete(item.id)}
-                                    variant="contained"
-                                    startIcon={<DeleteIcon />}
-                                    sx={{
-                                      bgcolor: "#000000",
-                                      color: "#ffffff",
-                                      "&:hover": { bgcolor: "#333333" },
-                                    }}
-                                  >
-                                    Delete
-                                  </ProfessionalButton>
-                                </Tooltip>
-                              </Box>
+                            <PremiumTableCell sx={{ textAlign: "center", width: "20%" }}>
+                              {item.isHoliday ? (
+                                <Typography variant="body2" sx={{ color: alpha(settings?.textPrimaryColor || "#6D2323", 0.8), fontStyle: "italic" }}>
+                                  Scheduled — managed in Holiday
+                                </Typography>
+                              ) : (
+                                <Box sx={{ display: "flex", justifyContent: "center", gap: 1 }}>
+                                  <Tooltip title="Edit Announcement">
+                                    <ProfessionalButton
+                                      onClick={() => handleEdit(item)}
+                                      variant="contained"
+                                      startIcon={<EditIcon />}
+                                      sx={{
+                                        bgcolor: settings?.primaryColor || '#894444',
+                                        color: settings?.accentColor || '#FEF9E1',
+                                        "&:hover": { bgcolor: settings?.secondaryColor || '#6d2323' },
+                                      }}
+                                    >
+                                      Edit
+                                    </ProfessionalButton>
+                                  </Tooltip>
+                                  <Tooltip title="Delete Announcement">
+                                    <ProfessionalButton
+                                      onClick={() => handleDelete(item.id)}
+                                      variant="contained"
+                                      startIcon={<DeleteIcon />}
+                                      sx={{
+                                        bgcolor: "#000000",
+                                        color: "#ffffff",
+                                        "&:hover": { bgcolor: "#333333" },
+                                      }}
+                                    >
+                                      Delete
+                                    </ProfessionalButton>
+                                  </Tooltip>
+                                </Box>
+                              )}
                             </PremiumTableCell>
                           </TableRow>
                         ))
@@ -971,14 +1080,25 @@ const AnnouncementForm = () => {
                   rows={3}
                 />
               </Grid>
-              <Grid item xs={12}>
+              <Grid item xs={12} md={6}>
                 <ModernTextField
                   fullWidth
-                  label="Date"
-                  name="date"
+                  label="Date Range Start"
+                  name="date_start"
                   type="date"
-                  value={editForm.date || ""}
-                  onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
+                  value={editForm.date_start || ""}
+                  onChange={(e) => setEditForm({ ...editForm, date_start: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <ModernTextField
+                  fullWidth
+                  label="Date Range End"
+                  name="date_end"
+                  type="date"
+                  value={editForm.date_end || ""}
+                  onChange={(e) => setEditForm({ ...editForm, date_end: e.target.value })}
                   InputLabelProps={{ shrink: true }}
                 />
               </Grid>

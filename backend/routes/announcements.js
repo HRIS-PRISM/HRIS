@@ -10,9 +10,9 @@ const {
   notifyAnnouncementChanged,
 } = require('../socket/socketService');
 
-// GET all announcements
+// GET all announcements (normalize date_start/date_end for backward compat)
 router.get('/api/announcements', (req, res) => {
-  const query = 'SELECT * FROM announcements ORDER BY date DESC';
+  const query = 'SELECT id, title, about, COALESCE(date_start, date) AS date_start, COALESCE(date_end, date) AS date_end, date, image FROM announcements ORDER BY COALESCE(date_start, date) DESC';
   db.query(query, (err, results) => {
     if (err) {
       console.error('Error fetching announcements:', err);
@@ -22,14 +22,15 @@ router.get('/api/announcements', (req, res) => {
   });
 });
 
-// POST: Create announcement
+// POST: Create announcement (Title, About, Date Range)
 router.post('/api/announcements', upload.single('image'), (req, res) => {
-  const { title, about, date } = req.body;
+  const { title, about, date_start, date_end } = req.body;
   const image = req.file ? `/uploads/${req.file.filename}` : null;
+  const date = date_start || date_end || null;
 
   const query =
-    'INSERT INTO announcements (title, about, date, image) VALUES (?, ?, ?, ?)';
-  db.query(query, [title, about, date, image], (err, result) => {
+    'INSERT INTO announcements (title, about, date, date_start, date_end, image) VALUES (?, ?, ?, ?, ?, ?)';
+  db.query(query, [title, about, date, date_start || null, date_end || null, image], (err, result) => {
     if (err) {
       console.error('Error creating announcement:', err);
       return res.status(500).json({ error: 'Internal server error' });
@@ -166,22 +167,22 @@ router.post('/api/announcements', upload.single('image'), (req, res) => {
   });
 });
 
-// PUT: Update announcement
+// PUT: Update announcement (Title, About, Date Range)
 router.put('/api/announcements/:id', upload.single('image'), (req, res) => {
   const { id } = req.params;
-  const { title, about, date } = req.body;
+  const { title, about, date_start, date_end } = req.body;
   const image = req.file ? `/uploads/${req.file.filename}` : null;
+  const date = date_start || date_end || null;
 
-  // Build query dynamically if image is updated
   let query, params;
   if (image) {
     query =
-      'UPDATE announcements SET title = ?, about = ?, date = ?, image = ? WHERE id = ?';
-    params = [title, about, date, image, id];
+      'UPDATE announcements SET title = ?, about = ?, date = ?, date_start = ?, date_end = ?, image = ? WHERE id = ?';
+    params = [title, about, date, date_start || null, date_end || null, image, id];
   } else {
     query =
-      'UPDATE announcements SET title = ?, about = ?, date = ? WHERE id = ?';
-    params = [title, about, date, id];
+      'UPDATE announcements SET title = ?, about = ?, date = ?, date_start = ?, date_end = ? WHERE id = ?';
+    params = [title, about, date, date_start || null, date_end || null, id];
   }
 
   db.query(query, params, (err, result) => {
