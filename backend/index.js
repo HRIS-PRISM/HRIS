@@ -46,6 +46,7 @@ const holidayRoutes = require('./routes/holiday');
 const philhealthRoutes = require('./routes/philhealth');
 const profileRoutes = require('./routes/profile');
 const announcementsRoutes = require('./routes/announcements');
+const suspensionsRoutes = require('./routes/suspensions');
 const auditRoutes = require('./routes/audit');
 const tasksRoutes = require('./routes/tasks');
 const dashboardRoutes = require('./routes/dashboard');
@@ -154,13 +155,52 @@ db.query(ensureAuthSessionsTableSQL, (err) => {
   }
 });
 
-// Holiday: Title, About, Date Range (same as announcement)
-['ALTER TABLE holiday ADD COLUMN title VARCHAR(255) NULL', 'ALTER TABLE holiday ADD COLUMN about TEXT NULL', 'ALTER TABLE holiday ADD COLUMN date_start DATE NULL', 'ALTER TABLE holiday ADD COLUMN date_end DATE NULL'].forEach((sql) => {
-  db.query(sql, (err) => { if (err && err.code !== 'ER_DUP_FIELDNAME') console.error('Holiday migration:', err.message); });
+// Ensure holiday table exists (create if missing, then add optional columns)
+const ensureHolidayTableSQL = `
+  CREATE TABLE IF NOT EXISTS holiday (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    description VARCHAR(512) NULL,
+    date DATE NULL,
+    status VARCHAR(64) NULL DEFAULT 'Active',
+    title VARCHAR(255) NULL,
+    about TEXT NULL,
+    date_start DATE NULL,
+    date_end DATE NULL,
+    image VARCHAR(500) NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+db.query(ensureHolidayTableSQL, (err) => {
+  if (err) {
+    console.error('Failed to ensure holiday table exists:', err.message);
+  } else {
+    db.query('ALTER TABLE holiday ADD COLUMN title VARCHAR(255) NULL', (e) => { if (e && e.code !== 'ER_DUP_FIELDNAME') console.error('Holiday migration title:', e.message); });
+    db.query('ALTER TABLE holiday ADD COLUMN about TEXT NULL', (e) => { if (e && e.code !== 'ER_DUP_FIELDNAME') console.error('Holiday migration about:', e.message); });
+    db.query('ALTER TABLE holiday ADD COLUMN date_start DATE NULL', (e) => { if (e && e.code !== 'ER_DUP_FIELDNAME') console.error('Holiday migration date_start:', e.message); });
+    db.query('ALTER TABLE holiday ADD COLUMN date_end DATE NULL', (e) => { if (e && e.code !== 'ER_DUP_FIELDNAME') console.error('Holiday migration date_end:', e.message); });
+    db.query('ALTER TABLE holiday ADD COLUMN image VARCHAR(500) NULL', (e) => { if (e && e.code !== 'ER_DUP_FIELDNAME') console.error('Holiday migration image:', e.message); });
+  }
 });
 // Announcements: Date Range for carousel visibility
 ['ALTER TABLE announcements ADD COLUMN date_start DATE NULL', 'ALTER TABLE announcements ADD COLUMN date_end DATE NULL'].forEach((sql) => {
   db.query(sql, (err) => { if (err && err.code !== 'ER_DUP_FIELDNAME') console.error('Announcements migration:', err.message); });
+});
+
+// Ensure suspensions table exists (for suspension creation visible on HomeAdmin carousel)
+const ensureSuspensionsTableSQL = `
+  CREATE TABLE IF NOT EXISTS suspensions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(512) NULL,
+    about TEXT NULL,
+    date DATE NULL,
+    date_start DATE NULL,
+    date_end DATE NULL,
+    reason VARCHAR(512) NULL,
+    image VARCHAR(500) NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+db.query(ensureSuspensionsTableSQL, (err) => {
+  if (err) console.error('Failed to ensure suspensions table exists:', err.message);
+  else console.log('Suspensions table ready');
 });
 
 // Mount existing dashboard and payroll routes
@@ -203,6 +243,7 @@ app.use('/', holidayRoutes);
 app.use('/', philhealthRoutes);
 app.use('/', profileRoutes);
 app.use('/', announcementsRoutes);
+app.use('/', suspensionsRoutes);
 app.use('/', auditRoutes);
 app.use('/', tasksRoutes);
 app.use('/', dashboardRoutes);

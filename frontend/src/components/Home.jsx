@@ -170,12 +170,14 @@ const Home = () => {
   const [fullName, setFullName] = useState("");
   const [employeeNumber, setEmployeeNumber] = useState("");
   const [announcements, setAnnouncements] = useState([]);
+  const [suspensions, setSuspensions] = useState([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
   const [openModal, setOpenModal] = useState(false);
   const [profilePicture, setProfilePicture] = useState(null);
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [holidays, setHolidays] = useState([]);
+  const [rawHolidays, setRawHolidays] = useState([]);
   const [payrollData, setPayrollData] = useState(null);
   const [notifModalOpen, setNotifModalOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -215,7 +217,149 @@ const Home = () => {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  // Use the carousel hook for announcements
+  // Fetch holidays and suspensions
+  const fetchHolidays = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/holiday`);
+      if (Array.isArray(res.data)) {
+        setRawHolidays(res.data);
+        const transformedHolidays = res.data.map((item) => {
+          const d = new Date(item.date);
+          const normalizedDate = !isNaN(d)
+            ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+            : item.date;
+          return {
+            date: normalizedDate,
+            name: item.description,
+            status: item.status,
+          };
+        });
+        setHolidays(transformedHolidays);
+      }
+    } catch (err) {
+      console.error("Error fetching holidays:", err);
+    }
+  }, []);
+
+  const fetchSuspensions = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/suspensions`);
+      setSuspensions(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error("Error fetching suspensions:", err);
+      setSuspensions([]);
+    }
+  }, []);
+
+  // Build carousel items (same logic as HomeAdmin.jsx)
+  const todayInRange = (start, end, fallbackDate) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const s = start ? new Date(start) : null;
+    const e = end ? new Date(end) : null;
+    const fb = fallbackDate ? new Date(fallbackDate) : null;
+    if (s) s.setHours(0, 0, 0, 0);
+    if (e) e.setHours(0, 0, 0, 0);
+    if (fb) fb.setHours(0, 0, 0, 0);
+    if (s && e) return today >= s && today <= e;
+    if (s && !e) return today >= s;
+    if (!s && e) return today <= e;
+    if (fb) return today >= fb;
+    return false;
+  };
+
+  let scheduledHolidaysForCarousel = (rawHolidays || [])
+    .filter((h) => (h.status || "").toLowerCase() === "active")
+    .filter((h) => {
+      if (todayInRange(h.date_start, h.date_end, h.date)) return true;
+      const endDate = h.date_end || h.date;
+      if (!endDate) return true;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(0, 0, 0, 0);
+      return today <= end;
+    })
+    .map((h) => ({
+      id: `holiday-${h.id}`,
+      title: h.title || h.description || "",
+      about: h.about || "Official holiday.",
+      date: h.date_start || h.date_end || h.date,
+      date_start: h.date_start || h.date,
+      date_end: h.date_end || h.date,
+      image: h.image || null,
+    }));
+
+  if (scheduledHolidaysForCarousel.length === 0 && Array.isArray(rawHolidays) && rawHolidays.length > 0) {
+    const active = rawHolidays.filter((h) => (h.status || "").toLowerCase() === "active");
+    scheduledHolidaysForCarousel = active
+      .slice()
+      .sort((a, b) => new Date(b.date_start || b.date) - new Date(a.date_start || a.date))
+      .slice(0, 10)
+      .map((h) => ({
+        id: `holiday-${h.id}`,
+        title: h.title || h.description || "",
+        about: h.about || "Official holiday.",
+        date: h.date_start || h.date_end || h.date,
+        date_start: h.date_start || h.date,
+        date_end: h.date_end || h.date,
+        image: h.image || null,
+      }));
+  }
+
+  let announcementsInRange = (announcements || []).filter((a) => {
+    if (todayInRange(a.date_start, a.date_end, a.date)) return true;
+    const endDate = a.date_end || a.date;
+    if (!endDate) return true;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(0, 0, 0, 0);
+    return today <= end;
+  });
+
+  if (announcementsInRange.length === 0 && Array.isArray(announcements) && announcements.length > 0) {
+    announcementsInRange = announcements
+      .slice()
+      .sort((a, b) => new Date(b.date_start || b.date) - new Date(a.date_start || a.date))
+      .slice(0, 10);
+  }
+
+  let suspensionsInRange = (suspensions || []).filter((s) => {
+    if (todayInRange(s.date_start, s.date_end, s.date)) return true;
+    const endDate = s.date_end || s.date;
+    if (!endDate) return true;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(0, 0, 0, 0);
+    return today <= end;
+  });
+
+  if (suspensionsInRange.length === 0 && Array.isArray(suspensions) && suspensions.length > 0) {
+    suspensionsInRange = suspensions
+      .slice()
+      .sort((a, b) => new Date(b.date_start || b.date) - new Date(a.date_start || a.date))
+      .slice(0, 10);
+  }
+
+  const suspensionsForCarousel = suspensionsInRange.map((s) => ({
+    id: `suspension-${s.id}`,
+    title: s.title || "",
+    about: s.about || "",
+    date: s.date_start || s.date_end || s.date,
+    date_start: s.date_start || s.date,
+    date_end: s.date_end || s.date,
+    image: s.image || null,
+  }));
+
+  const carouselItems = [
+    ...scheduledHolidaysForCarousel,
+    ...suspensionsForCarousel,
+    ...announcementsInRange,
+  ].sort((a, b) => new Date(b.date_start || b.date) - new Date(a.date_start || a.date));
+
+  // Use the carousel hook with combined items
   const {
     currentSlide,
     isPlaying,
@@ -223,7 +367,7 @@ const Home = () => {
     handleNextSlide,
     handleSlideSelect,
     togglePlayPause,
-  } = useCarousel(announcements);
+  } = useCarousel(carouselItems);
 
   useEffect(() => {
     const interval = setInterval(() => setCurrentDate(new Date()), 1000);
@@ -430,19 +574,31 @@ const Home = () => {
       }
     };
 
+    const handleAdminDashboardUpdated = (payload) => {
+      console.log('📊 Admin dashboard updated via socket:', payload);
+      const { source, action } = payload;
+      if (source === 'holiday' || source === 'suspensions') {
+        // Refresh holidays and suspensions when they're created/updated/deleted
+        fetchHolidays();
+        fetchSuspensions();
+      }
+    };
+
     socket.on("notificationCreated", handleNotificationCreated);
     socket.on("payrollChanged", handlePayrollChanged);
     socket.on("announcementChanged", handleAnnouncementChanged);
+    socket.on("adminDashboardUpdated", handleAdminDashboardUpdated);
 
     return () => {
       socket.off("notificationCreated", handleNotificationCreated);
       socket.off("payrollChanged", handlePayrollChanged);
       socket.off("announcementChanged", handleAnnouncementChanged);
+      socket.off("adminDashboardUpdated", handleAdminDashboardUpdated);
       if (refreshTimeoutRef.current) {
         clearTimeout(refreshTimeoutRef.current);
       }
     };
-  }, [socket, connected]);
+  }, [socket, connected, fetchHolidays, fetchSuspensions]);
 
   const handleNotificationClick = async (notification) => {
     if (notification.read_status === 0) {
@@ -514,6 +670,62 @@ const Home = () => {
         console.error("Error fetching announcement:", err);
         setNotifModalOpen(false);
       }
+    } else if (notification.notification_type === "holiday") {
+      try {
+        const holidayRes = await axios.get(`${API_BASE_URL}/holiday`);
+        const holidayList = Array.isArray(holidayRes.data) ? holidayRes.data : [];
+        let matchingHoliday = null;
+        if (holidayList.length > 0) {
+          matchingHoliday = holidayList[0]; // Most recent
+        }
+        if (matchingHoliday) {
+          const holidayItem = {
+            id: `holiday-${matchingHoliday.id}`,
+            title: matchingHoliday.title || matchingHoliday.description || "",
+            about: matchingHoliday.about || "Official holiday.",
+            date: matchingHoliday.date_start || matchingHoliday.date_end || matchingHoliday.date,
+            date_start: matchingHoliday.date_start || matchingHoliday.date,
+            date_end: matchingHoliday.date_end || matchingHoliday.date,
+            image: matchingHoliday.image || null,
+          };
+          setNotifModalOpen(false);
+          setSelectedAnnouncement(holidayItem);
+          setOpenModal(true);
+        } else {
+          setNotifModalOpen(false);
+        }
+      } catch (err) {
+        console.error("Error fetching holiday:", err);
+        setNotifModalOpen(false);
+      }
+    } else if (notification.notification_type === "suspension") {
+      try {
+        const suspRes = await axios.get(`${API_BASE_URL}/api/suspensions`);
+        const suspensionList = Array.isArray(suspRes.data) ? suspRes.data : [];
+        let matchingSuspension = null;
+        if (suspensionList.length > 0) {
+          matchingSuspension = suspensionList[0]; // Most recent
+        }
+        if (matchingSuspension) {
+          const suspensionItem = {
+            id: `suspension-${matchingSuspension.id}`,
+            title: matchingSuspension.title || "",
+            about: matchingSuspension.about || "",
+            date: matchingSuspension.date_start || matchingSuspension.date_end || matchingSuspension.date,
+            date_start: matchingSuspension.date_start || matchingSuspension.date,
+            date_end: matchingSuspension.date_end || matchingSuspension.date,
+            image: matchingSuspension.image || null,
+          };
+          setNotifModalOpen(false);
+          setSelectedAnnouncement(suspensionItem);
+          setOpenModal(true);
+        } else {
+          setNotifModalOpen(false);
+        }
+      } catch (err) {
+        console.error("Error fetching suspension:", err);
+        setNotifModalOpen(false);
+      }
     } else if (notification.action_link) {
       setNotifModalOpen(false);
       navigate(notification.action_link);
@@ -542,10 +754,12 @@ const Home = () => {
     if (userInfo.employeeNumber) setEmployeeNumber(userInfo.employeeNumber);
   }, []);
 
-  // Initial fetch for announcements
+  // Initial fetch for announcements, holidays, and suspensions
   useEffect(() => {
     fetchAnnouncements();
-  }, [fetchAnnouncements]);
+    fetchHolidays();
+    fetchSuspensions();
+  }, [fetchAnnouncements, fetchHolidays, fetchSuspensions]);
 
   const handleOpenModal = (announcement) => {
     setSelectedAnnouncement(announcement);
@@ -1118,16 +1332,16 @@ const Home = () => {
                       Loading announcements...
                     </Typography>
                   </Box>
-                ) : announcements.length > 0 ? (
+                ) : carouselItems.length > 0 ? (
                   <>
                     <Box
                       component="img"
                       src={
-                        announcements[currentSlide]?.image
-                          ? `${API_BASE_URL}${announcements[currentSlide].image}`
+                        carouselItems[currentSlide]?.image
+                          ? `${API_BASE_URL}${carouselItems[currentSlide].image}`
                           : "/api/placeholder/1200/600"
                       }
-                      alt={announcements[currentSlide]?.title || "Announcement"}
+                      alt={carouselItems[currentSlide]?.title || (carouselItems[currentSlide]?.id?.toString().startsWith("holiday-") ? "Holiday" : carouselItems[currentSlide]?.id?.toString().startsWith("suspension-") ? "Suspension" : "Announcement")}
                       sx={{
                         width: "100%",
                         height: "100%",
@@ -1217,7 +1431,7 @@ const Home = () => {
                     </IconButton>
                     <Box
                       onClick={() =>
-                        handleOpenModal(announcements[currentSlide])
+                        handleOpenModal(carouselItems[currentSlide])
                       }
                       sx={{
                         position: "absolute",
@@ -1232,7 +1446,7 @@ const Home = () => {
                       }}
                     >
                       <Chip
-                        label="ANNOUNCEMENT"
+                        label={carouselItems[currentSlide]?.id?.toString().startsWith("holiday-") ? "HOLIDAY" : carouselItems[currentSlide]?.id?.toString().startsWith("suspension-") ? "SUSPENSION" : "ANNOUNCEMENT"}
                         size="small"
                         sx={{
                           mb: 2,
@@ -1255,7 +1469,7 @@ const Home = () => {
                           fontSize: { xs: "1.25rem", md: "2rem" },
                         }}
                       >
-                        {announcements[currentSlide]?.title}
+                        {carouselItems[currentSlide]?.title}
                       </Typography>
                       <Typography
                         sx={{
@@ -1269,7 +1483,7 @@ const Home = () => {
                       >
                         <AccessTime sx={{ fontSize: 18 }} />
                         {new Date(
-                          announcements[currentSlide]?.date
+                          carouselItems[currentSlide]?.date
                         ).toLocaleDateString("en-US", {
                           month: "long",
                           day: "numeric",
@@ -1281,7 +1495,7 @@ const Home = () => {
                       <IconButton
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (announcements[currentSlide]) handleOpenModal(announcements[currentSlide]);
+                          if (carouselItems[currentSlide]) handleOpenModal(carouselItems[currentSlide]);
                         }}
                         sx={{
                           position: "absolute",
@@ -1307,7 +1521,7 @@ const Home = () => {
                         alignItems: "center",
                       }}
                     >
-                      {announcements.map((_, idx) => (
+                      {carouselItems.map((_, idx) => (
                         <Box
                           key={idx}
                           sx={{
@@ -1352,7 +1566,7 @@ const Home = () => {
                       variant="h5"
                       sx={{ color: settings.textPrimaryColor }}
                     >
-                      No announcements available
+                      No announcements, suspensions, or holidays available
                     </Typography>
                   </Box>
                 )}
@@ -2473,6 +2687,10 @@ const Home = () => {
                                 ? "rgba(76, 175, 80, 0.1)"
                                 : notif.notification_type === "contact"
                                 ? "rgba(255, 152, 0, 0.1)"
+                                : notif.notification_type === "holiday"
+                                ? "rgba(237, 108, 2, 0.1)"
+                                : notif.notification_type === "suspension"
+                                ? "rgba(211, 47, 47, 0.1)"
                                 : `${settings.primaryColor}1A`
                               : `${settings.primaryColor}0A`,
                           border: `1px solid ${settings.primaryColor}26`,
@@ -2482,6 +2700,10 @@ const Home = () => {
                                 ? "4px solid #4caf50"
                                 : notif.notification_type === "contact"
                                 ? "4px solid #ff9800"
+                                : notif.notification_type === "holiday"
+                                ? "4px solid #ed6c02"
+                                : notif.notification_type === "suspension"
+                                ? "4px solid #d32f2f"
                                 : `4px solid ${settings.primaryColor}`
                               : `1px solid ${settings.primaryColor}26`,
                           cursor: "pointer",
@@ -2513,6 +2735,10 @@ const Home = () => {
                                   ? `linear-gradient(135deg, #4caf50, #2e7d32)`
                                   : notif.notification_type === "contact"
                                   ? `linear-gradient(135deg, #ff9800, #f57c00)`
+                                  : notif.notification_type === "holiday"
+                                  ? `linear-gradient(135deg, #ed6c02, #e65100)`
+                                  : notif.notification_type === "suspension"
+                                  ? `linear-gradient(135deg, #d32f2f, #b71c1c)`
                                   : `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
                               mt: 0.5,
                               flexShrink: 0,
@@ -2534,6 +2760,10 @@ const Home = () => {
                                 ? "Payslip Available"
                                 : notif.notification_type === "contact"
                                 ? "New Ticket"
+                                : notif.notification_type === "holiday"
+                                ? "New Holiday"
+                                : notif.notification_type === "suspension"
+                                ? "New Suspension"
                                 : "Notification"}
                             </Typography>
                             <Typography

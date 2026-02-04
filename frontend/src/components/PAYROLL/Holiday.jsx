@@ -23,6 +23,7 @@ import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
+import { useSystemSettings } from '../../hooks/useSystemSettings';
 
 // Get auth headers function
 const getAuthHeaders = () => {
@@ -33,54 +34,6 @@ const getAuthHeaders = () => {
       Authorization: `Bearer ${token}`,
     },
   };
-};
-
-// System Settings Hook (same as UsersList)
-const useSystemSettings = () => {
-  const [settings, setSettings] = useState({
-    primaryColor: '#894444',
-    secondaryColor: '#6d2323',
-    accentColor: '#FEF9E1',
-    textColor: '#FFFFFF',
-    textPrimaryColor: '#6D2323', 
-    textSecondaryColor: '#FEF9E1', 
-    hoverColor: '#6D2323',
-    backgroundColor: '#FFFFFF',
-  });
-
-  useEffect(() => {
-    const storedSettings = localStorage.getItem('systemSettings');
-    if (storedSettings) {
-      try {
-        const parsedSettings = JSON.parse(storedSettings);
-        if (parsedSettings && typeof parsedSettings === 'object') {
-          setSettings(parsedSettings);
-        }
-      } catch (error) {
-        console.error('Error parsing stored settings:', error);
-      }
-    }
-
-    const fetchSettings = async () => {
-      try {
-        const url = API_BASE_URL.includes('/api') 
-          ? `${API_BASE_URL}/system-settings`
-          : `${API_BASE_URL}/api/system-settings`;
-        
-        const response = await axios.get(url, getAuthHeaders());
-        if (response.data && typeof response.data === 'object') {
-          setSettings(response.data);
-          localStorage.setItem('systemSettings', JSON.stringify(response.data));
-        }
-      } catch (error) {
-        console.error('Error fetching system settings:', error);
-      }
-    };
-
-    fetchSettings();
-  }, []);
-
-  return settings;
 };
 
 const Holiday = () => {
@@ -108,11 +61,17 @@ const Holiday = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteItemId, setDeleteItemId] = useState(null);
   const [deleteItemTitle, setDeleteItemTitle] = useState("");
+  const [isEditingHoliday, setIsEditingHoliday] = useState(false);
 
   const statusOptions = ["Active", "Inactive"];
 
-  // Use system settings
-  const settings = useSystemSettings();
+  // Use system settings (aligned with College.jsx layout theme)
+  const { settings } = useSystemSettings();
+  const primaryColor = settings?.accentColor || '#FEF9E1';
+  const secondaryColor = settings?.backgroundColor || '#FFF8E7';
+  const accentColor = settings?.primaryColor || '#6d2323';
+  const accentDark = settings?.secondaryColor || settings?.hoverColor || '#8B3333';
+  const grayColor = settings?.textSecondaryColor || '#6c757d';
 
   //ACCESSING
   // Dynamic page access control using component identifier
@@ -300,8 +259,15 @@ const Holiday = () => {
       status: item.status || "Active",
       image: item.image || null,
     });
+    setIsEditingHoliday(false);
     setOpenEditModal(true);
     setError("");
+  };
+
+  const handleCloseEditModal = () => {
+    setOpenEditModal(false);
+    setIsEditingHoliday(false);
+    setEditingId(null);
   };
 
   const handleSaveEdit = async () => {
@@ -324,6 +290,7 @@ const Holiday = () => {
         headers: { Authorization: getAuthHeaders().headers.Authorization },
       });
       setOpenEditModal(false);
+      setIsEditingHoliday(false);
       setEditingId(null);
       fetchHoliday();
       setSuccessAction("edit");
@@ -393,17 +360,17 @@ const Holiday = () => {
     switch (status?.toLowerCase()) {
       case 'active':
         return {
-          sx: { bgcolor: alpha(settings?.primaryColor || '#894444', 0.15), color: settings?.primaryColor || '#894444' },
+          sx: { bgcolor: alpha('#2e7d32', 0.15), color: '#2e7d32' },
           icon: <CheckCircle />,
         };
       case 'inactive':
         return {
-          sx: { bgcolor: alpha(settings?.secondaryColor || '#6d2323', 0.15), color: settings?.secondaryColor || '#6d2323' },
+          sx: { bgcolor: alpha('#757575', 0.2), color: '#616161' },
           icon: <Cancel />,
         };
       default:
         return {
-          sx: { bgcolor: alpha(settings?.primaryColor || '#894444', 0.15), color: settings?.primaryColor || '#894444' },
+          sx: { bgcolor: alpha('#2e7d32', 0.15), color: '#2e7d32' },
           icon: <Info />,
         };
     }
@@ -443,135 +410,42 @@ const Holiday = () => {
   //ACCESSING END2
 
   return (
-    <Box
-      sx={{
-        py: 4,
-        borderRadius: "14px",
-        width: "100vw",
-        mx: "auto",
-        maxWidth: "100%",
-        overflow: "hidden",
-        position: "relative",
-        left: "50%",
-        transform: "translateX(-50%)",
-        minHeight: "92vh",
-      }}
-    >
-      <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
-        {/* Header */}
+    <Box sx={{ py: { xs: 2, md: 4 }, mt: { xs: 0, md: -5 }, width: '100%', maxWidth: '1600px', mx: 'auto', overflowX: 'hidden' }}>
+      <Box sx={{ px: { xs: 2, sm: 3, md: 6 } }}>
+        {/* Header - aligned with College.jsx */}
         <Fade in timeout={500}>
           <Box sx={{ mb: 4 }}>
             <GlassCard>
               <Box
                 sx={{
                   p: 5,
-                  background: `linear-gradient(135deg, ${settings?.accentColor || '#FEF9E1'} 0%, ${alpha(settings?.accentColor || '#FEF9E1', 0.9)} 100%)`,
-                  color: settings?.primaryColor || '#894444',
-                  position: "relative",
-                  overflow: "hidden",
+                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                  color: accentColor,
+                  position: 'relative',
+                  overflow: 'hidden',
                 }}
               >
-                <Box
-                  sx={{
-                    position: "absolute",
-                    top: -50,
-                    right: -50,
-                    width: 200,
-                    height: 200,
-                    background: `radial-gradient(circle, ${alpha(settings?.primaryColor || '#894444', 0.1)} 0%, ${alpha(settings?.primaryColor || '#894444', 0)} 70%)`,
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: "absolute",
-                    bottom: -30,
-                    left: "30%",
-                    width: 150,
-                    height: 150,
-                    background: `radial-gradient(circle, ${alpha(settings?.primaryColor || '#894444', 0.08)} 0%, ${alpha(settings?.primaryColor || '#894444', 0)} 70%)`,
-                  }}
-                />
-
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  position="relative"
-                  zIndex={1}
-                >
+                <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: 'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)' }} />
+                <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, background: 'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)' }} />
+                <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
                   <Box display="flex" alignItems="center">
-                    <Avatar
-                      sx={{
-                        bgcolor: alpha(settings?.primaryColor || '#894444', 0.15),
-                        mr: 4,
-                        width: 64,
-                        height: 64,
-                        boxShadow: `0 8px 24px ${alpha(settings?.primaryColor || '#894444', 0.15)}`,
-                      }}
-                    >
-                      <EventIcon sx={{ fontSize: 32, color: settings?.primaryColor || '#894444' }} />
+                    <Avatar sx={{ bgcolor: 'rgba(109,35,35,0.15)', mr: 4, width: 64, height: 64, boxShadow: '0 8px 24px rgba(109,35,35,0.15)' }}>
+                      <EventIcon sx={{ color: accentColor, fontSize: 32 }} />
                     </Avatar>
                     <Box>
-                      <Typography
-                        variant="h4"
-                        component="h1"
-                        sx={{
-                          fontWeight: 700,
-                          mb: 1,
-                          lineHeight: 1.2,
-                          color: settings?.primaryColor || '#894444',
-                        }}
-                      >
+                      <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: accentColor }}>
                         Holiday Management
                       </Typography>
-                      <Typography
-                        variant="body1"
-                        sx={{
-                          opacity: 0.8,
-                          fontWeight: 400,
-                          color: settings?.textPrimaryColor || '#6D2323',
-                        }}
-                      >
+                      <Typography variant="body1" sx={{ opacity: 0.8, fontWeight: 400, color: accentDark }}>
                         Manage and track official holidays each year
                       </Typography>
                     </Box>
                   </Box>
-                  
                   <Box display="flex" alignItems="center" gap={2}>
-                    <Chip
-                      label={`${data.length} Holidays`}
-                      size="small"
-                      sx={{
-                        bgcolor: alpha(settings?.primaryColor || '#894444', 0.15),
-                        color: settings?.primaryColor || '#894444',
-                        fontWeight: 500,
-                        "& .MuiChip-label": { px: 1 },
-                      }}
-                    />
+                    <Chip label={`${data.length} Holidays`} size="small" sx={{ bgcolor: 'rgba(109,35,35,0.15)', color: accentColor, fontWeight: 500, '& .MuiChip-label': { px: 1 } }} />
                     <Tooltip title="Refresh Holidays">
-                      <IconButton
-                        onClick={fetchHoliday}
-                        disabled={loading}
-                        sx={{
-                          bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
-                          "&:hover": { bgcolor: alpha(settings?.primaryColor || '#894444', 0.2) },
-                          color: settings?.primaryColor || '#894444',
-                          width: 48,
-                          height: 48,
-                          "&:disabled": {
-                            bgcolor: alpha(settings?.primaryColor || '#894444', 0.05),
-                            color: alpha(settings?.primaryColor || '#894444', 0.3),
-                          },
-                        }}
-                      >
-                        {loading ? (
-                          <CircularProgress
-                            size={24}
-                            sx={{ color: settings?.primaryColor || '#894444' }}
-                          />
-                        ) : (
-                          <Refresh />
-                        )}
+                      <IconButton onClick={fetchHoliday} disabled={loading} sx={{ bgcolor: 'rgba(109,35,35,0.1)', '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' }, color: accentColor, width: 48, height: 48, '&:disabled': { bgcolor: 'rgba(109,35,35,0.05)', color: 'rgba(109,35,35,0.3)' } }}>
+                        {loading ? <CircularProgress size={24} sx={{ color: accentColor }} /> : <Refresh />}
                       </IconButton>
                     </Tooltip>
                   </Box>
@@ -582,45 +456,14 @@ const Holiday = () => {
         </Fade>
 
         {/* Success Overlay */}
-        <SuccessfulOverlay 
-          open={successOpen} 
-          action={successAction} 
-          onClose={() => setSuccessOpen(false)} 
-        />
+        <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
 
-        {/* Error Alert - Center Modal Overlay */}
+        {/* Error Alert */}
         {error && (
-          <Backdrop
-            open={true}
-            sx={{
-              zIndex: 9999,
-              backdropFilter: "blur(8px)",
-              backgroundColor: "rgba(0, 0, 0, 0.5)",
-            }}
-            onClick={() => setError("")}
-          >
+          <Backdrop open={true} sx={{ zIndex: 9999, backdropFilter: 'blur(8px)', backgroundColor: 'rgba(0, 0, 0, 0.5)' }} onClick={() => setError('')}>
             <Fade in timeout={300}>
-              <Box
-                onClick={(e) => e.stopPropagation()}
-                sx={{
-                  position: "relative",
-                  minWidth: "400px",
-                  maxWidth: "600px",
-                }}
-              >
-                <Alert
-                  severity="error"
-                  sx={{
-                    borderRadius: 4,
-                    boxShadow: "0 12px 48px rgba(0, 0, 0, 0.4)",
-                    fontSize: "1.1rem",
-                    p: 3,
-                    "& .MuiAlert-message": { fontWeight: 500 },
-                    "& .MuiAlert-icon": { fontSize: "2rem" },
-                  }}
-                  icon={<Error />}
-                  onClose={() => setError("")}
-                >
+              <Box onClick={(e) => e.stopPropagation()} sx={{ position: 'relative', minWidth: '400px', maxWidth: '600px' }}>
+                <Alert severity="error" sx={{ borderRadius: 4, boxShadow: '0 12px 48px rgba(0, 0, 0, 0.4)', fontSize: '1.1rem', p: 3, '& .MuiAlert-message': { fontWeight: 500 }, '& .MuiAlert-icon': { fontSize: '2rem' } }} icon={<Error />} onClose={() => setError('')}>
                   {error}
                 </Alert>
               </Box>
@@ -628,45 +471,25 @@ const Holiday = () => {
           </Backdrop>
         )}
 
-        {/* Add Form */}
+        {/* Loading Backdrop - aligned with College */}
+        <Backdrop sx={{ color: accentColor, zIndex: (theme) => theme.zIndex.drawer + 1 }} open={loading && !refreshing}>
+          <Box sx={{ textAlign: 'center' }}>
+            <CircularProgress color="inherit" size={60} thickness={4} />
+            <Typography variant="h6" sx={{ mt: 2, color: accentColor }}>Processing holiday...</Typography>
+          </Box>
+        </Backdrop>
+
+        {/* Add New Holiday - GlassCard only, full width */}
         <Fade in timeout={700}>
           <GlassCard sx={{ mb: 4 }}>
-            <CardHeader
-              title={
-                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                  <Avatar
-                    sx={{
-                      bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.8),
-                      color: settings?.textPrimaryColor || '#6D2323',
-                    }}
-                  >
-                    <AddIcon />
-                  </Avatar>
-                  <Box>
-                    <Typography
-                      variant="h5"
-                      component="div"
-                      sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
-                    >
-                      Add New Holiday
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
-                    >
-                      Create a new holiday record
-                    </Typography>
-                  </Box>
-                </Box>
-              }
-              sx={{
-                bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.5),
-                pb: 2,
-                borderBottom: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.1)}`,
-              }}
-            />
-            <CardContent sx={{ p: 4 }}>
+            <Box sx={{ p: 4, background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`, color: accentColor, display: 'flex', alignItems: 'center', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)' }}>
+              <EventIcon sx={{ fontSize: '1.8rem', mr: 2 }} />
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 'bold' }}>Add New Holiday</Typography>
+                <Typography variant="caption" sx={{ opacity: 0.9 }}>Fill in the holiday information</Typography>
+              </Box>
+            </Box>
+            <Box sx={{ p: 4 }}>
               <Grid container spacing={3}>
                 <Grid item xs={12} md={6}>
                   <ModernTextField
@@ -801,86 +624,47 @@ const Holiday = () => {
                     disabled={loading}
                     fullWidth
                     sx={{
-                      bgcolor: settings?.primaryColor || '#894444',
-                      color: settings?.accentColor || '#FEF9E1',
-                      "&:hover": { bgcolor: settings?.secondaryColor || '#6d2323' },
+                      bgcolor: accentColor,
+                      color: primaryColor,
+                      "&:hover": { bgcolor: accentDark },
                     }}
                   >
                     {loading ? 'Adding...' : 'Add Holiday'}
                   </ProfessionalButton>
                 </Grid>
               </Grid>
-            </CardContent>
+            </Box>
           </GlassCard>
         </Fade>
 
-        {/* Loading Backdrop */}
-        <Backdrop
-          sx={{
-            color: settings?.accentColor || '#FEF9E1',
-            zIndex: (theme) => theme.zIndex.drawer + 1,
-          }}
-          open={loading && !refreshing}
-        >
-          <Box sx={{ textAlign: "center" }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: settings?.accentColor || '#FEF9E1' }}>
-              Processing holiday...
-            </Typography>
-          </Box>
-        </Backdrop>
-
-        {/* Holiday Table */}
-        {!loading && (
-          <Fade in timeout={900}>
-            <GlassCard>
-              <Box
-                sx={{
-                  p: 3,
-                  background: `linear-gradient(135deg, ${settings?.accentColor || '#FEF9E1'} 0%, ${alpha(settings?.accentColor || '#FEF9E1', 0.9)} 100%)`,
-                  color: settings?.primaryColor || '#894444',
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  borderBottom: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.1)}`,
-                }}
-              >
+        {/* Holiday Records - GlassCard only, full width */}
+        <Fade in timeout={900}>
+          <GlassCard>
+            <Box sx={{ p: 4, background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`, color: accentColor, display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <EventIcon sx={{ fontSize: '1.8rem', mr: 2 }} />
                 <Box>
-                  <Typography
-                    variant="h5"
-                    sx={{ fontWeight: 600, color: settings?.primaryColor || '#894444' }}
-                  >
-                    Holiday Records
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    sx={{ opacity: 0.8, color: settings?.accentColor || '#FEF9E1' }}
-                  >
-                    {searchQuery
-                      ? `Showing ${filteredData.length} of ${data.length} holidays matching "${searchQuery}"`
-                      : `Total: ${data.length} holidays`}
-                  </Typography>
-                </Box>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                  <ModernTextField
-                    size="small"
-                    variant="outlined"
-                    placeholder="Search by Holiday"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    sx={{ width: "300px" }}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <SearchIcon sx={{ color: settings?.primaryColor || '#894444' }} />
-                        </InputAdornment>
-                      ),
-                    }}
-                  />
+                  <Typography variant="h6" sx={{ fontWeight: 'bold' }}>Holiday Records</Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.9 }}>View and manage existing records</Typography>
                 </Box>
               </Box>
-
-              <Box sx={{ width: "100%" }}>
+              <ModernTextField
+                size="small"
+                variant="outlined"
+                placeholder="Search by title, about, or status"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                sx={{ width: 300 }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon sx={{ color: accentColor, mr: 1 }} />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Box>
+            <Box sx={{ width: "100%" }}>
                 <PremiumTableContainer elevation={0}>
                   <Table sx={{ minWidth: 800, width: "100%" }}>
                     <TableHead sx={{ bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.7) }}>
@@ -912,7 +696,7 @@ const Holiday = () => {
                       {filteredData.length === 0 ? (
                         <TableRow>
                           <TableCell
-                            colSpan={6}
+                            colSpan={7}
                             sx={{ textAlign: "center", py: 8 }}
                           >
                             <Box sx={{ textAlign: "center" }}>
@@ -990,16 +774,17 @@ const Holiday = () => {
                               />
                             </PremiumTableCell>
                             <PremiumTableCell sx={{ textAlign: "center", width: "18%" }}>
-                              <Box sx={{ display: "flex", justifyContent: "center", gap: 1 }}>
+                              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
                                 <Tooltip title="Edit Holiday">
                                   <ProfessionalButton
                                     onClick={() => handleEdit(item)}
                                     variant="contained"
                                     startIcon={<EditIcon />}
                                     sx={{
-                                      bgcolor: settings?.primaryColor || '#894444',
+                                      bgcolor: settings?.updateButtonColor || settings?.primaryColor || '#894444',
                                       color: settings?.accentColor || '#FEF9E1',
-                                      "&:hover": { bgcolor: settings?.secondaryColor || '#6d2323' },
+                                      minWidth: '120px',
+                                      "&:hover": { bgcolor: settings?.updateButtonHoverColor || settings?.secondaryColor || '#6d2323' },
                                     }}
                                   >
                                     Edit
@@ -1008,12 +793,17 @@ const Holiday = () => {
                                 <Tooltip title="Delete Holiday">
                                   <ProfessionalButton
                                     onClick={() => handleDelete(item.id, item.title || item.description)}
-                                    variant="contained"
+                                    variant="outlined"
                                     startIcon={<DeleteIcon />}
                                     sx={{
-                                      bgcolor: "#000000",
-                                      color: "#ffffff",
-                                      "&:hover": { bgcolor: "#333333" },
+                                      borderColor: settings?.deleteButtonColor || settings?.primaryColor || '#6d2323',
+                                      color: settings?.deleteButtonColor || settings?.primaryColor || '#6d2323',
+                                      minWidth: '120px',
+                                      '&:hover': {
+                                        backgroundColor: alpha(settings?.deleteButtonColor || settings?.primaryColor || '#6d2323', 0.1),
+                                        borderColor: settings?.deleteButtonHoverColor || settings?.secondaryColor || '#a31d1d',
+                                        color: settings?.deleteButtonHoverColor || settings?.secondaryColor || '#a31d1d',
+                                      },
                                     }}
                                   >
                                     Delete
@@ -1027,15 +817,14 @@ const Holiday = () => {
                     </TableBody>
                   </Table>
                 </PremiumTableContainer>
-              </Box>
-            </GlassCard>
-          </Fade>
-        )}
+            </Box>
+          </GlassCard>
+        </Fade>
 
-        {/* Edit Modal */}
+        {/* Edit Modal - same pattern as Children: view mode (Edit + Delete) then edit mode (Cancel + Save) */}
         <Dialog
           open={openEditModal}
-          onClose={() => setOpenEditModal(false)}
+          onClose={handleCloseEditModal}
           maxWidth="md"
           fullWidth
           PaperProps={{
@@ -1058,9 +847,9 @@ const Holiday = () => {
           >
             <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
               <EditIcon sx={{ fontSize: 30 }} />
-              Edit Holiday
+              {isEditingHoliday ? "Edit Holiday" : "Holiday Details"}
             </Box>
-            <IconButton onClick={() => setOpenEditModal(false)} sx={{ color: settings?.accentColor || '#FEF9E1' }}>
+            <IconButton onClick={handleCloseEditModal} sx={{ color: settings?.accentColor || '#FEF9E1' }}>
               <CloseIcon />
             </IconButton>
           </DialogTitle>
@@ -1070,6 +859,38 @@ const Holiday = () => {
                 {error}
               </Alert>
             )}
+            {!isEditingHoliday ? (
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <Typography variant="subtitle2" sx={{ color: settings?.textPrimaryColor || '#6D2323', fontWeight: 600 }}>Title</Typography>
+                  <Typography variant="body1" sx={{ mt: 0.5 }}>{editForm.title || "—"}</Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography variant="subtitle2" sx={{ color: settings?.textPrimaryColor || '#6D2323', fontWeight: 600 }}>About</Typography>
+                  <Typography variant="body1" sx={{ mt: 0.5 }}>{editForm.about || "—"}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" sx={{ color: settings?.textPrimaryColor || '#6D2323', fontWeight: 600 }}>Date Start</Typography>
+                  <Typography variant="body1" sx={{ mt: 0.5 }}>{editForm.date_start ? formatDateForDisplay(editForm.date_start) : "—"}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" sx={{ color: settings?.textPrimaryColor || '#6D2323', fontWeight: 600 }}>Date End</Typography>
+                  <Typography variant="body1" sx={{ mt: 0.5 }}>{editForm.date_end ? formatDateForDisplay(editForm.date_end) : "—"}</Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography variant="subtitle2" sx={{ color: settings?.textPrimaryColor || '#6D2323', fontWeight: 600 }}>Status</Typography>
+                  <Typography variant="body1" sx={{ mt: 0.5 }}>{editForm.status || "—"}</Typography>
+                </Grid>
+                {editForm.image && (
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" sx={{ color: settings?.textPrimaryColor || '#6D2323', fontWeight: 600 }}>Image</Typography>
+                    <Box sx={{ mt: 1 }}>
+                      <img src={getImageUrl(editForm.image)} alt="Holiday" style={{ maxWidth: 200, maxHeight: 120, borderRadius: 8, objectFit: 'cover' }} />
+                    </Box>
+                  </Grid>
+                )}
+              </Grid>
+            ) : (
             <Grid container spacing={3}>
               <Grid item xs={12}>
                 <ModernTextField
@@ -1204,36 +1025,81 @@ const Holiday = () => {
                 </Box>
               </Grid>
             </Grid>
+            )}
           </DialogContent>
-          <DialogActions sx={{ p: 3, bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.5) }}>
-            <ProfessionalButton
-              onClick={handleSaveEdit}
-              variant="contained"
-              startIcon={<SaveIcon />}
-              disabled={loading}
-              sx={{
-                bgcolor: settings?.primaryColor || '#894444',
-                color: settings?.accentColor || '#FEF9E1',
-                "&:hover": { bgcolor: settings?.secondaryColor || '#6d2323' },
-              }}
-            >
-              {loading ? 'Saving...' : 'Save'}
-            </ProfessionalButton>
-            <ProfessionalButton
-              onClick={() => setOpenEditModal(false)}
-              variant="outlined"
-              startIcon={<CancelIcon />}
-              sx={{
-                borderColor: settings?.primaryColor || '#894444',
-                color: settings?.primaryColor || '#894444',
-                "&:hover": {
-                  borderColor: settings?.secondaryColor || '#6d2323',
-                  bgcolor: alpha(settings?.primaryColor || '#894444', 0.05),
-                },
-              }}
-            >
-              Cancel
-            </ProfessionalButton>
+          <DialogActions sx={{ p: 3, bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.5), display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
+            {!isEditingHoliday ? (
+              <>
+                <ProfessionalButton
+                  onClick={() => setIsEditingHoliday(true)}
+                  variant="contained"
+                  startIcon={<EditIcon />}
+                  sx={{
+                    bgcolor: settings?.updateButtonColor || settings?.primaryColor || '#894444',
+                    color: settings?.accentColor || '#FEF9E1',
+                    minWidth: '120px',
+                    '&:hover': { bgcolor: settings?.updateButtonHoverColor || settings?.secondaryColor || '#6d2323' },
+                  }}
+                >
+                  Edit
+                </ProfessionalButton>
+                <ProfessionalButton
+                  onClick={() => {
+                    const idToDelete = editingId;
+                    const titleToShow = editForm.title || editForm.about;
+                    handleCloseEditModal();
+                    handleDelete(idToDelete, titleToShow);
+                  }}
+                  variant="outlined"
+                  startIcon={<DeleteIcon />}
+                  sx={{
+                    borderColor: settings?.deleteButtonColor || settings?.primaryColor || '#6d2323',
+                    color: settings?.deleteButtonColor || settings?.primaryColor || '#6d2323',
+                    minWidth: '120px',
+                    '&:hover': {
+                      backgroundColor: alpha(settings?.deleteButtonColor || settings?.primaryColor || '#6d2323', 0.1),
+                      borderColor: settings?.deleteButtonHoverColor || settings?.secondaryColor || '#a31d1d',
+                      color: settings?.deleteButtonHoverColor || settings?.secondaryColor || '#a31d1d',
+                    },
+                  }}
+                >
+                  Delete
+                </ProfessionalButton>
+              </>
+            ) : (
+              <>
+                <ProfessionalButton
+                  onClick={() => setIsEditingHoliday(false)}
+                  variant="outlined"
+                  startIcon={<CancelIcon />}
+                  sx={{
+                    borderColor: settings?.cancelButtonColor || '#6c757d',
+                    color: settings?.cancelButtonColor || '#6c757d',
+                    minWidth: '120px',
+                    '&:hover': {
+                      borderColor: settings?.cancelButtonHoverColor || '#5a6268',
+                      bgcolor: alpha(settings?.cancelButtonColor || '#6c757d', 0.1),
+                    },
+                  }}
+                >
+                  Cancel
+                </ProfessionalButton>
+                <ProfessionalButton
+                  onClick={handleSaveEdit}
+                  variant="contained"
+                  startIcon={<SaveIcon />}
+                  disabled={loading}
+                  sx={{
+                    bgcolor: settings?.updateButtonColor || settings?.primaryColor || '#894444',
+                    color: settings?.accentColor || '#FEF9E1',
+                    minWidth: '120px',
+                    '&:hover': { bgcolor: settings?.updateButtonHoverColor || settings?.secondaryColor || '#6d2323' },
+                  }}
+                >
+                  {loading ? 'Saving...' : 'Save'}
+                </ProfessionalButton>
+              </>
+            )}
           </DialogActions>
         </Dialog>
 
