@@ -33,6 +33,8 @@ import {
   Select,
   MenuItem,
   InputLabel,
+  ListSubheader,
+  ListItemIcon,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -50,6 +52,7 @@ import {
   ExpandLess as ExpandLessIcon,
   Refresh,
   Work as WorkIcon,
+  Circle,
 } from '@mui/icons-material';
 
 import ReorderIcon from '@mui/icons-material/Reorder';
@@ -444,6 +447,25 @@ const EmploymentCategoryManagement = () => {
   const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
   const hoverColor = settings.hoverColor || '#6D2323';
   const grayColor = '#6c757d';
+
+  // COLOR LEGEND: Map each ID to a unique professional color
+  // Used for borders and text
+  const getCategoryStyle = (catId) => {
+    switch (parseInt(catId)) {
+      case 0: // JO Graduated
+        return '#F57C00';
+      case 1: // JO UnderGrad
+        return '#E64A19';
+      case 2: // Regular Non-Teaching
+        return '#2E7D32';
+      case 3: // Regular Teaching
+        return '#1565C0';
+      case 4: // Regular 30Hrs
+        return '#7B1FA2';
+      default:
+        return '#757575';
+    }
+  };
 
   useEffect(() => {
     fetchEmploymentCategories();
@@ -1008,8 +1030,39 @@ const EmploymentCategoryManagement = () => {
                             },
                           }}
                         >
-                          <MenuItem value={0}>Job Order</MenuItem>
-                          <MenuItem value={1}>Regular</MenuItem>
+                          <ListSubheader>Job Order (JO)</ListSubheader>
+                          <MenuItem value={0}>
+                            <ListItemIcon sx={{ minWidth: 30 }}>
+                              <Circle sx={{ fontSize: 12, color: '#F57C00' }} />
+                            </ListItemIcon>
+                            Graduated
+                          </MenuItem>
+                          <MenuItem value={1}>
+                            <ListItemIcon sx={{ minWidth: 30 }}>
+                              <Circle sx={{ fontSize: 12, color: '#E64A19' }} />
+                            </ListItemIcon>
+                            UnderGrad
+                          </MenuItem>
+                          
+                          <ListSubheader>Regular</ListSubheader>
+                          <MenuItem value={2}>
+                            <ListItemIcon sx={{ minWidth: 30 }}>
+                              <Circle sx={{ fontSize: 12, color: '#2E7D32' }} />
+                            </ListItemIcon>
+                            Non-Teaching
+                          </MenuItem>
+                          <MenuItem value={3}>
+                            <ListItemIcon sx={{ minWidth: 30 }}>
+                              <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
+                            </ListItemIcon>
+                            Teaching (Designated)
+                          </MenuItem>
+                          <MenuItem value={4}>
+                            <ListItemIcon sx={{ minWidth: 30 }}>
+                              <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
+                            </ListItemIcon>
+                            30Hrs
+                          </MenuItem>
                         </ModernSelect>
                       </FormControl>
                     </Grid>
@@ -1179,13 +1232,6 @@ const EmploymentCategoryManagement = () => {
                                     mb: 1,
                                   }}
                                 >
-                                  <CategoryIcon
-                                    sx={{
-                                      fontSize: 18,
-                                      color: accentColor,
-                                      mr: 0.5,
-                                    }}
-                                  />
                                   <Typography
                                     variant="caption"
                                     sx={{
@@ -1214,13 +1260,16 @@ const EmploymentCategoryManagement = () => {
                                 <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 1 }}>
                                   <Chip
                                     label={record.categoryLabel}
+                                    variant="outlined"
+                                    size="small"
                                     sx={{
-                                      backgroundColor:
-                                        record.employmentCategory === 0
-                                          ? '#ed6c02'
-                                          : '#2e7d32',
-                                      color: '#fff',
-                                      fontWeight: 'bold',
+                                      color: getCategoryStyle(record.employmentCategory),
+                                      borderColor: getCategoryStyle(record.employmentCategory),
+                                      fontWeight: '600',
+                                      fontSize: '0.75rem',
+                                      '&:hover': {
+                                        backgroundColor: alpha(getCategoryStyle(record.employmentCategory), 0.04)
+                                      }
                                     }}
                                   />
                                 </Box>
@@ -1248,12 +1297,6 @@ const EmploymentCategoryManagement = () => {
                             <Box
                               sx={{ display: 'flex', alignItems: 'flex-start' }}
                             >
-                              <Box sx={{ mr: 1.5, mt: 0.2 }}>
-                                <CategoryIcon
-                                  sx={{ fontSize: 20, color: accentColor }}
-                                />
-                              </Box>
-
                               <Box sx={{ flexGrow: 1 }}>
                                 <Box
                                   sx={{
@@ -1287,13 +1330,16 @@ const EmploymentCategoryManagement = () => {
 
                                 <Chip
                                   label={record.categoryLabel}
+                                  variant="outlined"
+                                  size="small"
                                   sx={{
-                                    backgroundColor:
-                                      record.employmentCategory === 0
-                                        ? '#ed6c02'
-                                        : '#2e7d32',
-                                    color: '#fff',
-                                    fontWeight: 'bold',
+                                    color: getCategoryStyle(record.employmentCategory),
+                                    borderColor: getCategoryStyle(record.employmentCategory),
+                                    fontWeight: '600',
+                                    fontSize: '0.75rem',
+                                    '&:hover': {
+                                      backgroundColor: alpha(getCategoryStyle(record.employmentCategory), 0.04)
+                                    }
                                   }}
                                 />
                               </Box>
@@ -1550,8 +1596,39 @@ const EmploymentCategoryManagement = () => {
                                 },
                               }}
                             >
-                              <MenuItem value={0}>Job Order</MenuItem>
-                              <MenuItem value={1}>Regular</MenuItem>
+                              <ListSubheader>Job Order (JO)</ListSubheader>
+                              <MenuItem value={0}>
+                                <ListItemIcon sx={{ minWidth: 30 }}>
+                                  <Circle sx={{ fontSize: 12, color: '#F57C00' }} />
+                                </ListItemIcon>
+                                Graduated
+                              </MenuItem>
+                              <MenuItem value={1}>
+                                <ListItemIcon sx={{ minWidth: 30 }}>
+                                  <Circle sx={{ fontSize: 12, color: '#E64A19' }} />
+                                </ListItemIcon>
+                                UnderGrad
+                              </MenuItem>
+                              
+                              <ListSubheader>Regular</ListSubheader>
+                              <MenuItem value={2}>
+                                <ListItemIcon sx={{ minWidth: 30 }}>
+                                  <Circle sx={{ fontSize: 12, color: '#2E7D32' }} />
+                                </ListItemIcon>
+                                Non-Teaching
+                              </MenuItem>
+                              <MenuItem value={3}>
+                                <ListItemIcon sx={{ minWidth: 30 }}>
+                                  <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
+                                </ListItemIcon>
+                                Teaching (Designated)
+                              </MenuItem>
+                              <MenuItem value={4}>
+                                <ListItemIcon sx={{ minWidth: 30 }}>
+                                  <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
+                                </ListItemIcon>
+                                30Hrs
+                              </MenuItem>
                             </ModernSelect>
                           </FormControl>
                         </>
@@ -1559,16 +1636,17 @@ const EmploymentCategoryManagement = () => {
                         <Box
                           sx={{
                             p: 1.5,
-                            bgcolor: 'rgba(254, 249, 225, 0.5)',
+                            bgcolor: 'transparent',
                             borderRadius: 1,
-                            border: '1px solid rgba(109, 35, 35, 0.2)',
+                            border: `1px solid ${getCategoryStyle(editRecord.employmentCategory)}`,
                             display: 'flex',
                             alignItems: 'center',
+                            color: getCategoryStyle(editRecord.employmentCategory),
                           }}
                         >
-                          <WorkIcon sx={{ color: accentColor, mr: 1 }} />
-                          <Typography variant="body2">
-                            Category: {editRecord.categoryLabel}
+                          <WorkIcon sx={{ mr: 1 }} />
+                          <Typography variant="body2" fontWeight="bold">
+                            {editRecord.categoryLabel}
                           </Typography>
                         </Box>
                       )}

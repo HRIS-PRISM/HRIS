@@ -1854,7 +1854,7 @@ const Sidebar = ({
                         <CalculateIcon />
                       </ListItemIcon>
                       <ListItemText
-                        primary="Payroll Formulas"
+                        primary="Payroll Formulations"
                         sx={{ marginLeft: "-10px" }}
                       />
                     </ListItem>
@@ -1908,7 +1908,7 @@ const Sidebar = ({
                         <AdminPanelSettings />
                       </ListItemIcon>
                       <ListItemText
-                        primary="Admin Security"
+                        primary="Admin Management"
                         sx={{ marginLeft: "-10px" }}
                       />
                     </ListItem>

@@ -1026,7 +1026,7 @@ const SystemSetting = () => {
                 }}
               />
               <CardContent sx={{ p: 4, bgcolor: (settings.accentColor), overflow: 'visible' }}>
-                <Grid container spacing={2} sx={{ display: 'flex', flexWrap: { xs: 'wrap', sm: 'wrap', md: 'nowrap' } }}>
+                <Grid container spacing={2} sx={{ display: 'flex', flexWrap: { xs: 'wrap', sm: 'wrap', md: 'nowrap' }, alignItems: 'stretch' }}>
                   {[
                     { 
                       label: 'Create Button', 
@@ -1069,8 +1069,8 @@ const SystemSetting = () => {
                       defaultHover: '#5a6268'
                     },
                   ].map(({ label, icon, colorField, hoverField, defaultColor, defaultHover }) => (
-                    <Grid item xs={12} sm={6} md={true} key={colorField} sx={{ flex: { md: '1 1 0%' }, minWidth: 0 }}>
-                      <Box sx={{ position: 'relative', zIndex: 1000, overflow: 'visible' }}>
+                    <Grid item xs={12} sm={6} md={true} key={colorField} sx={{ flex: { md: '1 1 0%' }, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                      <Box sx={{ position: 'relative', zIndex: 1000, overflow: 'visible', display: 'flex', flexDirection: 'column', height: '100%' }}>
                         <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: settings.textPrimaryColor, display: 'flex', alignItems: 'center', gap: 1 }}>
                           {icon}
                           {label}
@@ -1148,7 +1148,7 @@ const SystemSetting = () => {
                         </Box>
 
                         {/* Color Picker for Hover State */}
-                        <Box>
+                        <Box sx={{ mt: 'auto' }}>
                           <Typography variant="caption" sx={{ mb: 0.5, display: 'block', color: settings.textPrimaryColor, opacity: 0.8 }}>
                             Hover Color
                           </Typography>

@@ -6,7 +6,7 @@ const { authenticateToken, logAudit } = require('../middleware/auth');
 const transporter = require('../config/email');
 const { notifyPayrollChanged } = require('../socket/socketService');
 
-// REGISTER - Updated with email notification
+// REGISTER - Updated with email notification and 5 categories
 router.post('/register', async (req, res) => {
   const {
     firstName,
@@ -30,6 +30,18 @@ router.post('/register', async (req, res) => {
     ]
       .filter(Boolean)
       .join(' ');
+
+    // Helper for Category Label
+    const getCategoryLabel = (cat) => {
+      switch (parseInt(cat)) {
+        case 0: return 'Job Order - Graduate';
+        case 1: return 'Job Order - UnderGrad';
+        case 2: return 'Regular - Non-Teaching';
+        case 3: return 'Regular - Teaching (Designated)';
+        case 4: return 'Regular - 30Hrs';
+        default: return 'Job Order - Graduated'; // Default fallback
+      }
+    };
 
     const checkQuery = `
       SELECT employeeNumber FROM users WHERE employeeNumber = ? 
@@ -162,8 +174,6 @@ router.post('/register', async (req, res) => {
                           db.query(insertAccessQuery, [employeeNumber, page.id], (insertErr) => {
                             if (insertErr) {
                               console.error('Error granting default page access:', insertErr);
-                            } else {
-                              console.log(`Granted default access to page ${page.id} for new staff user ${employeeNumber}`);
                             }
                           });
                         });
@@ -171,6 +181,8 @@ router.post('/register', async (req, res) => {
                     });
 
                     // SEND EMAIL WITH CREDENTIALS
+                    const categoryLabel = getCategoryLabel(employmentCategory ?? 0);
+
                     try {
                       await transporter.sendMail({
                         from: `"HRIS System" <${process.env.GMAIL_USER}>`,
@@ -184,203 +196,78 @@ router.post('/register', async (req, res) => {
                           <meta name="viewport" content="width=device-width, initial-scale=1.0">
                           <title>Login Information</title>
                           <style>
-                          * { margin: 0; padding: 0; box-sizing: border-box; }
-                          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f4f4f4; color: #333333; line-height: 1.6; }
-                          .email-wrapper { width: 100%; background-color: #f4f4f4; padding: 30px 15px; }
-                          .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); }
-                          .email-header { background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 30px; text-align: center; }
-                          .email-header h1 { color: #ffffff; font-size: 24px; font-weight: 600; margin: 0; }
-                          .email-body { padding: 35px 30px; }
-                          .greeting {
-                            font-size: 15px;
-                            color: #333333;
-                            margin-bottom: 15px;
-                          }
-                          .greeting strong {
-                            color: #6d2323;
-                          }
-                          .intro-text {
-                            font-size: 14px;
-                            color: #555555;
-                            margin-bottom: 25px;
-                            line-height: 1.7;
-                          }
-                          .credentials-box {
-                            background: #fafafa;
-                            border: 2px solid #f5e6e6;
-                            border-radius: 6px;
-                            padding: 25px;
-                            margin: 25px 0;
-                          }
-                          .credential-row {
-                            margin-bottom: 15px;
-                            padding-bottom: 15px;
-                            border-bottom: 1px solid #eeeeee;
-                          }
-                          .credential-row:last-child {
-                            margin-bottom: 0;
-                            padding-bottom: 0;
-                            border-bottom: none;
-                          }
-                          .credential-label {
-                            font-size: 12px;
-                            color: #6d2323;
-                            font-weight: 600;
-                            text-transform: uppercase;
-                            margin-bottom: 5px;
-                            letter-spacing: 0.5px;
-                          }
-                          .credential-value {
-                            font-size: 15px;
-                            color: #2c3e50;
-                            font-weight: 500;
-                          }
-                          .credential-value.highlight {
-                            background: #fff8e1;
-                            padding: 10px 15px;
-                            border-radius: 4px;
-                            font-family: 'Courier New', Courier, monospace;
-                            font-size: 16px;
-                            letter-spacing: 1px;
-                            color: #856404;
-                            border: 2px solid #ffc107;
-                            display: inline-block;
-                            margin-top: 5px;
-                            font-weight: 700;
-                          }
-                          .credential-value.empnum {
-                            font-family: 'Courier New', Courier, monospace;
-                            font-size: 16px;
-                            color: #6d2323;
-                            font-weight: 700;
-                          }
-                          .note-box {
-                            background: #fff8e1;
-                            border-left: 4px solid #6d2323;
-                            padding: 15px 20px;
-                            margin: 25px 0;
-                            border-radius: 4px;
-                          }
-                          .note-box p {
-                            font-size: 13px;
-                            color: #555555;
-                            margin: 0;
-                            line-height: 1.6;
-                          }
-                          .note-box strong {
-                            color: #6d2323;
-                          }
-                          .action-section {
-                            text-align: center;
-                            margin: 30px 0 25px;
-                          }
-                          .action-button {
-                            display: inline-block;
-                            background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%);
-                            color: #ffffff !important;
-                            padding: 14px 40px;
-                            text-decoration: none;
-                            border-radius: 5px;
-                            font-weight: 600;
-                            font-size: 15px;
-                            box-shadow: 0 4px 12px rgba(109, 35, 35, 0.25);
-                            transition: all 0.3s ease;
-                          }
-                          .action-button:hover {
-                            background: linear-gradient(135deg, #5a1e1e 0%, #6d2323 100%);
-                            transform: translateY(-2px);
-                            color: #ffffff !important;
-                          }
-                          a.action-button {
-                            color: #ffffff !important;
+                            * { margin: 0; padding: 0; box-sizing: border-box; }
+                            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f4f4f4; color: #333333; line-height: 1.6; }
+                            .email-wrapper { width: 100%; background-color: #f4f4f4; padding: 30px 15px; }
+                            .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+                            .email-header { background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 30px; text-align: center; }
+                            .email-header h1 { color: #ffffff; font-size: 24px; font-weight: 600; margin: 0; }
+                            .email-body { padding: 35px 30px; }
+                            .greeting { font-size: 15px; color: #333333; margin-bottom: 15px; }
+                            .greeting strong { color: #6d2323; }
+                            .intro-text { font-size: 14px; color: #555555; margin-bottom: 25px; line-height: 1.7; }
+                            .credentials-box { background: #fafafa; border: 2px solid #f5e6e6; border-radius: 6px; padding: 25px; margin: 25px 0; }
+                            .credential-row { margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eeeeee; }
+                            .credential-row:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+                            .credential-label { font-size: 12px; color: #6d2323; font-weight: 600; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 0.5px; }
+                            .credential-value { font-size: 15px; color: #2c3e50; font-weight: 500; }
+                            .credential-value.highlight { background: #fff8e1; padding: 10px 15px; border-radius: 4px; font-family: 'Courier New', Courier, monospace; font-size: 16px; letter-spacing: 1px; color: #856404; border: 2px solid #ffc107; display: inline-block; margin-top: 5px; font-weight: 700; }
+                            .credential-value.empnum { font-family: 'Courier New', Courier, monospace; font-size: 16px; color: #6d2323; font-weight: 700; }
+                            .note-box { background: #fff8e1; border-left: 4px solid #6d2323; padding: 15px 20px; margin: 25px 0; border-radius: 4px; }
+                            .note-box p { font-size: 13px; color: #555555; margin: 0; line-height: 1.6; }
+                            .note-box strong { color: #6d2323; }
+                            .action-section { text-align: center; margin: 30px 0 25px; }
+                            .action-button { display: inline-block; background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); color: #ffffff !important; padding: 14px 40px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 12px rgba(109, 35, 35, 0.25); transition: all 0.3s ease; }
+                            .action-button:hover { background: linear-gradient(135deg, #5a1e1e 0%, #6d2323 100%); transform: translateY(-2px); color: #ffffff !important; }
+                            a.action-button { color: #ffffff !important; }
+                            a.action-button:visited { color: #ffffff !important; }
+                            a.action-button:active { color: #ffffff !important; }
+                            .support-text { font-size: 13px; color: #777777; text-align: center; margin-top: 25px; padding-top: 20px; border-top: 1px solid #eeeeee; }
+                            .email-footer { background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 25px; text-align: center; }
+                            .footer-text { font-size: 12px; color: #f5e6e6; margin: 5px 0; }
+                            @media only screen and (max-width: 600px) {
+                              .email-wrapper { padding: 20px 10px; }
+                              .email-body { padding: 25px 20px; }
+                              .email-header h1 { font-size: 22px; }
+                              .credentials-box { padding: 20px; }
                             }
-                            a.action-button:visited {
-                              color: #ffffff !important;
-                            }
-                            a.action-button:active {
-                              color: #ffffff !important;
-                            }
-                            .support-text {
-                            font-size: 13px;
-                            color: #777777;
-                            text-align: center;
-                            margin-top: 25px;
-                            padding-top: 20px;
-                            border-top: 1px solid #eeeeee;
-                          }
-                          .email-footer {
-                            background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%);
-                            padding: 25px;
-                            text-align: center;
-                          }
-                          .footer-text {
-                            font-size: 12px;
-                            color: #f5e6e6;
-                            margin: 5px 0;
-                          }
-                          @media only screen and (max-width: 600px) {
-                            .email-wrapper {
-                              padding: 20px 10px;
-                            }
-                            .email-body {
-                              padding: 25px 20px;
-                            }
-                            .email-header h1 {
-                              font-size: 22px;
-                            }
-                            .credentials-box {
-                              padding: 20px;
-                            }
-                          }
-                        </style>
+                          </style>
                       </head>
                       <body>
                         <div class="email-wrapper">
                           <div class="email-container">
-                            
                             <!-- Header -->
                             <div class="email-header">
                               <h1>Welcome!</h1>
                             </div>
-                            
                             <!-- Body -->
                             <div class="email-body">
                               <p class="greeting">Hello <strong>${fullName}</strong>,</p>
-                              
                               <p class="intro-text">
                                 Your employee account has been created. You can now access your payslip, 
                                 check attendance, and manage your personal information online.
                               </p>
-                              
                               <!-- Credentials -->
                               <div class="credentials-box">
                                 <div class="credential-row">
                                   <div class="credential-label">Employee Number</div>
                                   <div class="credential-value empnum">${employeeNumber}</div>
                                 </div>
-                                
                                 <div class="credential-row">
                                   <div class="credential-label">Email</div>
                                   <div class="credential-value">${email}</div>
                                 </div>
-                                
                                 <div class="credential-row">
                                   <div class="credential-label">Temporary Password</div>
                                   <div class="credential-value">
                                     <span class="highlight">${password}</span>
                                   </div>
                                 </div>
-                                
                                 <div class="credential-row">
                                   <div class="credential-label">Employment Type</div>
-                                  <div class="credential-value">${
-                                    employmentCategory === 1
-                                      ? 'Regular'
-                                      : 'Job Order'
-                                  }</div>
+                                  <div class="credential-value">${categoryLabel}</div>
                                 </div>
                               </div>
-                              
                               <!-- Security Note -->
                               <div class="note-box">
                                 <p>
@@ -388,7 +275,6 @@ router.post('/register', async (req, res) => {
                                   Never share your login details with anyone.
                                 </p>
                               </div>
-                              
                               <!-- Login Button -->
                               <div class="action-section">
                                 <a href="${
@@ -398,19 +284,16 @@ router.post('/register', async (req, res) => {
                                   LOGIN NOW
                                 </a>
                               </div>
-                              
                               <!-- Support -->
                               <p class="support-text">
                                 Need help? Contact HR Department during office hours or send a message to earisthrmstesting@gmail.com
                               </p>
                             </div>
-                            
                             <!-- Footer -->
                             <div class="email-footer">
                               <p class="footer-text">Human Resources Information System</p>
                               <p class="footer-text">© ${new Date().getFullYear()} Eulogio "Amang" Rodriguez Institute of Science and Technology. All rights reserved.</p>
                             </div>
-                            
                           </div>
                         </div>
                       </body>
@@ -426,7 +309,6 @@ router.post('/register', async (req, res) => {
                         'Error sending credentials email:',
                         emailError
                       );
-                      // Don't fail registration if email fails
                     }
 
                     // Assign default official time for new user
@@ -486,11 +368,6 @@ router.post('/register', async (req, res) => {
                           `Error assigning default official time for ${employeeNumber}:`,
                           officialTimeErr
                         );
-                        // Don't fail registration if official time assignment fails
-                      } else {
-                        console.log(
-                          `Default official time assigned to ${employeeNumber}`
-                        );
                       }
                     });
 
@@ -503,17 +380,13 @@ router.post('/register', async (req, res) => {
                       db.query(
                         deptAssignmentQuery,
                         [department, null, employeeNumber],
-                        (deptErr, deptResult) => {
+                        (deptErr) => {
                           if (deptErr) {
                             console.error(
                               `Error creating department assignment for ${employeeNumber}:`,
                               deptErr
                             );
-                            // Don't fail registration if department assignment fails
                           } else {
-                            console.log(
-                              `Department assignment created for ${employeeNumber} with department ${department}`
-                            );
                             try {
                               notifyPayrollChanged('created', {
                                 module: 'department-assignment',
@@ -546,7 +419,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// BULK REGISTER WITH EMAIL
+// BULK REGISTER WITH EMAIL (Updated logic)
 router.post('/excel-register', async (req, res) => {
   const { users } = req.body;
 
@@ -577,7 +450,7 @@ router.post('/excel-register', async (req, res) => {
         db.query(settingsQuery, (err, rows) => {
           if (err) {
             console.error('Error fetching field requirements:', err);
-            return resolve(); // Use defaults
+            return resolve();
           }
           if (rows.length > 0 && rows[0].setting_value) {
             try {
@@ -592,6 +465,18 @@ router.post('/excel-register', async (req, res) => {
     } catch (settingsErr) {
       console.error('Error loading field requirements, using defaults:', settingsErr);
     }
+
+    // Helper for Category Label
+    const getCategoryLabel = (cat) => {
+      switch (parseInt(cat)) {
+        case 0: return 'Job Order - Graduate';
+        case 1: return 'Job Order - UnderGrad';
+        case 2: return 'Regular - Non-Teaching';
+        case 3: return 'Regular - Teaching (Designated)';
+        case 4: return 'Regular - 30Hrs';
+        default: return 'Job Order - Graduated';
+      }
+    };
 
     await Promise.all(
       users.map(
@@ -608,27 +493,32 @@ router.post('/excel-register', async (req, res) => {
 
             // Validate employmentCategory based on field requirements
             if (fieldRequirements.employmentCategory) {
-              // Field is required, validate it
+              // Field is required, validate it (0-4)
               if (
                 user.employmentCategory !== '0' &&
-                user.employmentCategory !== '1'
+                user.employmentCategory !== '1' &&
+                user.employmentCategory !== '2' &&
+                user.employmentCategory !== '3' &&
+                user.employmentCategory !== '4'
               ) {
                 errors.push(
-                  `Invalid employmentCategory for ${user.employeeNumber}: Must be '0' (JO) or '1' (Regular)`
+                  `Invalid employmentCategory for ${user.employeeNumber}: Must be 0 (JO Graduated), 1 (JO UnderGrad), 2 (Reg Non-Teaching), 3 (Reg Teaching), or 4 (Reg 30Hrs)`
                 );
                 return resolve();
               }
             } else {
               // Field is not required
-              // If provided, validate it; otherwise set default
-              if (user.employmentCategory === '0' || user.employmentCategory === '1') {
+              // If provided, validate it; otherwise set default to '1'
+              if (
+                ['0','1','2','3','4'].includes(String(user.employmentCategory))
+              ) {
                 // Valid value provided, use it
               } else if (user.employmentCategory !== undefined && 
                          user.employmentCategory !== null && 
                          user.employmentCategory !== '') {
                 // Invalid value provided
                 errors.push(
-                  `Invalid employmentCategory for ${user.employeeNumber}: Must be '0' (JO) or '1' (Regular)`
+                  `Invalid employmentCategory for ${user.employeeNumber}: Must be 0-4.`
                 );
                 return resolve();
               } else {
@@ -719,7 +609,6 @@ router.post('/excel-register', async (req, res) => {
                           errors.push(
                             `Error inserting person ${user.employeeNumber}: ${err.message}`
                           );
-                          // Clean up user record
                           db.query(
                             'DELETE FROM users WHERE employeeNumber = ?',
                             [user.employeeNumber]
@@ -740,7 +629,6 @@ router.post('/excel-register', async (req, res) => {
                               errors.push(
                                 `Error checking employment category ${user.employeeNumber}: ${checkErr.message}`
                               );
-                              // Rollback
                               db.query(
                                 'DELETE FROM person_table WHERE agencyEmployeeNum = ?',
                                 [user.employeeNumber]
@@ -755,14 +643,12 @@ router.post('/excel-register', async (req, res) => {
                             // If record exists, update it; otherwise insert
                             let empCatQuery;
                             if (existingEmpCat.length > 0) {
-                              // Update existing record
                               empCatQuery = `
                                 UPDATE employment_category 
                                 SET employmentCategory = ?
                                 WHERE employeeNumber = ?
                               `;
                             } else {
-                              // Insert new record
                               empCatQuery = `
                                 INSERT INTO employment_category (employeeNumber, employmentCategory)
                                 VALUES (?, ?)
@@ -811,8 +697,6 @@ router.post('/excel-register', async (req, res) => {
                                       db.query(insertAccessQuery, [user.employeeNumber, page.id], (insertErr) => {
                                         if (insertErr) {
                                           console.error('Error granting default page access:', insertErr);
-                                        } else {
-                                          console.log(`Granted default access to page ${page.id} for bulk registered staff user ${user.employeeNumber}`);
                                         }
                                       });
                                     });
@@ -820,165 +704,160 @@ router.post('/excel-register', async (req, res) => {
                                 });
 
                                 // SEND EMAIL WITH CREDENTIALS
+                                const categoryLabel = getCategoryLabel(user.employmentCategory);
                                 try {
-                              await transporter.sendMail({
-                                from: `"HRIS System" <${process.env.GMAIL_USER}>`,
-                                to: user.email,
-                                subject:
-                                  'Welcome to EARIST - Your Login Information',
-                                html: `
-                                  <!DOCTYPE html>
-                                  <html lang="en">
-                                  <head>
-                                    <meta charset="UTF-8">
-                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                    <title>Login Information</title>
-                                    <style>
-                                      * { margin: 0; padding: 0; box-sizing: border-box; }
-                                      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f4f4f4; color: #333333; line-height: 1.6; }
-                                      .email-wrapper { width: 100%; background-color: #f4f4f4; padding: 30px 15px; }
-                                      .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); }
-                                      .email-header { background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 30px; text-align: center; }
-                                      .email-header h1 { color: #ffffff; font-size: 24px; font-weight: 600; margin: 0; }
-                                      .email-body { padding: 35px 30px; }
-                                      .greeting { font-size: 15px; color: #333333; margin-bottom: 15px; }
-                                      .greeting strong { color: #6d2323; }
-                                      .intro-text { font-size: 14px; color: #555555; margin-bottom: 25px; line-height: 1.7; }
-                                      .credentials-box { background: #fafafa; border: 2px solid #f5e6e6; border-radius: 6px; padding: 25px; margin: 25px 0; }
-                                      .credential-row { margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eeeeee; }
-                                      .credential-row:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
-                                      .credential-label { font-size: 12px; color: #6d2323; font-weight: 600; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 0.5px; }
-                                      .credential-value { font-size: 15px; color: #2c3e50; font-weight: 500; }
-                                      .credential-value.highlight { background: #fff8e1; padding: 10px 15px; border-radius: 4px; font-family: 'Courier New', Courier, monospace; font-size: 16px; letter-spacing: 1px; color: #856404; border: 2px solid #ffc107; display: inline-block; margin-top: 5px; font-weight: 700; }
-                                      .credential-value.empnum { font-family: 'Courier New', Courier, monospace; font-size: 16px; color: #6d2323; font-weight: 700; }
-                                      .note-box { background: #fff8e1; border-left: 4px solid #6d2323; padding: 15px 20px; margin: 25px 0; border-radius: 4px; }
-                                      .note-box p { font-size: 13px; color: #555555; margin: 0; line-height: 1.6; }
-                                      .note-box strong { color: #6d2323; }
-                                      .action-section { text-align: center; margin: 30px 0 25px; }
-                                      .action-button { display: inline-block; background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); color: #ffffff !important; padding: 14px 40px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 12px rgba(109, 35, 35, 0.25); transition: all 0.3s ease; }
-                                      .action-button:hover { background: linear-gradient(135deg, #5a1e1e 0%, #6d2323 100%); transform: translateY(-2px); }
-                                      .support-text { font-size: 13px; color: #777777; text-align: center; margin-top: 25px; padding-top: 20px; border-top: 1px solid #eeeeee; }
-                                      .email-footer { background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 25px; text-align: center; }
-                                      .footer-text { font-size: 12px; color: #f5e6e6; margin: 5px 0; }
-                                      @media only screen and (max-width: 600px) { .email-wrapper { padding: 20px 10px; } .email-body { padding: 25px 20px; } .email-header h1 { font-size: 22px; } .credentials-box { padding: 20px; } }
-                                    </style>
-                                  </head>
-                                  <body>
-                                    <div class="email-wrapper">
-                                      <div class="email-container">
-                                        <div class="email-header">
-                                          <h1>Welcome!</h1>
-                                        </div>
-                                        <div class="email-body">
-                                          <p class="greeting">Hello <strong>${fullName}</strong>,</p>
-                                          <p class="intro-text">
-                                            Your employee account has been created. You can now access your payslip, 
-                                            check attendance, and manage your personal information online.
-                                          </p>
-                                          <div class="credentials-box">
-                                            <div class="credential-row">
-                                              <div class="credential-label">Employee Number</div>
-                                              <div class="credential-value empnum">${
-                                                user.employeeNumber
-                                              }</div>
+                                  await transporter.sendMail({
+                                    from: `"HRIS System" <${process.env.GMAIL_USER}>`,
+                                    to: user.email,
+                                    subject:
+                                      'Welcome to EARIST - Your Login Information',
+                                    html: `
+                                      <!DOCTYPE html>
+                                      <html lang="en">
+                                      <head>
+                                        <meta charset="UTF-8">
+                                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                        <title>Login Information</title>
+                                        <style>
+                                          * { margin: 0; padding: 0; box-sizing: border-box; }
+                                          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f4f4f4; color: #333333; line-height: 1.6; }
+                                          .email-wrapper { width: 100%; background-color: #f4f4f4; padding: 30px 15px; }
+                                          .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+                                          .email-header { background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 30px; text-align: center; }
+                                          .email-header h1 { color: #ffffff; font-size: 24px; font-weight: 600; margin: 0; }
+                                          .email-body { padding: 35px 30px; }
+                                          .greeting { font-size: 15px; color: #333333; margin-bottom: 15px; }
+                                          .greeting strong { color: #6d2323; }
+                                          .intro-text { font-size: 14px; color: #555555; margin-bottom: 25px; line-height: 1.7; }
+                                          .credentials-box { background: #fafafa; border: 2px solid #f5e6e6; border-radius: 6px; padding: 25px; margin: 25px 0; }
+                                          .credential-row { margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eeeeee; }
+                                          .credential-row:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+                                          .credential-label { font-size: 12px; color: #6d2323; font-weight: 600; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 0.5px; }
+                                          .credential-value { font-size: 15px; color: #2c3e50; font-weight: 500; }
+                                          .credential-value.highlight { background: #fff8e1; padding: 10px 15px; border-radius: 4px; font-family: 'Courier New', Courier, monospace; font-size: 16px; letter-spacing: 1px; color: #856404; border: 2px solid #ffc107; display: inline-block; margin-top: 5px; font-weight: 700; }
+                                          .credential-value.empnum { font-family: 'Courier New', Courier, monospace; font-size: 16px; color: #6d2323; font-weight: 700; }
+                                          .note-box { background: #fff8e1; border-left: 4px solid #6d2323; padding: 15px 20px; margin: 25px 0; border-radius: 4px; }
+                                          .note-box p { font-size: 13px; color: #555555; margin: 0; line-height: 1.6; }
+                                          .note-box strong { color: #6d2323; }
+                                          .action-section { text-align: center; margin: 30px 0 25px; }
+                                          .action-button { display: inline-block; background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); color: #ffffff !important; padding: 14px 40px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 12px rgba(109, 35, 35, 0.25); transition: all 0.3s ease; }
+                                          .action-button:hover { background: linear-gradient(135deg, #5a1e1e 0%, #6d2323 100%); transform: translateY(-2px); }
+                                          a.action-button { color: #ffffff !important; text-decoration: none; }
+                                          a.action-button:visited { color: #ffffff !important; }
+                                          a.action-button:active { color: #ffffff !important; }
+                                          .support-text { font-size: 13px; color: #777777; text-align: center; margin-top: 25px; padding-top: 20px; border-top: 1px solid #eeeeee; }
+                                          .email-footer { background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 25px; text-align: center; }
+                                          .footer-text { font-size: 12px; color: #f5e6e6; margin: 5px 0; }
+                                          @media only screen and (max-width: 600px) { .email-wrapper { padding: 20px 10px; } .email-body { padding: 25px 20px; } .email-header h1 { font-size: 22px; } .credentials-box { padding: 20px; } }
+                                        </style>
+                                      </head>
+                                      <body>
+                                        <div class="email-wrapper">
+                                          <div class="email-container">
+                                            <div class="email-header">
+                                              <h1>Welcome!</h1>
                                             </div>
-                                            <div class="credential-row">
-                                              <div class="credential-label">Email</div>
-                                              <div class="credential-value">${
-                                                user.email
-                                              }</div>
-                                            </div>
-                                            <div class="credential-row">
-                                              <div class="credential-label">Temporary Password</div>
-                                              <div class="credential-value">
-                                                <span class="highlight">${
-                                                  user.password
-                                                }</span>
+                                            <div class="email-body">
+                                              <p class="greeting">Hello <strong>${fullName}</strong>,</p>
+                                              <p class="intro-text">
+                                                Your employee account has been created. You can now access your payslip, 
+                                                check attendance, and manage your personal information online.
+                                              </p>
+                                              <div class="credentials-box">
+                                                <div class="credential-row">
+                                                  <div class="credential-label">Employee Number</div>
+                                                  <div class="credential-value empnum">${
+                                                    user.employeeNumber
+                                                  }</div>
+                                                </div>
+                                                <div class="credential-row">
+                                                  <div class="credential-label">Email</div>
+                                                  <div class="credential-value">${
+                                                    user.email
+                                                  }</div>
+                                                </div>
+                                                <div class="credential-row">
+                                                  <div class="credential-label">Temporary Password</div>
+                                                  <div class="credential-value">
+                                                    <span class="highlight">${
+                                                      user.password
+                                                    }</span>
+                                                  </div>
+                                                </div>
+                                                <div class="credential-row">
+                                                  <div class="credential-label">Employment Type</div>
+                                                  <div class="credential-value">${categoryLabel}</div>
+                                                </div>
                                               </div>
+                                              <div class="note-box">
+                                                <p>
+                                                  <strong>Important:</strong> Change your password after signing in. 
+                                                  Never share your login details with anyone.
+                                                </p>
+                                              </div>
+                                              <div class="action-section">
+                                                <a href="${
+                                                  process.env.API_BASE_URL ||
+                                                  'http://localhost:5137'
+                                                }" class="action-button">
+                                                  LOGIN NOW
+                                                </a>
+                                              </div>
+                                              <p class="support-text">
+                                                Need help? Contact HR Department during office hours or send a message to earisthrmstesting@gmail.com
+                                              </p>
                                             </div>
-                                            <div class="credential-row">
-                                              <div class="credential-label">Employment Type</div>
-                                              <div class="credential-value">${
-                                                user.employmentCategory === '1'
-                                                  ? 'Regular'
-                                                  : 'Job Order'
-                                              }</div>
+                                            <div class="email-footer">
+                                              <p class="footer-text">Human Resources Information System</p>
+                                              <p class="footer-text">© ${new Date().getFullYear()} Eulogio "Amang" Rodriguez Institute of Science and Technology. All rights reserved.</p>
                                             </div>
                                           </div>
-                                          <div class="note-box">
-                                            <p>
-                                              <strong>Important:</strong> Change your password after signing in. 
-                                              Never share your login details with anyone.
-                                            </p>
-                                          </div>
-                                          <div class="action-section">
-                                            <a href="${
-                                              process.env.API_BASE_URL ||
-                                              'http://localhost:5137'
-                                            }" class="action-button" style="color: #ffffff !important; text-decoration: none;">
-                                              LOGIN NOW
-                                            </a>
-                                          </div>
-                                          <p class="support-text">
-                                            Need help? Contact HR Department during office hours or send a message to earisthrmstesting@gmail.com
-                                          </p>
                                         </div>
-                                        <div class="email-footer">
-                                          <p class="footer-text">Human Resources Information System</p>
-                                          <p class="footer-text">© ${new Date().getFullYear()} Eulogio "Amang" Rodriguez Institute of Science and Technology. All rights reserved.</p>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </body>
-                                  </html>
-                                `,
-                              });
+                                      </body>
+                                      </html>
+                                    `,
+                                  });
 
-                              console.log(
-                                `Credentials email sent to ${user.email} for employee ${user.employeeNumber}`
-                              );
-                            } catch (emailError) {
-                              console.error(
-                                `Error sending email to ${user.email}:`,
-                                emailError
-                              );
-                              // Don't fail registration if email fails, just log it
-                            }
-
-                            // Create department assignment if department is provided
-                            if (user.department && user.department.trim() !== '') {
-                              const deptAssignmentQuery = `
-                                INSERT INTO department_assignment (code, name, employeeNumber)
-                                VALUES (?, ?, ?)
-                              `;
-                              db.query(
-                                deptAssignmentQuery,
-                                [user.department.trim(), null, user.employeeNumber],
-                                (deptErr, deptResult) => {
-                                  if (deptErr) {
-                                    console.error(
-                                      `Error creating department assignment for ${user.employeeNumber}:`,
-                                      deptErr
-                                    );
-                                    // Don't fail registration if department assignment fails
-                                  } else {
-                                    console.log(
-                                      `Department assignment created for ${user.employeeNumber} with department ${user.department}`
-                                    );
-                                    try {
-                                      notifyPayrollChanged('created', {
-                                        module: 'department-assignment',
-                                        id: deptResult.insertId,
-                                        employeeNumber: user.employeeNumber,
-                                        code: user.department.trim(),
-                                      });
-                                    } catch (notifyErr) {
-                                      console.error('Error notifying payroll change:', notifyErr);
-                                    }
-                                  }
+                                  console.log(
+                                    `Credentials email sent to ${user.email} for employee ${user.employeeNumber}`
+                                  );
+                                } catch (emailError) {
+                                  console.error(
+                                    `Error sending email to ${user.email}:`,
+                                    emailError
+                                  );
                                 }
-                              );
-                            }
+
+                                // Create department assignment if department is provided
+                                if (user.department && user.department.trim() !== '') {
+                                  const deptAssignmentQuery = `
+                                    INSERT INTO department_assignment (code, name, employeeNumber)
+                                    VALUES (?, ?, ?)
+                                  `;
+                                  db.query(
+                                    deptAssignmentQuery,
+                                    [user.department.trim(), null, user.employeeNumber],
+                                    (deptErr, deptResult) => {
+                                      if (deptErr) {
+                                        console.error(
+                                          `Error creating department assignment for ${user.employeeNumber}:`,
+                                          deptErr
+                                        );
+                                      } else {
+                                        try {
+                                          notifyPayrollChanged('created', {
+                                            module: 'department-assignment',
+                                            id: deptResult.insertId,
+                                            employeeNumber: user.employeeNumber,
+                                            code: user.department.trim(),
+                                          });
+                                        } catch (notifyErr) {
+                                          console.error('Error notifying payroll change:', notifyErr);
+                                        }
+                                      }
+                                    }
+                                  );
+                                }
 
                                 results.push({
                                   employeeNumber: user.employeeNumber,
@@ -1011,7 +890,8 @@ router.post('/excel-register', async (req, res) => {
   }
 });
 
-// GET ALL REGISTERED USERS WITH PAGE ACCESS
+
+// GET ALL REGISTERED USERS WITH PAGE ACCESS AND DEPARTMENT
 router.get('/users', authenticateToken, async (req, res) => {
   try {
     const query = `
@@ -1027,10 +907,14 @@ router.get('/users', authenticateToken, async (req, res) => {
         p.nameExtension,
         u.created_at,
         pa.page_id,
-        pa.page_privilege
+        pa.page_privilege,
+        da.code as departmentCode,
+        dt.description as departmentDescription
       FROM users u
       LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
       LEFT JOIN page_access pa ON u.employeeNumber = pa.employeeNumber
+      LEFT JOIN department_assignment da ON u.employeeNumber = da.employeeNumber
+      LEFT JOIN department_table dt ON da.code = dt.code
       ORDER BY u.created_at DESC
     `;
 
@@ -1046,7 +930,7 @@ router.get('/users', authenticateToken, async (req, res) => {
         });
       }
 
-      // Group page access per user
+      // Group page access and department per user
       const usersMap = {};
       results.forEach((row) => {
         if (!usersMap[row.employeeNumber]) {
@@ -1067,6 +951,8 @@ router.get('/users', authenticateToken, async (req, res) => {
             accessLevel: row.access_level,
             createdAt: row.created_at,
             pageAccess: [],
+            departmentCode: row.departmentCode || null,
+            departmentDescription: row.departmentDescription || null,
           };
         }
 

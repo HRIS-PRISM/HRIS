@@ -1708,7 +1708,7 @@ const Children = () => {
 
                 </Box>
 
-                {/* Bottom action bar */}
+                {/* Bottom action bar - Edit and Delete aligned */}
                 <Box
                   sx={{
                     borderTop: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.2)}`,
@@ -1716,6 +1716,7 @@ const Children = () => {
                     px: 3,
                     py: 2,
                     display: 'flex',
+                    alignItems: 'center',
                     justifyContent: 'flex-end',
                     gap: 2,
                     position: 'sticky',
@@ -1726,6 +1727,21 @@ const Children = () => {
                 >
                   {!isEditing ? (
                     <>
+                      <ProfessionalButton
+                        onClick={handleStartEdit}
+                        variant="contained"
+                        startIcon={<EditIcon />}
+                        sx={{
+                          backgroundColor: settings.updateButtonColor || settings.primaryColor || '#6d2323',
+                          color: settings.accentColor || '#FEF9E1',
+                          minWidth: '120px',
+                          '&:hover': {
+                            backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d',
+                          },
+                        }}
+                      >
+                        Edit
+                      </ProfessionalButton>
                       <ProfessionalButton
                         onClick={() => handleDelete(editChild.id)}
                         variant="outlined"
@@ -1742,21 +1758,6 @@ const Children = () => {
                         }}
                       >
                         Delete
-                      </ProfessionalButton>
-                      <ProfessionalButton
-                        onClick={handleStartEdit}
-                        variant="contained"
-                        startIcon={<EditIcon />}
-                        sx={{
-                          backgroundColor: settings.updateButtonColor || settings.primaryColor || '#6d2323',
-                          color: settings.accentColor || '#FEF9E1',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d',
-                          },
-                        }}
-                      >
-                        Edit
                       </ProfessionalButton>
                     </>
                   ) : (

@@ -53,6 +53,11 @@ import {
   Modal,
   Snackbar,
   Portal,
+  ListSubheader,
+  ListItemIcon,
+  FormControl,
+  InputLabel,
+  Select,
 } from "@mui/material";
 import {
   People,
@@ -96,6 +101,8 @@ import {
   DeleteForever,
   Edit as EditIcon,
   ErrorOutline,
+  Circle,
+  WorkOutline,
 } from "@mui/icons-material";
 import SearchIcon from "@mui/icons-material/Search";
 import axios from "axios";
@@ -175,6 +182,56 @@ const useSystemSettings = () => {
   return settings;
 };
 
+// Helper function to get employment category style and label
+const getEmploymentCategoryInfo = (category) => {
+  const catNum = parseInt(category);
+  
+  switch (catNum) {
+    case 0: // JO Graduate
+      return {
+        label: 'JO - Graduate',
+        color: '#F57C00',
+        bgcolor: alpha('#F57C00', 0.1),
+        icon: <Circle sx={{ fontSize: 12 }} />,
+      };
+    case 1: // JO UnderGrad
+      return {
+        label: 'JO - UnderGrad',
+        color: '#E64A19',
+        bgcolor: alpha('#E64A19', 0.1),
+        icon: <Circle sx={{ fontSize: 12 }} />,
+      };
+    case 2: // Regular Non-Teaching
+      return {
+        label: 'Regular - Non-Teaching',
+        color: '#2E7D32',
+        bgcolor: alpha('#2E7D32', 0.1),
+        icon: <Circle sx={{ fontSize: 12 }} />,
+      };
+    case 3: // Regular Teaching (Designated)
+      return {
+        label: 'Regular - Teaching',
+        color: '#1565C0',
+        bgcolor: alpha('#1565C0', 0.1),
+        icon: <Circle sx={{ fontSize: 12 }} />,
+      };
+    case 4: // Regular 30Hrs
+      return {
+        label: 'Regular - 30Hrs',
+        color: '#7B1FA2',
+        bgcolor: alpha('#7B1FA2', 0.1),
+        icon: <Circle sx={{ fontSize: 12 }} />,
+      };
+    default:
+      return {
+        label: 'Not Set',
+        color: '#757575',
+        bgcolor: alpha('#757575', 0.1),
+        icon: <Circle sx={{ fontSize: 12 }} />,
+      };
+  }
+};
+
 const UsersList = () => {
   // Module Access State
   const [moduleAuthorized, setModuleAuthorized] = useState(false);
@@ -227,6 +284,7 @@ const UsersList = () => {
   const [editedLastName, setEditedLastName] = useState("");
   const [editedNameExtension, setEditedNameExtension] = useState("");
   const [editedEmail, setEditedEmail] = useState("");
+  const [editedEmploymentCategory, setEditedEmploymentCategory] = useState("");
   const [editLoading, setEditLoading] = useState(false);
   
   // Delete User States
@@ -237,6 +295,12 @@ const UsersList = () => {
   // Grant Default Access State
   const [grantingAccess, setGrantingAccess] = useState(false);
   const [grantingAdminAccess, setGrantingAdminAccess] = useState(false);
+
+  // Employment Category Filter
+  const [categoryFilter, setCategoryFilter] = useState("");
+
+  // Department Filter State
+  const [departmentFilter, setDepartmentFilter] = useState("");
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -371,6 +435,12 @@ const UsersList = () => {
     letterSpacing: "0.025em",
   })), [settings]);
 
+  // Generate unique department list for filter
+  const uniqueDepartments = useMemo(() => {
+    const depts = new Set(users.map(u => u.departmentCode).filter(Boolean));
+    return Array.from(depts).sort();
+  }, [users]);
+
   const fetchUsers = async (isManualRefresh = false) => {
     setLoading(true);
     if (isManualRefresh) {
@@ -437,6 +507,12 @@ const UsersList = () => {
           fullName: fullName || "Username",
           avatar: avatar || null,
           personData: person || {},
+          employmentCategory: user.employmentCategory !== undefined && user.employmentCategory !== null 
+            ? user.employmentCategory 
+            : null,
+          // Ensure department data is carried over from backend response
+          departmentCode: user.departmentCode || null,
+          departmentDescription: user.departmentDescription || null,
         };
       });
 
@@ -783,6 +859,9 @@ const UsersList = () => {
     setEditedLastName(user.lastName || "");
     setEditedNameExtension(user.nameExtension || "");
     setEditedEmail(user.email || "");
+    setEditedEmploymentCategory(user.employmentCategory !== undefined && user.employmentCategory !== null 
+      ? user.employmentCategory 
+      : "");
     setEditDialog(true);
   };
 
@@ -854,6 +933,64 @@ const UsersList = () => {
           setError(errorData.error || "Failed to update email");
           setEditLoading(false);
           return;
+        }
+      }
+
+      // Update employment category if changed
+      const currentCategory = userToEdit.employmentCategory;
+      const newCategory = editedEmploymentCategory;
+      
+      if (newCategory !== currentCategory && newCategory !== "") {
+        // First check if employment_category record exists
+        const checkResponse = await fetch(
+          `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${editedEmployeeNumber}`,
+          {
+            method: "GET",
+            ...authHeaders,
+          }
+        );
+
+        if (checkResponse.ok) {
+          // Record exists, update it
+          const categoryData = await checkResponse.json();
+          const updateCategoryResponse = await fetch(
+            `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${categoryData.id}`,
+            {
+              method: "PUT",
+              ...authHeaders,
+              body: JSON.stringify({
+                employeeNumber: editedEmployeeNumber,
+                employmentCategory: parseInt(newCategory)
+              }),
+            }
+          );
+          
+          if (!updateCategoryResponse.ok) {
+            const errorData = await updateCategoryResponse.json().catch(() => ({}));
+            setError(errorData.error || "Failed to update employment category");
+            setEditLoading(false);
+            return;
+          }
+        } else {
+          // Record doesn't exist, create it
+          const createCategoryResponse = await fetch(
+            `${API_BASE_URL}/EmploymentCategoryRoutes/employee-category`,
+            {
+              method: "POST",
+              ...authHeaders,
+              body: JSON.stringify({
+                employeeNumber: editedEmployeeNumber,
+                employmentCategory: parseInt(newCategory)
+              }),
+            }
+          );
+          
+          if (!createCategoryResponse.ok) {
+            const errorData = await createCategoryResponse.json().catch(() => ({}));
+            setError(errorData.error || "Failed to create employment category");
+            setEditLoading(false);
+            return;
+          }
         }
       }
 
@@ -1052,12 +1189,20 @@ const UsersList = () => {
         ? (user.role || "").toLowerCase() === roleFilter.toLowerCase()
         : true;
 
-      return matchesSearch && matchesRole;
+      const matchesCategory = categoryFilter !== ""
+        ? String(user.employmentCategory) === String(categoryFilter)
+        : true;
+
+      const matchesDepartment = departmentFilter !== ""
+        ? (user.departmentCode || "") === departmentFilter
+        : true;
+
+      return matchesSearch && matchesRole && matchesCategory && matchesDepartment;
     });
 
     setFilteredUsers(filtered);
     setPage(0);
-  }, [searchTerm, roleFilter, users]);
+  }, [searchTerm, roleFilter, categoryFilter, departmentFilter, users]);
 
   const handleChangePage = (event, newPage) => {
     setPage(newPage);
@@ -1635,7 +1780,7 @@ const UsersList = () => {
             />
             <CardContent sx={{ p: 4 }}>
               <Grid container spacing={3} sx={{ mb: 3 }}>
-                <Grid item xs={12} md={8}>
+                <Grid item xs={12} md={4}>
                   <ModernTextField
                     fullWidth
                     label="Search Users"
@@ -1651,7 +1796,7 @@ const UsersList = () => {
                     }}
                   />
                 </Grid>
-                <Grid item xs={12} md={4}>
+                <Grid item xs={6} md={2}>
                   <ModernTextField
                     select
                     fullWidth
@@ -1665,6 +1810,81 @@ const UsersList = () => {
                     <MenuItem value="Technical">Technical</MenuItem>
                     <MenuItem value="Staff">Staff</MenuItem>
                   </ModernTextField>
+                </Grid>
+                <Grid item xs={6} md={3}>
+                  <FormControl fullWidth>
+                    <InputLabel sx={{ fontWeight: 500 }}>Filter by Employment Category</InputLabel>
+                    <Select
+                      value={categoryFilter}
+                      label="Filter by Employment Category"
+                      onChange={(e) => setCategoryFilter(e.target.value)}
+                      sx={{
+                        borderRadius: 3,
+                        backgroundColor: "rgba(255, 255, 255, 0.8)",
+                        "& .MuiOutlinedInput-notchedOutline": {
+                          borderRadius: 3,
+                        },
+                      }}
+                    >
+                      <MenuItem value="">All Categories</MenuItem>
+                      <ListSubheader>Job Order (JO)</ListSubheader>
+                      <MenuItem value="0">
+                        <ListItemIcon sx={{ minWidth: 30 }}>
+                          <Circle sx={{ fontSize: 12, color: '#F57C00' }} />
+                        </ListItemIcon>
+                        Graduate
+                      </MenuItem>
+                      <MenuItem value="1">
+                        <ListItemIcon sx={{ minWidth: 30 }}>
+                          <Circle sx={{ fontSize: 12, color: '#E64A19' }} />
+                        </ListItemIcon>
+                        UnderGrad
+                      </MenuItem>
+                      <ListSubheader>Regular</ListSubheader>
+                      <MenuItem value="2">
+                        <ListItemIcon sx={{ minWidth: 30 }}>
+                          <Circle sx={{ fontSize: 12, color: '#2E7D32' }} />
+                        </ListItemIcon>
+                        Non-Teaching
+                      </MenuItem>
+                      <MenuItem value="3">
+                        <ListItemIcon sx={{ minWidth: 30 }}>
+                          <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
+                        </ListItemIcon>
+                        Teaching (Designated)
+                      </MenuItem>
+                      <MenuItem value="4">
+                        <ListItemIcon sx={{ minWidth: 30 }}>
+                          <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
+                        </ListItemIcon>
+                        30Hrs
+                      </MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <FormControl fullWidth>
+                    <InputLabel sx={{ fontWeight: 500 }}>Filter by Department</InputLabel>
+                    <Select
+                      value={departmentFilter}
+                      label="Filter by Department"
+                      onChange={(e) => setDepartmentFilter(e.target.value)}
+                      sx={{
+                        borderRadius: 3,
+                        backgroundColor: "rgba(255, 255, 255, 0.8)",
+                        "& .MuiOutlinedInput-notchedOutline": {
+                          borderRadius: 3,
+                        },
+                      }}
+                    >
+                      <MenuItem value="">All Departments</MenuItem>
+                      {uniqueDepartments.map((code) => (
+                        <MenuItem key={code} value={code}>
+                          {code}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
                 </Grid>
               </Grid>
             </CardContent>
@@ -1719,8 +1939,8 @@ const UsersList = () => {
                     variant="body2"
                     sx={{ opacity: 0.8, color: settings?.accentColor || '#FEF9E1' }}
                   >
-                    {searchTerm
-                      ? `Showing ${filteredUsers.length} of ${users.length} users matching "${searchTerm}"`
+                    {searchTerm || roleFilter || categoryFilter !== "" || departmentFilter !== ""
+                      ? `Showing ${filteredUsers.length} of ${users.length} users`
                       : `Total: ${users.length} registered users`}
                   </Typography>
                 </Box>
@@ -1784,6 +2004,14 @@ const UsersList = () => {
                         <Business sx={{ mr: 1, verticalAlign: "middle" }} />
                         Role
                       </PremiumTableCell>
+                      <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
+                        <WorkOutline sx={{ mr: 1, verticalAlign: "middle" }} />
+                        Employment Category
+                      </PremiumTableCell>
+                      <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
+                        <Business sx={{ mr: 1, verticalAlign: "middle" }} />
+                        Department
+                      </PremiumTableCell>
                       <PremiumTableCell
                         isHeader
                         sx={{ color: settings?.textPrimaryColor || '#6D2323', textAlign: "center" }}
@@ -1804,166 +2032,200 @@ const UsersList = () => {
                   </TableHead>
                   <TableBody>
                     {paginatedUsers.length > 0 ? (
-                      paginatedUsers.map((user, index) => (
-                        <TableRow
-                          key={user.employeeNumber}
-                          sx={{
-                            "&:nth-of-type(even)": {
-                              bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.3),
-                            },
-                            "&:hover": { bgcolor: alpha(settings?.primaryColor || '#894444', 0.05) },
-                            transition: "all 0.2s ease",
-                          }}
-                        >
-                          <PremiumTableCell
-                            sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                      paginatedUsers.map((user, index) => {
+                        const categoryInfo = getEmploymentCategoryInfo(user.employmentCategory);
+                        
+                        return (
+                          <TableRow
+                            key={user.employeeNumber}
+                            sx={{
+                              "&:nth-of-type(even)": {
+                                bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.3),
+                              },
+                              "&:hover": { bgcolor: alpha(settings?.primaryColor || '#894444', 0.05) },
+                              transition: "all 0.2s ease",
+                            }}
                           >
-                            {user.employeeNumber}
-                          </PremiumTableCell>
-
-                          <PremiumTableCell>
-                            <Box
-                              sx={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 2,
-                              }}
+                            <PremiumTableCell
+                              sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
                             >
-                              <Avatar
-                                src={user.avatar || ""}
-                                alt={user.fullName}
+                              {user.employeeNumber}
+                            </PremiumTableCell>
+
+                            <PremiumTableCell>
+                              <Box
                                 sx={{
-                                  width: 48,
-                                  height: 48,
-                                  bgcolor: settings?.primaryColor || '#894444',
-                                  color: settings?.accentColor || '#FEF9E1',
-                                  fontWeight: 700,
-                                  fontSize: "1rem",
-                                  boxShadow: `0 4px 12px ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
-                                  border: "2px solid #fff",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 2,
                                 }}
                               >
-                                {!user.avatar && getInitials(user.fullName)}
-                              </Avatar>
-                              <Box>
-                                <Typography
-                                  variant="body1"
-                                  sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                                <Avatar
+                                  src={user.avatar || ""}
+                                  alt={user.fullName}
+                                  sx={{
+                                    width: 48,
+                                    height: 48,
+                                    bgcolor: settings?.primaryColor || '#894444',
+                                    color: settings?.accentColor || '#FEF9E1',
+                                    fontWeight: 700,
+                                    fontSize: "1rem",
+                                    boxShadow: `0 4px 12px ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
+                                    border: "2px solid #fff",
+                                  }}
                                 >
-                                  {user.fullName}
-                                </Typography>
-                                {user.nameExtension && (
+                                  {!user.avatar && getInitials(user.fullName)}
+                                </Avatar>
+                                <Box>
                                   <Typography
-                                    variant="caption"
-                                    sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                                    variant="body1"
+                                    sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
                                   >
-                                    ({user.nameExtension})
+                                    {user.fullName}
                                   </Typography>
-                                )}
+                                  {user.nameExtension && (
+                                    <Typography
+                                      variant="caption"
+                                      sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                                    >
+                                      ({user.nameExtension})
+                                    </Typography>
+                                  )}
+                                </Box>
                               </Box>
-                            </Box>
-                          </PremiumTableCell>
+                            </PremiumTableCell>
 
-                          <PremiumTableCell sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
-                            {user.email}
-                          </PremiumTableCell>
+                            <PremiumTableCell sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
+                              {user.email}
+                            </PremiumTableCell>
 
-                          <PremiumTableCell>
-                            {user.role === "technical" ? (
+                            <PremiumTableCell>
+                              {user.role === "technical" ? (
+                                <Chip
+                                  size="small"
+                                  label="Technical"
+                                  icon={getRoleColor("technical").icon}
+                                  sx={{
+                                    ...getRoleColor("technical").sx,
+                                    fontWeight: 600,
+                                    pointerEvents: "none",
+                                  }}
+                                />
+                              ) : (
+                                <ModernTextField
+                                  select
+                                  value={user.role || "staff"}
+                                  onChange={(e) => handleRoleChange(user, e.target.value)}
+                                  size="small"
+                                  sx={{
+                                    minWidth: 150,
+                                    "& .MuiOutlinedInput-root": {
+                                      bgcolor: "rgba(255, 255, 255, 0.9)",
+                                    },
+                                  }}
+                                >
+                                  <MenuItem value="superadmin">Superadmin</MenuItem>
+                                  <MenuItem value="administrator">Administrator</MenuItem>
+                                  <MenuItem value="technical">Technical</MenuItem>
+                                  <MenuItem value="staff">Staff</MenuItem>
+                                </ModernTextField>
+                              )}
+                            </PremiumTableCell>
+
+                            <PremiumTableCell>
                               <Chip
                                 size="small"
-                                label="Technical"
-                                icon={getRoleColor("technical").icon}
+                                label={categoryInfo.label}
+                                icon={categoryInfo.icon}
                                 sx={{
-                                  ...getRoleColor("technical").sx,
+                                  color: categoryInfo.color,
+                                  bgcolor: categoryInfo.bgcolor,
+                                  border: `1px solid ${categoryInfo.color}`,
                                   fontWeight: 600,
-                                  pointerEvents: "none",
+                                  fontSize: '0.75rem',
                                 }}
                               />
-                            ) : (
-                              <ModernTextField
-                                select
-                                value={user.role || "staff"}
-                                onChange={(e) => handleRoleChange(user, e.target.value)}
-                                size="small"
+                            </PremiumTableCell>
+
+                            <PremiumTableCell>
+                              <Box
                                 sx={{
-                                  minWidth: 150,
-                                  "& .MuiOutlinedInput-root": {
-                                    bgcolor: "rgba(255, 255, 255, 0.9)",
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 1,
+                                }}
+                              >
+                                <Business sx={{ color: settings?.textPrimaryColor || '#6D2323', fontSize: 18 }} />
+                                <Typography variant="body2" sx={{ fontWeight: 500, color: settings?.textPrimaryColor || '#6D2323' }}>
+                                  {user.departmentDescription || user.departmentCode || '-'}
+                                </Typography>
+                              </Box>
+                            </PremiumTableCell>
+
+                            <PremiumTableCell sx={{ textAlign: "center" }}>
+                              <ProfessionalButton
+                                onClick={() => handlePageAccessClick(user)}
+                                startIcon={<Security />}
+                                size="small"
+                                variant="contained"
+                                sx={{
+                                  bgcolor: settings?.primaryColor || '#894444',
+                                  color: settings?.accentColor || '#FEF9E1',
+                                  "&:hover": {
+                                    bgcolor: settings?.secondaryColor || '#6d2323',
                                   },
                                 }}
                               >
-                                <MenuItem value="superadmin">Superadmin</MenuItem>
-                                <MenuItem value="administrator">Administrator</MenuItem>
-                                <MenuItem value="technical">Technical</MenuItem>
-                                <MenuItem value="staff">Staff</MenuItem>
-                              </ModernTextField>
-                            )}
-                          </PremiumTableCell>
-
-                          <PremiumTableCell sx={{ textAlign: "center" }}>
-                            <ProfessionalButton
-                              onClick={() => handlePageAccessClick(user)}
-                              startIcon={<Security />}
-                              size="small"
-                              variant="contained"
-                              sx={{
-                                bgcolor: settings?.primaryColor || '#894444',
-                                color: settings?.accentColor || '#FEF9E1',
-                                "&:hover": {
-                                  bgcolor: settings?.secondaryColor || '#6d2323',
-                                },
-                              }}
-                            >
-                              Manage
-                            </ProfessionalButton>
-                          </PremiumTableCell>
-
-                          {/* Actions Column - Only visible for technical users */}
-                          {isTechnical && (
-                            <PremiumTableCell sx={{ textAlign: "center" }}>
-                              <Box sx={{ display: "flex", gap: 1, justifyContent: "center" }}>
-                                <Tooltip title="Edit User" arrow>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => handleEditUser(user)}
-                                    sx={{
-                                      bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
-                                      color: settings?.primaryColor || '#894444',
-                                      "&:hover": {
-                                        bgcolor: settings?.primaryColor || '#894444',
-                                        color: settings?.accentColor || '#FEF9E1',
-                                      },
-                                    }}
-                                  >
-                                    <EditIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                                <Tooltip title="Delete User" arrow>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => handleDeleteUser(user)}
-                                    sx={{
-                                      bgcolor: alpha('#d32f2f', 0.1),
-                                      color: '#d32f2f',
-                                      "&:hover": {
-                                        bgcolor: '#d32f2f',
-                                        color: 'white',
-                                      },
-                                    }}
-                                  >
-                                    <DeleteIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                              </Box>
+                                Manage
+                              </ProfessionalButton>
                             </PremiumTableCell>
-                          )}
-                        </TableRow>
-                      ))
+
+                            {/* Actions Column - Only visible for technical users */}
+                            {isTechnical && (
+                              <PremiumTableCell sx={{ textAlign: "center" }}>
+                                <Box sx={{ display: "flex", gap: 1, justifyContent: "center" }}>
+                                  <Tooltip title="Edit User" arrow>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleEditUser(user)}
+                                      sx={{
+                                        bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
+                                        color: settings?.primaryColor || '#894444',
+                                        "&:hover": {
+                                          bgcolor: settings?.primaryColor || '#894444',
+                                          color: settings?.accentColor || '#FEF9E1',
+                                        },
+                                      }}
+                                    >
+                                      <EditIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title="Delete User" arrow>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleDeleteUser(user)}
+                                      sx={{
+                                        bgcolor: alpha('#d32f2f', 0.1),
+                                        color: '#d32f2f',
+                                        "&:hover": {
+                                          bgcolor: '#d32f2f',
+                                          color: 'white',
+                                        },
+                                      }}
+                                    >
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Box>
+                              </PremiumTableCell>
+                            )}
+                          </TableRow>
+                        );
+                      })
                     ) : (
                       <TableRow>
                         <TableCell
-                          colSpan={isTechnical ? 6 : 5}
+                          colSpan={isTechnical ? 8 : 7}
                           sx={{ textAlign: "center", py: 8 }}
                         >
                           <Box sx={{ textAlign: "center" }}>
@@ -1986,7 +2248,7 @@ const UsersList = () => {
                               variant="body1"
                               color={alpha(settings?.primaryColor || '#894444', 0.4)}
                             >
-                              {searchTerm
+                              {searchTerm || roleFilter || categoryFilter !== "" || departmentFilter !== ""
                                 ? "Try adjusting your search criteria"
                                 : "No users registered yet"}
                             </Typography>
@@ -2475,6 +2737,48 @@ const UsersList = () => {
                               variant="caption"
                               sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
                             >
+                              Employment Category
+                            </Typography>
+                            <Box sx={{ mt: 1 }}>
+                              {(() => {
+                                const categoryInfo = getEmploymentCategoryInfo(selectedUserForDetails.employmentCategory);
+                                return (
+                                  <Chip
+                                    label={categoryInfo.label}
+                                    icon={categoryInfo.icon}
+                                    sx={{
+                                      color: categoryInfo.color,
+                                      bgcolor: categoryInfo.bgcolor,
+                                      border: `1px solid ${categoryInfo.color}`,
+                                      fontWeight: 600,
+                                    }}
+                                  />
+                                );
+                              })()}
+                            </Box>
+                          </Box>
+                          <Box>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                            >
+                              Department
+                            </Typography>
+                            <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Business sx={{ color: settings?.textPrimaryColor || '#6D2323', fontSize: 18 }} />
+                              <Typography
+                                variant="body1"
+                                sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                              >
+                                {selectedUserForDetails.departmentDescription || selectedUserForDetails.departmentCode || 'Unassigned'}
+                              </Typography>
+                            </Box>
+                          </Box>
+                          <Box>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                            >
                               Last Login
                             </Typography>
                             <Typography
@@ -2929,6 +3233,57 @@ const UsersList = () => {
                     sx={{ mt: 2 }}
                     placeholder="Can be left empty to remove"
                   />
+
+                  {/* Employment Category Field */}
+                  <FormControl fullWidth sx={{ mt: 2 }}>
+                    <InputLabel sx={{ fontWeight: 500 }}>Employment Category</InputLabel>
+                    <Select
+                      value={editedEmploymentCategory}
+                      label="Employment Category"
+                      onChange={(e) => setEditedEmploymentCategory(e.target.value)}
+                      sx={{
+                        borderRadius: 3,
+                        backgroundColor: "rgba(255, 255, 255, 0.8)",
+                        "& .MuiOutlinedInput-notchedOutline": {
+                          borderRadius: 3,
+                        },
+                      }}
+                    >
+                      <ListSubheader>Job Order (JO)</ListSubheader>
+                      <MenuItem value={0}>
+                        <ListItemIcon sx={{ minWidth: 30 }}>
+                          <Circle sx={{ fontSize: 12, color: '#F57C00' }} />
+                        </ListItemIcon>
+                        Graduate
+                      </MenuItem>
+                      <MenuItem value={1}>
+                        <ListItemIcon sx={{ minWidth: 30 }}>
+                          <Circle sx={{ fontSize: 12, color: '#E64A19' }} />
+                        </ListItemIcon>
+                        UnderGrad
+                      </MenuItem>
+                      
+                      <ListSubheader>Regular</ListSubheader>
+                      <MenuItem value={2}>
+                        <ListItemIcon sx={{ minWidth: 30 }}>
+                          <Circle sx={{ fontSize: 12, color: '#2E7D32' }} />
+                        </ListItemIcon>
+                        Non-Teaching
+                      </MenuItem>
+                      <MenuItem value={3}>
+                        <ListItemIcon sx={{ minWidth: 30 }}>
+                          <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
+                        </ListItemIcon>
+                        Teaching (Designated)
+                      </MenuItem>
+                      <MenuItem value={4}>
+                        <ListItemIcon sx={{ minWidth: 30 }}>
+                          <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
+                        </ListItemIcon>
+                        30Hrs
+                      </MenuItem>
+                    </Select>
+                  </FormControl>
                 </Box>
 
                 <Alert

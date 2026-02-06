@@ -126,7 +126,7 @@ import UsersList from "./components/UsersList";
 import PagesList from "./components/PagesList";
 import AuditLogs from "./components/AuditLogs";
 import Settings from "./components/Settings";
-import AdminSecurity from "./components/AdminSecurity";
+import AdminSecurity from "./components/AdminManagement";
 import PayrollJO from "./components/PAYROLL/PayrollJO";
 import UnderConstruction from "./components/UnderConstruction";
 
