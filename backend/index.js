@@ -63,7 +63,7 @@ const app = express();
 // Allow localhost, any 192.168.* (LAN), and specific public origins so other devices can load data
 const allowedOrigins = [
   'http://localhost:5137',
-  'http://192.168.50.52:5137',
+  'http://192.168.50.37:5137',
   'http://192.168.50.45:5137',
   'http://136.239.248.42:5137',
   'http://192.168.50.97:5137',
@@ -173,16 +173,38 @@ db.query(ensureHolidayTableSQL, (err) => {
   if (err) {
     console.error('Failed to ensure holiday table exists:', err.message);
   } else {
-    db.query('ALTER TABLE holiday ADD COLUMN title VARCHAR(255) NULL', (e) => { if (e && e.code !== 'ER_DUP_FIELDNAME') console.error('Holiday migration title:', e.message); });
-    db.query('ALTER TABLE holiday ADD COLUMN about TEXT NULL', (e) => { if (e && e.code !== 'ER_DUP_FIELDNAME') console.error('Holiday migration about:', e.message); });
-    db.query('ALTER TABLE holiday ADD COLUMN date_start DATE NULL', (e) => { if (e && e.code !== 'ER_DUP_FIELDNAME') console.error('Holiday migration date_start:', e.message); });
-    db.query('ALTER TABLE holiday ADD COLUMN date_end DATE NULL', (e) => { if (e && e.code !== 'ER_DUP_FIELDNAME') console.error('Holiday migration date_end:', e.message); });
-    db.query('ALTER TABLE holiday ADD COLUMN image VARCHAR(500) NULL', (e) => { if (e && e.code !== 'ER_DUP_FIELDNAME') console.error('Holiday migration image:', e.message); });
+    db.query('ALTER TABLE holiday ADD COLUMN title VARCHAR(255) NULL', (e) => {
+      if (e && e.code !== 'ER_DUP_FIELDNAME')
+        console.error('Holiday migration title:', e.message);
+    });
+    db.query('ALTER TABLE holiday ADD COLUMN about TEXT NULL', (e) => {
+      if (e && e.code !== 'ER_DUP_FIELDNAME')
+        console.error('Holiday migration about:', e.message);
+    });
+    db.query('ALTER TABLE holiday ADD COLUMN date_start DATE NULL', (e) => {
+      if (e && e.code !== 'ER_DUP_FIELDNAME')
+        console.error('Holiday migration date_start:', e.message);
+    });
+    db.query('ALTER TABLE holiday ADD COLUMN date_end DATE NULL', (e) => {
+      if (e && e.code !== 'ER_DUP_FIELDNAME')
+        console.error('Holiday migration date_end:', e.message);
+    });
+    db.query('ALTER TABLE holiday ADD COLUMN image VARCHAR(500) NULL', (e) => {
+      if (e && e.code !== 'ER_DUP_FIELDNAME')
+        console.error('Holiday migration image:', e.message);
+    });
   }
 });
+
 // Announcements: Date Range for carousel visibility
-['ALTER TABLE announcements ADD COLUMN date_start DATE NULL', 'ALTER TABLE announcements ADD COLUMN date_end DATE NULL'].forEach((sql) => {
-  db.query(sql, (err) => { if (err && err.code !== 'ER_DUP_FIELDNAME') console.error('Announcements migration:', err.message); });
+[
+  'ALTER TABLE announcements ADD COLUMN date_start DATE NULL',
+  'ALTER TABLE announcements ADD COLUMN date_end DATE NULL',
+].forEach((sql) => {
+  db.query(sql, (err) => {
+    if (err && err.code !== 'ER_DUP_FIELDNAME')
+      console.error('Announcements migration:', err.message);
+  });
 });
 
 // Ensure suspensions table exists (for suspension creation visible on HomeAdmin carousel)
@@ -199,7 +221,8 @@ const ensureSuspensionsTableSQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `;
 db.query(ensureSuspensionsTableSQL, (err) => {
-  if (err) console.error('Failed to ensure suspensions table exists:', err.message);
+  if (err)
+    console.error('Failed to ensure suspensions table exists:', err.message);
   else console.log('Suspensions table ready');
 });
 

@@ -1320,7 +1320,7 @@ const AnnouncementForm = () => {
                             <PremiumTableCell sx={{ textAlign: "center", width: "20%" }}>
                               {item.isHoliday ? (
                                 <Typography variant="body2" sx={{ color: alpha(settings?.textPrimaryColor || "#6D2323", 0.8), fontStyle: "italic" }}>
-                                  Scheduled — managed in Holiday
+                                  Ended
                                 </Typography>
                               ) : isDateRangeExceeded(item) ? (
                                 <Typography variant="body2" sx={{ color: alpha(settings?.textPrimaryColor || "#6D2323", 0.6), fontStyle: "italic" }}>

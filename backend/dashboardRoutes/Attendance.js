@@ -76,7 +76,9 @@ router.get('/api/attendance', authenticateToken, (req, res) => {
     users.employmentCategory, officialtime.*
     FROM attendanceRecord
     JOIN users ON attendanceRecord.personID = users.employeeNumber
-    JOIN officialtime ON attendanceRecord.Day = officialtime.day AND attendancerecord.personID = officialtime.employeeID
+    JOIN officialtime ON attendanceRecord.Day = officialtime.day
+      AND attendanceRecord.personID = officialtime.employeeID
+      AND attendanceRecord.date BETWEEN officialtime.startDate AND officialtime.endDate
     WHERE attendanceRecord.personID = ?
     AND attendanceRecord.date BETWEEN ? AND ?
   `;
