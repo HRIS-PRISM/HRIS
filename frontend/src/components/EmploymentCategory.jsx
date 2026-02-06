@@ -1051,18 +1051,18 @@ const EmploymentCategoryManagement = () => {
                             </ListItemIcon>
                             Non-Teaching
                           </MenuItem>
-                          <MenuItem value={3}>
-                            <ListItemIcon sx={{ minWidth: 30 }}>
-                              <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
-                            </ListItemIcon>
-                            Teaching (Designated)
-                          </MenuItem>
-                          <MenuItem value={4}>
-                            <ListItemIcon sx={{ minWidth: 30 }}>
-                              <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
-                            </ListItemIcon>
-                            30Hrs
-                          </MenuItem>
+                         <MenuItem value={3}>
+  <ListItemIcon sx={{ minWidth: 30 }}>
+    <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
+  </ListItemIcon>
+  Teaching (30Hrs)
+</MenuItem>
+<MenuItem value={4}>
+  <ListItemIcon sx={{ minWidth: 30 }}>
+    <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
+  </ListItemIcon>
+  Designated (40Hrs)
+</MenuItem>
                         </ModernSelect>
                       </FormControl>
                     </Grid>

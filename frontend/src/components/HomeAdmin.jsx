@@ -312,12 +312,12 @@ const QUICK_ACTIONS = (settings) => [
     icon: <CampaignIcon />,
     gradient: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
   },
-  {
-    label: "Holidays",
-    link: "/holiday",
-    icon: <AcUnit />,
-    gradient: `linear-gradient(135deg, ${settings.secondaryColor}, ${settings.primaryColor})`,
-  },
+  // {
+  //   label: "Holidays",
+  //   link: "/holiday",
+  //   icon: <AcUnit />,
+  //   gradient: `linear-gradient(135deg, ${settings.secondaryColor}, ${settings.primaryColor})`,
+  // },
   {
     label: "Audit Logs",
     link: "/audit-logs",
@@ -3418,23 +3418,32 @@ const AdminHome = () => {
     }
   };
 
+
+  useEffect(() => {
+  // PAGE OVERFLOW HIDDEN ONLY IN HOME ADMIN
+  document.body.style.overflow = "hidden";
+  document.documentElement.style.overflow = "hidden";
+
+  return () => {
+    // RESTORE OVERFLOW
+    document.body.style.overflow = "";
+    document.documentElement.style.overflow = "";
+  };
+}, []);
+
   return (
     <Box
       sx={{
-        minHeight: "90%",
-        py: 2,
-        borderRadius: "14px",
-        mt: -2,
+        borderRadius: "1px",
         width: "100vw",
-        mx: "auto",
         maxWidth: "100%",
-        overflow: "hidden",
         position: "relative",
         left: "50%",
         transform: "translateX(-50%)",
+        mt: 1.2
       }}
     >
-      <Box sx={{ pt: 4, px: 6, mx: "auto", maxWidth: "1600px" }}>
+      <Box sx={{ pt: 4, px: 4, mx: "auto", maxWidth: "1600px" }}>
         <Grow in timeout={300}>
           <Box
             sx={{
@@ -3448,7 +3457,7 @@ const AdminHome = () => {
               p: 2,
               border: `1px solid ${settings.secondaryColor}`,
               boxShadow: `0 15px 40px ${settings.primaryColor}33`,
-              mt: -5,
+              mt: -4,
             }}
           >
             <Box>
@@ -3456,10 +3465,9 @@ const AdminHome = () => {
                 variant="h5"
                 sx={{
                   color: settings.textPrimaryColor,
-                  fontWeight: 700,
                 }}
               >
-                Hello, {fullName || username}!
+                Hello, <b>{fullName || username}</b>
               </Typography>
               <Typography
                 variant="body2"

@@ -46,6 +46,7 @@ import {
 } from '@mui/icons-material';
 
 import AccessDenied from './AccessDenied';
+import LoadingOverlay from './LoadingOverlay';
 
 const Registration = () => {
   const [formData, setFormData] = useState({
@@ -64,6 +65,7 @@ const Registration = () => {
   const [successMessage, setSuccessMessage] = useState('');
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [focusedField, setFocusedField] = useState(null);
+  const [isLoading, setIsLoading] = useState(false); // Add loading state
   const [completedSteps, setCompletedSteps] = useState({
     remittance: false,
     department: false,
@@ -278,6 +280,11 @@ const Registration = () => {
       return;
     }
 
+    // Start loading
+    setIsLoading(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+
     try {
       const authHeaders = getAuthHeaders();
       const response = await fetch(`${API_BASE_URL}/register`, {
@@ -287,31 +294,37 @@ const Registration = () => {
       });
 
       if (response.ok) {
-        setSuccessMessage(
-          'User registered successfully! Login Information have been sent to their email.'
-        );
-        setErrorMessage('');
+        // Keep loading for a brief moment to show the success state
         setTimeout(() => {
-          setSuccessMessage('');
-        }, 3000);
-        setFormData({
-          firstName: '',
-          middleName: '',
-          lastName: '',
-          nameExtension: '',
-          email: '',
-          employeeNumber: '',
-          password: '',
-          employmentCategory: '',
-          department: '',
-        });
+          setIsLoading(false);
+          setSuccessMessage(
+            'User registered successfully! Login Information have been sent to their email.'
+          );
+          setErrorMessage('');
+          setTimeout(() => {
+            setSuccessMessage('');
+          }, 3000);
+          setFormData({
+            firstName: '',
+            middleName: '',
+            lastName: '',
+            nameExtension: '',
+            email: '',
+            employeeNumber: '',
+            password: '',
+            employmentCategory: '',
+            department: '',
+          });
+        }, 500);
       } else {
         const errorData = await response.json();
+        setIsLoading(false);
         setErrorMessage(errorData.error || 'Registration failed. Try again.');
         setSuccessMessage('');
       }
     } catch (err) {
       console.error('Registration Error', err);
+      setIsLoading(false);
       setErrorMessage('Something went wrong.');
       setSuccessMessage('');
     }
@@ -715,54 +728,6 @@ const Registration = () => {
                   </Typography>
                 </Box>
 
-                {/* Alert Messages */}
-                {errMessage && (
-                  <Fade in={true}>
-                    <Alert
-                      icon={<ErrorOutline fontSize="inherit" />}
-                      sx={{
-                        mb: 3,
-                        backgroundColor: '#fff',
-                        color: '#d32f2f',
-                        border: '2px solid #d32f2f',
-                        borderRadius: 2,
-                        fontWeight: 500,
-                        fontSize: '0.95rem',
-                        boxShadow: '0 4px 12px rgba(211, 47, 47, 0.2)',
-                        '& .MuiAlert-icon': {
-                          color: '#d32f2f',
-                        },
-                      }}
-                      severity="error"
-                    >
-                      {errMessage}
-                    </Alert>
-                  </Fade>
-                )}
-                {successMessage && (
-                  <Fade in={true}>
-                    <Alert
-                      icon={<CheckCircleOutline fontSize="inherit" />}
-                      sx={{
-                        mb: 3,
-                        backgroundColor: '#fff',
-                        color: '#2e7d32',
-                        border: '2px solid #2e7d32',
-                        borderRadius: 2,
-                        fontWeight: 600,
-                        fontSize: '0.95rem',
-                        boxShadow: '0 4px 12px rgba(46, 125, 50, 0.2)',
-                        '& .MuiAlert-icon': {
-                          color: '#2e7d32',
-                        },
-                      }}
-                      severity="success"
-                    >
-                      {successMessage}
-                    </Alert>
-                  </Fade>
-                )}
-
                 <form onSubmit={handleRegister}>
                   <Box sx={{ mb: 2.5 }}>
                     <Grid container spacing={2.5}>
@@ -1102,7 +1067,7 @@ const Registration = () => {
                               setFocusedField('employmentCategory')
                             }
                             onBlur={() => setFocusedField(null)}
-                            displayEmpty // This is key prop!
+                            displayEmpty
                             startAdornment={
                               <InputAdornment position="start">
                                 <WorkOutline
@@ -1146,13 +1111,13 @@ const Registration = () => {
                               <ListItemIcon sx={{ minWidth: 30 }}>
                                 <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
                               </ListItemIcon>
-                              Teaching (Designated)
+                              Teaching (30Hrs)
                             </MenuItem>
                             <MenuItem value={4}>
                               <ListItemIcon sx={{ minWidth: 30 }}>
                                 <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
                               </ListItemIcon>
-                              30Hrs
+                              Designated (40Hrs)
                             </MenuItem>
                           </Select>
                         </FormControl>
@@ -1223,11 +1188,11 @@ const Registration = () => {
                         <TextField
                           name="password"
                           label={`Password${fieldRequirements.password ? ' *' : ''}`}
-                          type="text" // Changed from "password" to "text" to make it visible
+                          type="text"
                           fullWidth
                           value={formData.password}
                           InputProps={{
-                            readOnly: true, // Made to field read-only
+                            readOnly: true,
                             startAdornment: (
                               <InputAdornment position="start">
                                 <LockOutlined
@@ -1354,6 +1319,54 @@ const Registration = () => {
                     </Grid>
                   </Box>
 
+                  {/* Alert Messages */}
+                  {errMessage && (
+                    <Fade in={true}>
+                      <Alert
+                        icon={<ErrorOutline fontSize="inherit" />}
+                        sx={{
+                          mb: 2.5,
+                          backgroundColor: '#fff',
+                          color: '#d32f2f',
+                          border: '2px solid #d32f2f',
+                          borderRadius: 2,
+                          fontWeight: 500,
+                          fontSize: '0.95rem',
+                          boxShadow: '0 4px 12px rgba(211, 47, 47, 0.2)',
+                          '& .MuiAlert-icon': {
+                            color: '#d32f2f',
+                          },
+                        }}
+                        severity="error"
+                      >
+                        {errMessage}
+                      </Alert>
+                    </Fade>
+                  )}
+                  {successMessage && (
+                    <Fade in={true}>
+                      <Alert
+                        icon={<CheckCircleOutline fontSize="inherit" />}
+                        sx={{
+                          mb: 2.5,
+                          backgroundColor: '#fff',
+                          color: '#2e7d32',
+                          border: '2px solid #2e7d32',
+                          borderRadius: 2,
+                          fontWeight: 600,
+                          fontSize: '0.95rem',
+                          boxShadow: '0 4px 12px rgba(46, 125, 50, 0.2)',
+                          '& .MuiAlert-icon': {
+                            color: '#2e7d32',
+                          },
+                        }}
+                        severity="success"
+                      >
+                        {successMessage}
+                      </Alert>
+                    </Fade>
+                  )}
+
                   <Box
                     sx={{
                       mt: 4,
@@ -1372,6 +1385,7 @@ const Registration = () => {
                         type="submit"
                         variant="contained"
                         fullWidth
+                        disabled={isLoading}
                         startIcon={<PersonAddAlt1 sx={{ fontSize: 24 }} />}
                         sx={{
                           bgcolor: '#6d2323',
@@ -1402,10 +1416,15 @@ const Registration = () => {
                             transform: 'translateY(-3px)',
                             boxShadow: '0 8px 32px rgba(109, 35, 35, 0.45)',
                           },
+                          '&:disabled': {
+                            bgcolor: '#999',
+                            color: '#fff',
+                            cursor: 'not-allowed',
+                          },
                           transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                         }}
                       >
-                        Register User
+                        {isLoading ? 'Registering...' : 'Register User'}
                       </Button>
 
                       <Button
@@ -1445,6 +1464,12 @@ const Registration = () => {
           </Box>
         </Grid>
       </Grid>
+
+      {/* Loading Overlay */}
+      <LoadingOverlay 
+        open={isLoading} 
+        message="Registering user..."
+      />
     </Container>
   );
 };

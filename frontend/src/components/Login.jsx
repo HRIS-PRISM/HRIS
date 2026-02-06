@@ -14,6 +14,8 @@ import {
   IconButton,
   Chip,
   Dialog,
+  Checkbox,
+  FormControlLabel,
 } from "@mui/material";
 import {
   BadgeOutlined,
@@ -70,6 +72,12 @@ const Login = () => {
   const [isDefaultPassword, setIsDefaultPassword] = useState(false);
   const [showLaterModal, setShowLaterModal] = useState(false);
   const [dashWarning, setDashWarning] = useState("");
+  const [dontRemindToday, setDontRemindToday] = useState(false);
+  
+  // Login attempt tracking
+  const [loginAttempts, setLoginAttempts] = useState(0);
+  const [isLoginLocked, setIsLoginLocked] = useState(false);
+  const [loginLockTimer, setLoginLockTimer] = useState(0);
 
   const primaryGradient = "linear-gradient(135deg, #800020, #A52A2A)";
   const primaryHoverGradient = "linear-gradient(135deg, #A52A2A, #800020)";
@@ -87,10 +95,74 @@ const Login = () => {
       setCurrentTime(new Date());
     }, 1000);
 
-
     return () => clearInterval(timer);
   }, []);
 
+  // Check for existing login lock in localStorage on component mount
+  useEffect(() => {
+    // Check login lock
+    const lockData = localStorage.getItem('loginLockData');
+    if (lockData) {
+      const { lockUntil } = JSON.parse(lockData);
+      const now = Date.now();
+      
+      if (lockUntil > now) {
+        setIsLoginLocked(true);
+        setLoginLockTimer(Math.ceil((lockUntil - now) / 1000));
+      } else {
+        // Lock expired, clear it
+        localStorage.removeItem('loginLockData');
+      }
+    }
+
+    // Check password reminder - with detailed logging
+    console.log('\n=== COMPONENT MOUNT - Checking reminder data ===');
+    const reminderData = localStorage.getItem('passwordReminderSkipped');
+    console.log('Reminder data in localStorage:', reminderData);
+    
+    if (!reminderData) {
+      const sessionReminder = sessionStorage.getItem('passwordReminderSkipped');
+      console.log('Reminder data in sessionStorage:', sessionReminder);
+      
+      if (sessionReminder) {
+        console.log('Found in sessionStorage, copying to localStorage');
+        localStorage.setItem('passwordReminderSkipped', sessionReminder);
+      }
+    }
+    
+    const finalReminderData = localStorage.getItem('passwordReminderSkipped');
+    
+    if (finalReminderData) {
+      try {
+        const { date, employeeNumber, timestamp } = JSON.parse(finalReminderData);
+        const today = new Date().toDateString();
+        
+        console.log('Stored date:', date);
+        console.log('Today:', today);
+        console.log('Employee:', employeeNumber);
+        if (timestamp) {
+          console.log('Saved at:', new Date(timestamp).toLocaleString());
+        }
+        
+        // If the stored date is not today, clear the skip flag
+        if (date !== today) {
+          console.log('Date is old, clearing reminder skip');
+          localStorage.removeItem('passwordReminderSkipped');
+          sessionStorage.removeItem('passwordReminderSkipped');
+        } else {
+          console.log('✅ Date is current, reminder skip is still valid');
+        }
+      } catch (e) {
+        console.error('Error parsing reminder data on mount:', e);
+        // Clear corrupted data
+        localStorage.removeItem('passwordReminderSkipped');
+        sessionStorage.removeItem('passwordReminderSkipped');
+      }
+    } else {
+      console.log('No reminder data found on mount');
+    }
+    console.log('=== END MOUNT CHECK ===\n');
+  }, []);
 
   // Fetch announcements
   useEffect(() => {
@@ -106,7 +178,6 @@ const Login = () => {
     fetchAnnouncements();
   }, []);
 
-
   // Slideshow auto-play
   useEffect(() => {
     if (announcements.length > 0) {
@@ -117,8 +188,7 @@ const Login = () => {
     }
   }, [announcements.length]);
 
-
-  // Lock timer
+  // 2FA Lock timer
   useEffect(() => {
     let interval;
     if (isLocked && lockTimer > 0) {
@@ -137,6 +207,25 @@ const Login = () => {
     return () => clearInterval(interval);
   }, [isLocked, lockTimer]);
 
+  // Login lock timer
+  useEffect(() => {
+    let interval;
+    if (isLoginLocked && loginLockTimer > 0) {
+      interval = setInterval(() => {
+        setLoginLockTimer(prev => {
+          if (prev <= 1) {
+            setIsLoginLocked(false);
+            setLoginAttempts(0);
+            localStorage.removeItem('loginLockData');
+            setErrorMessage("");
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isLoginLocked, loginLockTimer]);
 
   // Code timer
   useEffect(() => {
@@ -145,15 +234,13 @@ const Login = () => {
     return () => clearInterval(interval);
   }, [codeTimer]);
 
-
   // Auto-hide login error after 3 seconds
   useEffect(() => {
-    if (errMessage) {
+    if (errMessage && !isLoginLocked) {
       const timer = setTimeout(() => setErrorMessage(""), 3000);
       return () => clearTimeout(timer);
     }
-  }, [errMessage]);
-
+  }, [errMessage, isLoginLocked]);
 
   // Auto-hide 2FA errors and success after 3 seconds
   useEffect(() => {
@@ -163,14 +250,12 @@ const Login = () => {
     }
   }, [twoFactorError]);
 
-
   useEffect(() => {
     if (success) {
       const timer = setTimeout(() => setSuccess(""), 3000);
       return () => clearTimeout(timer);
     }
   }, [success]);
-
 
   // Auto-hide dash warning after 3 seconds
   useEffect(() => {
@@ -179,7 +264,6 @@ const Login = () => {
       return () => clearTimeout(timer);
     }
   }, [dashWarning]);
-
 
   const handleChanges = e => {
     const { name, value } = e.target;
@@ -199,7 +283,6 @@ const Login = () => {
     setEmployeeNumber(allowed);
     setResolvedEmployeeNumber("");
   };
-
 
   // Send 2FA code
   const send2FACode = async (email, empNumber) => {
@@ -225,6 +308,78 @@ const Login = () => {
     }
   };
 
+  // Helper function to check if password reminder should be skipped
+  const shouldSkipPasswordReminder = (employeeNumber) => {
+    console.log('\n=== CHECKING PASSWORD REMINDER SKIP ===');
+    console.log('Checking for employee:', employeeNumber);
+    
+    // Check both localStorage and sessionStorage
+    let reminderData = localStorage.getItem('passwordReminderSkipped');
+    
+    if (!reminderData) {
+      console.log('Not found in localStorage, checking sessionStorage...');
+      reminderData = sessionStorage.getItem('passwordReminderSkipped');
+      
+      if (reminderData) {
+        console.log('Found in sessionStorage, copying to localStorage');
+        localStorage.setItem('passwordReminderSkipped', reminderData);
+      }
+    }
+    
+    if (!reminderData) {
+      console.log('❌ No password reminder skip data found in localStorage or sessionStorage');
+      return false;
+    }
+    
+    console.log('Raw data found:', reminderData);
+    
+    try {
+      const { date, employeeNumber: skippedEmpNum, timestamp } = JSON.parse(reminderData);
+      const today = new Date().toDateString();
+      
+      // Normalize employee numbers (trim, uppercase)
+      const normalizedCurrent = String(employeeNumber).trim().toUpperCase();
+      const normalizedSkipped = String(skippedEmpNum).trim().toUpperCase();
+      
+      console.log('Comparison details:');
+      console.log('  Stored date:', date);
+      console.log('  Today:', today);
+      console.log('  Dates match:', date === today);
+      console.log('  Stored employee (normalized):', normalizedSkipped);
+      console.log('  Current employee (normalized):', normalizedCurrent);
+      console.log('  Employees match:', normalizedSkipped === normalizedCurrent);
+      if (timestamp) {
+        console.log('  Timestamp:', new Date(timestamp).toLocaleString());
+      }
+      
+      // Only skip if it's the same day AND same employee
+      const shouldSkip = (date === today && normalizedSkipped === normalizedCurrent);
+      
+      if (shouldSkip) {
+        console.log('✅ SKIPPING PASSWORD REMINDER (saved preference found)');
+      } else {
+        console.log('❌ NOT SKIPPING PASSWORD REMINDER');
+        if (date !== today) {
+          console.log('   Reason: Different date');
+          // Clear old data
+          localStorage.removeItem('passwordReminderSkipped');
+          sessionStorage.removeItem('passwordReminderSkipped');
+        }
+        if (normalizedSkipped !== normalizedCurrent) {
+          console.log('   Reason: Different employee number');
+        }
+      }
+      
+      console.log('=== END CHECK ===\n');
+      return shouldSkip;
+    } catch (e) {
+      console.error('❌ Error parsing password reminder data:', e);
+      // Clear corrupted data
+      localStorage.removeItem('passwordReminderSkipped');
+      sessionStorage.removeItem('passwordReminderSkipped');
+      return false;
+    }
+  };
 
   // Verify 2FA code and complete login
   const verify2FACode = async () => {
@@ -237,7 +392,6 @@ const Login = () => {
       return;
     }
 
-
     setTwoFactorLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/verify-2fa-code`, {
@@ -247,7 +401,6 @@ const Login = () => {
       });
       const data = await res.json();
 
-
       if (res.ok && data.verified) {
         const loginRes = await fetch(`${API_BASE_URL}/complete-2fa-login`, {
           method: "POST",
@@ -256,19 +409,34 @@ const Login = () => {
         });
         const loginData = await loginRes.json();
 
-
         if (loginRes.ok) {
           localStorage.setItem("token", loginData.token);
           const decoded = JSON.parse(atob(loginData.token.split(".")[1]));
           localStorage.setItem("employeeNumber", decoded.employeeNumber || "");
           localStorage.setItem("role", decoded.role || "");
 
-
           // Check if user has default password
           if (loginData.isDefaultPassword) {
-            setIsDefaultPassword(true);
-            setShowPasswordPrompt(true);
-            setShow2FA(false);
+            // Check if user chose to skip reminder today
+            const shouldSkip = shouldSkipPasswordReminder(decoded.employeeNumber);
+
+            if (shouldSkip) {
+              // Skip password prompt, go directly to dashboard
+              setIsDefaultPassword(false);
+              setShowPasswordPrompt(false);
+              setShow2FA(false);
+              
+              if (decoded.role === "superadmin" || decoded.role === "administrator" || decoded.role === "technical") {
+                window.location.href = "/admin-home";
+              } else {
+                window.location.href = "/home";
+              }
+            } else {
+              // Show password prompt
+              setIsDefaultPassword(true);
+              setShowPasswordPrompt(true);
+              setShow2FA(false);
+            }
           } else {
             if (decoded.role === "superadmin" || decoded.role === "administrator" || decoded.role === "technical") {
               window.location.href = "/admin-home";
@@ -298,21 +466,25 @@ const Login = () => {
     }
   };
 
-
   const formatTime = seconds => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
-
   const handleLogin = async e => {
     e.preventDefault();
+    
+    // Check if login is locked
+    if (isLoginLocked) {
+      setErrorMessage(`Too many failed login attempts. Please wait ${formatTime(loginLockTimer)} before trying again.`);
+      return;
+    }
+
     if (!employeeNumber.trim() || !formData.password) {
       setErrorMessage("Please fill all credentials");
       return;
     }
-
 
     setLoading(true);
     setErrorMessage("");
@@ -331,6 +503,10 @@ const Login = () => {
       let { response, data, employeeNumberAttempted } = await tryLogin(employeeNumber);
 
       if (response.ok) {
+        // Reset login attempts on successful login
+        setLoginAttempts(0);
+        localStorage.removeItem('loginLockData');
+        
         const canonicalEmp = data.employeeNumber || employeeNumberAttempted;
         setResolvedEmployeeNumber(canonicalEmp);
         setUserEmail(data.email);
@@ -368,8 +544,21 @@ const Login = () => {
               localStorage.setItem("role", decoded.role || "");
               
               if (loginData.isDefaultPassword) {
-                setIsDefaultPassword(true);
-                setShowPasswordPrompt(true);
+                // Check if user chose to skip reminder today
+                const shouldSkip = shouldSkipPasswordReminder(decoded.employeeNumber);
+
+                if (shouldSkip) {
+                  // Skip password prompt, go directly to dashboard
+                  if (decoded.role === "superadmin" || decoded.role === "administrator" || decoded.role === "technical") {
+                    window.location.href = "/admin-home";
+                  } else {
+                    window.location.href = "/home";
+                  }
+                } else {
+                  // Show password prompt
+                  setIsDefaultPassword(true);
+                  setShowPasswordPrompt(true);
+                }
               } else {
                 if (decoded.role === "superadmin" || decoded.role === "administrator" || decoded.role === "technical") {
                   window.location.href = "/admin-home";
@@ -424,8 +613,21 @@ const Login = () => {
                 localStorage.setItem("role", decoded.role || "");
                 
                 if (loginData.isDefaultPassword) {
-                  setIsDefaultPassword(true);
-                  setShowPasswordPrompt(true);
+                  // Check if user chose to skip reminder today
+                  const shouldSkip = shouldSkipPasswordReminder(decoded.employeeNumber);
+
+                  if (shouldSkip) {
+                    // Skip password prompt, go directly to dashboard
+                    if (decoded.role === "superadmin" || decoded.role === "administrator" || decoded.role === "technical") {
+                      window.location.href = "/admin-home";
+                    } else {
+                      window.location.href = "/home";
+                    }
+                  } else {
+                    // Show password prompt
+                    setIsDefaultPassword(true);
+                    setShowPasswordPrompt(true);
+                  }
                 } else {
                   if (decoded.role === "superadmin" || decoded.role === "administrator" || decoded.role === "technical") {
                     window.location.href = "/admin-home";
@@ -444,14 +646,32 @@ const Login = () => {
           await send2FACode(data.email, canonicalEmp);
           setShow2FA(true);
         }
-      } else setErrorMessage(data.error || data.message || "Invalid credentials");
+      } else {
+        // Handle failed login attempt
+        const newLoginAttempts = loginAttempts + 1;
+        setLoginAttempts(newLoginAttempts);
+        
+        if (newLoginAttempts >= 3) {
+          // Lock for 5 minutes (300 seconds)
+          setIsLoginLocked(true);
+          setLoginLockTimer(5 * 60);
+          
+          // Save lock data to localStorage
+          const lockUntil = Date.now() + (5 * 60 * 1000);
+          localStorage.setItem('loginLockData', JSON.stringify({ lockUntil }));
+          
+          setErrorMessage("Too many failed login attempts. Your account is locked for 5 minutes.");
+        } else {
+          const remainingAttempts = 3 - newLoginAttempts;
+          setErrorMessage(`${data.error || data.message || "Invalid credentials"}. ${remainingAttempts} attempt${remainingAttempts !== 1 ? 's' : ''} remaining.`);
+        }
+      }
     } catch {
       setErrorMessage("Connection error. Please try again.");
     } finally {
       setLoading(false);
     }
   };
-
 
   const blobPositions = React.useMemo(() => {
     return Array.from({ length: 6 }).map((_, i) => ({
@@ -462,7 +682,6 @@ const Login = () => {
       duration: 1 + i * 2,
     }));
   }, []);
-
 
   const blobs = blobPositions.map((blob, i) => (
     <Box
@@ -484,7 +703,6 @@ const Login = () => {
       }}
     />
   ));
-
 
   return (
     <>
@@ -522,10 +740,8 @@ const Login = () => {
         }}
       />
 
-
       <Box sx={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", overflow: "hidden", zIndex: 10 }}>
         <LoadingOverlay open={loading} message="Please wait..." />
-
 
         <Box
           sx={{
@@ -626,7 +842,6 @@ const Login = () => {
             `}</style>
           </Box>
 
-
           {/* Right Side - Login Form */}
           <Container maxWidth="sm" sx={{ position: "relative" }}>
             <Paper
@@ -659,15 +874,10 @@ const Login = () => {
                 <img src={logo} alt="Logo" style={{ width: "90%", height: "90%", objectFit: "contain" }} />
               </Box>
 
-
               <Typography variant="h4" sx={{ color: darkText, fontWeight: 800, mb: 1 }}>
                 Human Resource Information System
               </Typography>
               <Typography sx={{ mb: 3, color: mediumText }}>Sign in to access your account</Typography>
-
-
-              {errMessage && <Alert severity="error" sx={{ mb: 3 }}>{errMessage}</Alert>}
-
 
               <form onSubmit={handleLogin}>
                 <TextField
@@ -676,6 +886,7 @@ const Login = () => {
                   fullWidth
                   value={employeeNumber}
                   inputProps={{ maxLength: 20 }}
+                  disabled={isLoginLocked}
                   sx={{
                     mb: 3,
                     "& .MuiInputBase-input": {
@@ -712,6 +923,7 @@ const Login = () => {
                   placeholder="Password"
                   fullWidth
                   type={showPassword ? "text" : "password"}
+                  disabled={isLoginLocked}
                   sx={{
                     mb: 2,
                     "& .MuiInputBase-input": {
@@ -737,32 +949,51 @@ const Login = () => {
                   }}
                   onChange={handleChanges}
                 />
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, gap: 2 }}>
-                  {dashWarning ? (
-                    <Alert severity="warning" sx={{ py: 0.5, flex: 1, fontSize: "0.8rem", "& .MuiAlert-message": { width: "100%", fontSize: "inherit" } }}>
-                      {dashWarning}
-                    </Alert>
-                  ) : (
-                    <span />
-                  )}
+                <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "center", mb: 2 }}>
                   <Link href="/forgot-password" underline="hover" sx={{ color: mediumText, flexShrink: 0 }}>
                     Forgot password?
                   </Link>
                 </Box>
+                
+                {/* All alerts below "Forgot password" */}
+                {errMessage && <Alert severity="error" sx={{ mb: 2 }}>{errMessage}</Alert>}
+                
+                {isLoginLocked && (
+                  <Alert 
+                    severity="warning" 
+                    icon={<AccessTimeIcon />}
+                    sx={{ mb: 2 }}
+                  >
+                    Attempt locked. Try again in {formatTime(loginLockTimer)}
+                  </Alert>
+                )}
+                
+                {dashWarning && (
+                  <Alert severity="warning" sx={{ mb: 3, py: 0.5, fontSize: "0.8rem", "& .MuiAlert-message": { width: "100%", fontSize: "inherit" } }}>
+                    {dashWarning}
+                  </Alert>
+                )}
+                
                 <Button
                   type="submit"
                   fullWidth
                   variant="contained"
+                  disabled={isLoginLocked}
                   startIcon={<LoginOutlined />}
-                  sx={{ py: 1.8, mb: 1, background: primaryGradient, "&:hover": { background: primaryHoverGradient } }}
+                  sx={{ 
+                    py: 1.8, 
+                    mb: 1, 
+                    background: isLoginLocked ? "rgba(128,0,32,0.3)" : primaryGradient, 
+                    "&:hover": { background: isLoginLocked ? "rgba(128,0,32,0.3)" : primaryHoverGradient },
+                    opacity: isLoginLocked ? 0.6 : 1
+                  }}
                 >
-                  {loading ? "Signing in..." : "Sign In"}
+                  {isLoginLocked ? `Locked (${formatTime(loginLockTimer)})` : loading ? "Signing in..." : "Sign In"}
                 </Button>
               </form>
             </Paper>
           </Container>
         </Box>
-
 
         {/* Glassy Intro Slide */}
         {showIntro && (
@@ -794,7 +1025,6 @@ const Login = () => {
           >
             {blobs}
 
-
             <Box sx={{ textAlign: "center", px: 3, mb: 2 }} onClick={e => e.stopPropagation()}>
               <Typography
                 variant="h1"
@@ -816,7 +1046,6 @@ const Login = () => {
                 Human Resource Information System
               </Typography>
             </Box>
-
 
             <Box
               sx={{
@@ -844,7 +1073,6 @@ const Login = () => {
                 })}
               </Typography>
             </Box>
-
 
             <Box
               sx={{
@@ -882,7 +1110,6 @@ const Login = () => {
               </Link>
             </Box>
 
-
             <Dialog open={openPolicy} onClose={() => setOpenPolicy(false)} fullWidth maxWidth="md">
               <Box p={3} position="relative">
                 <IconButton
@@ -907,7 +1134,6 @@ const Login = () => {
                 </Typography>
               </Box>
             </Dialog>
-
 
             <Dialog open={openFAQ} onClose={() => setOpenFAQ(false)} fullWidth maxWidth="md">
               <Box p={3} position="relative">
@@ -934,7 +1160,6 @@ const Login = () => {
               </Box>
             </Dialog>
 
-
             <IconButton
               onClick={() => {
                 document.getElementById("introSlide").style.transform = "translateY(-100%)";
@@ -949,7 +1174,6 @@ const Login = () => {
               <KeyboardArrowDown fontSize="inherit" />
             </IconButton>
 
-
             <style>{`
               @keyframes bounce {
                 0%,100% { transform: translateY(0); }
@@ -958,7 +1182,6 @@ const Login = () => {
             `}</style>
           </Box>
         )}
-
 
         {/* 2FA Modal */}
         <Modal open={show2FA} onClose={() => setShow2FA(false)}>
@@ -1039,7 +1262,6 @@ const Login = () => {
           </Box>
         </Modal>
 
-
         {/* Change Default Password Prompt */}
         <Modal open={showPasswordPrompt} onClose={() => {}}>
           <Box sx={{
@@ -1047,132 +1269,281 @@ const Login = () => {
             top: "50%",
             left: "50%",
             transform: "translate(-50%, -50%)",
-            width: 520,
+            width: 560,
             maxWidth: "90%",
-            bgcolor: "rgba(255,248,231,0.95)",
-            borderRadius: 4,
-            p: 5,
-            textAlign: "center",
+            bgcolor: "rgba(255,248,231,0.98)",
+            borderRadius: 3,
+            p: 4,
+            textAlign: "left",
             backdropFilter: "blur(10px)",
-            boxShadow: "0 20px 50px rgba(128,0,32,0.3)",
-            border: "2px solid rgba(128,0,32,0.2)"
+            boxShadow: "0 20px 50px rgba(128,0,32,0.25)",
+            border: "1px solid rgba(128,0,32,0.15)"
           }}>
-            <Box sx={{ mb: 3 }}>
-              <LockOutlined sx={{ fontSize: 60, color: mediumText, mb: 2 }} />
-              <Typography variant="h5" sx={{ color: darkText, fontWeight: "bold", mb: 2 }}>
-                Secure Your Account
-              </Typography>
-              <Typography sx={{ color: mediumText, mb: 1 }}>
-                You are currently using a default password. For your security, we strongly recommend changing it to a more secure password.
-              </Typography>
-              <Alert severity="warning" sx={{ mt: 2, textAlign: "left" }}>
-                <Typography variant="body2">
-                  <strong>Security Tip:</strong> Use a combination of letters, numbers, and special characters for a stronger password.
+            <Box sx={{ mb: 3, display: "flex", alignItems: "flex-start", gap: 2 }}>
+              <Box sx={{ 
+                width: 48, 
+                height: 48, 
+                borderRadius: 2, 
+                background: primaryGradient,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0
+              }}>
+                <LockOutlined sx={{ fontSize: 28, color: lightText }} />
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="h6" sx={{ color: darkText, fontWeight: 700, mb: 1 }}>
+                  Password Security Notice
                 </Typography>
-              </Alert>
+                <Typography variant="body2" sx={{ color: mediumText, lineHeight: 1.6 }}>
+Your account is currently using a default password. To protect the security and integrity of your account, you are required to create a new, unique password.
+                </Typography>
+              </Box>
             </Box>
 
+            <Box sx={{ 
+              bgcolor: "rgba(255, 152, 0, 0.08)", 
+              border: "1px solid rgba(255, 152, 0, 0.3)",
+              borderRadius: 2,
+              p: 2.5,
+              mb: 3
+            }}>
+              <Typography variant="subtitle2" sx={{ color: "#e65100", fontWeight: 600, mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+                <LockOutlined sx={{ fontSize: 18 }} />
+                Password Requirements
+              </Typography>
+              <Typography variant="body2" sx={{ color: "#5d4037", lineHeight: 1.7, fontSize: "0.9rem" }}>
+                • Must be at least 8 characters in long<br/>
+                • Must include both uppercase and lowercase letters<br/>
+                • Must contain at least one number and one special character<br/>
+                • Must not contain common words or personal information
+              </Typography>
+            </Box>
 
-            <Button
-              fullWidth
-              variant="contained"
-              sx={{
-                mb: 2,
-                py: 1.8,
-                background: primaryGradient,
-                "&:hover": { background: primaryHoverGradient, transform: "scale(1.02)" },
-                transition: "transform 0.2s ease-in-out"
-              }}
-              onClick={() => {
-                const decoded = JSON.parse(atob(localStorage.getItem("token").split(".")[1]));
-                if (decoded.role === "superadmin" || decoded.role === "administrator" || decoded.role === "technical") {
-                  window.location.href = "/settings?tab=security";
-                } else {
-                  window.location.href = "/settings?tab=security";
-                }
-              }}
-              startIcon={<LockOutlined />}
-            >
-              Change Password Now
-            </Button>
+            <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
+              <Button
+                fullWidth
+                variant="contained"
+                sx={{
+                  py: 1.5,
+                  background: primaryGradient,
+                  fontWeight: 600,
+                  textTransform: "none",
+                  fontSize: "0.95rem",
+                  "&:hover": { background: primaryHoverGradient },
+                }}
+                onClick={() => {
+                  const decoded = JSON.parse(atob(localStorage.getItem("token").split(".")[1]));
+                  if (decoded.role === "superadmin" || decoded.role === "administrator" || decoded.role === "technical") {
+                    window.location.href = "/settings?tab=security";
+                  } else {
+                    window.location.href = "/settings?tab=security";
+                  }
+                }}
+                startIcon={<LockOutlined />}
+              >
+                Update Password Now
+              </Button>
 
-
-            <Button
-              fullWidth
-              variant="outlined"
-              sx={{
-                py: 1.8,
-                color: mediumText,
-                borderColor: mediumText,
-                "&:hover": {
-                  backgroundColor: "rgba(128,0,32,0.05)",
+              <Button
+                fullWidth
+                variant="outlined"
+                sx={{
+                  py: 1.5,
+                  color: mediumText,
                   borderColor: mediumText,
-                },
-              }}
-              onClick={() => {
-                setShowPasswordPrompt(false);
-                setShowLaterModal(true);
-              }}
-            >
-              I'll Do This Later
-            </Button>
+                  fontWeight: 600,
+                  textTransform: "none",
+                  fontSize: "0.95rem",
+                  "&:hover": {
+                    backgroundColor: "rgba(128,0,32,0.05)",
+                    borderColor: mediumText,
+                  },
+                }}
+                onClick={() => {
+                  setShowPasswordPrompt(false);
+                  setShowLaterModal(true);
+                }}
+              >
+                Remind Me Later
+              </Button>
+            </Box>
 
-
-            <Typography variant="caption" sx={{ display: "block", mt: 2, color: mediumText, fontStyle: "italic" }}>
-              You can change your password later in Settings → Security → Change Password.
+            <Typography variant="caption" sx={{ display: "block", color: "rgba(0,0,0,0.6)", fontSize: "0.75rem", textAlign: "center" }}>
+              You can choose to be reminded again later today or proceed to update it now.<br/>
+              You can update your password at any time via Settings → Security → Change Password.
             </Typography>
           </Box>
         </Modal>
 
-
-        {/* Reminder Modal - I'll Do This Later */}
         <Modal open={showLaterModal} onClose={() => {}}>
           <Box sx={{
             position: "absolute",
             top: "50%",
             left: "50%",
             transform: "translate(-50%, -50%)",
-            width: 450,
+            width: 520,
             maxWidth: "90%",
-            bgcolor: "rgba(255,248,231,0.95)",
-            borderRadius: 4,
+            bgcolor: "rgba(255,248,231,0.98)",
+            borderRadius: 3,
             p: 4,
-            textAlign: "center",
+            textAlign: "left",
             backdropFilter: "blur(10px)",
-            boxShadow: "0 20px 50px rgba(128,0,32,0.3)",
-            border: "2px solid rgba(128,0,32,0.2)"
+            boxShadow: "0 20px 50px rgba(128,0,32,0.25)",
+            border: "1px solid rgba(128,0,32,0.15)"
           }}>
-            <Box sx={{ mb: 3 }}>
-              <CheckCircleOutline sx={{ fontSize: 60, color: "#4caf50", mb: 2 }} />
-              <Typography variant="h5" sx={{ color: darkText, fontWeight: "bold", mb: 2 }}>
-                Reminder
+            <Box sx={{ mb: 3, display: "flex", alignItems: "flex-start", gap: 2 }}>
+              <Box sx={{ 
+                width: 48, 
+                height: 48, 
+                borderRadius: 2, 
+                background: primaryGradient,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0
+              }}>
+                <LockOutlined sx={{ fontSize: 28, color: lightText }} />
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="h6" sx={{ color: darkText, fontWeight: 700, mb: 1 }}>
+                  Password Update Reminder
+                </Typography>
+                <Typography variant="body2" sx={{ color: mediumText, lineHeight: 1.6 }}>
+                  For security purposes, please update your password as soon as possible.
+                </Typography>
+              </Box>
+            </Box>
+
+            <Box sx={{ 
+              bgcolor: "rgba(128,0,32,0.05)", 
+              borderRadius: 2, 
+              p: 2.5,
+              mb: 3,
+              border: "1px solid rgba(128,0,32,0.1)"
+            }}>
+              <Typography variant="body2" sx={{ color: mediumText, fontWeight: 600, mb: 0.5 }}>
+                You can update your password at:
               </Typography>
-              <Typography sx={{ color: mediumText, mb: 1 }}>
-                You can change your password anytime by going to:
-              </Typography>
-              <Typography sx={{ color: darkText, fontWeight: 600, fontSize: "1.1rem", mt: 2 }}>
+              <Typography variant="body2" sx={{ color: darkText, fontWeight: 600 }}>
                 Settings → Security → Change Password
               </Typography>
             </Box>
 
+            <Box sx={{ 
+              mb: 3,
+              p: 2,
+              bgcolor: "rgba(255, 152, 0, 0.05)",
+              borderRadius: 2,
+              border: "1px solid rgba(255, 152, 0, 0.2)"
+            }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={dontRemindToday}
+                    onChange={(e) => setDontRemindToday(e.target.checked)}
+                    sx={{
+                      color: mediumText,
+                      '&.Mui-checked': {
+                        color: mediumText,
+                      },
+                    }}
+                  />
+                }
+                label="Don't remind me again today"
+                sx={{
+                  margin: 0,
+                  '& .MuiFormControlLabel-label': {
+                    fontSize: "0.9rem",
+                    color: darkText,
+                    fontWeight: 500,
+                  }
+                }}
+              />
+            </Box>
 
             <Button
               fullWidth
               variant="contained"
               sx={{
-                py: 1.8,
+                py: 1.5,
                 background: primaryGradient,
-                "&:hover": { background: primaryHoverGradient, transform: "scale(1.02)" },
-                transition: "transform 0.2s ease-in-out"
+                fontWeight: 600,
+                textTransform: "none",
+                fontSize: "0.95rem",
+                "&:hover": { background: primaryHoverGradient },
               }}
               onClick={() => {
-                setShowLaterModal(false);
-                const decoded = JSON.parse(atob(localStorage.getItem("token").split(".")[1]));
-                if (decoded.role === "superadmin" || decoded.role === "administrator" || decoded.role === "technical") {
-                  window.location.href = "/admin-home";
-                } else {
-                  window.location.href = "/home";
+                const token = localStorage.getItem("token");
+                if (!token) {
+                  console.error('❌ No token found!');
+                  return;
                 }
+                
+                const decoded = JSON.parse(atob(token.split(".")[1]));
+                const empNum = decoded.employeeNumber;
+                
+                console.log('\n=== SAVING REMINDER SKIP ===');
+                console.log('Employee Number:', empNum);
+                console.log('Checkbox checked:', dontRemindToday);
+                
+                if (dontRemindToday) {
+                  const today = new Date().toDateString();
+                  const reminderData = {
+                    date: today,
+                    employeeNumber: empNum,
+                    timestamp: Date.now()
+                  };
+                  
+                  try {
+                    // Save to BOTH localStorage AND sessionStorage for redundancy
+                    const dataString = JSON.stringify(reminderData);
+                    localStorage.setItem('passwordReminderSkipped', dataString);
+                    sessionStorage.setItem('passwordReminderSkipped', dataString);
+                    
+                    // Verify it was saved
+                    const verify = localStorage.getItem('passwordReminderSkipped');
+                    console.log('Data saved to localStorage:', verify);
+                    console.log('Parsed back:', JSON.parse(verify));
+                    
+                    const verifySession = sessionStorage.getItem('passwordReminderSkipped');
+                    console.log('Data saved to sessionStorage:', verifySession);
+                    
+                    if (!verify) {
+                      console.error('❌ FAILED TO SAVE TO LOCALSTORAGE!');
+                    } else {
+                      console.log('✅ Successfully saved reminder skip');
+                    }
+                  } catch (e) {
+                    console.error('❌ Error saving password reminder preference:', e);
+                  }
+                } else {
+                  console.log('Checkbox not checked, not saving reminder skip');
+                }
+                
+                setShowLaterModal(false);
+                
+                // Use a longer delay and verify data before navigation
+                setTimeout(() => {
+                  if (dontRemindToday) {
+                    const verify = localStorage.getItem('passwordReminderSkipped');
+                    console.log('Before navigation, localStorage still has data:', !!verify);
+                    if (!verify) {
+                      console.error('❌ DATA WAS LOST BEFORE NAVIGATION!');
+                    }
+                  }
+                  
+                  const role = decoded.role;
+                  console.log('Navigating to dashboard for role:', role);
+                  console.log('=== END SAVE ===\n');
+                  
+                  if (role === "superadmin" || role === "administrator" || role === "technical") {
+                    window.location.href = "/admin-home";
+                  } else {
+                    window.location.href = "/home";
+                  }
+                }, 300); // Increased delay to 300ms
               }}
             >
               Continue to Dashboard
@@ -1184,8 +1555,4 @@ const Login = () => {
   );
 };
 
-
 export default Login;
-
-
-

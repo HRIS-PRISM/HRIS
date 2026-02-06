@@ -1125,7 +1125,7 @@ const DailyTimeRecord = () => {
                       fontWeight: 600,
                     }}
                   >
-                    Select Month & Year
+                    Select Year & Month
                   </Typography>
                   <FormControl sx={{ minWidth: 140 }}>
                     <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>

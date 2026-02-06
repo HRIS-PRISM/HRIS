@@ -56,14 +56,14 @@ router.get('/employment-category', authenticateToken, (req, res) => {
       ec.employeeNumber,
       ec.employmentCategory,
       CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) AS employeeName,
-      CASE 
-        WHEN ec.employmentCategory = 0 THEN 'Job Order - Graduate'
-        WHEN ec.employmentCategory = 1 THEN 'Job Order - UnderGrad'
-        WHEN ec.employmentCategory = 2 THEN 'Regular - Non-Teaching'
-        WHEN ec.employmentCategory = 3 THEN 'Regular - Teaching (Designated)'
-        WHEN ec.employmentCategory = 4 THEN 'Regular - 30Hrs'
-        ELSE 'Unknown'
-      END AS categoryLabel
+     CASE 
+  WHEN ec.employmentCategory = 0 THEN 'Job Order - Graduate'
+  WHEN ec.employmentCategory = 1 THEN 'Job Order - UnderGrad'
+  WHEN ec.employmentCategory = 2 THEN 'Regular - Non-Teaching'
+  WHEN ec.employmentCategory = 3 THEN 'Regular - Teaching (30Hrs)'
+  WHEN ec.employmentCategory = 4 THEN 'Regular - Designated (40Hrs)'
+  ELSE 'Unknown'
+END AS categoryLabel
     FROM employment_category ec
     LEFT JOIN person_table pt ON pt.agencyEmployeeNum = ec.employeeNumber
     ORDER BY ec.employeeNumber ASC

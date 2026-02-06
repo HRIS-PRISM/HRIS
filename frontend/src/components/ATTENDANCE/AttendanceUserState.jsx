@@ -611,7 +611,7 @@ const AttendanceUserState = () => {
                 >
                   <CalendarToday sx={{ mr: 2, fontSize: 24 }} />
                   <b>Month & Year:</b>{' '}
-                  <i>(select month and year to search your records)</i>
+                  <i>(select year and month to search your records)</i>
                 </Typography>
 
                 <Box
@@ -623,6 +623,29 @@ const AttendanceUserState = () => {
                     alignItems: 'stretch',
                   }}
                 >
+                         {/* Year selector placed at the end of the months row */}
+                  <FormControl size="small" sx={{ width: '100%', minWidth: 0 }}>
+                    <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>
+                    <Select
+                      value={selectedYear}
+                      label="Year"
+                      onChange={(e) => setSelectedYear(e.target.value)}
+                      sx={{
+                        backgroundColor: 'white',
+                        '& .MuiOutlinedInput-notchedOutline': {
+                          borderColor: accentColor,
+                        },
+                        borderRadius: 2,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {yearOptions.map((yearOption) => (
+                        <MenuItem key={yearOption} value={yearOption}>
+                          {yearOption}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
                   {months.map((monthLabel, index) => {
                     const isSelected = selectedMonth === index;
                     return (
@@ -654,29 +677,6 @@ const AttendanceUserState = () => {
                       </ProfessionalButton>
                     );
                   })}
-                  {/* Year selector placed at the end of the months row */}
-                  <FormControl size="small" sx={{ width: '100%', minWidth: 0 }}>
-                    <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>
-                    <Select
-                      value={selectedYear}
-                      label="Year"
-                      onChange={(e) => setSelectedYear(e.target.value)}
-                      sx={{
-                        backgroundColor: 'white',
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: accentColor,
-                        },
-                        borderRadius: 2,
-                        fontWeight: 600,
-                      }}
-                    >
-                      {yearOptions.map((yearOption) => (
-                        <MenuItem key={yearOption} value={yearOption}>
-                          {yearOption}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
                 </Box>
               </Box>
            

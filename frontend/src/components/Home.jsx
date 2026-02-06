@@ -1085,8 +1085,30 @@ const Home = () => {
   const handleMenuOpen = (event) => setAnchorEl(event.currentTarget);
   const handleMenuClose = () => setAnchorEl(null);
 
+  // PAGE OVERFLOW HIDDEN (HomeAdmin Style)
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = "";
+      document.documentElement.style.overflow = "";
+    };
+  }, []);
+
   return (
-    <Box sx={{ minHeight: "100vh", p: { xs: 1, md: 0.5 }, mt: -1, mb: 3 }}>
+    <Box
+      sx={{
+        width: "100%",
+        height: "86%",
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        boxSizing: "border-box",
+        p: 1,
+        mt: -2
+      }}
+    >
       {/* Header */}
       <Grow in timeout={300}>
         <Box
@@ -1094,14 +1116,13 @@ const Home = () => {
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            mb: 3,
+            mb: 2,
             background: settings.accentColor,
             backdropFilter: "blur(15px)",
             borderRadius: 4,
             p: 2,
             border: `1px solid ${settings.secondaryColor}`,
-            boxShadow: `0 15px 40px ${settings.primaryColor}33`,
-            mt: -2,
+            flexShrink: 0, // Prevent header from shrinking
           }}
         >
           <Box>
@@ -1284,31 +1305,25 @@ const Home = () => {
         </Box>
       </Grow>
 
-      <Grid container spacing={3}>
-        {/* Left Column */}
-        <Grid item xs={12} md={7} lg={8}>
-          {/* Announcement Slideshow */}
+      {/* Main Content Grid */}
+      <Grid container spacing={2} sx={{ flex: 1, minHeight: 0 }}>
+        {/* Left Column - Carousel */}
+        <Grid item xs={12} md={7.5} sx={{ minHeight: 0 }}>
           <Grow in timeout={400}>
             <Card
               sx={{
+                height: "100%",
                 background: settings.accentColor,
                 backdropFilter: "blur(15px)",
                 border: `1px solid ${settings.primaryColor}26`,
                 borderRadius: 4,
-                mb: 3,
                 overflow: "hidden",
-                boxShadow: `0 15px 40px ${settings.primaryColor}33`,
                 position: "relative",
-                height: { xs: 350, sm: 450, md: 550 },
-                cursor: "pointer",
-                transition: "all 0.3s",
-                "&:hover": {
-                  transform: "translateY(-8px)",
-                  boxShadow: `0 16px 48px ${settings.primaryColor}4D`,
-                },
+                display: "flex",
+                flexDirection: "column",
               }}
             >
-              <Box sx={{ position: "relative", height: "100%" }}>
+              <Box sx={{ position: "relative", height: "100%", flex: 1 }}>
                 {announcementsLoading ? (
                   <Box
                     sx={{
@@ -1573,301 +1588,271 @@ const Home = () => {
               </Box>
             </Card>
           </Grow>
-
-          {/* Payslip Card */}
-          <Grow in timeout={600}>
-            <Card
-              sx={{
-                background: settings.accentColor,
-                backdropFilter: "blur(15px)",
-                border: `1px solid ${settings.primaryColor}26`,
-                borderRadius: 4,
-                boxShadow: `0 15px 40px ${settings.primaryColor}33`,
-              }}
-            >
-              <CardContent sx={{ p: { xs: 2, md: 3 } }}>
-                <Box
-                  sx={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    mb: 3,
-                    flexWrap: "wrap",
-                    gap: 2,
-                  }}
-                >
-                  <Box sx={{ display: "flex", alignItems: "center" }}>
-                    <Receipt
-                      sx={{
-                        color: settings.textPrimaryColor,
-                        mr: 1,
-                        fontSize: 24,
-                      }}
-                    />
-                    <Typography
-                      variant="h6"
-                      sx={{
-                        fontWeight: 700,
-                        color: settings.textPrimaryColor,
-                        fontSize: "1.125rem",
-                      }}
-                    >
-                      Payslip
-                    </Typography>
-                  </Box>
-                  <FormControl size="small" sx={{ minWidth: 140 }}>
-                    <InputLabel id="payslip-month-label" sx={{ color: settings.textPrimaryColor }}>Month</InputLabel>
-                    <Select
-                      labelId="payslip-month-label"
-                      value={payslipMonth}
-                      label="Month"
-                      onChange={(e) => setPayslipMonth(Number(e.target.value))}
-                      sx={{
-                        color: settings.textPrimaryColor,
-                        "& .MuiOutlinedInput-notchedOutline": { borderColor: `${settings.primaryColor}40` },
-                        "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: settings.primaryColor },
-                        "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: settings.primaryColor },
-                      }}
-                    >
-                      {Array.from({ length: 12 }, (_, i) => (
-                        <MenuItem key={i} value={i}>
-                          {new Date(2000, i).toLocaleString("en-US", { month: "long" })}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Box>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6}>
-                    <Card
-                      elevation={0}
-                      sx={{
-                        background: `linear-gradient(135deg, ${settings.primaryColor} 0%, ${settings.secondaryColor} 100%)`,
-                        color: settings.textColor,
-                        borderRadius: 2,
-                        transition: "all 0.3s",
-                        boxShadow: `0 4px 16px ${settings.primaryColor}33`,
-                        "&:hover": {
-                          transform: "scale(1.05)",
-                          boxShadow: `0 8px 24px ${settings.primaryColor}4D`,
-                        },
-                      }}
-                    >
-                      <CardContent>
-                        <Typography
-                          variant="caption"
-                          sx={{ opacity: 0.9, mb: 1, display: "block" }}
-                        >
-                          1st Quincena
-                        </Typography>
-                        <Typography
-                          variant="h4"
-                          sx={{
-                            fontWeight: 700,
-                            fontSize: { xs: "1.75rem", md: "2.125rem" },
-                          }}
-                        >
-                          {payrollData
-                            ? formatCurrency(payrollData.pay1st)
-                            : "₱-.--"}
-                        </Typography>
-                        <Box
-                          sx={{ mt: 2, display: "flex", alignItems: "center" }}
-                        >
-                          <AccountBalance sx={{ mr: 1, fontSize: 18 }} />
-                          <Typography variant="caption">
-                            {payrollData?.period1_desc || "1st Half"}
-                          </Typography>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <Card
-                      elevation={0}
-                      sx={{
-                        background: `linear-gradient(135deg, ${settings.secondaryColor} 0%, ${settings.primaryColor} 100%)`,
-                        color: settings.textColor,
-                        borderRadius: 2,
-                        transition: "all 0.3s",
-                        boxShadow: `0 4px 16px ${settings.primaryColor}33`,
-                        "&:hover": {
-                          transform: "scale(1.05)",
-                          boxShadow: `0 8px 24px ${settings.primaryColor}4D`,
-                        },
-                      }}
-                    >
-                      <CardContent>
-                        <Typography
-                          variant="caption"
-                          sx={{ opacity: 0.9, mb: 1, display: "block" }}
-                        >
-                          2nd Quincena
-                        </Typography>
-                        <Typography
-                          variant="h4"
-                          sx={{
-                            fontWeight: 700,
-                            fontSize: { xs: "1.75rem", md: "2.125rem" },
-                          }}
-                        >
-                          {payrollData
-                            ? formatCurrency(payrollData.pay2nd)
-                            : "₱-.--"}
-                        </Typography>
-                        <Box
-                          sx={{ mt: 2, display: "flex", alignItems: "center" }}
-                        >
-                          <AccountBalance sx={{ mr: 1, fontSize: 18 }} />
-                          <Typography variant="caption">
-                            {payrollData?.period2_desc || "2nd Half"}
-                          </Typography>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                </Grid>
-                <Link to="/payslip" style={{ textDecoration: "none" }}>
-                  <Button
-                    fullWidth
-                    variant="outlined"
-                    sx={{
-                      mt: 2,
-                      borderColor: settings.primaryColor,
-                      color: settings.textPrimaryColor,
-                      fontWeight: 600,
-                      borderWidth: 1,
-                      "&:hover": {
-                        borderColor: settings.primaryColor,
-                        backgroundColor: settings.primaryColor,
-                        color: settings.textColor,
-                        borderWidth: 1,
-                        transform: "translateY(-2px)",
-                        boxShadow: `0 4px 12px ${settings.primaryColor}33`,
-                      },
-                      transition: "all 0.3s",
-                    }}
-                    startIcon={<Download />}
-                  >
-                    View Full Payslip
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          </Grow>
         </Grid>
 
-        {/* Right Column - height matches carousel so bottom aligns */}
-        <Grid item xs={12} md={5} lg={4}>
-          <Box
-            sx={{
-              height: { xs: "auto", sm: 450, md: 550 },
-              display: "flex",
-              flexDirection: "column",
-              gap: 1.5,
-              mb: 3,
-            }}
-          >
-          {/* Employee Panel - DTR, Payslip, PDS, Attendance 1 row (compact to avoid calendar scroll) */}
-          <Grow in timeout={400}>
-            <Card
-              sx={{
-                flexShrink: 0,
-                background: settings.accentColor,
-                backdropFilter: "blur(15px)",
-                border: `1px solid ${settings.primaryColor}26`,
-                borderRadius: 4,
-                boxShadow: `0 15px 40px ${settings.primaryColor}33`,
-              }}
-            >
-              <CardContent sx={{ p: { xs: 1.5, md: 2 }, "&:last-child": { pb: { xs: 1.5, md: 2 } } }}>
-                <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                  <DashboardIcon
-                    sx={{
-                      color: settings.textPrimaryColor,
-                      mr: 1,
-                      fontSize: 20,
-                    }}
-                  />
-                  <Typography
-                    variant="h6"
-                    sx={{
-                      fontWeight: 700,
-                      color: settings.textPrimaryColor,
-                      fontSize: "1rem",
-                    }}
-                  >
-                    Employee Panel
-                  </Typography>
-                </Box>
-                <Grid container spacing={1.5}>
-                  {quickActions.map((action, index) => (
-                    <Grid item xs={6} sm={3} key={index}>
-                      <Link to={action.link} style={{ textDecoration: "none" }}>
-                        <Box
+        {/* Right Column - Widgets Grid (Compact Layout) */}
+        <Grid item xs={12} md={4.5} sx={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
+          
+          {/* Row 1: Employee Panel & Payslip (Side by Side) */}
+          <Grid container spacing={2} sx={{ mb: 2 }}>
+            {/* 1. Employee Panel */}
+            <Grid item xs={12} sm={6}>
+              <Grow in timeout={400}>
+                <Card
+                  sx={{
+                    height: "100%",
+                    background: settings.accentColor,
+                    backdropFilter: "blur(15px)",
+                    border: `1px solid ${settings.primaryColor}26`,
+                    borderRadius: 4,
+                    display: 'flex',
+                    flexDirection: 'column'
+                  }}
+                >
+                  <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 }, flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                      <DashboardIcon
+                        sx={{
+                          color: settings.textPrimaryColor,
+                          mr: 0.5,
+                          fontSize: 18,
+                        }}
+                      />
+                      <Typography
+                        variant="h6"
+                        sx={{
+                          fontWeight: 700,
+                          color: settings.textPrimaryColor,
+                          fontSize: "0.85rem",
+                        }}
+                      >
+                        Quick Access
+                      </Typography>
+                    </Box>
+                    <Grid container spacing={0.5} sx={{ flex: 1, alignItems: 'center' }}>
+                      {quickActions.map((action, index) => (
+                        <Grid item xs={6} key={index}>
+                          <Link to={action.link} style={{ textDecoration: "none" }}>
+                            <Box
+                              sx={{
+                                p: 0.75,
+                                textAlign: "center",
+                                borderRadius: 2,
+                                backgroundColor: `${settings.primaryColor}0A`,
+                                border: `1px solid ${settings.primaryColor}26`,
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                gap: 0.25,
+                                transition: "all 0.3s",
+                                cursor: "pointer",
+                                "&:hover": {
+                                  backgroundColor: settings.primaryColor,
+                                  transform: "translateY(-2px)",
+                                  boxShadow: `0 4px 12px ${settings.primaryColor}33`,
+                                  "& .action-icon": {
+                                    color: settings.textColor,
+                                    transform: "scale(1.1)",
+                                  },
+                                  "& .action-label": { color: settings.textColor },
+                                },
+                              }}
+                            >
+                              <Box
+                                className="action-icon"
+                                sx={{
+                                  color: action.color,
+                                  fontSize: 20,
+                                  transition: "all 0.3s",
+                                }}
+                              >
+                                {action.icon}
+                              </Box>
+                              <Typography
+                                className="action-label"
+                                variant="caption"
+                                sx={{
+                                  fontWeight: 600,
+                                  color: settings.textPrimaryColor,
+                                  transition: "color 0.3s",
+                                  fontSize: "0.65rem",
+                                }}
+                              >
+                                {action.label}
+                              </Typography>
+                            </Box>
+                          </Link>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </CardContent>
+                </Card>
+              </Grow>
+            </Grid>
+
+            {/* 2. Payslip Card (Compact) */}
+            <Grid item xs={12} sm={6}>
+              <Grow in timeout={500}>
+                <Card
+                  sx={{
+                    height: "100%",
+                    background: settings.accentColor,
+                    backdropFilter: "blur(15px)",
+                    border: `1px solid ${settings.primaryColor}26`,
+                    borderRadius: 4,
+                    display: 'flex',
+                    flexDirection: 'column'
+                  }}
+                >
+                  <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 }, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                      <Box sx={{ display: "flex", alignItems: "center" }}>
+                        <Receipt
                           sx={{
-                            p: { xs: 1.25, sm: 1.5 },
-                            textAlign: "center",
-                            borderRadius: 2,
-                            backgroundColor: `${settings.primaryColor}0A`,
-                            border: `1px solid ${settings.primaryColor}26`,
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "center",
-                            gap: 0.5,
-                            transition: "all 0.3s",
-                            cursor: "pointer",
-                            "&:hover": {
-                              backgroundColor: settings.primaryColor,
-                              transform: "translateY(-8px)",
-                              boxShadow: `0 12px 24px ${settings.primaryColor}4D`,
-                              "& .action-icon": {
-                                color: settings.textColor,
-                                transform: "scale(1.2) rotate(5deg)",
-                              },
-                              "& .action-label": { color: settings.textColor },
-                            },
+                            color: settings.textPrimaryColor,
+                            mr: 0.5,
+                            fontSize: 18,
+                          }}
+                        />
+                        <Typography
+                          variant="h6"
+                          sx={{
+                            fontWeight: 700,
+                            color: settings.textPrimaryColor,
+                            fontSize: "0.85rem",
                           }}
                         >
-                          <Box
-                            className="action-icon"
-                            sx={{
-                              color: action.color,
-                              fontSize: { xs: 26, sm: 30 },
-                              transition: "all 0.3s",
-                              display: "flex",
-                              justifyContent: "center",
-                            }}
-                          >
-                            {action.icon}
+                          Payslip
+                        </Typography>
+                      </Box>
+                      <FormControl size="small" sx={{ minWidth: 70 }}>
+                        <InputLabel id="payslip-month-label" sx={{ color: settings.textPrimaryColor, fontSize: "0.7rem" }}>Month</InputLabel>
+                        <Select
+                          labelId="payslip-month-label"
+                          value={payslipMonth}
+                          label="Month"
+                          onChange={(e) => setPayslipMonth(Number(e.target.value))}
+                          sx={{
+                            color: settings.textPrimaryColor,
+                            fontSize: "0.7rem",
+                            height: 30,
+                            "& .MuiOutlinedInput-notchedOutline": { borderColor: `${settings.primaryColor}40` },
+                            "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: settings.primaryColor },
+                            "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: settings.primaryColor },
+                            "& .MuiSelect-select": { py: 0.5 }
+                          }}
+                        >
+                          {Array.from({ length: 12 }, (_, i) => (
+                            <MenuItem key={i} value={i}>
+                              {new Date(2000, i).toLocaleString("en-US", { month: "short" })}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Box>
+                    <Grid container spacing={0.5}>
+                      <Grid item xs={6}>
+                        <Card
+                          elevation={0}
+                          sx={{
+                            background: `linear-gradient(135deg, ${settings.primaryColor} 0%, ${settings.secondaryColor} 100%)`,
+                            color: settings.textColor,
+                            borderRadius: 2,
+                            transition: "all 0.3s",
+                            boxShadow: `0 2px 8px ${settings.primaryColor}33`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            py: 1
+                          }}
+                        >
+                          <Box textAlign="center">
+                            <Typography
+                              variant="caption"
+                              sx={{ opacity: 0.9, fontSize: "0.65rem", display: "block" }}
+                            >
+                              1st Half
+                            </Typography>
+                            <Typography
+                              variant="h6"
+                              sx={{
+                                fontWeight: 700,
+                                fontSize: "0.9rem",
+                              }}
+                            >
+                              {payrollData
+                                ? formatCurrency(payrollData.pay1st)
+                                : "₱-.--"}
+                            </Typography>
                           </Box>
-                          <Typography
-                            className="action-label"
-                            variant="caption"
-                            sx={{
-                              fontWeight: 600,
-                              color: settings.textPrimaryColor,
-                              transition: "color 0.3s",
-                              fontSize: { xs: "0.75rem", sm: "0.8rem" },
-                            }}
-                          >
-                            {action.label}
-                          </Typography>
-                        </Box>
-                      </Link>
+                        </Card>
+                      </Grid>
+                      <Grid item xs={6}>
+                        <Card
+                          elevation={0}
+                          sx={{
+                            background: `linear-gradient(135deg, ${settings.secondaryColor} 0%, ${settings.primaryColor} 100%)`,
+                            color: settings.textColor,
+                            borderRadius: 2,
+                            transition: "all 0.3s",
+                            boxShadow: `0 2px 8px ${settings.primaryColor}33`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            py: 1
+                          }}
+                        >
+                          <Box textAlign="center">
+                            <Typography
+                              variant="caption"
+                              sx={{ opacity: 0.9, fontSize: "0.65rem", display: "block" }}
+                            >
+                              2nd Half
+                            </Typography>
+                            <Typography
+                              variant="h6"
+                              sx={{
+                                fontWeight: 700,
+                                fontSize: "0.9rem",
+                              }}
+                            >
+                              {payrollData
+                                ? formatCurrency(payrollData.pay2nd)
+                                : "₱-.--"}
+                            </Typography>
+                          </Box>
+                        </Card>
+                      </Grid>
                     </Grid>
-                  ))}
-                </Grid>
-              </CardContent>
-            </Card>
-          </Grow>
+                    <Link to="/payslip" style={{ textDecoration: "none" }}>
+                      <Button
+                        fullWidth
+                        variant="text"
+                        size="small"
+                        sx={{
+                          mt: 0.5,
+                          color: settings.textPrimaryColor,
+                          fontWeight: 600,
+                          fontSize: "0.7rem",
+                          "&:hover": {
+                            backgroundColor: `${settings.primaryColor}0A`,
+                          },
+                        }}
+                        endIcon={<ArrowForward sx={{fontSize: 14}} />}
+                      >
+                        View Full
+                      </Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              </Grow>
+            </Grid>
+          </Grid>
 
-          {/* Calendar - fills remaining space, scrolls inside so bottom aligns with carousel */}
-          <Grow in timeout={500}>
+          {/* 3. Calendar - Fixed Height for Compactness */}
+          <Grow in timeout={600} sx={{ mb: 2, display: 'flex', flexDirection: 'column', border: `1px solid ${settings.primaryColor}26`, borderRadius: 4}}>
             <Card
               sx={{
-                flex: 1,
-                minHeight: 0,
                 display: "flex",
                 flexDirection: "column",
                 background: settings.accentColor,
@@ -1877,13 +1862,12 @@ const Home = () => {
                 boxShadow: `0 15px 40px ${settings.primaryColor}33`,
               }}
             >
-              <CardContent sx={{ p: 3, flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
+              <CardContent sx={{ p: 1.5, display: "flex", flexDirection: "column" }}>
                 <Box
                   sx={{
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    mb: 1,
                   }}
                 >
                   <IconButton
@@ -1893,11 +1877,10 @@ const Home = () => {
                     }
                     sx={{
                       color: settings.textPrimaryColor,
+                      p: 0.5,
                       "&:hover": {
                         backgroundColor: `${settings.primaryColor}1A`,
-                        transform: "scale(1.1)",
                       },
-                      transition: "all 0.3s",
                     }}
                   >
                     <ArrowBackIosNewIcon fontSize="small" />
@@ -1907,40 +1890,39 @@ const Home = () => {
                       fontWeight={700}
                       sx={{
                         color: settings.textPrimaryColor,
-                        fontSize: "1.2rem",
+                        fontSize: "0.9rem",
                       }}
                     >
                       {new Date(year, month).toLocaleDateString("en-US", {
-                        month: "long",
+                        month: "short",
                         year: "numeric",
                       })}
                     </Typography>
                   </Box>
                   <IconButton
-                    size="medium"
+                    size="small"
                     onClick={() =>
                       setCalendarDate(new Date(year, month + 1, 1))
                     }
                     sx={{
                       color: settings.textPrimaryColor,
+                      p: 0.5,
                       "&:hover": {
                         backgroundColor: `${settings.primaryColor}1A`,
-                        transform: "scale(1.1)",
                       },
-                      transition: "all 0.3s",
                     }}
                   >
                     <ArrowForwardIosIcon fontSize="small" />
                   </IconButton>
                 </Box>
-                <Grid container spacing={0.5} sx={{ mb: 1, mt: 1 }}>
+                <Grid container spacing={0.25} sx={{ mb: 0.25 }}>
                   {["M", "T", "W", "T", "F", "S", "S"].map((day, i) => (
                     <Grid item xs={12 / 7} key={i}>
                       <Typography
                         sx={{
                           textAlign: "center",
                           fontWeight: 700,
-                          fontSize: "0.75rem",
+                          fontSize: "0.8rem",
                           color: settings.textPrimaryColor,
                           py: 0.25,
                         }}
@@ -1950,195 +1932,179 @@ const Home = () => {
                     </Grid>
                   ))}
                 </Grid>
-                <Grid container spacing={1}>
-                  {calendarDays.map((day, index) => {
-                    const currentDateStr = `${year}-${String(
-                      month + 1
-                    ).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                    const holidayData = holidays.find(
-                      (h) => h.date === currentDateStr && h.status === "Active"
-                    );
-                    const dayNotes = getNotesForDate(currentDateStr);
-                    const dayEvents = getEventsForDate(currentDateStr);
+                <Box>
+                  <Grid container spacing={0.25}>
+                    {calendarDays.map((day, index) => {
+                      const currentDateStr = `${year}-${String(
+                        month + 1
+                      ).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                      const holidayData = holidays.find(
+                        (h) => h.date === currentDateStr && h.status === "Active"
+                      );
+                      const dayNotes = getNotesForDate(currentDateStr);
+                      const dayEvents = getEventsForDate(currentDateStr);
+                      const dayAnnouncements = announcements.filter(
+                        (announcement) => {
+                          const announcementDate = normalizeDate(
+                            announcement.date
+                          );
+                          return announcementDate === currentDateStr;
+                        }
+                      );
+                      const hasAnnouncements = dayAnnouncements.length > 0;
+                      const hasNotesOrEvents =
+                        dayNotes.length > 0 ||
+                        dayEvents.length > 0 ||
+                        hasAnnouncements;
+                      const isToday =
+                        day === new Date().getDate() &&
+                        month === new Date().getMonth() &&
+                        year === new Date().getFullYear();
+                      return (
+                        <Grid item xs={12 / 7} key={index}>
+                          <Tooltip
+                            title={
+                              isToday
+                                ? "Today"
+                                : holidayData
+                                ? holidayData.name
+                                : hasAnnouncements
+                                ? `${dayAnnouncements[0].title}`
+                                : hasNotesOrEvents
+                                ? `${dayNotes.length} note(s), ${dayEvents.length} event(s)`
+                                : ""
+                            }
+                            arrow
+                          >
+                            <Box
+                              onClick={() => {
+                                if (day) {
+                                  setSelectedDate(currentDateStr);
+                                  setViewNotesDialog(true);
+                                }
+                              }}
+                              sx={{
+                                textAlign: "center",
+                                py: 0.5,
+                                px: 0.25,
+                                fontSize: "0.8rem",
+                                borderRadius: 0.5,
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                color: holidayData
+                                  ? "#d32f2f"
+                                  : isToday
+                                  ? settings.textColor
+                                  : day
+                                  ? settings.textPrimaryColor
+                                  : "transparent",
+                                backgroundColor: isToday
+                                  ? settings.secondaryColor
+                                  : hasAnnouncements
+                                  ? `${settings.primaryColor}0F`
+                                  : hasNotesOrEvents
+                                  ? `${settings.primaryColor}0F`
+                                  : "transparent",
+                                fontWeight:
+                                  holidayData || isToday || hasNotesOrEvents || hasAnnouncements
+                                    ? 700
+                                    : 400,
+                                border: isToday
+                                  ? `1px solid ${settings.accentColor}`
+                                  : hasNotesOrEvents || hasAnnouncements
+                                  ? `1px solid ${settings.primaryColor}40`
+                                  : "none",
+                                cursor: day ? "pointer" : "default",
+                                position: "relative",
+                                transition: "all 0.2s",
+                                "&:hover": day
+                                  ? {
+                                      transform: "scale(1.1)",
+                                      backgroundColor: isToday
+                                        ? settings.textSecondaryColor
+                                        : hasAnnouncements || hasNotesOrEvents
+                                        ? `${settings.primaryColor}1A`
+                                        : "transparent",
+                                      color: holidayData
+                                        ? "#b71c1c"
+                                        : settings.textPrimaryColor,
+                                      zIndex: 10,
+                                    }
+                                  : {},
+                              }}
+                            >
+                              {day || ""}
+                              {hasNotesOrEvents && day && (
+                                <Box
+                                  sx={{
+                                    display: "flex",
+                                    gap: 0.25,
+                                    mt: 0.1,
+                                    position: "absolute",
+                                    bottom: 2,
+                                    left: 0,
+                                    right: 0,
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  {dayNotes.length > 0 && (
+                                    <Box
+                                      sx={{
+                                        width: 3,
+                                        height: 3,
+                                        borderRadius: "50%",
+                                        backgroundColor: holidayData
+                                          ? "#d32f2f" 
+                                          : isToday
+                                          ? settings.textColor
+                                          : "#ff9800",
+                                        boxShadow: "0 0 4px rgba(0,0,0,0.3)",
+                                      }}
+                                    />
+                                  )}
+                                  {dayEvents.length > 0 && (
+                                    <Box
+                                      sx={{
+                                        width: 3,
+                                        height: 3,
+                                        borderRadius: "50%",
+                                        backgroundColor: holidayData
+                                          ? "#d32f2f"
+                                          : isToday
+                                          ? settings.textColor
+                                          : "#4caf50",
+                                        boxShadow: "0 0 4px rgba(0,0,0,0.3)",
+                                      }}
+                                    />
+                                  )}
+                                  {hasAnnouncements && (
+                                    <Box
+                                      sx={{
+                                        width: 3,
+                                        height: 3,
+                                        borderRadius: "50%",
+                                        backgroundColor: holidayData
+                                          ? "#d32f2f"
+                                          : isToday
+                                          ? settings.textColor
+                                          : "#2196f3",
+                                        boxShadow: "0 0 4px rgba(0,0,0,0.3)",
+                                      }}
+                                    />
+                                  )}
+                                </Box>
+                              )}
+                            </Box>
+                          </Tooltip>
+                        </Grid>
+                      );
+                    })}
+                  </Grid>
+                </Box>
 
-                    // Add this to get announcements for the current date
-                    const dayAnnouncements = announcements.filter(
-                      (announcement) => {
-                        const announcementDate = normalizeDate(
-                          announcement.date
-                        );
-                        return announcementDate === currentDateStr;
-                      }
-                    );
-                    const hasAnnouncements = dayAnnouncements.length > 0;
-
-                    const hasNotesOrEvents =
-                      dayNotes.length > 0 ||
-                      dayEvents.length > 0 ||
-                      hasAnnouncements;
-                    const isToday =
-                      day === new Date().getDate() &&
-                      month === new Date().getMonth() &&
-                      year === new Date().getFullYear();
-                    return (
-                   <Grid item xs={12 / 7} key={index}>
-  <Tooltip
-    title={
-      isToday
-        ? "Today"
-        : holidayData
-        ? holidayData.name
-        : hasAnnouncements
-        ? `${dayAnnouncements[0].title}` //Announcement(s)
-        : hasNotesOrEvents
-        ? `${dayNotes.length} note(s), ${dayEvents.length} event(s)`
-        : ""
-    }
-    arrow
-  >
-    <Box
-      onClick={() => {
-        if (day) {
-          setSelectedDate(currentDateStr);
-          setViewNotesDialog(true);
-        }
-      }}
-      sx={{
-        textAlign: "center",
-        py: 0.4,
-        px: 0.75,
-        fontSize: "0.875rem",
-        borderRadius: 1,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        color: holidayData
-          ? "#d32f2f"
-          : isToday
-          ? settings.textColor
-          : day
-          ? settings.textPrimaryColor
-          : "transparent",
-        backgroundColor: isToday
-          ? settings.secondaryColor
-          : hasAnnouncements
-          ? `${settings.primaryColor}0F`
-          : hasNotesOrEvents
-          ? `${settings.primaryColor}0F`
-          : "transparent",
-        fontWeight:
-          holidayData || isToday || hasNotesOrEvents || hasAnnouncements
-            ? 700
-            : 400,
-        border: isToday
-          ? `2px solid ${settings.accentColor}`
-          : hasNotesOrEvents || hasAnnouncements
-          ? `1px solid ${settings.primaryColor}40`
-          : "none",
-        cursor: day ? "pointer" : "default",
-        position: "relative",
-        transition: "all 0.2s",
-        "&:hover": day
-          ? {
-              transform: "scale(1.15)",
-              boxShadow: `0 4px 12px ${settings.primaryColor}33`,
-              backgroundColor: isToday
-                ? settings.textSecondaryColor
-                : hasAnnouncements || hasNotesOrEvents
-                ? `${settings.primaryColor}1A`
-                : "transparent",
-              color: holidayData
-                ? "#b71c1c"
-                : settings.textPrimaryColor,
-              zIndex: 10,
-            }
-          : {},
-      }}
-    >
-      {day || ""}
-      {hasNotesOrEvents && day && (
-        <Box
-          sx={{
-            display: "flex",
-            gap: 0.5,
-            mt: 0.5,
-            position: "absolute",
-            bottom: 4,
-            left: 0,
-            right: 0,
-            justifyContent: "center",
-          }}
-        >
-          {dayNotes.length > 0 && (
-            <Tooltip
-              title={`${dayNotes.length} note(s)`}
-              arrow
-            >
-              <Box
-                sx={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  backgroundColor: holidayData
-                    ? "#d32f2f" 
-                    : isToday
-                    ? settings.textColor
-                    : "#ff9800",
-                  boxShadow: "0 0 4px rgba(0,0,0,0.3)",
-                }}
-              />
-            </Tooltip>
-          )}
-          {dayEvents.length > 0 && (
-            <Tooltip
-              title={`${dayEvents.length} event(s)`}
-              arrow
-            >
-              <Box
-                sx={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  backgroundColor: holidayData
-                    ? "#d32f2f"
-                    : isToday
-                    ? settings.textColor
-                    : "#4caf50",
-                  boxShadow: "0 0 4px rgba(0,0,0,0.3)",
-                }}
-              />
-            </Tooltip>
-          )}
-          {/* Add announcement indicator */}
-          {hasAnnouncements && (
-            <Tooltip
-              title={`${dayAnnouncements.length} announcement(s)`}
-              arrow
-            >
-              <Box
-                sx={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  backgroundColor: holidayData
-                    ? "#d32f2f"
-                    : isToday
-                    ? settings.textColor
-                    : "#2196f3",
-                  boxShadow: "0 0 4px rgba(0,0,0,0.3)",
-                }}
-              />
-            </Tooltip>
-          )}
-        </Box>
-      )}
-    </Box>
-  </Tooltip>
-</Grid>
-                    );
-                  })}
-                </Grid>
+                {/* Restored Tips Section */}
                 <Box
                   sx={{
                     display: "flex",
@@ -2215,51 +2181,18 @@ const Home = () => {
                     </Tooltip>
                   </Box>
                 </Box>
-                <Menu
-                  anchorEl={calendarLegendAnchorEl}
-                  open={openCalendarLegend}
-                  onClose={() => setCalendarLegendAnchorEl(null)}
-                  anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-                  transformOrigin={{ vertical: "top", horizontal: "right" }}
-                  PaperProps={{
-                    sx: {
-                      borderRadius: 2,
-                      minWidth: 180,
-                      backgroundColor: settings.accentColor,
-                      border: `1px solid ${settings.primaryColor}26`,
-                      boxShadow: `0 15px 40px ${settings.primaryColor}33`,
-                    },
-                  }}
-                >
-                  <Box sx={{ px: 2, py: 1.5 }}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 700, color: settings.textPrimaryColor, mb: 1 }}>
-                      Legends
-                    </Typography>
-                    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                        <Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#ff9800" }} />
-                        <Typography variant="body2" sx={{ color: settings.textPrimaryColor }}>Notes</Typography>
-                      </Box>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                        <Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#4caf50" }} />
-                        <Typography variant="body2" sx={{ color: settings.textPrimaryColor }}>Events</Typography>
-                      </Box>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                        <Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#2196f3" }} />
-                        <Typography variant="body2" sx={{ color: settings.textPrimaryColor }}>Announcements</Typography>
-                      </Box>
-                    </Box>
-                  </Box>
-                </Menu>
               </CardContent>
             </Card>
           </Grow>
-          </Box>
 
-          {/* Recent Activity */}
-          <Grow in timeout={600}>
+          {/* 4. Recent Activity (Notes & Events) - Fills remaining space */}
+          <Grow in timeout={700} sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', border: `1px solid ${settings.primaryColor}26`, borderRadius: 4}}>
             <Card
               sx={{
+                flex: 1,
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
                 background: settings.accentColor,
                 backdropFilter: "blur(15px)",
                 border: `1px solid ${settings.primaryColor}26`,
@@ -2267,52 +2200,79 @@ const Home = () => {
                 boxShadow: `0 15px 40px ${settings.primaryColor}33`,
               }}
             >
-              <CardContent sx={{ p: 3 }}>
-                <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+              <CardContent sx={{ p: 1.5, display: "flex", flexDirection: "column", height: "100%" }}>
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
                   <Typography
-                    variant="h6"
+                    variant="subtitle1"
                     sx={{
                       fontWeight: 700,
                       color: settings.textPrimaryColor,
-                      fontSize: "1.125rem",
+                      fontSize: "0.85rem",
                     }}
                   >
                     Notes and Events
                   </Typography>
+                  <Box>
+                    <Tooltip title="Add Note">
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          const today = normalizeDate(new Date());
+                          setSelectedDate(today);
+                          handleAddNote();
+                        }}
+                        sx={{
+                          color: settings.textPrimaryColor,
+                          p: 0.5,
+                          "&:hover": { backgroundColor: `${settings.primaryColor}1A` },
+                        }}
+                      >
+                        <Note fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Add Event">
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          const today = normalizeDate(new Date());
+                          setSelectedDate(today);
+                          handleAddEvent();
+                        }}
+                        sx={{
+                          color: settings.textPrimaryColor,
+                          p: 0.5,
+                          "&:hover": { backgroundColor: `${settings.primaryColor}1A` },
+                        }}
+                      >
+                        <Event fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
                 </Box>
-<Box
-  sx={{
-    maxHeight: 222,
-    overflowY: "auto",
-
-    "&::-webkit-scrollbar": {
-      width: 8,
-    },
-    "&::-webkit-scrollbar-track": {
-      background: "#f1f1f1",
-    },
-    "&::-webkit-scrollbar-thumb": {
-      backgroundColor: "#6d2323",
-      borderRadius: 4,
-    },
-    "&::-webkit-scrollbar-thumb:hover": {
-      backgroundColor: "#5a1c1c",
-    },
-  }}
->
+                <Box
+                  sx={{
+                    flex: 1,
+                    overflowY: "auto",
+                    overflowX: "hidden",
+                    pr: 0.5,
+                    "&::-webkit-scrollbar": { width: 4 },
+                    "&::-webkit-scrollbar-track": { background: "transparent" },
+                    "&::-webkit-scrollbar-thumb": { background: `${settings.primaryColor}4D`, borderRadius: 2 },
+                  }}
+                >
                   {getRecentActivity().length > 0 ? (
                     getRecentActivity().map((item, idx) => (
                       <Grow in timeout={300 + idx * 50} key={idx}>
                         <Box
                           sx={{
-                            mb: 2,
-                            p: 2,
+                            mb: 1,
+                            p: 0.75,
                             backgroundColor:
                               item.type === "note"
                                 ? `${settings.primaryColor}1A`
                                 : "#e8f5e9",
                             borderRadius: 2,
-                            borderLeft: `4px solid ${
+                            borderLeft: `3px solid ${
                               item.type === "note"
                                 ? settings.primaryColor
                                 : "#4caf50"
@@ -2321,7 +2281,7 @@ const Home = () => {
                             transition: "all 0.3s",
                             boxShadow: `0 2px 8px ${settings.primaryColor}33`,
                             "&:hover": {
-                              transform: "translateX(8px)",
+                              transform: "translateX(4px)",
                               boxShadow: `0 4px 16px ${settings.primaryColor}4D`,
                             },
                           }}
@@ -2334,20 +2294,20 @@ const Home = () => {
                             sx={{
                               display: "flex",
                               alignItems: "center",
-                              mb: 0.5,
+                              mb: 0.25,
                             }}
                           >
                             {item.type === "note" ? (
                               <Note
                                 sx={{
-                                  fontSize: 16,
-                                  mr: 1,
+                                  fontSize: 12,
+                                  mr: 0.5,
                                   color: settings.textPrimaryColor,
                                 }}
                               />
                             ) : (
                               <Event
-                                sx={{ fontSize: 16, mr: 1, color: "#4caf50" }}
+                                sx={{ fontSize: 12, mr: 0.5, color: "#4caf50" }}
                               />
                             )}
                             <Typography
@@ -2359,6 +2319,8 @@ const Home = () => {
                                     : "#2e7d32",
                                 fontWeight: 600,
                                 display: "block",
+                                fontSize: "0.75rem",
+                                lineHeight: 1.2
                               }}
                             >
                               {item.type === "note" ? "Note" : "Event"}:{" "}
@@ -2368,27 +2330,20 @@ const Home = () => {
                           <Typography
                             variant="caption"
                             color="textSecondary"
-                            sx={{ display: "block", ml: 3.5 }}
+                            sx={{ display: "block", ml: 1.75, fontSize: "0.7rem", lineHeight: 1.2 }}
                           >
-                            {item.content && item.content.length > 50
-                              ? `${item.content.substring(0, 50)}...`
+                            {item.content && item.content.length > 40
+                              ? `${item.content.substring(0, 40)}...`
                               : item.content}
-                          </Typography>
-                          <Typography
-                            variant="caption"
-                            color="textSecondary"
-                            sx={{ display: "block", ml: 3.5, mt: 0.5 }}
-                          >
-                            {new Date(item.date).toLocaleDateString()}
                           </Typography>
                         </Box>
                       </Grow>
                     ))
                   ) : (
                     <Typography
-                      variant="body2"
+                      variant="caption"
                       color="textSecondary"
-                      sx={{ textAlign: "center", py: 3 }}
+                      sx={{ textAlign: "center", py: 2 }}
                     >
                       No recent activity
                     </Typography>
@@ -2837,6 +2792,44 @@ const Home = () => {
         </Fade>
       </Modal>
 
+      {/* Calendar Legends Menu */}
+      <Menu
+        anchorEl={calendarLegendAnchorEl}
+        open={openCalendarLegend}
+        onClose={() => setCalendarLegendAnchorEl(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            minWidth: 180,
+            backgroundColor: settings.accentColor,
+            border: `1px solid ${settings.primaryColor}26`,
+            boxShadow: `0 15px 40px ${settings.primaryColor}33`,
+          },
+        }}
+      >
+        <Box sx={{ px: 2, py: 1.5 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, color: settings.textPrimaryColor, mb: 1 }}>
+            Legends
+          </Typography>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#ff9800" }} />
+              <Typography variant="body2" sx={{ color: settings.textPrimaryColor }}>Notes</Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#4caf50" }} />
+              <Typography variant="body2" sx={{ color: settings.textPrimaryColor }}>Events</Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#2196f3" }} />
+              <Typography variant="body2" sx={{ color: settings.textPrimaryColor }}>Announcements</Typography>
+            </Box>
+          </Box>
+        </Box>
+      </Menu>
+
       {/* View Notes/Events Dialog */}
       <Dialog
         open={viewNotesDialog}
@@ -3236,5 +3229,3 @@ const Home = () => {
 };
 
 export default Home;
-
-
