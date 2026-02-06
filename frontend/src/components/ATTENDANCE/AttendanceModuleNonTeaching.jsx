@@ -159,7 +159,25 @@ const AttendanceModuleNonTeachingStaff = () => {
         ...getAuthHeaders(),
       });
 
-      const processedData = response.data.map((row) => {
+      // One row per attendance date: use only the official time whose startDate/endDate range contains the date
+      const dateOnly = (val) => (val ? String(val).split("T")[0] : "");
+      const byDateRange = (response.data || []).filter((row) => {
+        const d = dateOnly(row.date);
+        const start = dateOnly(row.startDate);
+        const end = dateOnly(row.endDate);
+        if (!d) return true;
+        if (!start || !end) return true;
+        return d >= start && d <= end;
+      });
+      const seen = new Set();
+      const onePerDate = byDateRange.filter((row) => {
+        const d = dateOnly(row.date);
+        if (seen.has(d)) return false;
+        seen.add(d);
+        return true;
+      });
+
+      const processedData = onePerDate.map((row) => {
         const { timeIN, timeOUT, breaktimeIN, breaktimeOUT, officialBreaktimeIN, officialBreaktimeOUT, officialTimeIN, officialTimeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT, officialOverTimeIN, officialOverTimeOUT } = row;
 
         const defaultTime = "132:00:00 AM";
