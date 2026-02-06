@@ -468,15 +468,15 @@ router.post('/excel-register', async (req, res) => {
 
     // Helper for Category Label
     const getCategoryLabel = (cat) => {
-      switch (parseInt(cat)) {
-        case 0: return 'Job Order - Graduate';
-        case 1: return 'Job Order - UnderGrad';
-        case 2: return 'Regular - Non-Teaching';
-        case 3: return 'Regular - Teaching (Designated)';
-        case 4: return 'Regular - 30Hrs';
-        default: return 'Job Order - Graduated';
-      }
-    };
+  switch (parseInt(cat)) {
+    case 0: return 'Job Order - Graduate';
+    case 1: return 'Job Order - UnderGrad';
+    case 2: return 'Regular - Non-Teaching';
+    case 3: return 'Regular - Teaching (30Hrs)';
+    case 4: return 'Regular - Designated (40Hrs)';
+    default: return 'Job Order - Graduate'; // Default fallback
+  }
+};
 
     await Promise.all(
       users.map(

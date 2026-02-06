@@ -18,11 +18,11 @@ import {
   Switch,
   Grid,
   Divider,
-  alpha,
-  styled,
   Backdrop,
   CircularProgress,
   Fade,
+  Chip,
+  Stack,
 } from "@mui/material";
 import {
   Security as SecurityOutlined,
@@ -30,74 +30,12 @@ import {
   VisibilityOff,
   Shield,
   AdminPanelSettings,
+  CheckCircleOutline,
+  LockOutlined,
+  VerifiedUser,
+  Settings,
 } from "@mui/icons-material";
 import { useSystemSettings } from "../contexts/SystemSettingsContext";
-
-// Helper function to convert hex to rgb
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(
-        result[3],
-        16
-      )}`
-    : "109, 35, 35";
-};
-
-// Professional styled components
-const GlassCard = styled(Card)(({ theme }) => ({
-  borderRadius: 20,
-  backdropFilter: "blur(10px)",
-  overflow: "hidden",
-  transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-  "&:hover": {
-    transform: "translateY(-4px)",
-  },
-}));
-
-const ProfessionalButton = styled(Button)(
-  ({ theme, variant, color = "primary" }) => ({
-    borderRadius: 12,
-    fontWeight: 600,
-    padding: "12px 24px",
-    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    textTransform: "none",
-    fontSize: "0.95rem",
-    letterSpacing: "0.025em",
-    boxShadow:
-      variant === "contained" ? "0 4px 14px rgba(254, 249, 225, 0.25)" : "none",
-    "&:hover": {
-      transform: "translateY(-2px)",
-      boxShadow:
-        variant === "contained"
-          ? "0 6px 20px rgba(254, 249, 225, 0.35)"
-          : "none",
-    },
-    "&:active": {
-      transform: "translateY(0)",
-    },
-  })
-);
-
-const ModernTextField = styled(TextField)(({ theme }) => ({
-  "& .MuiOutlinedInput-root": {
-    borderRadius: 12,
-    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    backgroundColor: "rgba(255, 255, 255, 0.8)",
-    "&:hover": {
-      transform: "translateY(-1px)",
-      backgroundColor: "rgba(255, 255, 255, 0.95)",
-    },
-    "&.Mui-focused": {
-      transform: "translateY(-1px)",
-      boxShadow: "0 4px 20px rgba(254, 249, 225, 0.25)",
-      backgroundColor: "rgba(255, 255, 255, 1)",
-    },
-  },
-  "& .MuiInputLabel-root": {
-    fontWeight: 500,
-  },
-}));
 
 const AdminSecurity = () => {
   const { settings: systemSettings } = useSystemSettings();
@@ -109,10 +47,8 @@ const AdminSecurity = () => {
 
   // Confidential password states
   const [confidentialPassword, setConfidentialPassword] = useState("");
-  const [confirmConfidentialPassword, setConfirmConfidentialPassword] =
-    useState("");
-  const [showConfidentialPassword, setShowConfidentialPassword] =
-    useState(false);
+  const [confirmConfidentialPassword, setConfirmConfidentialPassword] = useState("");
+  const [showConfidentialPassword, setShowConfidentialPassword] = useState(false);
   const [passwordExists, setPasswordExists] = useState(false);
   const [passwordInfo, setPasswordInfo] = useState(null);
 
@@ -132,9 +68,13 @@ const AdminSecurity = () => {
     department: false,
   });
 
-  const employeeNumber = localStorage.getItem("employeeNumber");
+  // Get colors from system settings with professional defaults
+  const primaryColor = systemSettings?.primaryColor || "#1976d2";
+  const secondaryColor = systemSettings?.secondaryColor || "#0d47a1";
+  const accentColor = systemSettings?.accentColor || "#f5f5f5";
+  const textPrimaryColor = systemSettings?.textPrimaryColor || "#1a1a1a";
+  const textSecondaryColor = systemSettings?.textSecondaryColor || "#666666";
 
-  // Get user role from token
   useEffect(() => {
     const userInfo = getUserInfo();
     if (userInfo && userInfo.role) {
@@ -142,27 +82,21 @@ const AdminSecurity = () => {
     }
   }, []);
 
-  // Get colors from system settings
-  const primaryColor = systemSettings?.primaryColor || "#6d2323";
-  const secondaryColor = systemSettings?.secondaryColor || "#6d2323";
-  const accentColor = systemSettings?.accentColor || "#FEF9E1";
-  const textPrimaryColor = systemSettings?.textPrimaryColor || "#6D2323";
-  const textSecondaryColor = systemSettings?.textSecondaryColor || "#FFFFFF";
-  const backgroundColor = systemSettings?.backgroundColor || "#FFFFFF";
-
   useEffect(() => {
-    // Check if user is superadmin, administrator, or technical
     const userInfo = getUserInfo();
-    if (userInfo && userInfo.role !== "superadmin" && userInfo.role !== "administrator" && userInfo.role !== "technical") {
+    if (
+      userInfo &&
+      userInfo.role !== "superadmin" &&
+      userInfo.role !== "administrator" &&
+      userInfo.role !== "technical"
+    ) {
       navigate("/access-denied");
       return;
     }
 
-    // Fetch confidential password info
     const fetchPasswordInfo = async () => {
       try {
-        const token =
-          localStorage.getItem("token") || sessionStorage.getItem("token");
+        const token = localStorage.getItem("token") || sessionStorage.getItem("token");
         const response = await axios.get(
           `${API_BASE_URL}/api/confidential-password/exists`,
           { headers: { Authorization: `Bearer ${token}` } }
@@ -174,31 +108,27 @@ const AdminSecurity = () => {
       }
     };
 
-    // Fetch global MFA setting
     const fetchGlobalMFA = async () => {
       try {
-        const token =
-          localStorage.getItem("token") || sessionStorage.getItem("token");
+        const token = localStorage.getItem("token") || sessionStorage.getItem("token");
         const response = await axios.get(
           `${API_BASE_URL}/api/system-settings/global_mfa_enabled`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
-        // If setting exists, use it; otherwise default to true
         if (response.data && response.data.setting_value !== undefined) {
-          setGlobalMFAEnabled(response.data.setting_value === "true" || response.data.setting_value === true);
+          setGlobalMFAEnabled(
+            response.data.setting_value === "true" || response.data.setting_value === true
+          );
         }
       } catch (err) {
-        // If setting doesn't exist, default to true
         console.log("Global MFA setting not found, defaulting to enabled");
         setGlobalMFAEnabled(true);
       }
     };
 
-    // Fetch field requirements
     const fetchFieldRequirements = async () => {
       try {
-        const token =
-          localStorage.getItem("token") || sessionStorage.getItem("token");
+        const token = localStorage.getItem("token") || sessionStorage.getItem("token");
         const response = await axios.get(
           `${API_BASE_URL}/api/system-settings/registration_field_requirements`,
           { headers: { Authorization: `Bearer ${token}` } }
@@ -212,7 +142,6 @@ const AdminSecurity = () => {
           }
         }
       } catch (err) {
-        // If setting doesn't exist, use defaults
         console.log("Field requirements not found, using defaults");
       }
     };
@@ -222,7 +151,6 @@ const AdminSecurity = () => {
     fetchFieldRequirements();
   }, [navigate]);
 
-  // Handle confidential password creation/update
   const handleConfidentialPasswordSubmit = async () => {
     if (!confidentialPassword || !confirmConfidentialPassword) {
       setErrorMessage("Please fill in all fields.");
@@ -244,8 +172,7 @@ const AdminSecurity = () => {
     setSuccessMessage("");
 
     try {
-      const token =
-        localStorage.getItem("token") || sessionStorage.getItem("token");
+      const token = localStorage.getItem("token") || sessionStorage.getItem("token");
       const res = await axios.post(
         `${API_BASE_URL}/api/confidential-password`,
         { password: confidentialPassword },
@@ -262,11 +189,9 @@ const AdminSecurity = () => {
         setConfirmConfidentialPassword("");
         setTimeout(() => {
           setSuccessMessage("");
-          // Refresh password info
           const fetchPasswordInfo = async () => {
             try {
-              const token =
-                localStorage.getItem("token") || sessionStorage.getItem("token");
+              const token = localStorage.getItem("token") || sessionStorage.getItem("token");
               const response = await axios.get(
                 `${API_BASE_URL}/api/confidential-password/exists`,
                 { headers: { Authorization: `Bearer ${token}` } }
@@ -283,15 +208,13 @@ const AdminSecurity = () => {
     } catch (err) {
       console.error(err);
       setErrorMessage(
-        err.response?.data?.error ||
-          "Failed to save confidential password. Please try again."
+        err.response?.data?.error || "Failed to save confidential password. Please try again."
       );
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle global MFA toggle
   const handleToggleGlobalMFA = async (event) => {
     const newValue = event.target.checked;
     setLoading(true);
@@ -299,8 +222,7 @@ const AdminSecurity = () => {
     setSuccessMessage("");
 
     try {
-      const token =
-        localStorage.getItem("token") || sessionStorage.getItem("token");
+      const token = localStorage.getItem("token") || sessionStorage.getItem("token");
       await axios.put(
         `${API_BASE_URL}/api/system-settings/global_mfa_enabled`,
         { value: newValue },
@@ -308,7 +230,9 @@ const AdminSecurity = () => {
       );
       setGlobalMFAEnabled(newValue);
       setSuccessMessage(
-        `Global MFA ${newValue ? "enabled" : "disabled"} successfully! All users will ${newValue ? "require" : "not require"} MFA verification on login.`
+        `Global MFA ${newValue ? "enabled" : "disabled"} successfully! All users will ${
+          newValue ? "require" : "not require"
+        } MFA verification on login.`
       );
       setTimeout(() => setSuccessMessage(""), 5000);
     } catch (err) {
@@ -320,7 +244,6 @@ const AdminSecurity = () => {
     }
   };
 
-  // Handle field requirement toggle
   const handleToggleFieldRequirement = async (fieldName, newValue) => {
     setLoading(true);
     setErrorMessage("");
@@ -333,636 +256,664 @@ const AdminSecurity = () => {
       };
       setFieldRequirements(updatedRequirements);
 
-      const token =
-        localStorage.getItem("token") || sessionStorage.getItem("token");
+      const token = localStorage.getItem("token") || sessionStorage.getItem("token");
       await axios.put(
         `${API_BASE_URL}/api/system-settings/registration_field_requirements`,
         { value: JSON.stringify(updatedRequirements) },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setSuccessMessage(
-        `${fieldName.charAt(0).toUpperCase() + fieldName.slice(1)} is now ${newValue ? "required" : "optional"} for user registration.`
+        `${fieldName.charAt(0).toUpperCase() + fieldName.slice(1)} is now ${
+          newValue ? "required" : "optional"
+        } for user registration.`
       );
       setTimeout(() => setSuccessMessage(""), 5000);
     } catch (err) {
       console.error("Error updating field requirements:", err);
       setErrorMessage("Failed to update field requirements. Please try again.");
-      // Revert the change
       setFieldRequirements(fieldRequirements);
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <Box
-      sx={{
-        py: 4,
-        borderRadius: "14px",
-        width: "100vw",
-        mx: "auto",
-        maxWidth: "100%",
-        overflow: "hidden",
-        position: "relative",
-        left: "50%",
-        transform: "translateX(-50%)",
-      }}
-    >
-      <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
-        {/* Header */}
-        <Fade in timeout={500}>
-          <Box sx={{ mb: 4 }}>
-            <GlassCard
-              sx={{
-                background: `rgba(${hexToRgb(accentColor)}, 0.95)`,
-                boxShadow: `0 8px 40px ${alpha(primaryColor, 0.08)}`,
-                border: `1px solid ${alpha(primaryColor, 0.1)}`,
-                "&:hover": {
-                  boxShadow: `0 12px 48px ${alpha(primaryColor, 0.15)}`,
-                },
-              }}
-            >
-              <Box
-                sx={{
-                  p: 5,
-                  background: `linear-gradient(135deg, ${accentColor} 0%, ${backgroundColor} 100%)`,
-                  color: textPrimaryColor,
-                  position: "relative",
-                  overflow: "hidden",
-                }}
-              >
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  position="relative"
-                  zIndex={1}
-                >
-                  <Box display="flex" alignItems="center">
-                    <Box
-                      sx={{
-                        bgcolor: alpha(primaryColor, 0.15),
-                        mr: 4,
-                        width: 64,
-                        height: 64,
-                        borderRadius: "50%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        boxShadow: `0 8px 24px ${alpha(primaryColor, 0.15)}`,
-                      }}
-                    >
-                      <AdminPanelSettings
-                        sx={{ color: textPrimaryColor, fontSize: 32 }}
-                      />
-                    </Box>
-                    <Box>
-                      <Typography
-                        variant="h4"
-                        component="h1"
-                        sx={{
-                          fontWeight: 700,
-                          mb: 1,
-                          lineHeight: 1.2,
-                          color: textPrimaryColor,
-                        }}
-                      >
-                        Admin Security Management
-                      </Typography>
-                      <Typography
-                        variant="body1"
-                        sx={{
-                          opacity: 0.8,
-                          fontWeight: 400,
-                          color: textPrimaryColor,
-                        }}
-                      >
-                        Manage system-wide security settings and confidential passwords
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              </Box>
-            </GlassCard>
-          </Box>
-        </Fade>
+  const fieldsList = [
+    { key: "firstName", label: "First Name" },
+    { key: "lastName", label: "Last Name" },
+    { key: "email", label: "Email Address" },
+    { key: "employeeNumber", label: "Employee Number" },
+    { key: "employmentCategory", label: "Employment Category" },
+    { key: "password", label: "Password" },
+    { key: "middleName", label: "Middle Name" },
+    { key: "nameExtension", label: "Name Extension" },
+    { key: "department", label: "Department" },
+  ];
 
-        {/* Loading Backdrop */}
-        <Backdrop
-          sx={{
-            color: accentColor,
-            zIndex: (theme) => theme.zIndex.drawer + 1,
-          }}
-          open={loading}
-        >
-          <Box sx={{ textAlign: "center" }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: textPrimaryColor }}>
-              Processing...
+  return (
+    <Container maxWidth="xl" sx={{ py: 4 }}>
+      {/* Loading Backdrop */}
+      <Backdrop
+        sx={{
+          color: "#fff",
+          zIndex: (theme) => theme.zIndex.drawer + 1,
+          backdropFilter: "blur(8px)",
+          backgroundColor: "rgba(0, 0, 0, 0.6)",
+        }}
+        open={loading}
+      >
+        <Box sx={{ textAlign: "center" }}>
+          <CircularProgress
+            color="inherit"
+            size={60}
+            thickness={4}
+            sx={{
+              filter: "drop-shadow(0 0 10px rgba(255,255,255,0.3))",
+            }}
+          />
+          <Typography variant="h6" sx={{ mt: 2, fontWeight: 500 }}>
+            Processing...
+          </Typography>
+        </Box>
+      </Backdrop>
+
+      {/* Page Header */}
+      <Paper
+        elevation={0}
+        sx={{
+          mb: 4,
+          p: 4,
+          background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+          color: "#fff",
+          borderRadius: 2,
+        }}
+      >
+        <Box display="flex" alignItems="center" gap={2}>
+          <AdminPanelSettings sx={{ fontSize: 48 }} />
+          <Box>
+            <Typography variant="h4" fontWeight={600} gutterBottom>
+              Security Management
+            </Typography>
+            <Typography variant="body1" sx={{ opacity: 0.95 }}>
+              Configure system-wide security settings and access controls
             </Typography>
           </Box>
-        </Backdrop>
+        </Box>
+      </Paper>
 
-        {errMessage && (
-          <Fade in timeout={300}>
+      {/* Alert Messages */}
+      <Fade in={!!errMessage} timeout={300}>
+        <Box>
+          {errMessage && (
             <Alert
               severity="error"
               sx={{
                 mb: 3,
-                borderRadius: 3,
-                "& .MuiAlert-message": { fontWeight: 500 },
+                borderRadius: 2,
+                backdropFilter: "blur(10px)",
+                boxShadow: "0 4px 20px rgba(211, 47, 47, 0.2)",
               }}
+              onClose={() => setErrorMessage("")}
             >
               {errMessage}
             </Alert>
-          </Fade>
-        )}
+          )}
+        </Box>
+      </Fade>
 
-        {successMessage && (
-          <Fade in timeout={300}>
+      <Fade in={!!successMessage} timeout={300}>
+        <Box>
+          {successMessage && (
             <Alert
               severity="success"
               sx={{
                 mb: 3,
-                borderRadius: 3,
-                "& .MuiAlert-message": { fontWeight: 500 },
+                borderRadius: 2,
+                backdropFilter: "blur(10px)",
+                boxShadow: "0 4px 20px rgba(46, 125, 50, 0.2)",
               }}
+              onClose={() => setSuccessMessage("")}
             >
               {successMessage}
             </Alert>
-          </Fade>
-        )}
+          )}
+        </Box>
+      </Fade>
 
-        {/* Main Grid Layout */}
-        <Grid container spacing={3}>
-          {/* Left Column - MFA and Confidential Password */}
-          <Grid item xs={12} md={6}>
-            <Grid container spacing={3}>
-              {/* Global MFA Section */}
-              <Grid item xs={12}>
-                <GlassCard
-                  sx={{
-                    background: `rgba(${hexToRgb(accentColor)}, 0.95)`,
-                    boxShadow: `0 8px 40px ${alpha(primaryColor, 0.08)}`,
-                    border: `1px solid ${alpha(primaryColor, 0.1)}`,
-                    "&:hover": {
-                      boxShadow: `0 12px 48px ${alpha(primaryColor, 0.15)}`,
-                    },
-                    display: "flex",
-                    flexDirection: "column",
-                  }}
-                >
-                  <CardContent
-                    sx={{
-                      p: 0,
-                      flex: "1 1 auto",
-                      display: "flex",
-                      flexDirection: "column",
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        p: 3,
-                        background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                        color: "white",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 2,
-                      }}
-                    >
-                      <Shield sx={{ fontSize: 28 }} />
-                      <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                        Universal MFA Control
-                      </Typography>
-                    </Box>
-                    <Box sx={{ p: 3 }}>
-                      <Typography
-                        variant="body2"
-                        sx={{ mb: 2, color: "#666", lineHeight: 1.6 }}
-                      >
-                        Control Multi-Factor Authentication (MFA) for all users system-wide.
-                      </Typography>
-
-                      <GlassCard
-                        sx={{
-                          mb: 2,
-                          backgroundColor: "white",
-                          border: `2px solid ${primaryColor}40`,
-                          borderRadius: 2,
-                        }}
-                      >
-                        <CardContent>
-                          <Box
-                            sx={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                            }}
-                          >
-                            <Box>
-                              <Typography
-                                variant="subtitle1"
-                                sx={{
-                                  color: primaryColor,
-                                  fontWeight: 600,
-                                  mb: 0.5,
-                                }}
-                              >
-                                Enable Global MFA
-                              </Typography>
-                              <Typography
-                                variant="body2"
-                                sx={{ color: "#666", fontSize: "0.85rem" }}
-                              >
-                                {globalMFAEnabled
-                                  ? "All users must verify with MFA"
-                                  : "Users control their own MFA"}
-                              </Typography>
-                            </Box>
-                            <Switch
-                              checked={globalMFAEnabled}
-                              onChange={handleToggleGlobalMFA}
-                              disabled={loading}
-                              sx={{
-                                "& .MuiSwitch-switchBase.Mui-checked": {
-                                  color: primaryColor,
-                                },
-                                "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
-                                  {
-                                    backgroundColor: primaryColor,
-                                  },
-                              }}
-                            />
-                          </Box>
-                        </CardContent>
-                      </GlassCard>
-                    </Box>
-                  </CardContent>
-                </GlassCard>
-              </Grid>
-
-              {/* Confidential Password Section */}
-              {(userRole === "superadmin" || userRole === "technical") && (
-                <Grid item xs={12}>
-                  <GlassCard
-                    sx={{
-                      background: `rgba(${hexToRgb(accentColor)}, 0.95)`,
-                      boxShadow: `0 8px 40px ${alpha(primaryColor, 0.08)}`,
-                      border: `1px solid ${alpha(primaryColor, 0.1)}`,
-                      "&:hover": {
-                        boxShadow: `0 12px 48px ${alpha(primaryColor, 0.15)}`,
-                      },
-                      display: "flex",
-                      flexDirection: "column",
-                    }}
-                  >
-                    <CardContent
-                      sx={{
-                        p: 0,
-                        flex: "1 1 auto",
-                        display: "flex",
-                        flexDirection: "column",
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          p: 3,
-                          background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                          color: "white",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 2,
-                        }}
-                      >
-                        <SecurityOutlined sx={{ fontSize: 28 }} />
-                        <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                          Confidential Password Management
-                        </Typography>
-                      </Box>
-                      <Box sx={{ p: 3 }}>
-                        <Typography
-                          variant="body2"
-                          sx={{ mb: 2, color: "#666", lineHeight: 1.6 }}
-                        >
-                          Required for sensitive operations such as deleting payroll records and viewing audit logs.
-                        </Typography>
-
-                        {passwordInfo && (
-                          <Box
-                            sx={{
-                              mb: 2,
-                              p: 2,
-                              borderRadius: 2,
-                              backgroundColor: "#f8f9fa",
-                              border: `1px solid ${primaryColor}30`,
-                            }}
-                          >
-                            <Typography
-                              variant="body2"
-                              sx={{ color: "#333", mb: 0.5, fontSize: "0.85rem" }}
-                            >
-                              <strong>Status:</strong>{" "}
-                              {passwordExists
-                                ? "Password is set"
-                                : "No password set"}
-                            </Typography>
-                            {passwordInfo.updated_at && (
-                              <Typography variant="body2" sx={{ color: "#333", fontSize: "0.85rem" }}>
-                                <strong>Last Updated:</strong>{" "}
-                                {new Date(
-                                  passwordInfo.updated_at
-                                ).toLocaleString()}
-                              </Typography>
-                            )}
-                          </Box>
-                        )}
-
-                        <ModernTextField
-                          type={showConfidentialPassword ? "text" : "password"}
-                          label={
-                            passwordExists
-                              ? "New Confidential Password"
-                              : "Confidential Password"
-                          }
-                          value={confidentialPassword}
-                          onChange={(e) =>
-                            setConfidentialPassword(e.target.value)
-                          }
-                          fullWidth
-                          size="small"
-                          sx={{
-                            mb: 2,
-                          }}
-                          required
-                          helperText="Minimum 6 characters"
-                          InputProps={{
-                            startAdornment: (
-                              <InputAdornment position="start">
-                                <SecurityOutlined sx={{ color: primaryColor }} />
-                              </InputAdornment>
-                            ),
-                            endAdornment: (
-                              <InputAdornment position="end">
-                                <IconButton
-                                  onClick={() =>
-                                    setShowConfidentialPassword(
-                                      !showConfidentialPassword
-                                    )
-                                  }
-                                  edge="end"
-                                  size="small"
-                                >
-                                  {showConfidentialPassword ? (
-                                    <VisibilityOff />
-                                  ) : (
-                                    <Visibility />
-                                  )}
-                                </IconButton>
-                              </InputAdornment>
-                            ),
-                          }}
-                        />
-
-                        <ModernTextField
-                          type={showConfidentialPassword ? "text" : "password"}
-                          label="Confirm Password"
-                          value={confirmConfidentialPassword}
-                          onChange={(e) =>
-                            setConfirmConfidentialPassword(e.target.value)
-                          }
-                          fullWidth
-                          size="small"
-                          sx={{
-                            mb: 2,
-                          }}
-                          required
-                          helperText="Re-enter password to confirm"
-                          InputProps={{
-                            startAdornment: (
-                              <InputAdornment position="start">
-                                <SecurityOutlined sx={{ color: primaryColor }} />
-                              </InputAdornment>
-                            ),
-                            endAdornment: (
-                              <InputAdornment position="end">
-                                <IconButton
-                                  onClick={() =>
-                                    setShowConfidentialPassword(
-                                      !showConfidentialPassword
-                                    )
-                                  }
-                                  edge="end"
-                                  size="small"
-                                >
-                                  {showConfidentialPassword ? (
-                                    <VisibilityOff />
-                                  ) : (
-                                    <Visibility />
-                                  )}
-                                </IconButton>
-                              </InputAdornment>
-                            ),
-                          }}
-                        />
-
-                        <ProfessionalButton
-                          fullWidth
-                          variant="contained"
-                          onClick={handleConfidentialPasswordSubmit}
-                          disabled={
-                            loading ||
-                            !confidentialPassword ||
-                            !confirmConfidentialPassword
-                          }
-                          startIcon={<SecurityOutlined />}
-                          sx={{
-                            py: 1.5,
-                            fontSize: "0.95rem",
-                            fontWeight: 600,
-                            bgcolor: primaryColor,
-                            color: "white",
-                            "&:hover": {
-                              bgcolor: secondaryColor,
-                              transform: "scale(1.02)",
-                            },
-                            transition: "transform 0.2s ease-in-out",
-                            "&:disabled": { bgcolor: "#cccccc" },
-                          }}
-                        >
-                          {loading
-                            ? "Saving..."
-                            : passwordExists
-                            ? "Update Password"
-                            : "Create Password"}
-                        </ProfessionalButton>
-                      </Box>
-                    </CardContent>
-                  </GlassCard>
-                </Grid>
-              )}
-            </Grid>
-          </Grid>
-
-          {/* Right Column - Field Requirements Section */}
-          <Grid item xs={12} md={6}>
-            <GlassCard
-              sx={{
-                background: `rgba(${hexToRgb(accentColor)}, 0.95)`,
-                boxShadow: `0 8px 40px ${alpha(primaryColor, 0.08)}`,
-                border: `1px solid ${alpha(primaryColor, 0.1)}`,
-                "&:hover": {
-                  boxShadow: `0 12px 48px ${alpha(primaryColor, 0.15)}`,
-                },
-                maxHeight: "800px",
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
-              <CardContent
+      {/* Main Content Grid */}
+      <Grid container spacing={3}>
+        {/* Left Column - MFA and Password */}
+        <Grid item xs={12} lg={6}>
+          <Stack spacing={3}>
+            {/* Global MFA Section */}
+            <Fade in timeout={700}>
+              <Card
+                elevation={0}
                 sx={{
-                  p: 0,
-                  flex: "1 1 auto",
-                  display: "flex",
-                  flexDirection: "column",
-                  overflow: "hidden",
+                  borderRadius: 3,
+                  background: "rgba(255, 255, 255, 0.9)",
+                  backdropFilter: "blur(20px)",
+                  border: "1px solid rgba(255, 255, 255, 0.6)",
+                  boxShadow: "0 8px 32px rgba(0, 0, 0, 0.08)",
+                  transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                  "&:hover": {
+                    transform: "translateY(-4px)",
+                    boxShadow: "0 12px 48px rgba(0, 0, 0, 0.12)",
+                  },
                 }}
               >
                 <Box
                   sx={{
                     p: 3,
                     background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: "white",
+                    color: "#fff",
                     display: "flex",
                     alignItems: "center",
                     gap: 2,
+                    borderTopLeftRadius: 12,
+                    borderTopRightRadius: 12,
                   }}
                 >
-                  <AdminPanelSettings sx={{ fontSize: 28 }} />
-                  <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                    Registration Field Requirements
+                  <Box
+                    sx={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: "12px",
+                      background: "rgba(255, 255, 255, 0.2)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backdropFilter: "blur(10px)",
+                    }}
+                  >
+                    <Shield sx={{ fontSize: 28 }} />
+                  </Box>
+                  <Typography variant="h6" fontWeight={600}>
+                    Multi-Factor Authentication
                   </Typography>
                 </Box>
-                <Box sx={{ p: 4, flex: "1 1 auto", overflowY: "auto" }}>
-                  <Typography
-                    variant="body1"
-                    sx={{ mb: 3, color: "#666", lineHeight: 1.6 }}
-                  >
-                    Configure which fields are required or optional for user registration. 
-                    Changes will apply to both Single Registration and Bulk Registration forms.
+                <CardContent sx={{ p: 3 }}>
+                  <Typography variant="body2" color="text.secondary" paragraph>
+                    Control Multi-Factor Authentication (MFA) requirement for all system users.
                   </Typography>
 
-                  <Box sx={{ mb: 3 }}>
-                    {[
-                      { key: "firstName", label: "First Name" },
-                      { key: "lastName", label: "Last Name" },
-                      { key: "email", label: "Email Address" },
-                      { key: "employeeNumber", label: "Employee Number" },
-                      { key: "employmentCategory", label: "Employment Category" },
-                      { key: "password", label: "Password" },
-                      { key: "middleName", label: "Middle Name" },
-                      { key: "nameExtension", label: "Name Extension" },
-                      { key: "department", label: "Department" },
-                    ].map((field) => (
-                      <GlassCard
-                        key={field.key}
-                        sx={{
-                          mb: 2,
-                          backgroundColor: "white",
-                          border: `2px solid ${primaryColor}40`,
-                          borderRadius: 2,
-                        }}
-                      >
-                        <CardContent>
-                          <Box
-                            sx={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                            }}
-                          >
-                            <Box>
-                              <Typography
-                                variant="h6"
-                                sx={{
-                                  color: primaryColor,
-                                  fontWeight: 600,
-                                  mb: 0.5,
-                                  fontSize: "1rem",
-                                }}
-                              >
-                                {field.label}
-                              </Typography>
-                              <Typography
-                                variant="body2"
-                                sx={{ color: "#666", fontSize: "0.85rem" }}
-                              >
-                                {fieldRequirements[field.key]
-                                  ? "Required field - users must fill this in"
-                                  : "Optional field - users can skip this"}
-                              </Typography>
-                            </Box>
-                            <Switch
-                              checked={fieldRequirements[field.key] || false}
-                              onChange={(e) =>
-                                handleToggleFieldRequirement(
-                                  field.key,
-                                  e.target.checked
-                                )
-                              }
-                              disabled={loading}
-                              sx={{
-                                "& .MuiSwitch-switchBase.Mui-checked": {
-                                  color: primaryColor,
-                                },
-                                "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
-                                  {
-                                    backgroundColor: primaryColor,
-                                  },
-                              }}
-                            />
-                          </Box>
-                        </CardContent>
-                      </GlassCard>
-                    ))}
-                  </Box>
-
-                  <Box
+                  <Paper
+                    elevation={0}
                     sx={{
                       p: 3,
                       borderRadius: 2,
-                      backgroundColor: "#f8f9fa",
-                      border: `1px solid ${primaryColor}20`,
+                      background: globalMFAEnabled
+                        ? `linear-gradient(135deg, ${primaryColor}08 0%, ${secondaryColor}08 100%)`
+                        : "transparent",
+                      border: `2px solid ${
+                        globalMFAEnabled ? primaryColor : "rgba(0, 0, 0, 0.12)"
+                      }`,
+                      transition: "all 0.3s ease",
+                      position: "relative",
+                      overflow: "hidden",
+                      "&::before": globalMFAEnabled
+                        ? {
+                            content: '""',
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            background: `linear-gradient(45deg, transparent 30%, ${primaryColor}05 50%, transparent 70%)`,
+                            backgroundSize: "200% 200%",
+                            animation: "shimmer 3s ease-in-out infinite",
+                          }
+                        : {},
+                      "@keyframes shimmer": {
+                        "0%": { backgroundPosition: "200% 0" },
+                        "100%": { backgroundPosition: "-200% 0" },
+                      },
                     }}
                   >
-                    <Typography
-                      variant="subtitle1"
+                    <Box
                       sx={{
-                        color: primaryColor,
-                        fontWeight: 600,
-                        mb: 2,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        position: "relative",
+                        zIndex: 1,
                       }}
                     >
-                      How it works:
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      sx={{ color: "#666", lineHeight: 1.8 }}
+                      <Box flex={1}>
+                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                          <Typography variant="subtitle1" fontWeight={600}>
+                            Global MFA Enforcement
+                          </Typography>
+                          <Chip
+                            label={globalMFAEnabled ? "Active" : "Inactive"}
+                            size="small"
+                            sx={{
+                              bgcolor: globalMFAEnabled ? "success.main" : "grey.400",
+                              color: "white",
+                              fontWeight: 600,
+                              fontSize: "0.7rem",
+                            }}
+                          />
+                        </Box>
+                        <Typography variant="body2" color="text.secondary">
+                          {globalMFAEnabled
+                            ? "All users must verify identity with MFA"
+                            : "MFA is optional for users"}
+                        </Typography>
+                      </Box>
+                      <Switch
+                        checked={globalMFAEnabled}
+                        onChange={handleToggleGlobalMFA}
+                        disabled={loading}
+                        sx={{
+                          "& .MuiSwitch-switchBase.Mui-checked": {
+                            color: primaryColor,
+                          },
+                          "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
+                            backgroundColor: primaryColor,
+                          },
+                        }}
+                      />
+                    </Box>
+                  </Paper>
+                </CardContent>
+              </Card>
+            </Fade>
+
+            {/* Confidential Password Section */}
+            {(userRole === "superadmin" || userRole === "technical") && (
+              <Fade in timeout={800}>
+                <Card
+                  elevation={0}
+                  sx={{
+                    borderRadius: 3,
+                    background: "rgba(255, 255, 255, 0.9)",
+                    backdropFilter: "blur(20px)",
+                    border: "1px solid rgba(255, 255, 255, 0.6)",
+                    boxShadow: "0 8px 32px rgba(0, 0, 0, 0.08)",
+                    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                    "&:hover": {
+                      transform: "translateY(-4px)",
+                      boxShadow: "0 12px 48px rgba(0, 0, 0, 0.12)",
+                    },
+                  }}
+                >
+                  <Box
+                    sx={{
+                      p: 3,
+                      background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                      color: "#fff",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 2,
+                      borderTopLeftRadius: 12,
+                      borderTopRightRadius: 12,
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: "12px",
+                        background: "rgba(255, 255, 255, 0.2)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backdropFilter: "blur(10px)",
+                      }}
                     >
-                      • Required fields must be filled before registration can proceed
-                      <br />
-                      • Optional fields can be left empty
-                      <br />
-                      • Changes apply immediately to both registration forms
-                      <br />
-                      • Only superadmin and administrator can modify these settings
+                      <LockOutlined sx={{ fontSize: 28 }} />
+                    </Box>
+                    <Typography variant="h6" fontWeight={600}>
+                      Confidential Password
                     </Typography>
                   </Box>
-                </Box>
-              </CardContent>
-            </GlassCard>
-          </Grid>
+                  <CardContent sx={{ p: 3 }}>
+                    <Typography variant="body2" color="text.secondary" paragraph>
+                      Required for sensitive operations including payroll record deletion and audit
+                      log access.
+                    </Typography>
+
+                    {passwordInfo && (
+                      <Paper
+                        elevation={0}
+                        sx={{
+                          p: 2.5,
+                          mb: 3,
+                          borderRadius: 2,
+                          background: passwordExists
+                            ? "linear-gradient(135deg, #4caf5008 0%, #2e7d3208 100%)"
+                            : "linear-gradient(135deg, #ff980008 0%, #ff572208 100%)",
+                          border: `2px solid ${passwordExists ? "#4caf50" : "#ff9800"}`,
+                        }}
+                      >
+                        <Box display="flex" alignItems="center" gap={1.5} mb={1}>
+                          <Box
+                            sx={{
+                              width: 32,
+                              height: 32,
+                              borderRadius: "8px",
+                              background: passwordExists
+                                ? "linear-gradient(135deg, #4caf50 0%, #2e7d32 100%)"
+                                : "linear-gradient(135deg, #ff9800 0%, #f57c00 100%)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            {passwordExists ? (
+                              <CheckCircleOutline sx={{ fontSize: 20, color: "white" }} />
+                            ) : (
+                              <SecurityOutlined sx={{ fontSize: 20, color: "white" }} />
+                            )}
+                          </Box>
+                          <Typography variant="subtitle2" fontWeight={600}>
+                            Status: {passwordExists ? "Password Configured" : "No Password Set"}
+                          </Typography>
+                        </Box>
+                        {passwordInfo.updated_at && (
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ ml: 5, display: "block" }}
+                          >
+                            Last updated: {new Date(passwordInfo.updated_at).toLocaleString()}
+                          </Typography>
+                        )}
+                      </Paper>
+                    )}
+
+                    <TextField
+                      type={showConfidentialPassword ? "text" : "password"}
+                      label={
+                        passwordExists ? "New Confidential Password" : "Confidential Password"
+                      }
+                      value={confidentialPassword}
+                      onChange={(e) => setConfidentialPassword(e.target.value)}
+                      fullWidth
+                      margin="normal"
+                      helperText="Minimum 6 characters required"
+                      sx={{
+                        "& .MuiOutlinedInput-root": {
+                          borderRadius: 2,
+                          transition: "all 0.3s ease",
+                          "&:hover": {
+                            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.08)",
+                          },
+                          "&.Mui-focused": {
+                            boxShadow: `0 4px 20px ${primaryColor}20`,
+                          },
+                        },
+                      }}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <SecurityOutlined sx={{ color: primaryColor }} />
+                          </InputAdornment>
+                        ),
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton
+                              onClick={() =>
+                                setShowConfidentialPassword(!showConfidentialPassword)
+                              }
+                              edge="end"
+                            >
+                              {showConfidentialPassword ? <VisibilityOff /> : <Visibility />}
+                            </IconButton>
+                          </InputAdornment>
+                        ),
+                      }}
+                    />
+
+                    <TextField
+                      type={showConfidentialPassword ? "text" : "password"}
+                      label="Confirm Password"
+                      value={confirmConfidentialPassword}
+                      onChange={(e) => setConfirmConfidentialPassword(e.target.value)}
+                      fullWidth
+                      margin="normal"
+                      helperText="Re-enter password to confirm"
+                      sx={{
+                        "& .MuiOutlinedInput-root": {
+                          borderRadius: 2,
+                          transition: "all 0.3s ease",
+                          "&:hover": {
+                            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.08)",
+                          },
+                          "&.Mui-focused": {
+                            boxShadow: `0 4px 20px ${primaryColor}20`,
+                          },
+                        },
+                      }}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <SecurityOutlined sx={{ color: primaryColor }} />
+                          </InputAdornment>
+                        ),
+                      }}
+                    />
+
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      size="large"
+                      onClick={handleConfidentialPasswordSubmit}
+                      disabled={loading || !confidentialPassword || !confirmConfidentialPassword}
+                      startIcon={<LockOutlined />}
+                      sx={{
+                        mt: 2,
+                        py: 1.5,
+                        textTransform: "none",
+                        fontWeight: 600,
+                        borderRadius: 2,
+                        background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                        boxShadow: `0 4px 14px ${primaryColor}40`,
+                        transition: "all 0.3s ease",
+                        "&:hover": {
+                          transform: "translateY(-2px)",
+                          boxShadow: `0 6px 20px ${primaryColor}60`,
+                        },
+                        "&:active": {
+                          transform: "translateY(0)",
+                        },
+                        "&:disabled": {
+                          background: "#e0e0e0",
+                        },
+                      }}
+                    >
+                      {loading
+                        ? "Saving..."
+                        : passwordExists
+                        ? "Update Password"
+                        : "Create Password"}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </Fade>
+            )}
+          </Stack>
         </Grid>
-      </Box>
-    </Box>
+
+        {/* Right Column - Field Requirements */}
+        <Grid item xs={12} lg={6}>
+          <Fade in timeout={900}>
+            <Card
+              elevation={0}
+              sx={{
+                borderRadius: 3,
+                background: "rgba(255, 255, 255, 0.9)",
+                backdropFilter: "blur(20px)",
+                border: "1px solid rgba(255, 255, 255, 0.6)",
+                boxShadow: "0 8px 32px rgba(0, 0, 0, 0.08)",
+                transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                "&:hover": {
+                  transform: "translateY(-4px)",
+                  boxShadow: "0 12px 48px rgba(0, 0, 0, 0.12)",
+                },
+              }}
+            >
+              <Box
+                sx={{
+                  p: 3,
+                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                  color: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 2,
+                  borderTopLeftRadius: 12,
+                  borderTopRightRadius: 12,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: "12px",
+                    background: "rgba(255, 255, 255, 0.2)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backdropFilter: "blur(10px)",
+                  }}
+                >
+                  <Settings sx={{ fontSize: 28 }} />
+                </Box>
+                <Typography variant="h6" fontWeight={600}>
+                  Registration Field Requirements
+                </Typography>
+              </Box>
+              <CardContent sx={{ p: 3 }}>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  Configure required and optional fields for user registration forms. Changes apply
+                  to both single and bulk registration.
+                </Typography>
+
+                <Box sx={{ mb: 3 }}>
+                  {fieldsList.map((field, index) => (
+                    <Fade in timeout={1000 + index * 50} key={field.key}>
+                      <Paper
+                        elevation={0}
+                        sx={{
+                          p: 2.5,
+                          mb: 1.5,
+                          borderRadius: 2,
+                          background: fieldRequirements[field.key]
+                            ? `linear-gradient(135deg, ${primaryColor}08 0%, ${secondaryColor}08 100%)`
+                            : "transparent",
+                          border: `2px solid ${
+                            fieldRequirements[field.key] ? primaryColor : "rgba(0, 0, 0, 0.12)"
+                          }`,
+                          transition: "all 0.3s ease",
+                          position: "relative",
+                          overflow: "hidden",
+                          "&:hover": {
+                            transform: "translateX(4px)",
+                            boxShadow: fieldRequirements[field.key]
+                              ? `0 4px 16px ${primaryColor}20`
+                              : "0 4px 16px rgba(0, 0, 0, 0.08)",
+                          },
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                          }}
+                        >
+                          <Box flex={1}>
+                            <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+                              <Typography variant="subtitle2" fontWeight={600}>
+                                {field.label}
+                              </Typography>
+                              <Chip
+                                label={fieldRequirements[field.key] ? "Required" : "Optional"}
+                                size="small"
+                                sx={{
+                                  height: 20,
+                                  fontSize: "0.7rem",
+                                  fontWeight: 600,
+                                  bgcolor: fieldRequirements[field.key]
+                                    ? primaryColor
+                                    : "grey.300",
+                                  color: fieldRequirements[field.key] ? "white" : "grey.700",
+                                }}
+                              />
+                            </Box>
+                            <Typography variant="caption" color="text.secondary">
+                              {fieldRequirements[field.key]
+                                ? "Users must provide this information"
+                                : "Users may skip this field"}
+                            </Typography>
+                          </Box>
+                          <Switch
+                            checked={fieldRequirements[field.key] || false}
+                            onChange={(e) =>
+                              handleToggleFieldRequirement(field.key, e.target.checked)
+                            }
+                            disabled={loading}
+                            sx={{
+                              "& .MuiSwitch-switchBase.Mui-checked": {
+                                color: primaryColor,
+                              },
+                              "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
+                                backgroundColor: primaryColor,
+                              },
+                            }}
+                          />
+                        </Box>
+                      </Paper>
+                    </Fade>
+                  ))}
+                </Box>
+
+                <Divider sx={{ my: 3 }} />
+
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 3,
+                    borderRadius: 2,
+                    background: "linear-gradient(135deg, #fafafa 0%, #ffffff 100%)",
+                    border: "2px solid rgba(0, 0, 0, 0.06)",
+                  }}
+                >
+                  <Box display="flex" alignItems="center" gap={1.5} mb={2}>
+                    <Box
+                      sx={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: "8px",
+                        background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <VerifiedUser sx={{ fontSize: 18, color: "white" }} />
+                    </Box>
+                    <Typography variant="subtitle2" fontWeight={600}>
+                      Configuration Notes
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" component="div">
+                    <Box component="ul" sx={{ pl: 2, m: 0, "& li": { mb: 1 } }}>
+                      <li>Required fields must be completed before registration submission</li>
+                      <li>Optional fields can be left blank during registration</li>
+                      <li>Changes take effect immediately for all registration forms</li>
+                      <li>
+                        Only superadmin and administrator roles can modify these settings
+                      </li>
+                    </Box>
+                  </Typography>
+                </Paper>
+              </CardContent>
+            </Card>
+          </Fade>
+        </Grid>
+      </Grid>
+    </Container>
   );
 };
 

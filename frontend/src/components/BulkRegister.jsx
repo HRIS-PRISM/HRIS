@@ -118,6 +118,49 @@ const BulkRegister = () => {
     error: accessError,
   } = usePageAccess('bulk-register');
 
+  // Helper function to map employment category text to ID
+  const mapEmploymentCategory = (categoryText) => {
+    if (!categoryText) return null;
+    
+    const categoryLower = categoryText.toString().trim().toLowerCase();
+    
+    // Map text values to numeric IDs (0-4)
+    const categoryMap = {
+      // JO categories
+      'jo graduate': '0',
+      'jo graduated': '0',
+      'job order graduate': '0',
+      'job order graduated': '0',
+      
+      'jo undergrad': '1',
+      'jo undergraduate': '1',
+      'job order undergrad': '1',
+      'job order undergraduate': '1',
+      
+      // Regular categories
+      'regular non-teaching': '2',
+      'regular nonteaching': '2',
+      'non-teaching': '2',
+      'nonteaching': '2',
+      
+      'regular teaching (30hrs)': '3',
+      'regular teaching 30hrs': '3',
+      'teaching 30hrs': '3',
+      'teaching (30hrs)': '3',
+      '30hrs': '3',
+      '30 hrs': '3',
+      
+      'regular designated (40hrs)': '4',
+      'regular designated 40hrs': '4',
+      'designated 40hrs': '4',
+      'designated (40hrs)': '4',
+      '40hrs': '4',
+      '40 hrs': '4',
+    };
+    
+    return categoryMap[categoryLower] || null;
+  };
+
   // Handle file upload and parse Excel
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -171,15 +214,13 @@ const BulkRegister = () => {
         }
 
         const processedUsers = worksheet.map((user, index) => {
-          let employmentCategory =
-            user.employmentCategory?.toString().trim().toLowerCase() || '';
-          let employmentCategoryValue = null; // Default to null instead of empty string
-
-          if (employmentCategory === 'regular') {
-            employmentCategoryValue = '1';
-          } else if (employmentCategory === 'jo') {
-            employmentCategoryValue = '0';
+          // Map employment category text to ID
+          let employmentCategoryValue = null;
+          
+          if (user.employmentCategory) {
+            employmentCategoryValue = mapEmploymentCategory(user.employmentCategory);
           }
+          
           // If employmentCategory is not required and not provided, leave it as null
           // The backend will set a default value if needed
 
@@ -214,14 +255,12 @@ const BulkRegister = () => {
           };
 
           // Only include employmentCategory if it has a valid value
-          // If not required and not provided, omit it (backend will set default)
-          if (employmentCategoryValue === '0' || employmentCategoryValue === '1') {
+          if (['0', '1', '2', '3', '4'].includes(employmentCategoryValue)) {
             processedUser.employmentCategory = employmentCategoryValue;
           } else if (fieldRequirements.employmentCategory) {
             // Required but not provided - will be caught by validation
             processedUser.employmentCategory = null;
           }
-          // If not required and not provided, don't include the field at all
 
           return processedUser;
         });
@@ -259,11 +298,9 @@ const BulkRegister = () => {
           }
 
           // Validate employmentCategory format if it's provided
-          if (user.employmentCategory && user.employmentCategory !== '0' && user.employmentCategory !== '1') {
+          if (user.employmentCategory && !['0', '1', '2', '3', '4'].includes(user.employmentCategory)) {
             validationErrors.push(
-              `Row ${
-                index + 2
-              }: Invalid employmentCategory. Must be 'Regular' or 'JO'`
+              `Row ${index + 2}: Invalid employmentCategory. Must be one of: "JO Graduate", "JO UnderGrad", "Regular Non-Teaching", "Regular Teaching (30Hrs)", "Regular Designated (40Hrs)"`
             );
           }
 
@@ -892,8 +929,11 @@ const BulkRegister = () => {
                       >
                         <strong>Note:</strong>
                         <br />
-                        <strong>EmploymentCategory</strong> must be either{' '}
-                        <strong>"Regular"</strong> or <strong>"JO"</strong>
+                        <strong>EmploymentCategory</strong> values:
+                        <br />
+                        • Job Order (JO): <strong>"JO Graduate"</strong> or <strong>"JO UnderGrad"</strong>
+                        <br />
+                        • Regular: <strong>"Regular Non-Teaching"</strong>, <strong>"Regular Teaching (30Hrs)"</strong>, or <strong>"Regular Designated (40Hrs)"</strong>
                         <br />
                         <strong>EmployeeNumber</strong> accepts alphanumeric characters with hyphens (e.g.,{' '}
                         <strong>2013-4410</strong> or <strong>2013-4507M</strong>)
