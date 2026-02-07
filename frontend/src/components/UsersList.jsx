@@ -1,5 +1,5 @@
 import API_BASE_URL from "../apiConfig";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { getAuthHeaders } from "../utils/auth";
 import {
@@ -103,6 +103,14 @@ import {
   ErrorOutline,
   Circle,
   WorkOutline,
+  Category,
+  Assignment,
+  Payment,
+  Description,
+  FolderSpecial,
+  Folder,
+  ChevronLeft,
+  ChevronRight,
 } from "@mui/icons-material";
 import SearchIcon from "@mui/icons-material/Search";
 import axios from "axios";
@@ -231,6 +239,63 @@ const getEmploymentCategoryInfo = (category) => {
   }
 };
 
+
+// Helper function to get page description color and icon
+const getDescriptionColor = (description, settings) => {
+  switch (description?.toLowerCase()) {
+    case 'general':
+      return {
+        sx: { bgcolor: alpha(settings?.primaryColor || '#894444', 0.15), color: settings?.primaryColor || '#894444' },
+        icon: <Category />,
+      };
+    case 'system administration':
+      return {
+        sx: { bgcolor: alpha(settings?.primaryColor || '#894444', 0.15), color: settings?.primaryColor || '#894444' },
+        icon: <Category />,
+      };
+    case 'registration':
+      return {
+        sx: { bgcolor: alpha(settings?.secondaryColor || '#6d2323', 0.15), color: settings?.secondaryColor || '#6d2323' },
+        icon: <Assignment />,
+      };
+    case 'information management':
+      return {
+        sx: { bgcolor: alpha(settings?.primaryColor || '#894444', 0.1), color: settings?.primaryColor || '#894444' },
+        icon: <Info />,
+      };
+    case 'attendance management':
+      return {
+        sx: { bgcolor: alpha(settings?.primaryColor || '#894444', 0.12), color: settings?.primaryColor || '#894444' },
+        icon: <Assessment />,
+      };
+    case 'payroll management':
+      return {
+        sx: { bgcolor: alpha(settings?.secondaryColor || '#6d2323', 0.12), color: settings?.secondaryColor || '#6d2323' },
+        icon: <Payment />,
+      };
+    case 'form':
+      return {
+        sx: { bgcolor: alpha(settings?.primaryColor || '#894444', 0.08), color: settings?.primaryColor || '#894444' },
+        icon: <Description />,
+      };
+    case 'pages management':
+      return {
+        sx: { bgcolor: alpha(settings?.primaryColor || '#894444', 0.18), color: settings?.primaryColor || '#894444' },
+        icon: <FolderSpecial />,
+      };
+    case 'personal data sheets':
+      return {
+        sx: { bgcolor: alpha(settings?.secondaryColor || '#6d2323', 0.18), color: settings?.secondaryColor || '#6d2323' },
+        icon: <Folder />,
+      };
+    default:
+      return {
+        sx: { bgcolor: alpha(settings?.primaryColor || '#894444', 0.1), color: settings?.primaryColor || '#894444' },
+        icon: <Description />,
+      };
+  }
+};
+
 const UsersList = () => {
   // Module Access State
   const [moduleAuthorized, setModuleAuthorized] = useState(false);
@@ -261,6 +326,7 @@ const UsersList = () => {
   const [pageAccessLoading, setPageAccessLoading] = useState(false);
   const [roleFilter, setRoleFilter] = useState("");
   const [accessChangeInProgress, setAccessChangeInProgress] = useState({});
+  const [activeAccessCategory, setActiveAccessCategory] = useState(null); // For Tabbed View
 
   // Additional UI States
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
@@ -302,6 +368,9 @@ const UsersList = () => {
 
   // Department Filter State
   const [departmentFilter, setDepartmentFilter] = useState("");
+
+  // Chip Scroll Ref
+  const chipScrollRef = useRef(null);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -636,6 +705,7 @@ const UsersList = () => {
     setSelectedUser(user);
     setPageAccessLoading(true);
     setPageAccessDialog(true);
+    setActiveAccessCategory(null); // Reset tab
 
     try {
       const authHeaders = getAuthHeaders();
@@ -671,6 +741,26 @@ const UsersList = () => {
             return acc;
           }, {});
           setPageAccess(accessMap);
+
+          // Automatically set to first category to avoid scrolling
+          if (pagesData.length > 0) {
+             const grouped = pagesData.reduce((acc, page) => {
+               const desc = page.page_description || "Uncategorized";
+               acc[desc] = true;
+               return acc;
+             }, {});
+             const descriptions = Object.keys(grouped).sort((a, b) => {
+               const order = ["General", "System Administration", "Registration", "Information Management", "Attendance Management", "Payroll Management", "Form", "Pages Management", "Personal Data Sheets", "Uncategorized"];
+               const ia = order.indexOf(a);
+               const ib = order.indexOf(b);
+               if (ia !== -1 && ib !== -1) return ia - ib;
+               if (ia !== -1) return -1;
+               if (ib !== -1) return 1;
+               return a.localeCompare(b);
+             });
+             setActiveAccessCategory(descriptions[0] || "General");
+          }
+
         } else {
           setPageAccess({});
         }
@@ -794,6 +884,7 @@ const UsersList = () => {
     setSelectedUser(null);
     setPages([]);
     setPageAccess({});
+    setActiveAccessCategory(null);
   };
 
   const openUserDetails = (user) => {
@@ -2320,7 +2411,7 @@ const UsersList = () => {
                                       sx={{
                                         color:
                                           settings?.textPrimaryColor ||
-                                          "#6D2323",
+                                            "#6D2323",
                                       }}
                                     >
                                       ({user.nameExtension})
@@ -2572,282 +2663,672 @@ const UsersList = () => {
           </Fade>
         )}
 
-        {/* Page Access Management Dialog */}
-        <Dialog
-          open={pageAccessDialog}
-          onClose={closePageAccessDialog}
-          maxWidth="md"
-          fullWidth
-          PaperProps={{
-            sx: {
-              borderRadius: 4,
-              bgcolor: settings?.accentColor || "#FEF9E1",
-            },
+
+{/* Page Access Management Dialog */}
+<Dialog
+  open={pageAccessDialog}
+  onClose={closePageAccessDialog}
+  maxWidth="md"
+  fullWidth
+  PaperProps={{
+    sx: {
+      borderRadius: 4,
+      bgcolor: settings?.accentColor || "#FEF9E1",
+    },
+  }}
+>
+  <DialogTitle
+    sx={{
+      background: `linear-gradient(135deg, ${settings?.primaryColor || "#894444"} 0%, ${settings?.secondaryColor || "#6d2323"} 100%)`,
+      color: settings?.accentColor || "#FEF9E1",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      p: 3,
+      fontWeight: 700,
+    }}
+  >
+    <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+      <Security sx={{ fontSize: 30 }} />
+      Page Access Management
+    </Box>
+    <IconButton
+      onClick={closePageAccessDialog}
+      sx={{ color: settings?.accentColor || "#FEF9E1" }}
+    >
+      <Close />
+    </IconButton>
+  </DialogTitle>
+
+  <DialogContent sx={{ p: 4 }}>
+    {selectedUser && (
+      <>
+        <Box
+          sx={{
+            mb: 4,
+            p: 3,
+            borderRadius: 3,
+            border: `1px solid ${alpha(settings?.primaryColor || "#894444", 0.2)}`,
+            bgcolor: alpha(settings?.accentColor || "#FEF9E1", 0.5),
           }}
         >
-          <DialogTitle
-            sx={{
-              background: `linear-gradient(135deg, ${settings?.primaryColor || "#894444"} 0%, ${settings?.secondaryColor || "#6d2323"} 100%)`,
-              color: settings?.accentColor || "#FEF9E1",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              p: 3,
-              fontWeight: 700,
-            }}
-          >
-            <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-              <Security sx={{ fontSize: 30 }} />
-              Page Access Management
-            </Box>
-            <IconButton
-              onClick={closePageAccessDialog}
-              sx={{ color: settings?.accentColor || "#FEF9E1" }}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <Avatar
+              src={selectedUser.avatar || ""}
+              alt={selectedUser.fullName}
+              sx={{
+                bgcolor: settings?.primaryColor || "#894444",
+                width: 64,
+                height: 64,
+                fontWeight: 700,
+                fontSize: "1.2rem",
+                border: "3px solid #fff",
+                boxShadow: `0 4px 12px ${alpha(settings?.primaryColor || "#894444", 0.2)}`,
+              }}
             >
-              <Close />
-            </IconButton>
-          </DialogTitle>
+              {!selectedUser.avatar &&
+                getInitials(selectedUser.fullName)}
+            </Avatar>
+            <Box>
+              <Typography
+                variant="h6"
+                sx={{
+                  fontWeight: 700,
+                  color: settings?.textPrimaryColor || "#6D2323",
+                }}
+              >
+                {selectedUser.fullName}
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{
+                  color: settings?.textPrimaryColor || "#6D2323",
+                  mt: 1,
+                }}
+              >
+                Employee: <strong>{selectedUser.employeeNumber}</strong>{" "}
+                | Role: <strong>{selectedUser.role}</strong>
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
 
-          <DialogContent sx={{ p: 4 }}>
-            {selectedUser && (
-              <>
-                <Box
-                  sx={{
-                    mb: 4,
-                    p: 3,
-                    borderRadius: 3,
-                    border: `1px solid ${alpha(settings?.primaryColor || "#894444", 0.2)}`,
-                    bgcolor: alpha(settings?.accentColor || "#FEF9E1", 0.5),
-                  }}
-                >
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                    <Avatar
-                      src={selectedUser.avatar || ""}
-                      alt={selectedUser.fullName}
-                      sx={{
-                        bgcolor: settings?.primaryColor || "#894444",
-                        width: 64,
-                        height: 64,
-                        fontWeight: 700,
-                        fontSize: "1.2rem",
-                        border: "3px solid #fff",
-                        boxShadow: `0 4px 12px ${alpha(settings?.primaryColor || "#894444", 0.2)}`,
-                      }}
-                    >
-                      {!selectedUser.avatar &&
-                        getInitials(selectedUser.fullName)}
-                    </Avatar>
-                    <Box>
-                      <Typography
-                        variant="h6"
-                        sx={{
-                          fontWeight: 700,
-                          color: settings?.textPrimaryColor || "#6D2323",
-                        }}
-                      >
-                        {selectedUser.fullName}
-                      </Typography>
-                      <Typography
-                        variant="body2"
-                        sx={{
-                          color: settings?.textPrimaryColor || "#6D2323",
-                          mt: 1,
-                        }}
-                      >
-                        Employee: <strong>{selectedUser.employeeNumber}</strong>{" "}
-                        | Role: <strong>{selectedUser.role}</strong>
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
+        {!pageAccessLoading && pages.length > 0 ? (
+          <Box>
+            {/* Toggle All Section */}
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                mb: 1,
+                gap: 2,
+              }}
+            >
+              <Typography
+                sx={{
+                  fontWeight: 600,
+                  color: settings?.textPrimaryColor || "#6D2323",
+                }}
+              >
+                Toggle All Pages:
+              </Typography>
+              <Switch
+                checked={Object.values(pageAccess).every((v) => v === true)}
+                onChange={(e) => {
+                  const enableAll = e.target.checked;
+                  pages.forEach((page) => {
+                    if (pageAccess[page.id] !== enableAll)
+                      handleTogglePageAccess(page.id, !enableAll);
+                  });
+                }}
+                sx={{
+                  "& .MuiSwitch-switchBase.Mui-checked": {
+                    color: settings?.primaryColor || "#894444",
+                  },
+                  "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
+                    {
+                      backgroundColor: settings?.primaryColor || "#894444",
+                    },
+                }}
+              />
+            </Box>
 
-                {!pageAccessLoading && pages.length > 0 && (
+            {/* Grouping Logic */}
+            {(() => {
+              // Group pages by their description
+              const groupedPages = pages.reduce((acc, page) => {
+                const description =
+                  page.page_description || "Uncategorized";
+                if (!acc[description]) {
+                  acc[description] = [];
+                }
+                acc[description].push(page);
+                return acc;
+              }, {});
+
+              // Define the order of descriptions to display
+              const descriptionOrder = [
+                "General",
+                "System Administration",
+                "Registration",
+                "Information Management",
+                "Attendance Management",
+                "Payroll Management",
+                "Form",
+                "Pages Management",
+                "Personal Data Sheets",
+                "Uncategorized",
+              ];
+
+              // Sort descriptions according to the defined order
+              const sortedDescriptions = Object.keys(groupedPages).sort(
+                (a, b) => {
+                  const indexA = descriptionOrder.indexOf(a);
+                  const indexB = descriptionOrder.indexOf(b);
+
+                  // If both are in the order array, sort by their position
+                  if (indexA !== -1 && indexB !== -1) {
+                    return indexA - indexB;
+                  }
+                  // If only A is in the order array, it comes first
+                  if (indexA !== -1) return -1;
+                  // If only B is in the order array, it comes first
+                  if (indexB !== -1) return 1;
+                  // If neither is in the order array, sort alphabetically
+                  return a.localeCompare(b);
+                },
+              );
+
+              return (
+                <Box>
+                  {/* NAVIGATION BAR WITH ARROWS AND TIPS */}
                   <Box
                     sx={{
-                      display: "flex",
-                      justifyContent: "flex-end",
                       mb: 3,
-                      alignItems: "center",
-                      gap: 2,
+                      pb: 3,
+                      borderBottom: `1px solid ${alpha(settings?.primaryColor || "#894444", 0.1)}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
                     }}
                   >
-                    <Typography
+                    <IconButton
+                      onClick={() => {
+                        if (chipScrollRef.current) {
+                          chipScrollRef.current.scrollBy({ left: -300, behavior: 'smooth' });
+                        }
+                      }}
                       sx={{
-                        fontWeight: 600,
+                        color: settings?.primaryColor || "#894444",
+                        bgcolor: alpha(settings?.primaryColor || "#894444", 0.1),
+                        borderRadius: '50%',
+                        flexShrink: 0,
+                        '&:hover': { bgcolor: alpha(settings?.primaryColor || "#894444", 0.2) }
+                      }}
+                    >
+                      <ChevronLeft />
+                    </IconButton>
+
+                    <Box
+                      ref={chipScrollRef}
+                      sx={{
+                        display: 'flex',
+                        gap: 1.5,
+                        overflowX: 'auto',
+                        pb: 1,
+                        flex: 1,
+                        scrollBehavior: 'smooth',
+                        "&::-webkit-scrollbar": {
+                          height: 4,
+                        },
+                        "&::-webkit-scrollbar-thumb": {
+                          bgcolor: alpha(
+                            settings?.primaryColor || "#894444",
+                            0.3,
+                          ),
+                          borderRadius: 4,
+                        },
+                      }}
+                    >
+                      {sortedDescriptions.map((description) => {
+                        const isActive = activeAccessCategory === description;
+                        
+                        return (
+                          <Box
+                            key={description}
+                            sx={{
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "center",
+                              position: "relative",
+                            }}
+                          >
+                            {/* Arrow Indicator for Active Tab */}
+                            {isActive && (
+                              <Box
+                                sx={{
+                                  position: "absolute",
+                                  bottom: -6,
+                                  left: "50%",
+                                  transform: "translateX(-50%)",
+                                  width: 0,
+                                  height: 0,
+                                  borderLeft: "6px solid transparent",
+                                  borderRight: "6px solid transparent",
+                                  borderTop: `6px solid ${settings?.primaryColor || "#894444"}`,
+                                  zIndex: 2,
+                                }}
+                              />
+                            )}
+                            
+                            <Chip
+                              label={description}
+                              size="medium"
+                              clickable
+                              onClick={() => setActiveAccessCategory(description)}
+                              sx={{
+                                borderRadius: 20,
+                                fontSize: "0.85rem",
+                                fontWeight: isActive ? 700 : 600,
+                                bgcolor: isActive
+                                  ? settings?.primaryColor || "#894444"
+                                  : alpha(settings?.primaryColor || "#894444", 0.05),
+                                color: isActive
+                                  ? settings?.accentColor || "#FEF9E1"
+                                  : settings?.textPrimaryColor || "#6D2323",
+                                border: isActive
+                                  ? "none"
+                                  : `1px solid ${alpha(settings?.primaryColor || "#894444", 0.2)}`,
+                                whiteSpace: "nowrap",
+                                boxShadow: isActive
+                                  ? `0 4px 12px ${alpha(settings?.primaryColor || "#894444", 0.3)}`
+                                  : "none",
+                                transition: "all 0.2s ease",
+                                mb: 1,
+                                "&:hover": {
+                                  bgcolor: alpha(
+                                    settings?.primaryColor || "#894444",
+                                    0.1,
+                                  ),
+                                  transform: isActive ? "none" : "translateY(-1px)",
+                                },
+                              }}
+                            />
+                          </Box>
+                        );
+                      })}
+                    </Box>
+
+                    <IconButton
+                      onClick={() => {
+                        if (chipScrollRef.current) {
+                          chipScrollRef.current.scrollBy({ left: 300, behavior: 'smooth' });
+                        }
+                      }}
+                      sx={{
+                        color: settings?.primaryColor || "#894444",
+                        bgcolor: alpha(settings?.primaryColor || "#894444", 0.1),
+                        borderRadius: '50%',
+                        flexShrink: 0,
+                        '&:hover': { bgcolor: alpha(settings?.primaryColor || "#894444", 0.2) }
+                      }}
+                    >
+                      <ChevronRight />
+                    </IconButton>
+                  </Box>
+
+                  {/* TIP SECTION */}
+                  <Box
+                    sx={{
+                      mt: 2,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 1,
+                      px: 2,
+                      py: 1.5,
+                      bgcolor: alpha(settings?.primaryColor || "#894444", 0.04),
+                      borderRadius: 2,
+                      border: `1px dashed ${alpha(settings?.primaryColor || "#894444", 0.3)}`,
+                    }}
+                  >
+                    <Info
+                      sx={{
+                        fontSize: 16,
+                        color: settings?.textPrimaryColor || "#6D2323",
+                      }}
+                    />
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        fontWeight: 500,
                         color: settings?.textPrimaryColor || "#6D2323",
                       }}
                     >
-                      Toggle All Pages:
+                      Tip: Click a category above to view pages instantly. Use the switch to toggle access.
                     </Typography>
-                    <Switch
-                      checked={Object.values(pageAccess).every(
-                        (v) => v === true,
-                      )}
-                      onChange={(e) => {
-                        const enableAll = e.target.checked;
-                        pages.forEach((page) => {
-                          if (pageAccess[page.id] !== enableAll)
-                            handleTogglePageAccess(page.id, !enableAll);
-                        });
-                      }}
-                      sx={{
-                        "& .MuiSwitch-switchBase.Mui-checked": {
-                          color: settings?.primaryColor || "#894444",
-                        },
-                        "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
-                          {
-                            backgroundColor:
-                              settings?.primaryColor || "#894444",
-                          },
-                      }}
-                    />
                   </Box>
-                )}
 
-                {pageAccessLoading ? (
-                  <Box sx={{ display: "flex", justifyContent: "center", p: 5 }}>
-                    <CircularProgress
-                      sx={{ color: settings?.primaryColor || "#894444" }}
-                    />
-                  </Box>
-                ) : pages.length > 0 ? (
-                  <Box sx={{ maxHeight: 400, overflow: "auto" }}>
-                    <List>
-                      {pages.map((page) => (
-                        <ListItem
-                          key={page.id}
-                          sx={{
-                            p: 2,
-                            mb: 1,
-                            borderRadius: 2,
-                            bgcolor: alpha(
-                              settings?.accentColor || "#FEF9E1",
-                              0.3,
-                            ),
-                            border: `1px solid ${alpha(settings?.primaryColor || "#894444", 0.1)}`,
-                            "&:hover": {
-                              bgcolor: alpha(
-                                settings?.primaryColor || "#894444",
-                                0.05,
-                              ),
-                            },
-                          }}
-                        >
-                          <ListItemText
-                            primary={
-                              <Typography
-                                variant="subtitle1"
+                  {/* CONTENT AREA - FILTERED BY ACTIVE TAB */}
+                  {activeAccessCategory && (
+                    <Fade in={!!activeAccessCategory} timeout={300}>
+                      <Box
+                        sx={{
+                          mt: 4,
+                          animation: "fadeIn 0.3s ease-in-out",
+                        }}
+                      >
+                        {(() => {
+                          const pagesInGroup = groupedPages[activeAccessCategory];
+                          const descriptionInfo = getDescriptionColor(
+                            activeAccessCategory,
+                            settings,
+                          );
+
+                          // Calculate how many pages in this group are enabled
+                          const enabledCount = pagesInGroup.filter(
+                            (page) => pageAccess[page.id],
+                          ).length;
+
+                          return (
+                            <Box
+                              sx={{
+                                borderRadius: 2,
+                                overflow: "hidden",
+                                border: `1px solid ${alpha(settings?.primaryColor || "#894444", 0.15)}`,
+                                bgcolor: alpha(
+                                  settings?.accentColor || "#FEF9E1",
+                                  0.3,
+                                ),
+                                minHeight: 200, // Prevent layout jump
+                              }}
+                            >
+                              {/* Category Header */}
+                              <Box
                                 sx={{
-                                  fontWeight: 600,
-                                  color:
-                                    settings?.textPrimaryColor || "#6D2323",
+                                  p: 2,
+                                  bgcolor: alpha(
+                                    settings?.primaryColor || "#894444",
+                                    0.08,
+                                  ),
+                                  borderBottom: `1px solid ${alpha(
+                                    settings?.primaryColor || "#894444",
+                                    0.15,
+                                  )}`,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
                                 }}
                               >
-                                {page.page_name}
-                              </Typography>
-                            }
-                            secondary={
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  color:
-                                    settings?.textPrimaryColor || "#6D2323",
-                                }}
-                              >
-                                Page ID: {page.id}
-                              </Typography>
-                            }
-                          />
-                          <Box
-                            sx={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 1,
-                            }}
-                          >
-                            {accessChangeInProgress[page.id] ? (
-                              <CircularProgress
-                                size={24}
-                                sx={{
-                                  color: settings?.primaryColor || "#894444",
-                                }}
-                              />
-                            ) : (
-                              <>
-                                {pageAccess[page.id] ? (
-                                  <LockOpen
-                                    sx={{
-                                      color:
-                                        settings?.primaryColor || "#894444",
-                                    }}
-                                  />
-                                ) : (
-                                  <Lock
-                                    sx={{
-                                      color:
-                                        settings?.textPrimaryColor || "#6D2323",
-                                    }}
-                                  />
-                                )}
-                                <Switch
-                                  checked={!!pageAccess[page.id]}
-                                  onChange={() =>
-                                    handleTogglePageAccess(
-                                      page.id,
-                                      !!pageAccess[page.id],
-                                    )
-                                  }
+                                <Box
                                   sx={{
-                                    "& .MuiSwitch-switchBase.Mui-checked": {
-                                      color:
-                                        settings?.primaryColor || "#894444",
-                                    },
-                                    "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
-                                      {
-                                        backgroundColor:
-                                          settings?.primaryColor || "#894444",
-                                      },
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 1.5,
                                   }}
-                                />
-                              </>
-                            )}
-                          </Box>
-                        </ListItem>
-                      ))}
-                    </List>
-                  </Box>
-                ) : (
-                  <Typography
-                    variant="body1"
-                    sx={{
-                      textAlign: "center",
-                      p: 4,
-                      color: settings?.textPrimaryColor || "#6D2323",
-                    }}
-                  >
-                    No pages found in the system.
-                  </Typography>
-                )}
-              </>
-            )}
-          </DialogContent>
+                                >
+                                  <Box
+                                    sx={{
+                                      width: 40,
+                                      height: 40,
+                                      borderRadius: "50%",
+                                      bgcolor: descriptionInfo.sx.bgcolor,
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                    }}
+                                  >
+                                    {React.cloneElement(descriptionInfo.icon, {
+                                      sx: {
+                                        color: descriptionInfo.sx.color,
+                                        fontSize: 20,
+                                      },
+                                    })}
+                                  </Box>
+                                  <Box>
+                                    <Typography
+                                      variant="subtitle1"
+                                      sx={{
+                                        fontWeight: 700,
+                                        color:
+                                          settings?.textPrimaryColor ||
+                                            "#6D2323",
+                                      }}
+                                    >
+                                      {activeAccessCategory}
+                                    </Typography>
+                                    <Typography
+                                      variant="caption"
+                                      sx={{
+                                        color: alpha(
+                                          settings?.textPrimaryColor ||
+                                            "#6D2323",
+                                          0.7,
+                                        ),
+                                      }}
+                                    >
+                                      {enabledCount} of {pagesInGroup.length}{" "}
+                                      enabled
+                                    </Typography>
+                                  </Box>
+                                </Box>
 
-          <DialogActions sx={{ p: 3 }}>
-            <ProfessionalButton
-              onClick={closePageAccessDialog}
-              variant="contained"
-              sx={{
-                bgcolor: settings?.primaryColor || "#894444",
-                color: settings?.accentColor || "#FEF9E1",
-                "&:hover": {
-                  bgcolor: settings?.secondaryColor || "#6d2323",
-                },
-              }}
-            >
-              Close
-            </ProfessionalButton>
-          </DialogActions>
-        </Dialog>
+                                {/* Toggle all in category */}
+                                <Box
+                                  sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 1,
+                                  }}
+                                >
+                                  <Typography
+                                    variant="caption"
+                                    sx={{
+                                      color:
+                                        settings?.textPrimaryColor ||
+                                          "#6D2323",
+                                      fontWeight: 500,
+                                    }}
+                                  >
+                                    Toggle All
+                                  </Typography>
+                                  <Switch
+                                    size="small"
+                                    checked={
+                                      enabledCount === pagesInGroup.length
+                                    }
+                                    onChange={(e) => {
+                                      const enableAll = e.target.checked;
+                                      pagesInGroup.forEach((page) => {
+                                        if (pageAccess[page.id] !== enableAll) {
+                                          handleTogglePageAccess(
+                                            page.id,
+                                            !enableAll,
+                                          );
+                                        }
+                                      });
+                                    }}
+                                    sx={{
+                                      "& .MuiSwitch-switchBase.Mui-checked": {
+                                        color:
+                                          settings?.primaryColor ||
+                                            "#894444",
+                                      },
+                                      "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
+                                        {
+                                          backgroundColor:
+                                            settings?.primaryColor ||
+                                            "#894444",
+                                        },
+                                    }}
+                                  />
+                                </Box>
+                              </Box>
+
+                              {/* Pages in this category */}
+                              <List sx={{ p: 0 }}>
+                                {pagesInGroup.map((page, index) => (
+                                  <ListItem
+                                    key={page.id}
+                                    sx={{
+                                      p: 2,
+                                      borderBottom:
+                                        index < pagesInGroup.length - 1
+                                          ? `1px solid ${alpha(
+                                              settings?.primaryColor ||
+                                                "#894444",
+                                              0.08,
+                                            )}`
+                                          : "none",
+                                      "&:hover": {
+                                        bgcolor: alpha(
+                                          settings?.primaryColor ||
+                                            "#894444",
+                                          0.05,
+                                        ),
+                                      },
+                                    }}
+                                  >
+                                    <ListItemText
+                                      primary={
+                                        <Typography
+                                          variant="subtitle2"
+                                          sx={{
+                                            fontWeight: 600,
+                                            color:
+                                              settings?.textPrimaryColor ||
+                                                "#6D2323",
+                                          }}
+                                        >
+                                          {page.page_name}
+                                        </Typography>
+                                      }
+                                      secondary={
+                                        <Typography
+                                          variant="caption"
+                                          sx={{
+                                            color:
+                                              settings?.textPrimaryColor ||
+                                                "#6D2323",
+                                          }}
+                                        >
+                                          Page ID: {page.id}
+                                          {page.page_url &&
+                                            ` • ${page.page_url}`}
+                                        </Typography>
+                                      }
+                                    />
+                                    <Box
+                                      sx={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 1,
+                                      }}
+                                    >
+                                      {accessChangeInProgress[page.id] ? (
+                                        <CircularProgress
+                                          size={24}
+                                          sx={{
+                                            color:
+                                              settings?.primaryColor ||
+                                                "#894444",
+                                          }}
+                                        />
+                                      ) : (
+                                        <>
+                                          {pageAccess[page.id] ? (
+                                            <LockOpen
+                                              sx={{
+                                                color:
+                                                  settings?.primaryColor ||
+                                                    "#894444",
+                                              }}
+                                            />
+                                          ) : (
+                                            <Lock
+                                              sx={{
+                                                color:
+                                                  settings?.textPrimaryColor ||
+                                                    "#6D2323",
+                                              }}
+                                            />
+                                          )}
+                                          <Switch
+                                            checked={!!pageAccess[page.id]}
+                                            onChange={() =>
+                                              handleTogglePageAccess(
+                                                page.id,
+                                                !!pageAccess[page.id],
+                                              )
+                                            }
+                                            sx={{
+                                              "& .MuiSwitch-switchBase.Mui-checked":
+                                                {
+                                                  color:
+                                                    settings?.primaryColor ||
+                                                      "#894444",
+                                                },
+                                              "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
+                                                {
+                                                  backgroundColor:
+                                                    settings?.primaryColor ||
+                                                      "#894444",
+                                                },
+                                            }}
+                                          />
+                                        </>
+                                      )}
+                                    </Box>
+                                  </ListItem>
+                                ))}
+                              </List>
+                            </Box>
+                          );
+                        })()}
+                      </Box>
+                    </Fade>
+                  )}
+                </Box>
+              );
+            })()}
+          </Box>
+        ) : pageAccessLoading ? (
+          <Box sx={{ display: "flex", justifyContent: "center", p: 5 }}>
+            <CircularProgress sx={{ color: settings?.primaryColor || "#894444" }} />
+          </Box>
+        ) : (
+          <Typography
+            variant="body1"
+            sx={{
+              textAlign: "center",
+              p: 4,
+              color: settings?.textPrimaryColor || "#6D2323",
+            }}
+          >
+            No pages found in system.
+          </Typography>
+        )}
+      </>
+    )}
+  </DialogContent>
+
+  <DialogActions sx={{ p: 3 }}>
+    <ProfessionalButton
+      onClick={closePageAccessDialog}
+      variant="contained"
+      sx={{
+        bgcolor: settings?.primaryColor || "#894444",
+        color: settings?.accentColor || "#FEF9E1",
+        "&:hover": {
+          bgcolor: settings?.secondaryColor || "#6d2323",
+        },
+      }}
+    >
+      Close
+    </ProfessionalButton>
+  </DialogActions>
+</Dialog>
 
         {/* User Details Drawer */}
         <Drawer
@@ -3338,7 +3819,7 @@ const UsersList = () => {
                                         fontWeight: 600,
                                         color:
                                           settings?.textPrimaryColor ||
-                                          "#6D2323",
+                                            "#6D2323",
                                       }}
                                     >
                                       {page.page_name}
@@ -3348,7 +3829,7 @@ const UsersList = () => {
                                       sx={{
                                         color:
                                           settings?.textPrimaryColor ||
-                                          "#6D2323",
+                                            "#6D2323",
                                       }}
                                     >
                                       ID: {page.id}
