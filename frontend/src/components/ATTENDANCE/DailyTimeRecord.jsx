@@ -226,7 +226,9 @@ const DailyTimeRecord = () => {
           axios.get(`${API_BASE_URL}/api/suspensions`, getAuthHeaders()),
         ]);
         setHolidays(Array.isArray(holidaysRes.data) ? holidaysRes.data : []);
-        setSuspensions(Array.isArray(suspensionsRes.data) ? suspensionsRes.data : []);
+        setSuspensions(
+          Array.isArray(suspensionsRes.data) ? suspensionsRes.data : [],
+        );
       } catch (err) {
         console.error('Error fetching holidays/suspensions:', err);
         setHolidays([]);
@@ -235,6 +237,14 @@ const DailyTimeRecord = () => {
     };
     fetchHolidaysAndSuspensions();
   }, []);
+
+  // Automatically refetch records when personID + date range changes so DTR times update "realtime"
+  useEffect(() => {
+    if (personID && startDate && endDate) {
+      fetchRecords();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personID, startDate, endDate]);
 
   // Capture helpers (mirror Overall behavior)
   const ensureCaptureStyles = (el) => {
@@ -290,7 +300,7 @@ const DailyTimeRecord = () => {
       const orig = ensureCaptureStyles(dtrRef.current);
 
       // Wait for styles to apply
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       const canvas = await html2canvas(dtrRef.current, {
         scale: 2,
@@ -332,7 +342,7 @@ const DailyTimeRecord = () => {
       const orig = ensureCaptureStyles(dtrRef.current);
 
       // Wait for styles to apply
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       const canvas = await html2canvas(dtrRef.current, {
         scale: 2,
@@ -450,7 +460,14 @@ const DailyTimeRecord = () => {
     return (
       <thead style={{ textAlign: 'center' }}>
         <tr>
-          <td colSpan="7" style={{ position: 'relative', padding: '25px 10px 0px 10px', textAlign: 'center' }}>
+          <td
+            colSpan="7"
+            style={{
+              position: 'relative',
+              padding: '25px 10px 0px 10px',
+              textAlign: 'center',
+            }}
+          >
             <div
               style={{
                 fontWeight: 'bold',
@@ -462,7 +479,15 @@ const DailyTimeRecord = () => {
             >
               Republic of the Philippines
             </div>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '3px' }}>
+            <div
+              style={{
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: '3px',
+              }}
+            >
               <img
                 src={earistLogo}
                 alt="Logo"
@@ -483,14 +508,18 @@ const DailyTimeRecord = () => {
                   lineHeight: '1.2',
                 }}
               >
-                EULOGIO "AMANG" RODRIGUEZ <br /> INSTITUTE OF SCIENCE & TECHNOLOGY
+                EULOGIO "AMANG" RODRIGUEZ <br /> INSTITUTE OF SCIENCE &
+                TECHNOLOGY
               </p>
             </div>
           </td>
         </tr>
 
         <tr>
-          <td colSpan="7" style={{ textAlign: 'center', padding: '0px 5px 2px 5px' }}>
+          <td
+            colSpan="7"
+            style={{ textAlign: 'center', padding: '0px 5px 2px 5px' }}
+          >
             <p
               style={{
                 fontSize: '11px',
@@ -520,7 +549,14 @@ const DailyTimeRecord = () => {
         </tr>
 
         <tr>
-          <td colSpan="7" style={{ textAlign: 'center', padding: '2px 5px', lineHeight: '1.2' }}>
+          <td
+            colSpan="7"
+            style={{
+              textAlign: 'center',
+              padding: '2px 5px',
+              lineHeight: '1.2',
+            }}
+          >
             <h4
               style={{
                 fontFamily: 'Times New Roman, serif',
@@ -603,7 +639,10 @@ const DailyTimeRecord = () => {
         </tr>
 
         <tr>
-          <td colSpan="7" style={{ padding: '2px 5px', lineHeight: '1.1', textAlign: 'left' }}>
+          <td
+            colSpan="7"
+            style={{ padding: '2px 5px', lineHeight: '1.1', textAlign: 'left' }}
+          >
             <div
               style={{
                 display: 'flex',
@@ -863,13 +902,13 @@ const DailyTimeRecord = () => {
     if (!date) return false;
     const checkDate = new Date(date);
     checkDate.setHours(0, 0, 0, 0);
-    
+
     const start = startDate ? new Date(startDate) : null;
     const end = endDate ? new Date(endDate) : null;
-    
+
     if (start) start.setHours(0, 0, 0, 0);
     if (end) end.setHours(0, 0, 0, 0);
-    
+
     if (start && end) {
       return checkDate >= start && checkDate <= end;
     } else if (start) {
@@ -882,45 +921,45 @@ const DailyTimeRecord = () => {
 
   // Check if a date is a holiday or suspension and has attendance record
   const getDateIndicator = (dateString, record) => {
-    if (!record || !dateString) return null;
-    
+    if (!dateString) return null;
+
     const date = dateString.split('T')[0]; // Get YYYY-MM-DD format
-    
+
     // Check suspensions first (higher priority)
     const suspension = suspensions.find((s) => {
       const start = s.date_start || s.date;
       const end = s.date_end || s.date;
       return isDateInRange(date, start, end);
     });
-    
+
     if (suspension) {
       return {
         type: 'suspension',
         label: 'SUSPENSION',
-        bgColor: 'rgba(211, 47, 47, 0.2)', // alpha("#d32f2f", 0.2)
-        textColor: '#b71c1c',
+        bgColor: 'rgba(211, 47, 47, 0.2)', // red tint
+        textColor: '#000000',
         borderColor: '#d32f2f',
       };
     }
-    
+
     // Check holidays
+    // NOTE: highlight based on the holiday's original date range regardless of its current 'status' (ended or active)
     const holiday = holidays.find((h) => {
-      if ((h.status || '').toLowerCase() !== 'active') return false;
       const start = h.date_start || h.date;
       const end = h.date_end || h.date;
       return isDateInRange(date, start, end);
     });
-    
+
     if (holiday) {
       return {
         type: 'holiday',
         label: 'HOLIDAY',
-        bgColor: 'rgba(237, 108, 2, 0.25)', // alpha("#ed6c02", 0.25)
-        textColor: '#e65100',
+        bgColor: 'rgba(237, 108, 2, 0.25)', // orange tint
+        textColor: '#000000',
         borderColor: '#ed6c02',
       };
     }
-    
+
     return null;
   };
 
@@ -1318,29 +1357,46 @@ const DailyTimeRecord = () => {
                             const record = records.find(
                               (r) => r.date && r.date.endsWith(`-${day}`),
                             );
-                            // Construct full date: use record.date if available, otherwise build from startDate
+                            // Construct full date: use record.date if available, otherwise build from startDate or selectedYear/selectedMonth
                             let fullDate = null;
                             if (record?.date) {
                               fullDate = record.date;
                             } else if (startDate) {
                               const [year, month] = startDate.split('-');
                               fullDate = `${year}-${month}-${day}`;
+                            } else if (selectedMonth !== null) {
+                              // fallback to selected month/year
+                              const monthNum = String(
+                                selectedMonth + 1,
+                              ).padStart(2, '0');
+                              fullDate = `${selectedYear}-${monthNum}-${day}`;
                             }
-                            const indicator = getDateIndicator(fullDate, record);
-                            
+                            const indicator = getDateIndicator(
+                              fullDate,
+                              record,
+                            );
+
                             return (
                               <tr key={i}>
-                                <td style={{
-                                  ...cellStyle,
-                                  backgroundColor: indicator ? indicator.bgColor : 'transparent',
-                                }}>
+                                <td
+                                  style={{
+                                    ...cellStyle,
+                                    backgroundColor: indicator
+                                      ? indicator.bgColor
+                                      : 'transparent',
+                                  }}
+                                >
                                   {day}
                                 </td>
-                                <td style={{
-                                  ...cellStyle,
-                                  backgroundColor: indicator ? indicator.bgColor : 'transparent',
-                                  position: 'relative',
-                                }}>
+                                <td
+                                  style={{
+                                    ...cellStyle,
+                                    backgroundColor: indicator
+                                      ? indicator.bgColor
+                                      : 'transparent',
+                                    position: 'relative',
+                                  }}
+                                >
                                   {indicator && (
                                     <div
                                       style={{
@@ -1355,15 +1411,21 @@ const DailyTimeRecord = () => {
                                       }}
                                     />
                                   )}
-                                  <span style={{ position: 'relative', zIndex: 1 }}>
+                                  <span
+                                    style={{ position: 'relative', zIndex: 1 }}
+                                  >
                                     {formatTime(record?.timeIN || '')}
                                   </span>
                                 </td>
-                                <td style={{
-                                  ...cellStyle,
-                                  backgroundColor: indicator ? indicator.bgColor : 'transparent',
-                                  position: 'relative',
-                                }}>
+                                <td
+                                  style={{
+                                    ...cellStyle,
+                                    backgroundColor: indicator
+                                      ? indicator.bgColor
+                                      : 'transparent',
+                                    position: 'relative',
+                                  }}
+                                >
                                   {indicator && (
                                     <div
                                       style={{
@@ -1378,15 +1440,21 @@ const DailyTimeRecord = () => {
                                       }}
                                     />
                                   )}
-                                  <span style={{ position: 'relative', zIndex: 1 }}>
+                                  <span
+                                    style={{ position: 'relative', zIndex: 1 }}
+                                  >
                                     {formatTime(record?.breaktimeIN || '')}
                                   </span>
                                 </td>
-                                <td style={{
-                                  ...cellStyle,
-                                  backgroundColor: indicator ? indicator.bgColor : 'transparent',
-                                  position: 'relative',
-                                }}>
+                                <td
+                                  style={{
+                                    ...cellStyle,
+                                    backgroundColor: indicator
+                                      ? indicator.bgColor
+                                      : 'transparent',
+                                    position: 'relative',
+                                  }}
+                                >
                                   {indicator && (
                                     <div
                                       style={{
@@ -1401,15 +1469,21 @@ const DailyTimeRecord = () => {
                                       }}
                                     />
                                   )}
-                                  <span style={{ position: 'relative', zIndex: 1 }}>
+                                  <span
+                                    style={{ position: 'relative', zIndex: 1 }}
+                                  >
                                     {formatTime(record?.breaktimeOUT || '')}
                                   </span>
                                 </td>
-                                <td style={{
-                                  ...cellStyle,
-                                  backgroundColor: indicator ? indicator.bgColor : 'transparent',
-                                  position: 'relative',
-                                }}>
+                                <td
+                                  style={{
+                                    ...cellStyle,
+                                    backgroundColor: indicator
+                                      ? indicator.bgColor
+                                      : 'transparent',
+                                    position: 'relative',
+                                  }}
+                                >
                                   {indicator && (
                                     <div
                                       style={{
@@ -1424,15 +1498,21 @@ const DailyTimeRecord = () => {
                                       }}
                                     />
                                   )}
-                                  <span style={{ position: 'relative', zIndex: 1 }}>
+                                  <span
+                                    style={{ position: 'relative', zIndex: 1 }}
+                                  >
                                     {formatTime(record?.timeOUT || '')}
                                   </span>
                                 </td>
-                                <td style={{
-                                  ...cellStyle,
-                                  backgroundColor: indicator ? indicator.bgColor : 'transparent',
-                                  position: 'relative',
-                                }}>
+                                <td
+                                  style={{
+                                    ...cellStyle,
+                                    backgroundColor: indicator
+                                      ? indicator.bgColor
+                                      : 'transparent',
+                                    position: 'relative',
+                                  }}
+                                >
                                   {indicator && (
                                     <div
                                       style={{
@@ -1447,15 +1527,21 @@ const DailyTimeRecord = () => {
                                       }}
                                     />
                                   )}
-                                  <span style={{ position: 'relative', zIndex: 1 }}>
+                                  <span
+                                    style={{ position: 'relative', zIndex: 1 }}
+                                  >
                                     {record?.minutes || ''}
                                   </span>
                                 </td>
-                                <td style={{
-                                  ...cellStyle,
-                                  backgroundColor: indicator ? indicator.bgColor : 'transparent',
-                                  position: 'relative',
-                                }}>
+                                <td
+                                  style={{
+                                    ...cellStyle,
+                                    backgroundColor: indicator
+                                      ? indicator.bgColor
+                                      : 'transparent',
+                                    position: 'relative',
+                                  }}
+                                >
                                   {indicator && (
                                     <>
                                       <div
@@ -1493,7 +1579,9 @@ const DailyTimeRecord = () => {
                                       </div>
                                     </>
                                   )}
-                                  <span style={{ position: 'relative', zIndex: 2 }}>
+                                  <span
+                                    style={{ position: 'relative', zIndex: 2 }}
+                                  >
                                     {record?.minutes || ''}
                                   </span>
                                 </td>
@@ -1517,11 +1605,14 @@ const DailyTimeRecord = () => {
                                   margin: '5px 0',
                                 }}
                               >
-                                I CERTIFY on my honor that the above is a true and correct report
+                                I CERTIFY on my honor that the above is a true
+                                and correct report
                                 <br />
-                                of the hours of work performed, record of which was made daily at 
+                                of the hours of work performed, record of which
+                                was made daily at
                                 <br />
-                                the time of arrival and at the time of departure from office.
+                                the time of arrival and at the time of departure
+                                from office.
                               </p>
                               <div
                                 style={{
@@ -1627,29 +1718,45 @@ const DailyTimeRecord = () => {
                             const record = records.find(
                               (r) => r.date && r.date.endsWith(`-${day}`),
                             );
-                            // Construct full date: use record.date if available, otherwise build from startDate
+                            // Construct full date: use record.date if available, otherwise build from startDate or selectedYear/selectedMonth
                             let fullDate = null;
                             if (record?.date) {
                               fullDate = record.date;
                             } else if (startDate) {
                               const [year, month] = startDate.split('-');
                               fullDate = `${year}-${month}-${day}`;
+                            } else if (selectedMonth !== null) {
+                              const monthNum = String(
+                                selectedMonth + 1,
+                              ).padStart(2, '0');
+                              fullDate = `${selectedYear}-${monthNum}-${day}`;
                             }
-                            const indicator = getDateIndicator(fullDate, record);
-                            
+                            const indicator = getDateIndicator(
+                              fullDate,
+                              record,
+                            );
+
                             return (
                               <tr key={i}>
-                                <td style={{
-                                  ...cellStyle,
-                                  backgroundColor: indicator ? indicator.bgColor : 'transparent',
-                                }}>
+                                <td
+                                  style={{
+                                    ...cellStyle,
+                                    backgroundColor: indicator
+                                      ? indicator.bgColor
+                                      : 'transparent',
+                                  }}
+                                >
                                   {day}
                                 </td>
-                                <td style={{
-                                  ...cellStyle,
-                                  backgroundColor: indicator ? indicator.bgColor : 'transparent',
-                                  position: 'relative',
-                                }}>
+                                <td
+                                  style={{
+                                    ...cellStyle,
+                                    backgroundColor: indicator
+                                      ? indicator.bgColor
+                                      : 'transparent',
+                                    position: 'relative',
+                                  }}
+                                >
                                   {indicator && (
                                     <div
                                       style={{
@@ -1664,15 +1771,21 @@ const DailyTimeRecord = () => {
                                       }}
                                     />
                                   )}
-                                  <span style={{ position: 'relative', zIndex: 1 }}>
+                                  <span
+                                    style={{ position: 'relative', zIndex: 1 }}
+                                  >
                                     {formatTime(record?.timeIN || '')}
                                   </span>
                                 </td>
-                                <td style={{
-                                  ...cellStyle,
-                                  backgroundColor: indicator ? indicator.bgColor : 'transparent',
-                                  position: 'relative',
-                                }}>
+                                <td
+                                  style={{
+                                    ...cellStyle,
+                                    backgroundColor: indicator
+                                      ? indicator.bgColor
+                                      : 'transparent',
+                                    position: 'relative',
+                                  }}
+                                >
                                   {indicator && (
                                     <div
                                       style={{
@@ -1687,15 +1800,21 @@ const DailyTimeRecord = () => {
                                       }}
                                     />
                                   )}
-                                  <span style={{ position: 'relative', zIndex: 1 }}>
+                                  <span
+                                    style={{ position: 'relative', zIndex: 1 }}
+                                  >
                                     {formatTime(record?.breaktimeIN || '')}
                                   </span>
                                 </td>
-                                <td style={{
-                                  ...cellStyle,
-                                  backgroundColor: indicator ? indicator.bgColor : 'transparent',
-                                  position: 'relative',
-                                }}>
+                                <td
+                                  style={{
+                                    ...cellStyle,
+                                    backgroundColor: indicator
+                                      ? indicator.bgColor
+                                      : 'transparent',
+                                    position: 'relative',
+                                  }}
+                                >
                                   {indicator && (
                                     <div
                                       style={{
@@ -1710,15 +1829,21 @@ const DailyTimeRecord = () => {
                                       }}
                                     />
                                   )}
-                                  <span style={{ position: 'relative', zIndex: 1 }}>
+                                  <span
+                                    style={{ position: 'relative', zIndex: 1 }}
+                                  >
                                     {formatTime(record?.breaktimeOUT || '')}
                                   </span>
                                 </td>
-                                <td style={{
-                                  ...cellStyle,
-                                  backgroundColor: indicator ? indicator.bgColor : 'transparent',
-                                  position: 'relative',
-                                }}>
+                                <td
+                                  style={{
+                                    ...cellStyle,
+                                    backgroundColor: indicator
+                                      ? indicator.bgColor
+                                      : 'transparent',
+                                    position: 'relative',
+                                  }}
+                                >
                                   {indicator && (
                                     <div
                                       style={{
@@ -1733,15 +1858,21 @@ const DailyTimeRecord = () => {
                                       }}
                                     />
                                   )}
-                                  <span style={{ position: 'relative', zIndex: 1 }}>
+                                  <span
+                                    style={{ position: 'relative', zIndex: 1 }}
+                                  >
                                     {formatTime(record?.timeOUT || '')}
                                   </span>
                                 </td>
-                                <td style={{
-                                  ...cellStyle,
-                                  backgroundColor: indicator ? indicator.bgColor : 'transparent',
-                                  position: 'relative',
-                                }}>
+                                <td
+                                  style={{
+                                    ...cellStyle,
+                                    backgroundColor: indicator
+                                      ? indicator.bgColor
+                                      : 'transparent',
+                                    position: 'relative',
+                                  }}
+                                >
                                   {indicator && (
                                     <div
                                       style={{
@@ -1756,15 +1887,21 @@ const DailyTimeRecord = () => {
                                       }}
                                     />
                                   )}
-                                  <span style={{ position: 'relative', zIndex: 1 }}>
+                                  <span
+                                    style={{ position: 'relative', zIndex: 1 }}
+                                  >
                                     {record?.hours || ''}
                                   </span>
                                 </td>
-                                <td style={{
-                                  ...cellStyle,
-                                  backgroundColor: indicator ? indicator.bgColor : 'transparent',
-                                  position: 'relative',
-                                }}>
+                                <td
+                                  style={{
+                                    ...cellStyle,
+                                    backgroundColor: indicator
+                                      ? indicator.bgColor
+                                      : 'transparent',
+                                    position: 'relative',
+                                  }}
+                                >
                                   {indicator && (
                                     <>
                                       <div
@@ -1802,7 +1939,9 @@ const DailyTimeRecord = () => {
                                       </div>
                                     </>
                                   )}
-                                  <span style={{ position: 'relative', zIndex: 2 }}>
+                                  <span
+                                    style={{ position: 'relative', zIndex: 2 }}
+                                  >
                                     {record?.minutes || ''}
                                   </span>
                                 </td>
@@ -1826,11 +1965,14 @@ const DailyTimeRecord = () => {
                                   margin: '5px 0',
                                 }}
                               >
-                                I CERTIFY on my honor that the above is a true and correct report
+                                I CERTIFY on my honor that the above is a true
+                                and correct report
                                 <br />
-                                of the hours of work performed, record of which was made daily at 
+                                of the hours of work performed, record of which
+                                was made daily at
                                 <br />
-                                the time of arrival and at the time of departure from office.
+                                the time of arrival and at the time of departure
+                                from office.
                               </p>
                               <div
                                 style={{
