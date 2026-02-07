@@ -618,10 +618,6 @@ router.post('/register', async (req, res) => {
                                     <span class="highlight">${password}</span>
                                   </div>
                                 </div>
-                                <div class="credential-row">
-                                  <div class="credential-label">Employment Type</div>
-                                  <div class="credential-value">${categoryLabel}</div>
-                                </div>
                               </div>
                               <!-- Security Note -->
                               <div class="note-box">
