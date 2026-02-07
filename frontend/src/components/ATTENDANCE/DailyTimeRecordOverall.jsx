@@ -4990,5 +4990,3 @@ const getFilteredUsers = () => {
 };
 
 export default DailyTimeRecordFaculty;
-
-
