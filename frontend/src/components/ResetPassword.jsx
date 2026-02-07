@@ -291,6 +291,10 @@ const ResetPassword = () => {
   const getInitials = (nameOrUsername) => {
     if (!nameOrUsername) return "U";
     const parts = nameOrUsername.trim().split(" ").filter(Boolean);
+    
+    // FIX: Handle case where split results in an empty array (e.g., input was only whitespace)
+    if (parts.length === 0) return "U";
+    
     if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
     return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
   };

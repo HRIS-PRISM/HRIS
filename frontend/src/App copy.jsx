@@ -1067,3 +1067,169 @@ export default function WrappedApp() {
     </Router>
   );
 }
+
+
+
+import React, { useState, useEffect } from 'react';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Typography,
+  Box,
+  LinearProgress,
+  IconButton,
+  useTheme,
+  useMediaQuery
+} from '@mui/material';
+import {
+  AccessTime as TimeIcon,
+  Lock as LockIcon,
+  Logout as LogoutIcon
+} from '@mui/icons-material';
+
+{/* 
+  --- IDLE WARNING DIALOG --- 
+  Features: Countdown timer, progress bar, clear icons.
+*/}
+<Dialog
+  open={idleWarningOpen && isAuthenticatedPage}
+  PaperProps={{
+    sx: {
+      borderRadius: 3, // Softer, modern corners
+      px: 2,
+      pb: 2,
+      width: '100%',
+      maxWidth: '450px' // Constrain width for professional look
+    }
+  }}
+>
+  {/* Optional: Add a top colored border or accent */}
+  <Box sx={{ height: 6, bgcolor: 'warning.main', borderRadius: '12px 12px 0 0' }} />
+
+  <DialogTitle sx={{ textAlign: 'center', pt: 3, pb: 1 }}>
+    <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+      {/* Warning Icon Circle */}
+      <Box
+        sx={{
+          bgcolor: 'warning.lighter',
+          color: 'warning.main',
+          p: 1.5,
+          borderRadius: '50%',
+        }}
+      >
+        <TimeIcon fontSize="large" />
+      </Box>
+    </Box>
+    <Typography variant="h6" component="span" sx={{ fontWeight: 600 }}>
+      Session Expiring Soon
+    </Typography>
+  </DialogTitle>
+
+  <DialogContent sx={{ textAlign: 'center', py: 1 }}>
+    <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+      You have been idle for a while. For your security, you will be logged out in:
+    </Typography>
+    
+    {/* Interactive Countdown Timer */}
+    <Typography variant="h4" color="primary" sx={{ fontWeight: 'bold', my: 1 }}>
+      {/* {formatTime(countdown)} */}
+      00:30 
+    </Typography>
+
+    {/* Visual Progress Bar indicating time left */}
+    <LinearProgress 
+      variant="determinate" 
+      value={(30 / 30) * 100} // Map your remaining time to percentage
+      sx={{ 
+        height: 8, 
+        borderRadius: 4,
+        bgcolor: 'grey.200',
+        mt: 1
+      }} 
+      color="warning"
+    />
+  </DialogContent>
+
+  <DialogActions sx={{ justifyContent: 'center', gap: 2, pt: 2 }}>
+    <Button
+      onClick={() => {
+        setIdleWarningOpen(false);
+        resetIdleTimer();
+      }}
+      variant="contained"
+      size="large"
+      sx={{ px: 4, py: 1, fontWeight: 600 }}
+    >
+      Stay Logged In
+    </Button>
+    <Button
+      onClick={handleLogout}
+      color="inherit"
+      startIcon={<LogoutIcon />}
+      sx={{ fontWeight: 500 }}
+    >
+      Logout
+    </Button>
+  </DialogActions>
+</Dialog>
+
+
+{/* 
+  --- SESSION EXPIRED DIALOG --- 
+  Features: "Locked" aesthetic, single clear action, serious tone.
+*/}
+<Dialog
+  open={sessionExpired}
+  PaperProps={{
+    sx: {
+      borderRadius: 3,
+      px: 2,
+      pb: 2,
+      width: '100%',
+      maxWidth: '400px'
+    }
+  }}
+>
+  <Box sx={{ height: 6, bgcolor: 'error.main', borderRadius: '12px 12px 0 0' }} />
+
+  <DialogTitle sx={{ textAlign: 'center', pt: 3, pb: 1 }}>
+    <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+      {/* Lock Icon Circle */}
+      <Box
+        sx={{
+          bgcolor: 'error.lighter',
+          color: 'error.main',
+          p: 1.5,
+          borderRadius: '50%',
+        }}
+      >
+        <LockIcon fontSize="large" />
+      </Box>
+    </Box>
+    <Typography variant="h6" component="span" sx={{ fontWeight: 600 }}>
+      Session Expired
+    </Typography>
+  </DialogTitle>
+
+  <DialogContent sx={{ textAlign: 'center', py: 1 }}>
+    <Typography variant="body1" color="text.secondary">
+      You've been inactive for an extended period. For your security, your session has been terminated.
+    </Typography>
+  </DialogContent>
+
+  <DialogActions sx={{ justifyContent: 'center', pt: 2 }}>
+    <Button
+      onClick={handleSessionExpiredClose}
+      variant="contained"
+      color="primary"
+      size="large"
+      sx={{ px: 4, py: 1, fontWeight: 600 }}
+      fullWidth
+    >
+      Return to Login
+    </Button>
+  </DialogActions>
+</Dialog>

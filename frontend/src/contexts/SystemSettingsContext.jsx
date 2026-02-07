@@ -15,9 +15,9 @@ const defaultSettings = {
   institutionLogo: '',
   hrisLogo: '',
   institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
-  systemName: 'Human Resources Information System',
+  systemName: 'Human Resource Information System',
   institutionAbbreviation: 'EARIST',
-  footerText: '© 2025 EARIST Manila - Human Resources Information System. All rights Reserved.',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
   copyrightSymbol: '©',
   enableWatermark: true,
   // CRUD Button Colors

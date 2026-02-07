@@ -6,7 +6,356 @@ const { authenticateToken, logAudit } = require('../middleware/auth');
 const transporter = require('../config/email');
 const { notifyPayrollChanged } = require('../socket/socketService');
 
-// REGISTER - Updated with email notification and 5 categories
+// Helper function to validate email
+const validateEmail = (email, isRestricted) => {
+  if (!email || typeof email !== 'string') return false;
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) return false;
+
+  if (isRestricted) {
+    return email.toLowerCase().endsWith('@earist.edu.ph');
+  }
+
+  return true;
+};
+
+// GET: Check email domain restriction setting
+router.get('/email-domain-restriction', authenticateToken, async (req, res) => {
+  try {
+    const query = `SELECT setting_value FROM system_settings WHERE setting_key = 'email_domain_restriction'`;
+
+    db.query(query, (err, results) => {
+      if (err) {
+        console.error('Error fetching email domain restriction:', err);
+        return res
+          .status(500)
+          .json({ error: 'Failed to fetch email domain restriction' });
+      }
+
+      // Default to false (disabled) if not set
+      const isRestricted =
+        results.length > 0 ? results[0].setting_value === 'true' : false;
+
+      res.status(200).json({
+        setting_value: isRestricted,
+        message: isRestricted
+          ? 'Email domain restricted to @earist.edu.ph'
+          : 'All email domains allowed',
+      });
+    });
+  } catch (err) {
+    console.error('Error checking email domain restriction:', err);
+    res.status(500).json({ error: 'Failed to check email domain restriction' });
+  }
+});
+
+// PUT: Update email domain restriction setting
+router.put('/email-domain-restriction', authenticateToken, async (req, res) => {
+  const { value } = req.body;
+
+  if (typeof value !== 'boolean') {
+    return res.status(400).json({ error: 'Value must be a boolean' });
+  }
+
+  try {
+    const checkQuery = `SELECT * FROM system_settings WHERE setting_key = 'email_domain_restriction'`;
+
+    db.query(checkQuery, (err, results) => {
+      if (err) {
+        console.error('Error checking email domain restriction:', err);
+        return res
+          .status(500)
+          .json({ error: 'Failed to update email domain restriction' });
+      }
+
+      const query =
+        results.length > 0
+          ? `UPDATE system_settings SET setting_value = ? WHERE setting_key = 'email_domain_restriction'`
+          : `INSERT INTO system_settings (setting_key, setting_value) VALUES ('email_domain_restriction', ?)`;
+
+      db.query(query, [value.toString()], (updateErr) => {
+        if (updateErr) {
+          console.error('Error updating email domain restriction:', updateErr);
+          return res
+            .status(500)
+            .json({ error: 'Failed to update email domain restriction' });
+        }
+
+        res.status(200).json({
+          message: 'Email domain restriction updated successfully',
+          setting_value: value,
+        });
+      });
+    });
+  } catch (err) {
+    console.error('Error updating email domain restriction:', err);
+    res
+      .status(500)
+      .json({ error: 'Failed to update email domain restriction' });
+  }
+});
+
+// --- NEW: Send Registration Emails Setting ---
+
+// PUT: Update send registration emails setting (DEBUG VERSION)
+router.put('/send-registration-emails', authenticateToken, async (req, res) => {
+  const { value } = req.body;
+
+  console.log('--- DEBUG: Received Request ---');
+  console.log('Value:', value, 'Type:', typeof value);
+
+  if (typeof value !== 'boolean') {
+    return res.status(400).json({ error: 'Value must be a boolean' });
+  }
+
+  try {
+    const checkQuery = `SELECT * FROM system_settings WHERE setting_key = 'send_registration_emails'`;
+
+    db.query(checkQuery, (err, results) => {
+      if (err) {
+        console.error('DEBUG: Check Query Failed:', err);
+        return res.status(500).json({
+          error: 'Failed to check email send setting',
+          details: err.message,
+        });
+      }
+
+      console.log('DEBUG: Existing Records Found:', results.length);
+
+      const query =
+        results.length > 0
+          ? `UPDATE system_settings SET setting_value = ? WHERE setting_key = 'send_registration_emails'`
+          : `INSERT INTO system_settings (setting_key, setting_value) VALUES ('send_registration_emails', ?)`;
+
+      const params = [value.toString()];
+
+      console.log('DEBUG: Executing Query:', query);
+      console.log('DEBUG: Params:', params);
+
+      db.query(query, params, (updateErr) => {
+        if (updateErr) {
+          console.error('!!! DEBUG: Update/Insert Query FAILED !!!');
+          console.error('SQL Error:', updateErr.message);
+          console.error('SQL Code:', updateErr.code);
+
+          // Send the actual error back to the frontend
+          return res.status(500).json({
+            error: 'Failed to update email send setting',
+            details: updateErr.message,
+            code: updateErr.code,
+          });
+        }
+
+        console.log('DEBUG: Query Successful');
+        res.status(200).json({
+          message: value
+            ? 'Registration emails enabled'
+            : 'Registration emails disabled',
+          setting_value: value,
+        });
+      });
+    });
+  } catch (err) {
+    console.error('!!! DEBUG: Server Exception !!!');
+    console.error(err);
+    res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
+
+// POST: Broadcast Login Info ONLY to users with Default Password (Last Name)
+router.post('/broadcast-login-info', authenticateToken, async (req, res) => {
+  try {
+    // Fetch all users. We need their password hash and last name to compare.
+    const query = `
+      SELECT 
+        u.employeeNumber,
+        u.email,
+        u.password,
+        u.username,
+        u.role,
+        p.firstName,
+        p.middleName,
+        p.lastName
+      FROM users u
+      LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
+      WHERE u.email IS NOT NULL 
+      AND u.email != '' 
+      AND u.role != 'superadmin'
+    `;
+
+    db.query(query, async (err, users) => {
+      if (err) {
+        console.error('Error fetching users for broadcast:', err);
+        return res.status(500).json({ error: 'Failed to fetch users' });
+      }
+
+      if (users.length === 0) {
+        return res.status(404).json({ message: 'No users found to email' });
+      }
+
+      let successCount = 0;
+      let failCount = 0;
+      let skippedCount = 0; // Users who changed their password
+      const errors = [];
+
+      // Process users
+      const promises = users.map(async (user) => {
+        const firstName = user.firstName || '';
+        const lastName = user.lastName || '';
+        const fullName = [firstName, user.middleName, lastName]
+          .filter(Boolean)
+          .join(' ');
+
+        // 1. Generate the DEFAULT password based on your business logic
+        // Last Name, Uppercase, No Spaces
+        const defaultPassword = lastName
+          .trim()
+          .toUpperCase()
+          .replace(/\s+/g, '');
+
+        // 2. Check if the user's CURRENT password matches the DEFAULT password
+        // If yes, they haven't changed it yet.
+        let isDefaultPasswordUser = false;
+
+        try {
+          if (defaultPassword) {
+            isDefaultPasswordUser = await bcrypt.compare(
+              defaultPassword,
+              user.password,
+            );
+          }
+        } catch (bcryptErr) {
+          console.error(`Bcrypt error for ${user.employeeNumber}:`, bcryptErr);
+        }
+
+        // 3. Filter: ONLY email if they still have the default password
+        if (isDefaultPasswordUser) {
+          try {
+            await transporter.sendMail({
+              from: `"HRIS System" <${process.env.GMAIL_USER}>`,
+              to: user.email,
+              subject: 'Your Account Information (Default Password)',
+              html: `
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                  <meta charset="UTF-8">
+                  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                  <title>Account Information</title>
+                  <style>
+                    body { font-family: Arial, sans-serif; line-height: 1.6; background-color: #f4f4f4; margin: 0; padding: 20px; }
+                    .container { max-width: 600px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+                    .header { background: #6d2323; color: #fff; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; margin: -30px -30px 20px -30px; }
+                    .details { background: #f9f9f9; padding: 15px; border-left: 4px solid #6d2323; margin: 20px 0; }
+                    .label { font-weight: bold; color: #6d2323; }
+                    .password-box { background: #fff8e1; border: 2px solid #ffc107; padding: 10px; margin-top: 5px; font-weight: bold; font-family: monospace; font-size: 1.1em; color: #856404; }
+                  </style>
+                </head>
+                <body>
+                  <div class="container">
+                    <div class="header">
+                      <h2 style="margin:0;">Your Login Credentials</h2>
+                    </div>
+                    <p>Hello <strong>${fullName}</strong>,</p>
+                    <p>Here are your login details for the HRIS System.</p>
+                    
+                    <div class="details">
+                      <p><span class="label">Employee Number:</span> ${user.employeeNumber}</p>
+                      <p><span class="label">Email:</span> ${user.email}</p>
+                      <p><span class="label">Temporary Password:</span></p>
+                      <div class="password-box">${defaultPassword}</div>
+                    </div>
+                    
+                    <p><strong>Important Action Required:</strong></p>
+                    <p>You are currently using the default password. For your account security, please log in immediately and <strong>change your password</strong> in the settings page.</p>
+                    
+                    <p style="text-align: center; margin-top: 30px;">
+                      <a href="${process.env.FRONTEND_URL || 'http://localhost:5137'}" style="background: #6d2323; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Login Now</a>
+                    </p>
+                  </div>
+                </body>
+                </html>
+              `,
+            });
+            successCount++;
+          } catch (emailErr) {
+            console.error(`Failed to send to ${user.email}:`, emailErr);
+            failCount++;
+            errors.push(user.email);
+          }
+        } else {
+          // User has changed their password, skip them
+          skippedCount++;
+        }
+      });
+
+      await Promise.all(promises);
+
+      res.status(200).json({
+        message: 'Broadcast completed',
+        total_users_checked: users.length,
+        sent_to_default_users: successCount,
+        skipped_password_changed: skippedCount,
+        failed: failCount,
+        errors: errors,
+      });
+    });
+  } catch (error) {
+    console.error('Error during broadcast:', error);
+    res.status(500).json({ error: 'Server error during broadcast' });
+  }
+});
+
+// PUT: Update send registration emails setting
+router.put('/send-registration-emails', authenticateToken, async (req, res) => {
+  const { value } = req.body;
+
+  if (typeof value !== 'boolean') {
+    return res.status(400).json({ error: 'Value must be a boolean' });
+  }
+
+  try {
+    const checkQuery = `SELECT * FROM system_settings WHERE setting_key = 'send_registration_emails'`;
+
+    db.query(checkQuery, (err, results) => {
+      if (err) {
+        console.error('Error checking email send setting:', err);
+        return res
+          .status(500)
+          .json({ error: 'Failed to update email send setting' });
+      }
+
+      const query =
+        results.length > 0
+          ? `UPDATE system_settings SET setting_value = ? WHERE setting_key = 'send_registration_emails'`
+          : `INSERT INTO system_settings (setting_key, setting_value) VALUES ('send-registration-emails', ?)`;
+
+      db.query(query, [value.toString()], (updateErr) => {
+        if (updateErr) {
+          console.error('Error updating email send setting:', updateErr);
+          return res
+            .status(500)
+            .json({ error: 'Failed to update email send setting' });
+        }
+
+        res.status(200).json({
+          message: value
+            ? 'Registration emails enabled'
+            : 'Registration emails disabled',
+          setting_value: value,
+        });
+      });
+    });
+  } catch (err) {
+    console.error('Error updating email send setting:', err);
+    res.status(500).json({ error: 'Failed to update email send setting' });
+  }
+});
+
+// --- END NEW SETTING ---
+
+// REGISTER - Updated with email notification and 5 categories and email domain validation
 router.post('/register', async (req, res) => {
   const {
     firstName,
@@ -16,19 +365,12 @@ router.post('/register', async (req, res) => {
     email,
     password,
     employeeNumber,
-    employmentCategory, // may be '', null, undefined, or 0-4
-    customCategory, // optional
+    employmentCategory,
     department,
   } = req.body;
 
   try {
-    // Basic required validation (adjust if you have system_settings-based validation)
-    if (!firstName || !lastName || !email || !password || !employeeNumber) {
-      return res.status(400).send({ error: 'Missing required fields.' });
-    }
-
     const hashedPass = await bcrypt.hash(password, 10);
-
     const fullName = [
       firstName,
       middleName || '',
@@ -36,13 +378,10 @@ router.post('/register', async (req, res) => {
       nameExtension || '',
     ]
       .filter(Boolean)
-      .join(' ')
-      .trim();
+      .join(' ');
 
     // Helper for Category Label
     const getCategoryLabel = (cat) => {
-      if (cat === null || cat === undefined || String(cat).trim() === '')
-        return 'Unspecified';
       switch (parseInt(cat)) {
         case 0:
           return 'Job Order - Graduate';
@@ -51,41 +390,49 @@ router.post('/register', async (req, res) => {
         case 2:
           return 'Regular - Non-Teaching';
         case 3:
-          return 'Regular - Teaching (30hrs)';
+          return 'Regular - Teaching (Designated)';
         case 4:
-          return 'Regular - Designated (40hrs)';
+          return 'Regular - 30Hrs';
         default:
-          return 'Unspecified';
+          return 'Job Order - Graduated'; // Default fallback
       }
     };
 
-    // ✅ Normalize employmentCategory:
-    // '' / null / undefined => NULL
-    // else validate 0..4
-    const rawEmpCat =
-      employmentCategory === undefined || employmentCategory === null
-        ? ''
-        : String(employmentCategory).trim();
-
-    const normalizedEmpCat = rawEmpCat === '' ? null : rawEmpCat;
-
-    if (
-      normalizedEmpCat !== null &&
-      !['0', '1', '2', '3', '4'].includes(normalizedEmpCat)
-    ) {
-      return res.status(400).send({
-        error:
-          'Invalid employmentCategory. Must be 0=JO Grad, 1=JO UnderGrad, 2=Reg Non-Teaching, 3=Reg Teaching (30hrs), 4=Reg Designated (40hrs).',
+    // Fetch email domain restriction
+    let emailRestricted = false;
+    try {
+      const restrictionQuery = `SELECT setting_value FROM system_settings WHERE setting_key = 'email_domain_restriction'`;
+      await new Promise((resolve, reject) => {
+        db.query(restrictionQuery, (err, rows) => {
+          if (err) {
+            console.error('Error fetching email restriction:', err);
+            return resolve();
+          }
+          if (rows.length > 0) {
+            emailRestricted = rows[0].setting_value === 'true';
+          }
+          resolve();
+        });
       });
+    } catch (restrictionErr) {
+      console.error(
+        'Error loading email restriction, using defaults:',
+        restrictionErr,
+      );
     }
 
-    // ✅ Normalize customCategory (empty => NULL)
-    const normalizedCustom =
-      customCategory === undefined ||
-      customCategory === null ||
-      String(customCategory).trim() === ''
-        ? null
-        : String(customCategory).trim();
+    // Email domain validation
+    if (email && !validateEmail(email, emailRestricted)) {
+      if (emailRestricted) {
+        return res.status(400).send({
+          error: 'Email must use @earist.edu.ph domain',
+        });
+      } else {
+        return res.status(400).send({
+          error: 'Invalid email format',
+        });
+      }
+    }
 
     const checkQuery = `
       SELECT employeeNumber FROM users WHERE employeeNumber = ? 
@@ -112,16 +459,16 @@ router.post('/register', async (req, res) => {
 
         // Insert into users table
         const userQuery = `
-        INSERT INTO users (
-          email,
-          role,
-          password,
-          employeeNumber,
-          employmentCategory,
-          access_level,
-          username
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      `;
+          INSERT INTO users (
+            email,
+            role,
+            password,
+            employeeNumber,
+            employmentCategory,
+            access_level,
+            username
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `;
 
         db.query(
           userQuery,
@@ -130,7 +477,7 @@ router.post('/register', async (req, res) => {
             'staff',
             hashedPass,
             employeeNumber,
-            normalizedEmpCat, // ✅ NULL if blank
+            employmentCategory ?? 0,
             'user',
             fullName,
           ],
@@ -144,14 +491,14 @@ router.post('/register', async (req, res) => {
 
             // Insert into person_table
             const personQuery = `
-            INSERT INTO person_table (
-              firstName,
-              middleName,
-              lastName,
-              nameExtension,
-              agencyEmployeeNum
-            ) VALUES (?, ?, ?, ?, ?)
-          `;
+              INSERT INTO person_table (
+                firstName,
+                middleName,
+                lastName,
+                nameExtension,
+                agencyEmployeeNum
+              ) VALUES (?, ?, ?, ?, ?)
+            `;
 
             db.query(
               personQuery,
@@ -165,31 +512,27 @@ router.post('/register', async (req, res) => {
               (err) => {
                 if (err) {
                   console.error('Error inserting into person_table:', err);
-                  db.query('DELETE FROM users WHERE employeeNumber = ?', [
-                    employeeNumber,
-                  ]);
+                  const cleanupQuery =
+                    'DELETE FROM users WHERE employeeNumber = ?';
+                  db.query(cleanupQuery, [employeeNumber]);
                   return res
                     .status(500)
                     .send({ error: 'Failed to create person record' });
                 }
 
-                // ✅ UPSERT into employment_category (matches your table exactly)
+                // INSERT INTO employment_category table
                 const empCatQuery = `
-                INSERT INTO employment_category (employeeNumber, employmentCategory, customCategory)
-                VALUES (?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                  employmentCategory = VALUES(employmentCategory),
-                  customCategory = VALUES(customCategory),
-                  updated_at = CURRENT_TIMESTAMP
-              `;
+                  INSERT INTO employment_category (employeeNumber, employmentCategory)
+                  VALUES (?, ?)
+                `;
 
                 db.query(
                   empCatQuery,
-                  [employeeNumber, normalizedEmpCat, normalizedCustom],
+                  [employeeNumber, employmentCategory ?? 0],
                   async (catErr) => {
                     if (catErr) {
                       console.error(
-                        'Error inserting/updating employment_category:',
+                        'Error inserting into employment_category:',
                         catErr,
                       );
                       db.query(
@@ -206,10 +549,10 @@ router.post('/register', async (req, res) => {
 
                     // Grant default page access for staff role
                     const grantDefaultAccessQuery = `
-                    SELECT id FROM pages 
-                    WHERE page_url IN ('/home', '/admin-home', '/attendance-user-state', '/daily_time_record', '/payslip', '/pds1', '/pds2', '/pds3', '/pds4', '/settings') 
-                    OR component_identifier IN ('HomeEmployee', 'HomeAdmin', 'AttendanceUserState', 'DailyTimeRecord', 'Payslip', 'PDS1', 'PDS2', 'PDS3', 'PDS4', 'Settings')
-                  `;
+                      SELECT id FROM pages 
+                      WHERE page_url IN ('/home', '/admin-home', '/attendance-user-state', '/daily_time_record', '/payslip', '/pds1', '/pds2', '/pds3', '/pds4', '/settings') 
+                      OR component_identifier IN ('HomeEmployee', 'HomeAdmin', 'AttendanceUserState', 'DailyTimeRecord', 'Payslip', 'PDS1', 'PDS2', 'PDS3', 'PDS4', 'Settings')
+                    `;
 
                     db.query(
                       grantDefaultAccessQuery,
@@ -217,10 +560,10 @@ router.post('/register', async (req, res) => {
                         if (!pagesErr && pagesResult.length > 0) {
                           pagesResult.forEach((page) => {
                             const insertAccessQuery = `
-                          INSERT INTO page_access (employeeNumber, page_id, page_privilege)
-                          VALUES (?, ?, '1')
-                          ON DUPLICATE KEY UPDATE page_privilege = '1'
-                        `;
+                            INSERT INTO page_access (employeeNumber, page_id, page_privilege)
+                            VALUES (?, ?, '1')
+                            ON DUPLICATE KEY UPDATE page_privilege = '1'
+                          `;
                             db.query(
                               insertAccessQuery,
                               [employeeNumber, page.id],
@@ -238,10 +581,10 @@ router.post('/register', async (req, res) => {
                       },
                     );
 
-                    // SEND EMAIL WITH CREDENTIALS (kept as-is; uses customCategory if present)
-                    const categoryLabel = normalizedCustom
-                      ? normalizedCustom
-                      : getCategoryLabel(normalizedEmpCat);
+                    // SEND EMAIL WITH CREDENTIALS
+                    const categoryLabel = getCategoryLabel(
+                      employmentCategory ?? 0,
+                    );
 
                     try {
                       await transporter.sendMail({
@@ -249,13 +592,116 @@ router.post('/register', async (req, res) => {
                         to: email,
                         subject: 'Welcome to EARIST - Your Login Information',
                         html: `
-                        <p>Hello <strong>${fullName}</strong>,</p>
-                        <p>Your employee account has been created.</p>
-                        <p><strong>Employee Number:</strong> ${employeeNumber}</p>
-                        <p><strong>Email:</strong> ${email}</p>
-                        <p><strong>Temporary Password:</strong> ${password}</p>
-                        <p><strong>Important:</strong> Change your password after signing in. Never share your login details.</p>
-                      `,
+                          <!DOCTYPE html>
+                          <html lang="en">
+                          <head>
+                          <meta charset="UTF-8">
+                          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                          <title>Login Information</title>
+                          <style>
+                            * { margin: 0; padding: 0; box-sizing: border-box; }
+                            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f4f4f4; color: #333333; line-height: 1.6; }
+                            .email-wrapper { width: 100%; background-color: #f4f4f4; padding: 30px 15px; }
+                            .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+                            .email-header { background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 30px; text-align: center; }
+                            .email-header h1 { color: #ffffff; font-size: 24px; font-weight: 600; margin: 0; }
+                            .email-body { padding: 35px 30px; }
+                            .greeting { font-size: 15px; color: #333333; margin-bottom: 15px; }
+                            .greeting strong { color: #6d2323; }
+                            .intro-text { font-size: 14px; color: #555555; margin-bottom: 25px; line-height: 1.7; }
+                            .credentials-box { background: #fafafa; border: 2px solid #f5e6e6; border-radius: 6px; padding: 25px; margin: 25px 0; }
+                            .credential-row { margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eeeeee; }
+                            .credential-row:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+                            .credential-label { font-size: 12px; color: #6d2323; font-weight: 600; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 0.5px; }
+                            .credential-value { font-size: 15px; color: #2c3e50; font-weight: 500; }
+                            .credential-value.highlight { background: #fff8e1; padding: 10px 15px; border-radius: 4px; font-family: 'Courier New', Courier, monospace; font-size: 16px; letter-spacing: 1px; color: #856404; border: 2px solid #ffc107; display: inline-block; margin-top: 5px; font-weight: 700; }
+                            .credential-value.empnum { font-family: 'Courier New', Courier, monospace; font-size: 16px; color: #6d2323; font-weight: 700; }
+                            .note-box { background: #fff8e1; border-left: 4px solid #6d2323; padding: 15px 20px; margin: 25px 0; border-radius: 4px; }
+                            .note-box p { font-size: 13px; color: #555555; margin: 0; line-height: 1.6; }
+                            .note-box strong { color: #6d2323; }
+                            .action-section { text-align: center; margin: 30px 0 25px; }
+                            .action-button { display: inline-block; background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); color: #ffffff !important; padding: 14px 40px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 12px rgba(109, 35, 35, 0.25); transition: all 0.3s ease; }
+                            .action-button:hover { background: linear-gradient(135deg, #5a1e1e 0%, #6d2323 100%); transform: translateY(-2px); color: #ffffff !important; }
+                            a.action-button { color: #ffffff !important; }
+                            a.action-button:visited { color: #ffffff !important; }
+                            a.action-button:active { color: #ffffff !important; }
+                            .support-text { font-size: 13px; color: #777777; text-align: center; margin-top: 25px; padding-top: 20px; border-top: 1px solid #eeeeee; }
+                            .email-footer { background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 25px; text-align: center; }
+                            .footer-text { font-size: 12px; color: #f5e6e6; margin: 5px 0; }
+                            @media only screen and (max-width: 600px) {
+                              .email-wrapper { padding: 20px 10px; }
+                              .email-body { padding: 25px 20px; }
+                              .email-header h1 { font-size: 22px; }
+                              .credentials-box { padding: 20px; }
+                            }
+                          </style>
+                      </head>
+                      <body>
+                        <div class="email-wrapper">
+                          <div class="email-container">
+                            <!-- Header -->
+                            <div class="email-header">
+                              <h1>Welcome!</h1>
+                            </div>
+                            <!-- Body -->
+                            <div class="email-body">
+                              <p class="greeting">Hello <strong>${fullName}</strong>,</p>
+                              <p class="intro-text">
+                                Your employee account has been created. You can now access your payslip, 
+                                check attendance, and manage your personal information online.
+                              </p>
+                              <!-- Credentials -->
+                              <div class="credentials-box">
+                                <div class="credential-row">
+                                  <div class="credential-label">Employee Number</div>
+                                  <div class="credential-value empnum">${employeeNumber}</div>
+                                </div>
+                                <div class="credential-row">
+                                  <div class="credential-label">Email</div>
+                                  <div class="credential-value">${email}</div>
+                                </div>
+                                <div class="credential-row">
+                                  <div class="credential-label">Temporary Password</div>
+                                  <div class="credential-value">
+                                    <span class="highlight">${password}</span>
+                                  </div>
+                                </div>
+                                <div class="credential-row">
+                                  <div class="credential-label">Employment Type</div>
+                                  <div class="credential-value">${categoryLabel}</div>
+                                </div>
+                              </div>
+                              <!-- Security Note -->
+                              <div class="note-box">
+                                <p>
+                                  <strong>Important:</strong> Change your password after signing in. 
+                                  Never share your login details with anyone.
+                                </p>
+                              </div>
+                              <!-- Login Button -->
+                              <div class="action-section">
+                                <a href="${
+                                  process.env.API_BASE_URL ||
+                                  'http://localhost:5137'
+                                }" class="action-button">
+                                  LOGIN NOW
+                                </a>
+                              </div>
+                              <!-- Support -->
+                              <p class="support-text">
+                                Need help? Contact HR Department during office hours or send a message to earisthrmstesting@gmail.com
+                              </p>
+                            </div>
+                            <!-- Footer -->
+                            <div class="email-footer">
+                              <p class="footer-text">Human Resources Information System</p>
+                              <p class="footer-text">© ${new Date().getFullYear()} Eulogio "Amang" Rodriguez Institute of Science and Technology. All rights reserved.</p>
+                            </div>
+                          </div>
+                        </div>
+                      </body>
+                      </html>
+                    `,
                       });
 
                       console.log(
@@ -292,7 +738,6 @@ router.post('/register', async (req, res) => {
                       'Saturday',
                       'Sunday',
                     ];
-
                     const officialTimeValues = days.map((day) => [
                       employeeNumber,
                       day,
@@ -310,23 +755,23 @@ router.post('/register', async (req, res) => {
                     ]);
 
                     const officialTimeQuery = `
-                    INSERT INTO officialtime (
-                      employeeID,
-                      day,
-                      officialTimeIN,
-                      officialBreaktimeIN,
-                      officialBreaktimeOUT,
-                      officialTimeOUT,
-                      officialHonorariumTimeIN,
-                      officialHonorariumTimeOUT,
-                      officialServiceCreditTimeIN,
-                      officialServiceCreditTimeOUT,
-                      officialOverTimeIN,
-                      officialOverTimeOUT,
-                      breaktime
-                    )
-                    VALUES ?
-                  `;
+                      INSERT INTO officialtime (
+                        employeeID,
+                        day,
+                        officialTimeIN,
+                        officialBreaktimeIN,
+                        officialBreaktimeOUT,
+                        officialTimeOUT,
+                        officialHonorariumTimeIN,
+                        officialHonorariumTimeOUT,
+                        officialServiceCreditTimeIN,
+                        officialServiceCreditTimeOUT,
+                        officialOverTimeIN,
+                        officialOverTimeOUT,
+                        breaktime
+                      )
+                      VALUES ?
+                    `;
 
                     db.query(
                       officialTimeQuery,
@@ -342,19 +787,15 @@ router.post('/register', async (req, res) => {
                     );
 
                     // Create department assignment if department is provided
-                    if (department && String(department).trim() !== '') {
-                      const deptCode = String(department).trim();
-
+                    if (department && department.trim() !== '') {
                       const deptAssignmentQuery = `
-                      INSERT INTO department_assignment (code, name, employeeNumber)
-                      VALUES (?, ?, ?)
-                    `;
-
+                        INSERT INTO department_assignment (code, name, employeeNumber)
+                        VALUES (?, ?, ?)
+                      `;
                       db.query(
                         deptAssignmentQuery,
-                        [deptCode, null, employeeNumber],
-                        (deptErr, deptResult) => {
-                          // ✅ FIXED: deptResult is now available
+                        [department, null, employeeNumber],
+                        (deptErr) => {
                           if (deptErr) {
                             console.error(
                               `Error creating department assignment for ${employeeNumber}:`,
@@ -366,7 +807,7 @@ router.post('/register', async (req, res) => {
                                 module: 'department-assignment',
                                 id: deptResult.insertId,
                                 employeeNumber,
-                                code: deptCode,
+                                code: department,
                               });
                             } catch (notifyErr) {
                               console.error(
@@ -379,7 +820,7 @@ router.post('/register', async (req, res) => {
                       );
                     }
 
-                    return res
+                    res
                       .status(200)
                       .send({ message: 'User Registered Successfully' });
                   },
@@ -392,11 +833,11 @@ router.post('/register', async (req, res) => {
     );
   } catch (err) {
     console.error('Error during registration:', err);
-    return res.status(500).send({ error: 'Failed to register user' });
+    res.status(500).send({ error: 'Failed to register user' });
   }
 });
 
-// BULK REGISTER WITH EMAIL (Updated logic)
+// BULK REGISTER WITH EMAIL (Updated logic with email domain validation and EMAIL SENDING TOGGLE)
 router.post('/excel-register', async (req, res) => {
   const { users } = req.body;
 
@@ -1004,10 +1445,12 @@ router.put('/users/:employeeNumber/role', authenticateToken, (req, res) => {
 
   const validRoles = ['superadmin', 'administrator', 'technical', 'staff'];
   if (!validRoles.includes(role.toLowerCase())) {
-    return res.status(400).json({
-      error:
-        'Invalid role. Must be one of: superadmin, administrator, technical, staff',
-    });
+    return res
+      .status(400)
+      .json({
+        error:
+          'Invalid role. Must be one of: superadmin, administrator, technical, staff',
+      });
   }
 
   // First, get the current role for audit logging
@@ -1138,9 +1581,11 @@ router.post('/users/reset-password', authenticateToken, async (req, res) => {
       const surname = user.lastName;
 
       if (!surname) {
-        return res.status(400).json({
-          error: 'User does not have a surname (lastName) in the system',
-        });
+        return res
+          .status(400)
+          .json({
+            error: 'User does not have a surname (lastName) in the system',
+          });
       }
 
       if (!user.email) {
@@ -1366,9 +1811,12 @@ router.put(
                   return connection.rollback(() => {
                     connection.release();
                     console.error('Error updating users table:', err);
-                    res.status(500).json({
-                      error: 'Failed to update employee number in users table',
-                    });
+                    res
+                      .status(500)
+                      .json({
+                        error:
+                          'Failed to update employee number in users table',
+                      });
                   });
                 }
 
@@ -1383,10 +1831,12 @@ router.put(
                       return connection.rollback(() => {
                         connection.release();
                         console.error('Error updating person_table:', err);
-                        res.status(500).json({
-                          error:
-                            'Failed to update employee number in person table',
-                        });
+                        res
+                          .status(500)
+                          .json({
+                            error:
+                              'Failed to update employee number in person table',
+                          });
                       });
                     }
 
@@ -1404,10 +1854,12 @@ router.put(
                               'Error updating employment_category:',
                               err,
                             );
-                            res.status(500).json({
-                              error:
-                                'Failed to update employee number in employment category',
-                            });
+                            res
+                              .status(500)
+                              .json({
+                                error:
+                                  'Failed to update employee number in employment category',
+                              });
                           });
                         }
 
@@ -1425,10 +1877,12 @@ router.put(
                                   'Error updating page_access:',
                                   err,
                                 );
-                                res.status(500).json({
-                                  error:
-                                    'Failed to update employee number in page access',
-                                });
+                                res
+                                  .status(500)
+                                  .json({
+                                    error:
+                                      'Failed to update employee number in page access',
+                                  });
                               });
                             }
 
@@ -1441,9 +1895,11 @@ router.put(
                                     'Error committing transaction:',
                                     err,
                                   );
-                                  res.status(500).json({
-                                    error: 'Failed to commit transaction',
-                                  });
+                                  res
+                                    .status(500)
+                                    .json({
+                                      error: 'Failed to commit transaction',
+                                    });
                                 });
                               }
 
@@ -1588,9 +2044,11 @@ router.delete('/users/:employeeNumber', authenticateToken, (req, res) => {
               return connection.rollback(() => {
                 connection.release();
                 console.error('Error deleting from employment_category:', err);
-                res.status(500).json({
-                  error: 'Failed to delete employment category record',
-                });
+                res
+                  .status(500)
+                  .json({
+                    error: 'Failed to delete employment category record',
+                  });
               });
             }
 

@@ -1,4 +1,3 @@
-/* full file with the name wrapping fix */
 import API_BASE_URL from '../../apiConfig';
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
@@ -11,6 +10,7 @@ import {
   ArrowBack,
   ArrowForward,
   Close,
+  Circle, 
 } from '@mui/icons-material';
 import PrintIcon from '@mui/icons-material/Print';
 import {
@@ -198,6 +198,12 @@ const DailyTimeRecordFaculty = () => {
   const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
   const hoverColor = settings.hoverColor || '#6D2323';
 
+  // Department and Employment Category filters
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [employmentCategoryFilter, setEmploymentCategoryFilter] = useState('');
+  const [departments, setDepartments] = useState([]);
+  const [employmentCategories, setEmploymentCategories] = useState([]);
+
   // ACCESS: page access control
   const {
     hasAccess,
@@ -285,6 +291,7 @@ const DailyTimeRecordFaculty = () => {
       setOfficialTimes({});
     }
   };
+  
 
   useEffect(() => {
     if (personID) {
@@ -292,6 +299,41 @@ const DailyTimeRecordFaculty = () => {
     }
   }, [personID]);
 
+<<<<<<< HEAD
+=======
+
+  // Fetch departments and employment categories for filters
+  useEffect(() => {
+    const fetchFilters = async () => {
+      try {
+        // Fetch departments
+        const deptResponse = await axios.get(
+          `${API_BASE_URL}/api/department-table`,
+          getAuthHeaders()
+        );
+        setDepartments(Array.isArray(deptResponse.data) ? deptResponse.data : []);
+
+        // Fetch employment categories (unique categories from all users)
+        const catResponse = await axios.get(
+          `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
+          getAuthHeaders()
+        );
+        
+        // Get unique employment category IDs
+        const uniqueCategories = Array.isArray(catResponse.data) 
+          ? [...new Set(catResponse.data.map(cat => cat.employmentCategory))]
+          : [];
+        
+        setEmploymentCategories(uniqueCategories);
+      } catch (error) {
+        console.error('Error fetching filter options:', error);
+      }
+    };
+    
+    fetchFilters();
+  }, []);
+
+>>>>>>> 2b1192322cad139a1ba105a52b54c14f31e978bc
   // Fetch holidays and suspensions (for row highlighting)
   useEffect(() => {
     const fetchHolidaysAndSuspensions = async () => {
@@ -628,7 +670,7 @@ const DailyTimeRecordFaculty = () => {
   };
 
   // New filter: free-text search that filters by name or employee number
-  const getFilteredUsers = () => {
+const getFilteredUsers = () => {
     let filtered = allUsersDTR.slice();
 
     // Apply record filter first
@@ -643,6 +685,22 @@ const DailyTimeRecordFaculty = () => {
       filtered = filtered.filter((u) => printStatusMap.has(u.employeeNumber));
     } else if (printStatusFilter === 'unprinted') {
       filtered = filtered.filter((u) => !printStatusMap.has(u.employeeNumber));
+    }
+
+    // **NEW: Apply department filter**
+    if (departmentFilter) {
+      filtered = filtered.filter((u) => {
+        const userDept = u.rawUser?.departmentCode || u.departmentCode || '';
+        return userDept === departmentFilter;
+      });
+    }
+
+    // **NEW: Apply employment category filter**
+    if (employmentCategoryFilter !== '') {
+      filtered = filtered.filter((u) => {
+        const userCategory = u.rawUser?.employmentCategory ?? u.employmentCategory ?? null;
+        return userCategory !== null && userCategory === parseInt(employmentCategoryFilter);
+      });
     }
 
     // Apply search filter
@@ -668,6 +726,33 @@ const DailyTimeRecordFaculty = () => {
     (currentPage - 1) * rowsPerPage,
     (currentPage - 1) * rowsPerPage + rowsPerPage,
   );
+
+
+  // Helper to get employment category label
+  const getCategoryLabel = (categoryId) => {
+    const labels = {
+      0: 'JO Graduate',
+      1: 'JO UnderGrad',
+      2: 'Regular Non-Teaching',
+      3: 'Regular Teaching (30Hrs)',
+      4: 'Regular Designated (40Hrs)',
+      5: 'Other',
+    };
+    return labels[categoryId] || 'Unknown';
+  };
+
+  // Helper to get employment category color (Legend Logic)
+  const getCategoryColor = (catId) => {
+    switch (parseInt(catId)) {
+      case 0: return '#F57C00'; // JO Graduate
+      case 1: return '#E64A19'; // JO UnderGrad
+      case 2: return '#2E7D32'; // Regular Non-Teaching
+      case 3: return '#1565C0'; // Regular Teaching (30Hrs)
+      case 4: return '#7B1FA2'; // Regular Designated (40Hrs)
+      case 5: return '#00796B'; // Other (Custom)
+      default: return '#757575';
+    }
+  };
 
   // helper to change page safely
   const goToPage = (page) => {
@@ -3281,6 +3366,7 @@ const DailyTimeRecordFaculty = () => {
                           </Select>
                         </FormControl>
 
+<<<<<<< HEAD
                         <ProfessionalButton
                           variant="outlined"
                           onClick={() =>
@@ -3294,6 +3380,51 @@ const DailyTimeRecordFaculty = () => {
                             ? 'Deselect All'
                             : 'Select All'}
                         </ProfessionalButton>
+=======
+                        {/* Department Filter */}
+                        <FormControl
+                          sx={{ minWidth: 180, backgroundColor: 'white' }}
+                        >
+                          <InputLabel>Department</InputLabel>
+                          <Select
+                            value={departmentFilter}
+                            label="Department"
+                            onChange={(e) => {
+                              setDepartmentFilter(e.target.value);
+                              setCurrentPage(1);
+                            }}
+                          >
+                            <MenuItem value="">All Departments</MenuItem>
+                            {departments.map((dept) => (
+                              <MenuItem key={dept.code} value={dept.code}>
+                                {dept.code}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+
+                        {/* Employment Category Filter */}
+                        <FormControl
+                          sx={{ minWidth: 200, backgroundColor: 'white' }}
+                        >
+                          <InputLabel>Employment Category</InputLabel>
+                          <Select
+                            value={employmentCategoryFilter}
+                            label="Employment Category"
+                            onChange={(e) => {
+                              setEmploymentCategoryFilter(e.target.value);
+                              setCurrentPage(1);
+                            }}
+                          >
+                            <MenuItem value="">All Categories</MenuItem>
+                            {employmentCategories.map((catId) => (
+                              <MenuItem key={catId} value={catId}>
+                                {getCategoryLabel(catId)}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+>>>>>>> 2b1192322cad139a1ba105a52b54c14f31e978bc
 
                         {/* Rows per page selector */}
                         <FormControl
@@ -3338,6 +3469,49 @@ const DailyTimeRecordFaculty = () => {
                           >
                             <ArrowForward />
                           </IconButton>
+<<<<<<< HEAD
+=======
+                        </Box>
+
+                        {/* Footer Pagination Buttons moved here */}
+                        <Box sx={{ display: 'flex', gap: 1, ml: 2 }}>
+                           <ProfessionalButton
+                            variant="outlined"
+                            onClick={() => goToPage(1)}
+                            disabled={currentPage === 1}
+                            size="small"
+                            sx={{ py: 1, px: 2, minWidth: 'auto' }}
+                          >
+                            First
+                          </ProfessionalButton>
+                          <ProfessionalButton
+                            variant="outlined"
+                            onClick={() => goToPage(currentPage - 1)}
+                            disabled={currentPage === 1}
+                            size="small"
+                            sx={{ py: 1, px: 2, minWidth: 'auto' }}
+                          >
+                            Prev
+                          </ProfessionalButton>
+                          <ProfessionalButton
+                            variant="outlined"
+                            onClick={() => goToPage(currentPage + 1)}
+                            disabled={currentPage === totalPages}
+                            size="small"
+                            sx={{ py: 1, px: 2, minWidth: 'auto' }}
+                          >
+                            Next
+                          </ProfessionalButton>
+                          <ProfessionalButton
+                            variant="outlined"
+                            onClick={() => goToPage(totalPages)}
+                            disabled={currentPage === totalPages}
+                            size="small"
+                            sx={{ py: 1, px: 2, minWidth: 'auto' }}
+                          >
+                            Last
+                          </ProfessionalButton>
+>>>>>>> 2b1192322cad139a1ba105a52b54c14f31e978bc
                         </Box>
                       </Box>
                     </Box>
@@ -3414,11 +3588,22 @@ const DailyTimeRecordFaculty = () => {
                                 color: '#ffffff',
                               }}
                             >
+<<<<<<< HEAD
                               Last Name
+=======
+                              Department
+                            </TableCell>
+                            <TableCell sx={{ minWidth: 180, color: '#ffffff' }}>
+                              Employment Category
+>>>>>>> 2b1192322cad139a1ba105a52b54c14f31e978bc
                             </TableCell>
                             <TableCell sx={{ minWidth: 120, color: '#ffffff' }}>
-                              Records Count
+                              Print Status
                             </TableCell>
+                            <TableCell sx={{ minWidth: 100, color: '#ffffff' }}>
+                              Actions
+                            </TableCell>
+<<<<<<< HEAD
                             <TableCell sx={{ minWidth: 100, color: '#ffffff' }}>
                               Status
                             </TableCell>
@@ -3428,6 +3613,8 @@ const DailyTimeRecordFaculty = () => {
                             <TableCell sx={{ minWidth: 100, color: '#ffffff' }}>
                               Actions
                             </TableCell>
+=======
+>>>>>>> 2b1192322cad139a1ba105a52b54c14f31e978bc
                           </TableRow>
                         </TableHead>
                         <TableBody>
@@ -3475,24 +3662,22 @@ const DailyTimeRecordFaculty = () => {
                                   textOverflow: 'ellipsis',
                                 }}
                               >
-                                {user.lastName}
+                                {user.rawUser?.departmentCode || user.departmentCode || 'N/A'}
                               </TableCell>
-                              <TableCell sx={{ minWidth: 120 }}>
-                                {user.records.length}
-                              </TableCell>
-                              <TableCell sx={{ minWidth: 100 }}>
+                              <TableCell sx={{ minWidth: 180 }}>
                                 <Chip
-                                  label={
-                                    user.records.length > 0
-                                      ? 'Has Records'
-                                      : 'No Records'
-                                  }
-                                  color={
-                                    user.records.length > 0
-                                      ? 'success'
-                                      : 'default'
-                                  }
+                                  label={getCategoryLabel(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null)}
                                   size="small"
+                                  sx={{
+                                    backgroundColor: alpha(getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null), 0.1),
+                                    color: getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null),
+                                    border: `1px solid ${getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null)}`,
+                                    fontWeight: '600',
+                                    fontSize: '0.75rem',
+                                    '&:hover': {
+                                      backgroundColor: alpha(getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null), 0.2)
+                                    }
+                                  }}
                                 />
                               </TableCell>
                               <TableCell sx={{ minWidth: 120 }}>
@@ -3532,11 +3717,42 @@ const DailyTimeRecordFaculty = () => {
                       </Table>
                     </Box>
 
-                    {/* Info & extra pagination at bottom */}
+                    {/* Employment Category Legend */}
+                    <Box
+                      sx={{
+                        mt: 2,
+                        p: 2,
+                        backgroundColor: alpha('#f5f5f5', 0.5),
+                        borderRadius: 2,
+                        border: '1px solid rgba(0,0,0,0.1)',
+                      }}
+                    >
+                      <Typography variant="caption" sx={{ fontWeight: 700, mb: 1, display: 'block', color: textPrimaryColor }}>
+                        EMPLOYMENT CATEGORY LEGEND
+                      </Typography>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
+                        {[0, 1, 2, 3, 4, 5].map((id) => (
+                          <Box key={id} sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Circle
+                              sx={{
+                                color: getCategoryColor(id),
+                                fontSize: 10,
+                                mr: 0.5,
+                              }}
+                            />
+                            <Typography variant="caption" sx={{ color: '#555' }}>
+                              {getCategoryLabel(id)}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    </Box>
+
+                    {/* Info at bottom */}
                     <Box
                       sx={{
                         display: 'flex',
-                        justifyContent: 'space-between',
+                        justifyContent: 'flex-start',
                         alignItems: 'center',
                         mt: 2,
                       }}
@@ -3577,39 +3793,6 @@ const DailyTimeRecordFaculty = () => {
                             {new Date(startDate).getFullYear()}
                           </Typography>
                         )}
-                      </Box>
-
-                      <Box
-                        sx={{ display: 'flex', gap: 1, alignItems: 'center' }}
-                      >
-                        <ProfessionalButton
-                          variant="outlined"
-                          onClick={() => goToPage(1)}
-                          disabled={currentPage === 1}
-                        >
-                          First
-                        </ProfessionalButton>
-                        <ProfessionalButton
-                          variant="outlined"
-                          onClick={() => goToPage(currentPage - 1)}
-                          disabled={currentPage === 1}
-                        >
-                          Prev
-                        </ProfessionalButton>
-                        <ProfessionalButton
-                          variant="outlined"
-                          onClick={() => goToPage(currentPage + 1)}
-                          disabled={currentPage === totalPages}
-                        >
-                          Next
-                        </ProfessionalButton>
-                        <ProfessionalButton
-                          variant="outlined"
-                          onClick={() => goToPage(totalPages)}
-                          disabled={currentPage === totalPages}
-                        >
-                          Last
-                        </ProfessionalButton>
                       </Box>
                     </Box>
                   </>

@@ -71,7 +71,7 @@ const hexToRgb = (hex) => {
     : '109, 35, 35';
 };
 
-// Professional styled components - colors will be applied via sx prop
+// Professional styled components
 const GlassCard = styled(Card)(({ theme }) => ({
   borderRadius: 20,
   backdropFilter: 'blur(10px)',
@@ -143,7 +143,7 @@ const ModernSelect = styled(Select)(({ theme }) => ({
   },
 }));
 
-// Enhanced Auth header helper with error handling
+// Enhanced Auth header helper
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token');
 
@@ -422,6 +422,7 @@ const EmploymentCategoryManagement = () => {
   const [newRecord, setNewRecord] = useState({
     employeeNumber: '',
     employmentCategory: 0,
+    customCategory: '',
   });
   const [loading, setLoading] = useState(false);
   const [successOpen, setSuccessOpen] = useState(false);
@@ -449,21 +450,15 @@ const EmploymentCategoryManagement = () => {
   const grayColor = '#6c757d';
 
   // COLOR LEGEND: Map each ID to a unique professional color
-  // Used for borders and text
   const getCategoryStyle = (catId) => {
     switch (parseInt(catId)) {
-      case 0: // JO Graduated
-        return '#F57C00';
-      case 1: // JO UnderGrad
-        return '#E64A19';
-      case 2: // Regular Non-Teaching
-        return '#2E7D32';
-      case 3: // Regular Teaching
-        return '#1565C0';
-      case 4: // Regular 30Hrs
-        return '#7B1FA2';
-      default:
-        return '#757575';
+      case 0: return '#F57C00'; // JO Graduate
+      case 1: return '#E64A19'; // JO UnderGrad
+      case 2: return '#2E7D32'; // Regular Non-Teaching
+      case 3: return '#1565C0'; // Regular Teaching (30Hrs)
+      case 4: return '#7B1FA2'; // Regular Designated (40Hrs)
+      case 5: return '#00796B'; // Other (Custom)
+      default: return '#757575';
     }
   };
 
@@ -500,14 +495,20 @@ const EmploymentCategoryManagement = () => {
       return;
     }
 
+    if (newRecord.employmentCategory === 5 && !newRecord.customCategory.trim()) {
+      showSnackbar('Please enter a custom category description', 'error');
+      setErrors({ customCategory: 'Custom category is required for "Other"' });
+      return;
+    }
+
     setLoading(true);
     try {
       await axios.post(
-        `${API_BASE_URL}/EmploymentCategoryRoutes/employee-category`,
+        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
         newRecord,
         getAuthHeaders()
       );
-      setNewRecord({ employeeNumber: '', employmentCategory: 0 });
+      setNewRecord({ employeeNumber: '', employmentCategory: 0, customCategory: '' });
       setSelectedEmployee(null);
       setErrors({});
       setTimeout(() => {
@@ -533,12 +534,18 @@ const EmploymentCategoryManagement = () => {
       return;
     }
 
+    if (editRecord.employmentCategory === 5 && !editRecord.customCategory?.trim()) {
+      showSnackbar('Please enter a custom category description', 'error');
+      return;
+    }
+
     try {
       await axios.put(
         `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${editRecord.id}`,
         {
           employeeNumber: editRecord.employeeNumber,
           employmentCategory: editRecord.employmentCategory,
+          customCategory: editRecord.customCategory || '',
         },
         getAuthHeaders()
       );
@@ -664,15 +671,17 @@ const EmploymentCategoryManagement = () => {
     if (!editRecord || !originalRecord) return false;
     return (
       editRecord.employeeNumber !== originalRecord.employeeNumber ||
-      editRecord.employmentCategory !== originalRecord.employmentCategory
+      editRecord.employmentCategory !== originalRecord.employmentCategory ||
+      editRecord.customCategory !== originalRecord.customCategory
     );
   };
 
   const filteredData = employmentCategories.filter((record) => {
     const employeeNumber = record.employeeNumber?.toString() || '';
     const employeeName = record.employeeName?.toLowerCase() || '';
+    const categoryLabel = record.categoryLabel?.toLowerCase() || '';
     const search = searchTerm.toLowerCase();
-    return employeeNumber.includes(search) || employeeName.includes(search);
+    return employeeNumber.includes(search) || employeeName.includes(search) || categoryLabel.includes(search);
   });
 
   return (
@@ -1055,17 +1064,54 @@ const EmploymentCategoryManagement = () => {
                             <ListItemIcon sx={{ minWidth: 30 }}>
                               <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
                             </ListItemIcon>
-                            Teaching (Designated)
+                            Teaching (30Hrs)
                           </MenuItem>
                           <MenuItem value={4}>
                             <ListItemIcon sx={{ minWidth: 30 }}>
                               <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
                             </ListItemIcon>
-                            30Hrs
+                            Designated (40Hrs)
+                          </MenuItem>
+
+                          <ListSubheader>Custom</ListSubheader>
+                          <MenuItem value={5}>
+                            <ListItemIcon sx={{ minWidth: 30 }}>
+                              <Circle sx={{ fontSize: 12, color: '#00796B' }} />
+                            </ListItemIcon>
+                            Other (specify)
                           </MenuItem>
                         </ModernSelect>
                       </FormControl>
                     </Grid>
+
+                    {/* Custom Category Field - Only shows when "Other" is selected */}
+                    {newRecord.employmentCategory === 5 && (
+                      <Grid item xs={12}>
+                        <Fade in>
+                          <Box>
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                            >
+                              Custom Category Description{' '}
+                              <span style={{ color: 'red' }}>*</span>
+                            </Typography>
+                            <ModernTextField
+                              value={newRecord.customCategory}
+                              onChange={(e) =>
+                                handleChange('customCategory', e.target.value)
+                              }
+                              placeholder="e.g., Part-timer, OJT, Consultant..."
+                              fullWidth
+                              size="small"
+                              error={!!errors.customCategory}
+                              helperText={errors.customCategory || 'Max 100 characters'}
+                              inputProps={{ maxLength: 100 }}
+                            />
+                          </Box>
+                        </Fade>
+                      </Grid>
+                    )}
                   </Grid>
 
                   <Box sx={{ mt: 'auto', pt: 3 }}>
@@ -1167,7 +1213,7 @@ const EmploymentCategoryManagement = () => {
                     <ModernTextField
                       size="small"
                       variant="outlined"
-                      placeholder="Search by Employee ID or Name"
+                      placeholder="Search by Employee ID, Name, or Category"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       fullWidth
@@ -1582,6 +1628,7 @@ const EmploymentCategoryManagement = () => {
                                 setEditRecord({
                                   ...editRecord,
                                   employmentCategory: e.target.value,
+                                  customCategory: e.target.value === 5 ? editRecord.customCategory : '',
                                 })
                               }
                               sx={{
@@ -1621,13 +1668,21 @@ const EmploymentCategoryManagement = () => {
                                 <ListItemIcon sx={{ minWidth: 30 }}>
                                   <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
                                 </ListItemIcon>
-                                Teaching (Designated)
+                                Teaching (30Hrs)
                               </MenuItem>
                               <MenuItem value={4}>
                                 <ListItemIcon sx={{ minWidth: 30 }}>
                                   <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
                                 </ListItemIcon>
-                                30Hrs
+                                Designated (40Hrs)
+                              </MenuItem>
+
+                              <ListSubheader>Custom</ListSubheader>
+                              <MenuItem value={5}>
+                                <ListItemIcon sx={{ minWidth: 30 }}>
+                                  <Circle sx={{ fontSize: 12, color: '#00796B' }} />
+                                </ListItemIcon>
+                                Other (specify)
                               </MenuItem>
                             </ModernSelect>
                           </FormControl>
@@ -1651,6 +1706,37 @@ const EmploymentCategoryManagement = () => {
                         </Box>
                       )}
                     </Grid>
+
+                    {/* Custom Category Field in Edit Mode */}
+                    {isEditing && editRecord.employmentCategory === 5 && (
+                      <Grid item xs={12}>
+                        <Fade in>
+                          <Box>
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                            >
+                              Custom Category Description{' '}
+                              <span style={{ color: 'red' }}>*</span>
+                            </Typography>
+                            <ModernTextField
+                              value={editRecord.customCategory || ''}
+                              onChange={(e) =>
+                                setEditRecord({
+                                  ...editRecord,
+                                  customCategory: e.target.value,
+                                })
+                              }
+                              placeholder="e.g., Part-timer, OJT, Consultant..."
+                              fullWidth
+                              size="small"
+                              helperText="Max 100 characters"
+                              inputProps={{ maxLength: 100 }}
+                            />
+                          </Box>
+                        </Fade>
+                      </Grid>
+                    )}
                   </Grid>
 
                   <Box

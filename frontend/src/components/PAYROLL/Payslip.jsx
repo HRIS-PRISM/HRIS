@@ -77,10 +77,10 @@ const ProfessionalButton = styled(Button)(
   ({ theme, variant, color = 'primary' }) => ({
     borderRadius: 12,
     fontWeight: 600,
-    padding: '12px 24px',
+    padding: '8px 16px', // Reduced padding slightly
     transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
     textTransform: 'none',
-    fontSize: '0.95rem',
+    fontSize: '0.85rem', // Smaller font
     letterSpacing: '0.025em',
     boxShadow:
       variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
@@ -133,28 +133,28 @@ const Payslip = forwardRef(({ employee }, ref) => {
 
   const [search, setSearch] = useState(''); // search input
   const [hasSearched, setHasSearched] = useState(false); // flag if search was done
-  const [selectedMonth, setSelectedMonth] = useState(''); // which month is selected
+  const [selectedMonth, setSelectedMonth] = useState(null); // which month is selected
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear()); // which year is selected
   const [filteredPayroll, setFilteredPayroll] = useState([]); // search r
   const [personID, setPersonID] = useState('');
   const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
+    'JAN',
+    'FEB',
+    'MAR',
+    'APR',
+    'MAY',
+    'JUN',
+    'JUL',
+    'AUG',
+    'SEP',
+    'OCT',
+    'NOV',
+    'DEC',
   ];
   
-  // Generate years (current year and 5 years back)
+  // Generate years (current year +/- 5)
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 6 }, (_, i) => currentYear - i);
+  const years = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
   const { settings } = useSystemSettings();
 
@@ -405,7 +405,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
     } else {
       setFilteredPayroll([]);
       setDisplayEmployee(null); // clear display
-      setSelectedMonth(''); // ✅ reset month filter
+      setSelectedMonth(null); // ✅ reset month filter
       setHasSearched(true);
     }
   };
@@ -414,7 +414,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
   const clearSearch = () => {
     setSearch('');
     setHasSearched(false);
-    setSelectedMonth('');
+    setSelectedMonth(null);
     setSelectedYear(new Date().getFullYear());
     setFilteredPayroll([]);
 
@@ -428,10 +428,8 @@ const Payslip = forwardRef(({ employee }, ref) => {
   };
 
   // Month filter
-  const handleMonthSelect = (month) => {
-    setSelectedMonth(month);
-
-    const monthIndex = months.indexOf(month);
+  const handleMonthSelect = (monthIndex) => {
+    setSelectedMonth(monthIndex);
 
     const result = allPayroll.filter((emp) => {
       if (!emp.startDate) return false;
@@ -455,9 +453,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
     setSelectedYear(year);
     
     // If a month is already selected, re-filter with new year
-    if (selectedMonth) {
-      const monthIndex = months.indexOf(selectedMonth);
-      
+    if (selectedMonth !== null) {
       const result = allPayroll.filter((emp) => {
         if (!emp.startDate) return false;
         const empDate = new Date(emp.startDate);
@@ -465,7 +461,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
         const empYear = empDate.getFullYear();
         return (
           emp.employeeNumber?.toString() === personID.toString() &&
-          empMonth === monthIndex &&
+          empMonth === selectedMonth &&
           empYear === year
         );
       });
@@ -531,12 +527,12 @@ const Payslip = forwardRef(({ employee }, ref) => {
         pt: -10,
         width: '1200px', // Reduced width for better readability
         mx: 'auto', // Center horizontally
-        overflow: 'hidden', // Prevent horizontal scroll
+        overflow: 'hidden', // Prevent horizontal scroll on main container
       }}
     >
       {/* Header - Full Width */}
       <Fade in timeout={500}>
-        <Box sx={{ mb: 4, px: 6 }}>
+        <Box sx={{ mb: 3, px: 6 }}>
           <GlassCard
             sx={{
               background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
@@ -549,7 +545,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
           >
             <Box
               sx={{
-                p: 5,
+                p: 3, // Reduced padding from 5
                 background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                 color: textPrimaryColor,
                 position: 'relative',
@@ -591,21 +587,21 @@ const Payslip = forwardRef(({ employee }, ref) => {
                   <Avatar
                     sx={{
                       bgcolor: 'rgba(109,35,35,0.15)',
-                      mr: 4,
-                      width: 64,
-                      height: 64,
+                      mr: 3, // Reduced from 4
+                      width: 48, // Reduced from 64
+                      height: 48,
                       boxShadow: '0 8px 24px rgba(109,35,35,0.15)',
                     }}
                   >
-                    <WorkIcon sx={{ color: accentColor, fontSize: 32 }} />
+                    <WorkIcon sx={{ color: accentColor, fontSize: 24 }} /> {/* Reduced */}
                   </Avatar>
                   <Box>
                     <Typography
-                      variant="h4"
+                      variant="h5" // Reduced from h4
                       component="h1"
                       sx={{
                         fontWeight: 700,
-                        mb: 1,
+                        mb: 0.5, // Reduced from 1
                         lineHeight: 1.2,
                         color: accentColor,
                       }}
@@ -613,7 +609,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                       Employee Payslip Record
                     </Typography>
                     <Typography
-                      variant="body1"
+                      variant="body2" // Reduced from body1
                       sx={{
                         opacity: 0.8,
                         fontWeight: 400,
@@ -632,11 +628,11 @@ const Payslip = forwardRef(({ employee }, ref) => {
                         bgcolor: 'rgba(109,35,35,0.1)',
                         '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
                         color: accentColor,
-                        width: 48,
-                        height: 48,
+                        width: 40, // Reduced from 48
+                        height: 40,
                       }}
                     >
-                      <Refresh sx={{ fontSize: 24 }} />
+                      <Refresh sx={{ fontSize: 20 }} /> {/* Reduced */}
                     </IconButton>
                   </Tooltip>
                 </Box>
@@ -692,19 +688,19 @@ const Payslip = forwardRef(({ employee }, ref) => {
 
         {/* Controls Section at Top */}
         <Fade in timeout={700}>
-          <Box sx={{ mb: 4 }}>
+          <Box sx={{ mb: 3 }}> {/* Reduced mb from 4 */}
             <GlassCard
               sx={{
                 border: `1px solid ${alpha(accentColor, 0.1)}`,
               }}
             >
-              <CardContent sx={{ p: 5 }}>
-                <Grid container spacing={4} alignItems="center">
+              <CardContent sx={{ p: 3 }}> {/* Reduced p from 5 */}
+                <Grid container spacing={2} alignItems="center"> {/* Reduced spacing from 4 */}
                   {/* Employee Number */}
                   <Grid item xs={12} md={6}>
                     <Typography
                       variant="h6"
-                      sx={{ fontWeight: 600, mb: 2, color: accentColor }}
+                      sx={{ fontWeight: 600, mb: 1, color: accentColor }} 
                     >
                       Employee Information
                     </Typography>
@@ -717,19 +713,19 @@ const Payslip = forwardRef(({ employee }, ref) => {
                         startAdornment: (
                           <InputAdornment position="start">
                             <Search
-                              sx={{ color: textPrimaryColor, fontSize: 28 }}
+                              sx={{ color: textPrimaryColor, fontSize: 24 }}
                             />
                           </InputAdornment>
                         ),
                       }}
                       sx={{
                         '& .MuiInputBase-input': {
-                          fontSize: '1.2rem',
-                          py: 2.5,
+                          fontSize: '1rem', // Reduced from 1.2rem
+                          py: 1.5, // Reduced from 2.5
                           fontWeight: 500,
                         },
                         '& .MuiInputLabel-root': {
-                          fontSize: '1.1rem',
+                          fontSize: '0.9rem', // Reduced from 1.1rem
                         },
                       }}
                     />
@@ -741,7 +737,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                       <Box>
                         <Typography
                           variant="h6"
-                          sx={{ fontWeight: 600, mb: 2, color: accentColor }}
+                          sx={{ fontWeight: 600, mb: 1, color: accentColor }}
                         >
                           Actions
                         </Typography>
@@ -751,20 +747,20 @@ const Payslip = forwardRef(({ employee }, ref) => {
                           startIcon={
                             sending ? (
                               <CircularProgress
-                                size={28}
+                                size={20}
                                 sx={{ color: primaryColor }}
                               />
                             ) : (
-                              <Download sx={{ fontSize: 28 }} />
+                              <Download sx={{ fontSize: 20 }} />
                             )
                           }
                           onClick={downloadPDF}
                           disabled={sending}
                           sx={{
-                            py: 3,
+                            py: 2, // Reduced from 3
                             backgroundColor: accentColor,
                             color: primaryColor,
-                            fontSize: '1.2rem',
+                            fontSize: '1rem', // Reduced from 1.2rem
                             '&:hover': {
                               backgroundColor: accentDark,
                             },
@@ -777,104 +773,118 @@ const Payslip = forwardRef(({ employee }, ref) => {
                   </Grid>
                 </Grid>
 
-                <Divider sx={{ my: 4, borderColor: 'rgba(109,35,35,0.1)' }} />
+                <Divider sx={{ my: 3, borderColor: 'rgba(109,35,35,0.1)' }} /> {/* Reduced my */}
 
-                {/* Month and Year Selection */}
+                {/* UPDATED: Month and Year Selection */}
                 <Box>
-                  <Typography
-                    variant="h6"
-                    sx={{
-                      color: accentColor,
-                      display: 'flex',
-                      alignItems: 'center',
-                      mb: 2,
-                    }}
-                  >
-                    <Search sx={{ mr: 2, fontSize: 24 }} />
-                    <b>Filter By Month:</b>
-                  </Typography>
-                  
+                  {/* Header Row: Label + Year Dropdown */}
                   <Box
                     sx={{
+                      mb: 1, // Reduced from 2  
                       display: 'flex',
-                      flexWrap: 'nowrap',
-                      gap: 1,
-                      overflowX: 'auto',
-                      alignItems: 'center',
+                      flexDirection: { xs: 'column', sm: 'row' },
+                      alignItems: { xs: 'flex-start', sm: 'center' },
+                      justifyContent: 'space-between',
+                      gap: 2,
                     }}
                   >
-                    {months.map((month) => (
-                      <ProfessionalButton
-                        key={month}
-                        variant={
-                          month === selectedMonth ? 'contained' : 'outlined'
-                        }
-                        size="small"
-                        onClick={() => handleMonthSelect(month)}
-                        sx={{
-                          borderColor: accentColor,
-                          borderWidth: 2,
-                          color:
-                            month === selectedMonth
-                              ? primaryColor
-                              : accentColor,
-                          minWidth: '70px',
-                          flexShrink: 0,
-                          fontSize: '0.85rem',
-                          fontWeight: 600,
-                          py: 1.5,
-                          px: 2,
-                          backgroundColor:
-                            month === selectedMonth
-                              ? accentColor
-                              : 'transparent',
-                          '&:hover': {
-                            backgroundColor:
-                              month === selectedMonth
-                                ? accentDark
-                                : alpha(accentColor, 0.1),
-                            borderWidth: 2,
-                          },
-                        }}
-                      >
-                        {month}
-                      </ProfessionalButton>
-                    ))}
+                    <Typography
+                      variant="subtitle1"
+                      sx={{
+                        color: accentColor,
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        fontSize: '0.95rem'
+                      }}
+                    >
+                      <Search sx={{ mr: 1, fontSize: 20 }} /> {/* Reduced mr and fontSize */}
+                      Filter By Year & Month:
+                    </Typography>
                     
-                    {/* Year Dropdown - on same row as month buttons */}
-                    <FormControl size="small" sx={{ width: 85, flexShrink: 0 }}>
+                    <FormControl sx={{ minWidth: 120 }}> {/* Reduced minWidth */}
+                      <InputLabel sx={{ fontWeight: 600, fontSize: '0.9rem' }}>Year</InputLabel>
                       <Select
                         value={selectedYear}
+                        label="Year"
                         onChange={(e) => handleYearChange(e.target.value)}
                         sx={{
-                          borderRadius: 3,
-                          backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                          height: '42px',
+                          backgroundColor: 'white',
                           '& .MuiOutlinedInput-notchedOutline': {
                             borderColor: accentColor,
-                            borderWidth: 2,
                           },
-                          '&:hover .MuiOutlinedInput-notchedOutline': {
-                            borderColor: accentDark,
-                          },
-                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                            borderColor: accentColor,
-                          },
+                          borderRadius: 2,
                           fontWeight: 600,
                           color: accentColor,
-                          '& .MuiSelect-select': {
-                            paddingLeft: '10px',
-                            paddingRight: '32px',
-                          },
+                          height: 40, // Fixed height for consistency
                         }}
                       >
-                        {years.map((year) => (
-                          <MenuItem key={year} value={year}>
-                            {year}
+                        {years.map((yearOption) => (
+                          <MenuItem key={yearOption} value={yearOption}>
+                            {yearOption}
                           </MenuItem>
                         ))}
                       </Select>
                     </FormControl>
+                  </Box>
+
+                  {/* Month Buttons Row: One line only */}
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      flexWrap: 'nowrap', // FORCE ONE LINE
+                      overflowX: 'auto',  // Enable scrolling
+                      gap: 0.5, // Reduced from 1
+                      alignItems: 'center',
+                      pb: 1, // Space for scrollbar
+                      // Optional: Hide scrollbar for cleaner look but keep functionality
+                      '&::-webkit-scrollbar': {
+                        height: '6px',
+                      },
+                      '&::-webkit-scrollbar-thumb': {
+                        backgroundColor: alpha(accentColor, 0.3),
+                        borderRadius: '4px',
+                      },
+                    }}
+                  >
+                    {months.map((month, index) => {
+                      const isSelected = selectedMonth === index;
+                      return (
+                        <ProfessionalButton
+                          key={month}
+                          variant={isSelected ? 'contained' : 'outlined'}
+                          size="small"
+                          onClick={() => handleMonthSelect(index)}
+                          sx={{
+                            borderColor: accentColor,
+                            backgroundColor: isSelected
+                              ? accentColor
+                              : 'transparent',
+                            color: isSelected
+                              ? textSecondaryColor
+                              : accentColor,
+                            minWidth: '84px', // Reduced from 77px
+                            flexShrink: 0,
+                            fontSize: '0.75rem', // Reduced from 0.85rem
+                            fontWeight: 600,
+                            py: 1, // Reduced from 1.5
+                            px: 1.5, // Reduced from 2
+                            '&:hover': {
+                              backgroundColor: isSelected
+                                ? accentDark
+                                : alpha(accentColor, 0.1),
+                              borderWidth: 2,
+                            },
+                            transition: 'all 0.3s ease',
+                            boxShadow: isSelected
+                              ? `0 4px 12px ${alpha(accentColor, 0.3)}`
+                              : 'none',
+                          }}
+                        >
+                          {month}
+                        </ProfessionalButton>
+                      );
+                    })}
                   </Box>
                 </Box>
               </CardContent>
@@ -883,14 +893,14 @@ const Payslip = forwardRef(({ employee }, ref) => {
         </Fade>
 
         {/* Payslip Display at Bottom */}
-        <Grid container spacing={4}>
+        <Grid container spacing={2}> {/* Reduced spacing from 4 */}
           <Grid item xs={12}>
-            {/* Payslip Display - EXACT COPY from PayslipOverall */}
+            {/* Payslip Display - EXACT COPY from PayslipOverall but COMPACTED */}
             {displayEmployee ? (
               <Fade in timeout={900}>
                 <GlassCard
                   sx={{
-                    mb: 4,
+                    mb: 2, // Reduced mb from 4
                     border: `1px solid ${alpha(accentColor, 0.1)}`,
                     height: '100%',
                     display: 'flex',
@@ -899,7 +909,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                 >
                   <Box
                     sx={{
-                      p: 4,
+                      p: 2, // Reduced from 4
                       background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                       color: accentColor,
                       display: 'flex',
@@ -909,20 +919,21 @@ const Payslip = forwardRef(({ employee }, ref) => {
                   >
                     <Box>
                       <Typography
-                        variant="body2"
+                        variant="caption"
                         sx={{
                           opacity: 0.8,
-                          mb: 1,
+                          mb: 0.5, // Reduced from 1
                           textTransform: 'uppercase',
                           letterSpacing: '0.1em',
                           color: accentDark,
+                          fontSize: '0.75rem',
                         }}
                       >
                         Employee Payslip Record
                       </Typography>
                       <Typography
-                        variant="h4"
-                        sx={{ fontWeight: 600, mb: 1, color: accentColor }}
+                        variant="h5" // Reduced from h4
+                        sx={{ fontWeight: 600, mb: 0.5, color: accentColor, fontSize: '1.25rem' }}
                       >
                         {displayEmployee.name}
                       </Typography>
@@ -930,8 +941,8 @@ const Payslip = forwardRef(({ employee }, ref) => {
                         sx={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 2,
-                          mt: 2,
+                          gap: 1, // Reduced from 2
+                          mt: 1, // Reduced from 2
                         }}
                       >
                         <Chip
@@ -941,6 +952,8 @@ const Payslip = forwardRef(({ employee }, ref) => {
                             bgcolor: 'rgba(109,35,35,0.15)',
                             color: accentColor,
                             fontWeight: 500,
+                            height: 24, // Compact size
+                            fontSize: '0.75rem',
                           }}
                         />
                         <Chip
@@ -962,6 +975,8 @@ const Payslip = forwardRef(({ employee }, ref) => {
                             bgcolor: 'rgba(109,35,35,0.15)',
                             color: accentColor,
                             fontWeight: 500,
+                            height: 24,
+                            fontSize: '0.75rem',
                           }}
                         />
                       </Box>
@@ -969,9 +984,9 @@ const Payslip = forwardRef(({ employee }, ref) => {
                     <Avatar
                       sx={{
                         bgcolor: 'rgba(109,35,35,0.15)',
-                        width: 80,
-                        height: 80,
-                        fontSize: '2rem',
+                        width: 56, // Reduced from 80
+                        height: 56,
+                        fontSize: '1.5rem', // Reduced from 2rem
                         fontWeight: 600,
                         color: accentColor,
                       }}
@@ -990,19 +1005,18 @@ const Payslip = forwardRef(({ employee }, ref) => {
                     ref={payslipRef}
                     elevation={6}
                     sx={{
-                      p: 5,
-                      mt: 3,
+                      p: 2, // Reduced from 5
+                      mt: 1, // Reduced from 3
                       borderRadius: 1,
                       backgroundColor: '#fff',
                       fontFamily: '"Poppins", sans-serif',
                       position: 'relative',
                       overflow: 'hidden',
-                      // Much larger for frontend display
                       width: '100%',
                       maxWidth: '100%',
                       margin: '0 auto',
-                      fontSize: '1rem',
-                      boxSizing: 'border-box', // Added to prevent overflow
+                      fontSize: '0.85rem', // Reduced from 1rem - base font size
+                      boxSizing: 'border-box',
                     }}
                   >
                     <Box
@@ -1015,7 +1029,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                         left: '50%',
                         transform: 'translate(-50%, -50%)',
                         opacity: 0.07,
-                        width: '100%',
+                        width: '80%', // Reduced from 100%
                         pointerEvents: 'none',
                         userSelect: 'none',
                       }}
@@ -1026,37 +1040,37 @@ const Payslip = forwardRef(({ employee }, ref) => {
                       display="flex"
                       alignItems="center"
                       justifyContent="space-between"
-                      mb={3}
+                      mb={1} // Reduced from 3
                       sx={{
                         background:
                           'linear-gradient(to right, #6d2323, #a31d1d)',
                         borderRadius: '3px',
-                        p: 2,
+                        p: 1, // Reduced from 2
                       }}
                     >
                       <Box>
                         <img
                           src={logo}
                           alt="Logo"
-                          style={{ width: '80px', marginLeft: '15px' }}
+                          style={{ width: '50px', marginLeft: '10px' }} // Reduced from 80px
                         />
                       </Box>
                       <Box textAlign="center" flex={1} sx={{ color: 'white' }}>
                         <Typography
-                          variant="h5"
-                          sx={{ fontStyle: 'italic', fontSize: '16px' }}
+                          variant="caption" // Reduced from h5
+                          sx={{ fontStyle: 'italic', fontSize: '10px', lineHeight: 1.2 }}
                         >
                           Republic of the Philippines
                         </Typography>
                         <Typography
-                          variant="h4"
+                          variant="body1" // Reduced from h4
                           fontWeight="bold"
-                          sx={{ fontSize: '18px', lineHeight: 1.3 }}
+                          sx={{ fontSize: '12px', lineHeight: 1.2 }} // Reduced from 18px
                         >
                           EULOGIO "AMANG" RODRIGUEZ INSTITUTE OF SCIENCE AND
                           TECHNOLOGY
                         </Typography>
-                        <Typography variant="h6" sx={{ fontSize: '14px' }}>
+                        <Typography variant="caption" sx={{ fontSize: '10px' }}> {/* Reduced from h6/14px */}
                           Nagtahan, Sampaloc Manila
                         </Typography>
                       </Box>
@@ -1064,7 +1078,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                         <img
                           src={hrisLogo}
                           alt="HRIS Logo"
-                          style={{ width: '100px' }}
+                          style={{ width: '60px' }} // Reduced from 100px
                         />
                       </Box>
                     </Box>
@@ -1084,29 +1098,29 @@ const Payslip = forwardRef(({ employee }, ref) => {
                               sx={{
                                 border: '1px solid black',
                                 borderRadius: '3px',
-                                mb: 3,
+                                mb: 1.5, // Reduced from 3
                               }}
                             >
                               <Box
                                 sx={{
                                   backgroundColor: '#6D2323',
                                   color: 'white',
-                                  p: 2,
+                                  p: 0.5, // Reduced from 2
                                   textAlign: 'center',
                                   fontWeight: 'bold',
-                                  fontSize: '18px',
+                                  fontSize: '11px', // Reduced from 18px
                                 }}
                               >
                                 EMPLOYEE INFORMATION
                               </Box>
-                              <Box sx={{ p: 3 }}>
-                                <Grid container spacing={2}>
+                              <Box sx={{ p: 1 }}> {/* Reduced from 3 */}
+                                <Grid container spacing={1}> {/* Reduced from 2 */}
                                   <Grid item xs={12} md={6}>
                                     <Typography
                                       sx={{
-                                        fontSize: '16px',
+                                        fontSize: '10px', // Reduced from 16px
                                         fontWeight: 'bold',
-                                        mb: 1,
+                                        mb: 0.25, // Reduced from 1
                                         color: accentColor,
                                       }}
                                     >
@@ -1114,7 +1128,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                     </Typography>
                                     <Typography
                                       sx={{
-                                        fontSize: '16px',
+                                        fontSize: '11px', // Reduced from 16px
                                         color: 'red',
                                         fontWeight: 'bold',
                                       }}
@@ -1129,9 +1143,9 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                   <Grid item xs={12} md={6}>
                                     <Typography
                                       sx={{
-                                        fontSize: '16px',
+                                        fontSize: '10px', 
                                         fontWeight: 'bold',
-                                        mb: 1,
+                                        mb: 0.25,
                                         color: accentColor,
                                       }}
                                     >
@@ -1139,7 +1153,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                     </Typography>
                                     <Typography
                                       sx={{
-                                        fontSize: '16px',
+                                        fontSize: '11px',
                                         color: 'red',
                                         fontWeight: 'bold',
                                       }}
@@ -1152,20 +1166,15 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                   <Grid item xs={12} md={6}>
                                     <Typography
                                       sx={{
-                                        fontSize: '16px',
+                                        fontSize: '10px',
                                         fontWeight: 'bold',
-                                        mb: 1,
+                                        mb: 0.25,
                                         color: accentColor,
                                       }}
                                     >
                                       PERIOD:
                                     </Typography>
-                                    <Typography
-                                      sx={{
-                                        fontSize: '16px',
-                                        fontWeight: 'bold',
-                                      }}
-                                    >
+                                    <Typography sx={{ fontSize: '11px' }}>
                                       {(() => {
                                         if (
                                           !displayEmployee.startDate ||
@@ -1190,15 +1199,15 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                   <Grid item xs={12} md={6}>
                                     <Typography
                                       sx={{
-                                        fontSize: '16px',
+                                        fontSize: '10px',
                                         fontWeight: 'bold',
-                                        mb: 1,
+                                        mb: 0.25,
                                         color: accentColor,
                                       }}
                                     >
                                       RENDERED DAYS:
                                     </Typography>
-                                    <Typography sx={{ fontSize: '16px' }}>
+                                    <Typography sx={{ fontSize: '11px' }}>
                                       {formatRenderedDays(displayEmployee.rh) ||
                                         '—'}
                                     </Typography>
@@ -1212,35 +1221,35 @@ const Payslip = forwardRef(({ employee }, ref) => {
                               sx={{
                                 border: '1px solid black',
                                 borderRadius: '3px',
-                                mb: 3,
+                                mb: 1.5,
                               }}
                             >
                               <Box
                                 sx={{
                                   backgroundColor: '#6D2323',
                                   color: 'white',
-                                  p: 2,
+                                  p: 0.5,
                                   textAlign: 'center',
                                   fontWeight: 'bold',
-                                  fontSize: '18px',
+                                  fontSize: '11px',
                                 }}
                               >
                                 SALARY DETAILS
                               </Box>
-                              <Box sx={{ p: 3 }}>
-                                <Grid container spacing={3}>
+                              <Box sx={{ p: 1 }}>
+                                <Grid container spacing={1}>
                                   <Grid item xs={12}>
                                     <Typography
                                       sx={{
-                                        fontSize: '16px',
+                                        fontSize: '10px',
                                         fontWeight: 'bold',
-                                        mb: 1,
+                                        mb: 0.25,
                                         color: accentColor,
                                       }}
                                     >
                                       GROSS SALARY:
                                     </Typography>
-                                    <Typography sx={{ fontSize: '16px' }}>
+                                    <Typography sx={{ fontSize: '11px' }}>
                                       {formatCurrency(
                                         displayEmployee.grossSalary
                                       ) || '—'}
@@ -1249,27 +1258,27 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                   <Grid item xs={12}>
                                     <Typography
                                       sx={{
-                                        fontSize: '16px',
+                                        fontSize: '10px',
                                         fontWeight: 'bold',
-                                        mb: 2,
+                                        mb: 0.5, // Reduced from 2
                                         color: accentColor,
                                       }}
                                     >
                                       TOTAL DEDUCTIONS:
                                     </Typography>
-                                    <Box sx={{ pl: 2, mb: 2 }}>
+                                    <Box sx={{ pl: 1, mb: 0.5 }}> {/* Reduced spacing */}
                                       <Box
                                         sx={{
                                           display: 'flex',
                                           justifyContent: 'space-between',
-                                          mb: 1.5,
-                                          fontSize: '16px',
+                                          mb: 0.25, // Reduced from 1.5
+                                          fontSize: '11px',
                                         }}
                                       >
-                                        <Typography sx={{ fontWeight: 600 }}>
+                                        <Typography sx={{ fontWeight: 600, fontSize: '10px' }}>
                                           SSS:
                                         </Typography>
-                                        <Typography>
+                                        <Typography sx={{ fontSize: '11px' }}>
                                           {formatCurrency(
                                             displayEmployee.sss
                                           ) || '—'}
@@ -1279,13 +1288,13 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                         sx={{
                                           display: 'flex',
                                           justifyContent: 'space-between',
-                                          fontSize: '16px',
+                                          fontSize: '11px',
                                         }}
                                       >
-                                        <Typography sx={{ fontWeight: 600 }}>
+                                        <Typography sx={{ fontWeight: 600, fontSize: '10px' }}>
                                           PAGIBIG:
                                         </Typography>
-                                        <Typography>
+                                        <Typography sx={{ fontSize: '11px' }}>
                                           {formatCurrency(
                                             displayEmployee.pagibigFundCont
                                           ) || '—'}
@@ -1294,7 +1303,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                     </Box>
                                     <Typography
                                       sx={{
-                                        fontSize: '16px',
+                                        fontSize: '11px',
                                         fontWeight: 'bold',
                                       }}
                                     >
@@ -1307,17 +1316,17 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                     <Box
                                       sx={{
                                         border: '1px solid #6d2323',
-                                        borderRadius: 3,
-                                        p: 2,
+                                        borderRadius: 2,
+                                        p: 1,
                                         textAlign: 'center',
                                         background: 'rgba(109, 35, 35, 0.05)',
                                       }}
                                     >
                                       <Typography
                                         sx={{
-                                          fontSize: '18px',
+                                          fontSize: '11px', // Reduced from 18px
                                           fontWeight: 'bold',
-                                          mb: 1,
+                                          mb: 0.25, // Reduced from 1
                                           color: accentColor,
                                         }}
                                       >
@@ -1325,7 +1334,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                       </Typography>
                                       <Typography
                                         sx={{
-                                          fontSize: '20px',
+                                          fontSize: '14px', // Reduced from 20px
                                           fontWeight: 'bold',
                                           color: '#6d2323',
                                         }}
@@ -1341,26 +1350,26 @@ const Payslip = forwardRef(({ employee }, ref) => {
                             </Box>
 
                             {/* Footer - Same as payslip */}
-                            <Box textAlign="center" mt={4} p={3}>
+                            <Box textAlign="center" mt={2} p={1}> {/* Reduced mt/p */}
                               <Typography
                                 sx={{
-                                  fontSize: '16px',
+                                  fontSize: '11px', // Reduced from 16px
                                   fontWeight: 'bold',
-                                  mb: 2,
+                                  mb: 0.5, // Reduced from 2
                                 }}
                               >
                                 Certified Correct:
                               </Typography>
                               <Typography
                                 sx={{
-                                  fontSize: '18px',
+                                  fontSize: '12px', // Reduced from 18px
                                   fontWeight: 'bold',
-                                  mb: 1,
+                                  mb: 0.25, // Reduced from 1
                                 }}
                               >
                                 GIOVANNI L. AHUNIN
                               </Typography>
-                              <Typography sx={{ fontSize: '14px' }}>
+                              <Typography sx={{ fontSize: '10px' }}> {/* Reduced from 14px */}
                                 Director, Administrative Services
                               </Typography>
                             </Box>
@@ -1368,7 +1377,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                         );
                       }
 
-                      // Regular Employee - Full Detailed Layout
+                      // Regular Employee - Full Detailed Layout (COMPACTED)
                       return (
                         <>
                           {/* Employee Information Section */}
@@ -1376,29 +1385,29 @@ const Payslip = forwardRef(({ employee }, ref) => {
                             sx={{
                               border: '1px solid black',
                               borderRadius: '3px',
-                              mb: 3,
+                              mb: 1.5,
                             }}
                           >
                             <Box
                               sx={{
                                 backgroundColor: '#6D2323',
                                 color: 'white',
-                                p: 2,
+                                p: 0.5,
                                 textAlign: 'center',
                                 fontWeight: 'bold',
-                                fontSize: '18px',
+                                fontSize: '11px',
                               }}
                             >
                               EMPLOYEE INFORMATION
                             </Box>
-                            <Box sx={{ p: 3 }}>
-                              <Grid container spacing={2}>
+                            <Box sx={{ p: 1 }}>
+                              <Grid container spacing={1}>
                                 <Grid item xs={12} md={6}>
                                   <Typography
                                     sx={{
-                                      fontSize: '16px',
+                                      fontSize: '10px',
                                       fontWeight: 'bold',
-                                      mb: 1,
+                                      mb: 0.25,
                                       color: accentColor,
                                     }}
                                   >
@@ -1406,7 +1415,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                   </Typography>
                                   <Typography
                                     sx={{
-                                      fontSize: '16px',
+                                      fontSize: '11px',
                                       fontWeight: 'bold',
                                     }}
                                   >
@@ -1434,9 +1443,9 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                 <Grid item xs={12} md={6}>
                                   <Typography
                                     sx={{
-                                      fontSize: '16px',
+                                      fontSize: '10px',
                                       fontWeight: 'bold',
-                                      mb: 1,
+                                      mb: 0.25,
                                       color: accentColor,
                                     }}
                                   >
@@ -1444,7 +1453,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                   </Typography>
                                   <Typography
                                     sx={{
-                                      fontSize: '16px',
+                                      fontSize: '11px',
                                       color: 'red',
                                       fontWeight: 'bold',
                                     }}
@@ -1459,9 +1468,9 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                 <Grid item xs={12} md={6}>
                                   <Typography
                                     sx={{
-                                      fontSize: '16px',
+                                      fontSize: '10px',
                                       fontWeight: 'bold',
-                                      mb: 1,
+                                      mb: 0.25,
                                       color: accentColor,
                                     }}
                                   >
@@ -1469,7 +1478,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                   </Typography>
                                   <Typography
                                     sx={{
-                                      fontSize: '16px',
+                                      fontSize: '11px',
                                       color: 'red',
                                       fontWeight: 'bold',
                                     }}
@@ -1488,35 +1497,35 @@ const Payslip = forwardRef(({ employee }, ref) => {
                             sx={{
                               border: '1px solid black',
                               borderRadius: '3px',
-                              mb: 3,
+                              mb: 1.5,
                             }}
                           >
                             <Box
                               sx={{
                                 backgroundColor: '#6D2323',
                                 color: 'white',
-                                p: 2,
+                                p: 0.5,
                                 textAlign: 'center',
                                 fontWeight: 'bold',
-                                fontSize: '18px',
+                                fontSize: '11px',
                               }}
                             >
                               SALARY DETAILS
                             </Box>
-                            <Box sx={{ p: 3 }}>
-                              <Grid container spacing={3}>
+                            <Box sx={{ p: 1 }}>
+                              <Grid container spacing={1}>
                                 <Grid item xs={12} md={4}>
                                   <Typography
                                     sx={{
-                                      fontSize: '16px',
+                                      fontSize: '10px',
                                       fontWeight: 'bold',
-                                      mb: 1,
+                                      mb: 0.25,
                                       color: accentColor,
                                     }}
                                   >
                                     GROSS SALARY:
                                   </Typography>
-                                  <Typography sx={{ fontSize: '16px' }}>
+                                  <Typography sx={{ fontSize: '11px' }}>
                                     {formatCurrency(
                                       displayEmployee.grossSalary
                                     ) || '—'}
@@ -1525,15 +1534,15 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                 <Grid item xs={12} md={4}>
                                   <Typography
                                     sx={{
-                                      fontSize: '16px',
+                                      fontSize: '10px',
                                       fontWeight: 'bold',
-                                      mb: 1,
+                                      mb: 0.25,
                                       color: accentColor,
                                     }}
                                   >
                                     TOTAL DEDUCTIONS:
                                   </Typography>
-                                  <Typography sx={{ fontSize: '16px' }}>
+                                  <Typography sx={{ fontSize: '11px' }}>
                                     {formatCurrency(
                                       displayEmployee.totalDeductions
                                     ) || '—'}
@@ -1543,17 +1552,17 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                   <Box
                                     sx={{
                                       border: '1px solid #6d2323',
-                                      borderRadius: 3,
-                                      p: 2,
+                                      borderRadius: 2,
+                                      p: 1,
                                       textAlign: 'center',
                                       background: 'rgba(109, 35, 35, 0.05)',
                                     }}
                                   >
                                     <Typography
                                       sx={{
-                                        fontSize: '18px',
+                                        fontSize: '11px',
                                         fontWeight: 'bold',
-                                        mb: 1,
+                                        mb: 0.25,
                                         color: accentColor,
                                       }}
                                     >
@@ -1561,7 +1570,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                     </Typography>
                                     <Typography
                                       sx={{
-                                        fontSize: '20px',
+                                        fontSize: '14px',
                                         fontWeight: 'bold',
                                         color: '#6d2323',
                                       }}
@@ -1581,23 +1590,23 @@ const Payslip = forwardRef(({ employee }, ref) => {
                             sx={{
                               border: '1px solid black',
                               borderRadius: '3px',
-                              mb: 3,
+                              mb: 1.5,
                             }}
                           >
                             <Box
                               sx={{
                                 backgroundColor: '#6D2323',
                                 color: 'white',
-                                p: 2,
+                                p: 0.5,
                                 textAlign: 'center',
                                 fontWeight: 'bold',
-                                fontSize: '18px',
+                                fontSize: '11px',
                               }}
                             >
                               DEDUCTIONS BREAKDOWN
                             </Box>
-                            <Box sx={{ p: 3 }}>
-                              <Grid container spacing={2}>
+                            <Box sx={{ p: 1 }}>
+                              <Grid container spacing={0.5}> {/* Tightened spacing heavily */}
                                 {(() => {
                                   const allDeductions = [
                                     {
@@ -1741,16 +1750,16 @@ const Payslip = forwardRef(({ employee }, ref) => {
                                           sx={{
                                             display: 'flex',
                                             justifyContent: 'space-between',
-                                            fontSize: '14px',
+                                            fontSize: '10px', // Reduced from 14px
                                             borderBottom: '1px solid #e0e0e0',
-                                            pb: 1,
-                                            mb: 1,
+                                            pb: 0.25, // Reduced from 1
+                                            mb: 0.25, // Reduced from 1
                                           }}
                                         >
-                                          <Typography sx={{ fontWeight: 600 }}>
+                                          <Typography sx={{ fontWeight: 600, fontSize: '10px' }}>
                                             {item.label}:
                                           </Typography>
-                                          <Typography>
+                                          <Typography sx={{ fontSize: '11px' }}>
                                             {formatCurrency(item.value) || '—'}
                                           </Typography>
                                         </Box>
@@ -1766,50 +1775,50 @@ const Payslip = forwardRef(({ employee }, ref) => {
                             sx={{
                               border: '1px solid black',
                               borderRadius: '3px',
-                              mb: 3,
+                              mb: 1.5,
                             }}
                           >
                             <Box
                               sx={{
                                 backgroundColor: '#6D2323',
                                 color: 'white',
-                                p: 2,
+                                p: 0.5,
                                 textAlign: 'center',
                                 fontWeight: 'bold',
-                                fontSize: '18px',
+                                fontSize: '11px',
                               }}
                             >
                               PAYMENT BREAKDOWN
                             </Box>
-                            <Box sx={{ p: 3 }}>
-                              <Grid container spacing={3}>
+                            <Box sx={{ p: 1 }}>
+                              <Grid container spacing={1}>
                                 <Grid item xs={12} md={6}>
                                   <Typography
                                     sx={{
-                                      fontSize: '16px',
+                                      fontSize: '10px',
                                       fontWeight: 'bold',
-                                      mb: 1,
+                                      mb: 0.25,
                                       color: accentColor,
                                     }}
                                   >
                                     1st Quincena:
                                   </Typography>
-                                  <Typography sx={{ fontSize: '16px' }}>
+                                  <Typography sx={{ fontSize: '11px' }}>
                                     {formatCurrency(displayEmployee.pay1st)}
                                   </Typography>
                                 </Grid>
                                 <Grid item xs={12} md={6}>
                                   <Typography
                                     sx={{
-                                      fontSize: '16px',
+                                      fontSize: '10px',
                                       fontWeight: 'bold',
-                                      mb: 1,
+                                      mb: 0.25,
                                       color: accentColor,
                                     }}
                                   >
                                     2nd Quincena:
                                   </Typography>
-                                  <Typography sx={{ fontSize: '16px' }}>
+                                  <Typography sx={{ fontSize: '11px' }}>
                                     {formatCurrency(displayEmployee.pay2nd)}
                                   </Typography>
                                 </Grid>
@@ -1818,26 +1827,26 @@ const Payslip = forwardRef(({ employee }, ref) => {
                           </Box>
 
                           {/* Footer - Same as payslip */}
-                          <Box textAlign="center" mt={4} p={3}>
+                          <Box textAlign="center" mt={2} p={1}>
                             <Typography
                               sx={{
-                                fontSize: '16px',
+                                fontSize: '11px',
                                 fontWeight: 'bold',
-                                mb: 2,
+                                mb: 0.5,
                               }}
                             >
                               Certified Correct:
                             </Typography>
                             <Typography
                               sx={{
-                                fontSize: '18px',
+                                fontSize: '12px',
                                 fontWeight: 'bold',
-                                mb: 1,
+                                mb: 0.25,
                               }}
                             >
                               GIOVANNI L. AHUNIN
                             </Typography>
-                            <Typography sx={{ fontSize: '14px' }}>
+                            <Typography sx={{ fontSize: '10px' }}>
                               Director, Administrative Services
                             </Typography>
                           </Box>

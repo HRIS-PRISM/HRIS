@@ -62,6 +62,9 @@ const BulkRegister = () => {
     department: false,
   });
 
+  // Email domain restriction state
+  const [emailDomainRestricted, setEmailDomainRestricted] = useState(false);
+
   const navigate = useNavigate();
 
   // Color scheme matching ViewAttendanceRecord
@@ -111,12 +114,102 @@ const BulkRegister = () => {
     fetchFieldRequirements();
   }, []);
 
+  // Fetch email domain restriction setting
+  useEffect(() => {
+    const fetchEmailDomainRestriction = async () => {
+      try {
+        const token =
+          localStorage.getItem('token') || sessionStorage.getItem('token');
+        const response = await fetch(
+          `${API_BASE_URL}/email-domain-restriction`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setEmailDomainRestricted(data.setting_value === true);
+        }
+      } catch (err) {
+        console.error('Error fetching email domain restriction:', err);
+      }
+    };
+    fetchEmailDomainRestriction();
+  }, []);
+
   // Dynamic page access control using component identifier
   const {
     hasAccess,
     loading: accessLoading,
     error: accessError,
   } = usePageAccess('bulk-register');
+
+  // Helper function to map employment category text to ID
+  const mapEmploymentCategory = (categoryText) => {
+    if (!categoryText) return null;
+    
+    const categoryLower = categoryText.toString().trim().toLowerCase();
+    
+    // Map text values to numeric IDs (0-5)
+    const categoryMap = {
+      // JO categories
+      'jo graduate': '0',
+      'jo graduated': '0',
+      'job order graduate': '0',
+      'job order graduated': '0',
+      'graduate': '0',
+      'graduated': '0',
+      
+      'jo undergrad': '1',
+      'jo undergraduate': '1',
+      'job order undergrad': '1',
+      'job order undergraduate': '1',
+      'undergrad': '1',
+      'undergraduate': '1',
+      
+      // Regular categories
+      'regular non-teaching': '2',
+      'regular nonteaching': '2',
+      'non-teaching': '2',
+      'nonteaching': '2',
+      
+      'regular teaching (30hrs)': '3',
+      'regular teaching 30hrs': '3',
+      'teaching 30hrs': '3',
+      'teaching (30hrs)': '3',
+      '30hrs': '3',
+      '30 hrs': '3',
+      
+      'regular designated (40hrs)': '4',
+      'regular designated 40hrs': '4',
+      'designated 40hrs': '4',
+      'designated (40hrs)': '4',
+      '40hrs': '4',
+      '40 hrs': '4',
+
+      // Custom category
+      'other': '5',
+      'custom': '5',
+    };
+    
+    return categoryMap[categoryLower] || null;
+  };
+
+  // Helper function to validate email
+  const validateEmail = (email) => {
+    if (!email || typeof email !== 'string') return false;
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) return false;
+    
+    if (emailDomainRestricted) {
+      return email.toLowerCase().endsWith('@earist.edu.ph');
+    }
+    
+    return true;
+  };
 
   // Handle file upload and parse Excel
   const handleFileUpload = (e) => {
@@ -160,7 +253,7 @@ const BulkRegister = () => {
           if (!fieldRequirements.employmentCategory) optionalFields.push('employmentCategory');
           if (!fieldRequirements.password) optionalFields.push('password');
           if (!fieldRequirements.department) optionalFields.push('department');
-          optionalFields.push('middleName', 'nameExtension');
+          optionalFields.push('middleName', 'nameExtension', 'customCategory');
 
           setErrMessage(
             `Missing required columns: ${missingFields.join(
@@ -171,15 +264,13 @@ const BulkRegister = () => {
         }
 
         const processedUsers = worksheet.map((user, index) => {
-          let employmentCategory =
-            user.employmentCategory?.toString().trim().toLowerCase() || '';
-          let employmentCategoryValue = null; // Default to null instead of empty string
-
-          if (employmentCategory === 'regular') {
-            employmentCategoryValue = '1';
-          } else if (employmentCategory === 'jo') {
-            employmentCategoryValue = '0';
+          // Map employment category text to ID
+          let employmentCategoryValue = null;
+          
+          if (user.employmentCategory) {
+            employmentCategoryValue = mapEmploymentCategory(user.employmentCategory);
           }
+          
           // If employmentCategory is not required and not provided, leave it as null
           // The backend will set a default value if needed
 
@@ -200,6 +291,9 @@ const BulkRegister = () => {
             employeeNumber = employeeNumber.replace(/-/g, '');
           }
 
+          // Process customCategory
+          let customCategory = user.customCategory?.toString().trim() || null;
+
           const processedUser = {
             firstName: user.firstName?.toString().trim() || '',
             middleName: user.middleName?.toString().trim() || null,
@@ -211,17 +305,16 @@ const BulkRegister = () => {
             role: 'staff',
             access_level: 'user',
             department: user.department?.toString().trim() || null,
+            customCategory: customCategory,
           };
 
           // Only include employmentCategory if it has a valid value
-          // If not required and not provided, omit it (backend will set default)
-          if (employmentCategoryValue === '0' || employmentCategoryValue === '1') {
+          if (['0', '1', '2', '3', '4', '5'].includes(employmentCategoryValue)) {
             processedUser.employmentCategory = employmentCategoryValue;
           } else if (fieldRequirements.employmentCategory) {
             // Required but not provided - will be caught by validation
             processedUser.employmentCategory = null;
           }
-          // If not required and not provided, don't include the field at all
 
           return processedUser;
         });
@@ -259,17 +352,32 @@ const BulkRegister = () => {
           }
 
           // Validate employmentCategory format if it's provided
-          if (user.employmentCategory && user.employmentCategory !== '0' && user.employmentCategory !== '1') {
+          if (user.employmentCategory && !['0', '1', '2', '3', '4', '5'].includes(user.employmentCategory)) {
             validationErrors.push(
-              `Row ${
-                index + 2
-              }: Invalid employmentCategory. Must be 'Regular' or 'JO'`
+              `Row ${index + 2}: Invalid employmentCategory. Must be one of: "JO Graduate", "JO UnderGrad", "Regular Non-Teaching", "Regular Teaching (30Hrs)", "Regular Designated (40Hrs)", "Other"`
             );
           }
 
-          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-          if (user.email && !emailRegex.test(user.email)) {
-            validationErrors.push(`Row ${index + 2}: Invalid email format`);
+          // Validate customCategory when employmentCategory is 5
+          if (user.employmentCategory === '5') {
+            if (!user.customCategory || user.customCategory.trim() === '') {
+              validationErrors.push(
+                `Row ${index + 2}: Custom category description is required when employment category is "Other"`
+              );
+            } else if (user.customCategory.length > 100) {
+              validationErrors.push(
+                `Row ${index + 2}: Custom category description must not exceed 100 characters`
+              );
+            }
+          }
+
+          // Email domain validation
+          if (user.email && !validateEmail(user.email)) {
+            if (emailDomainRestricted) {
+              validationErrors.push(`Row ${index + 2}: Email must use @earist.edu.ph domain`);
+            } else {
+              validationErrors.push(`Row ${index + 2}: Invalid email format`);
+            }
           }
         });
 
@@ -643,6 +751,141 @@ const BulkRegister = () => {
                     </Typography>
                   </Box>
                 </Box>
+
+                <Box
+                  sx={{
+                    mt: 2.5,
+                    p: 2,
+                    borderRadius: 2,
+                    bgcolor: 'rgba(109, 35, 35, 0.05)',
+                    borderLeft: '4px solid #6d2323',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 1.5,
+                  }}
+                >
+                  <Box
+                    sx={{
+                      bgcolor: 'rgba(109, 35, 35, 0.1)',
+                      p: 0.6,
+                      borderRadius: 1,
+                      display: 'flex',
+                      mt: 0.25,
+                    }}
+                  >
+                    <InfoOutlined sx={{ fontSize: 18, color: '#6d2323' }} />
+                  </Box>
+                  <Box>
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        fontWeight: 600,
+                        color: '#6d2323',
+                        mb: 0.5,
+                        fontSize: '0.85rem',
+                      }}
+                    >
+                      Excel File Requirements
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: '#666',
+                        lineHeight: 1.4,
+                        display: 'block',
+                        fontSize: '0.75rem',
+                        mb: 0.5,
+                      }}
+                    >
+                      <strong>EmploymentCategory</strong> values:
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: '#666',
+                        lineHeight: 1.4,
+                        display: 'block',
+                        fontSize: '0.7rem',
+                        mb: 0.3,
+                      }}
+                    >
+                      • Job Order: <strong>"JO Graduate"</strong> or <strong>"JO UnderGrad"</strong>
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: '#666',
+                        lineHeight: 1.4,
+                        display: 'block',
+                        fontSize: '0.7rem',
+                        mb: 0.3,
+                      }}
+                    >
+                      • Regular: <strong>"Regular Non-Teaching"</strong>, <strong>"Regular Teaching (30Hrs)"</strong>, or <strong>"Regular Designated (40Hrs)"</strong>
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: '#666',
+                        lineHeight: 1.4,
+                        display: 'block',
+                        fontSize: '0.7rem',
+                        mb: 0.5,
+                      }}
+                    >
+                      • Custom: <strong>"Other"</strong> (requires <strong>customCategory</strong> column)
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: '#666',
+                        lineHeight: 1.4,
+                        display: 'block',
+                        fontSize: '0.7rem',
+                        mb: 0.3,
+                      }}
+                    >
+                      <strong>CustomCategory:</strong> Required when category is "Other" (max 100 chars)
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: '#666',
+                        lineHeight: 1.4,
+                        display: 'block',
+                        fontSize: '0.7rem',
+                        mb: 0.3,
+                      }}
+                    >
+                      <strong>EmployeeNumber:</strong> Accepts alphanumeric with hyphens (e.g., 2013-4410, 2013-4507M)
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: '#666',
+                        lineHeight: 1.4,
+                        display: 'block',
+                        fontSize: '0.7rem',
+                        mb: 0.3,
+                      }}
+                    >
+                      <strong>Password:</strong> Auto-set to last name in CAPS (no spaces)
+                    </Typography>
+                    {emailDomainRestricted && (
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: '#666',
+                          lineHeight: 1.4,
+                          display: 'block',
+                          fontSize: '0.7rem',
+                        }}
+                      >
+                        <strong>Email:</strong> Only <strong>@earist.edu.ph</strong> allowed
+                      </Typography>
+                    )}
+                  </Box>
+                </Box>
               </Box>
             </Paper>
           </Fade>
@@ -855,6 +1098,7 @@ const BulkRegister = () => {
                             { key: 'department', label: 'department' },
                             { key: 'middleName', label: 'middleName' },
                             { key: 'nameExtension', label: 'nameExtension' },
+                            { key: 'customCategory', label: 'customCategory' },
                           ]
                             .filter((field) => !fieldRequirements[field.key])
                             .map((field) => (
@@ -874,35 +1118,6 @@ const BulkRegister = () => {
                         </Box>
                       </Grid>
                     </Grid>
-
-                    <Alert
-                      severity="warning"
-                      sx={{
-                        mt: 1.5,
-                        borderRadius: 2,
-                        bgcolor: alpha(primaryColor, 0.05),
-                        color: primaryColor,
-                        fontSize: '0.85rem',
-                        '& .MuiAlert-icon': { color: primaryColor },
-                      }}
-                    >
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 500, fontSize: '0.85rem' }}
-                      >
-                        <strong>Note:</strong>
-                        <br />
-                        <strong>EmploymentCategory</strong> must be either{' '}
-                        <strong>"Regular"</strong> or <strong>"JO"</strong>
-                        <br />
-                        <strong>EmployeeNumber</strong> accepts alphanumeric characters with hyphens (e.g.,{' '}
-                        <strong>2013-4410</strong> or <strong>2013-4507M</strong>)
-                        <br />
-                        <strong>Password</strong> is automatically set to the{' '}
-                        <strong>last name</strong> in{' '}
-                        <strong>all caps with no spaces.</strong>
-                      </Typography>
-                    </Alert>
                   </Box>
                 </Fade>
 

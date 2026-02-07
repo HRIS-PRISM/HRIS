@@ -46,6 +46,7 @@ import {
 } from '@mui/icons-material';
 
 import AccessDenied from './AccessDenied';
+import LoadingOverlay from './LoadingOverlay';
 
 const Registration = () => {
   const [formData, setFormData] = useState({
@@ -57,6 +58,7 @@ const Registration = () => {
     employeeNumber: '',
     password: '',
     employmentCategory: '',
+    customCategory: '', // NEW: Custom category field
     department: '',
   });
 
@@ -64,6 +66,7 @@ const Registration = () => {
   const [successMessage, setSuccessMessage] = useState('');
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [focusedField, setFocusedField] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [completedSteps, setCompletedSteps] = useState({
     remittance: false,
     department: false,
@@ -82,6 +85,9 @@ const Registration = () => {
     nameExtension: false,
     department: false,
   });
+
+  // Email domain restriction state
+  const [emailDomainRestricted, setEmailDomainRestricted] = useState(false);
 
   // Department codes state
   const [departmentCodes, setDepartmentCodes] = useState([]);
@@ -123,10 +129,34 @@ const Registration = () => {
         }
       } catch (err) {
         console.error('Error fetching field requirements:', err);
-        // Use defaults if fetch fails
       }
     };
     fetchFieldRequirements();
+  }, []);
+
+  // Fetch email domain restriction setting
+  useEffect(() => {
+    const fetchEmailDomainRestriction = async () => {
+      try {
+        const token =
+          localStorage.getItem('token') || sessionStorage.getItem('token');
+        const response = await fetch(
+          `${API_BASE_URL}/email-domain-restriction`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setEmailDomainRestricted(data.setting_value === true);
+        }
+      } catch (err) {
+        console.error('Error fetching email domain restriction:', err);
+      }
+    };
+    fetchEmailDomainRestriction();
   }, []);
 
   // Fetch department codes
@@ -189,10 +219,15 @@ const Registration = () => {
         [name]: name === 'employmentCategory' ? Number(value) : value,
       };
 
-      // If lastName is being updated, also update to password
+      // If lastName is being updated, also update password
       if (name === 'lastName') {
         // Convert to uppercase and remove all spaces
         newData.password = value.toUpperCase().replace(/\s+/g, '');
+      }
+
+      // NEW: Clear customCategory when employmentCategory is not 5
+      if (name === 'employmentCategory' && Number(value) !== 5) {
+        newData.customCategory = '';
       }
 
       return newData;
@@ -216,6 +251,7 @@ const Registration = () => {
       employeeNumber,
       password,
       employmentCategory,
+      customCategory,
       department,
     } = formData;
 
@@ -244,6 +280,11 @@ const Registration = () => {
     }
     if (fieldRequirements.department && !department) {
       missingFields.push('Department');
+    }
+
+    // NEW: Validate custom category when category 5 is selected
+    if (employmentCategory === 5 && !customCategory.trim()) {
+      missingFields.push('Custom Category Description');
     }
 
     if (missingFields.length > 0) {
@@ -278,6 +319,27 @@ const Registration = () => {
       return;
     }
 
+    // Email domain validation
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        setErrorMessage('Please enter a valid email address.');
+        setSuccessMessage('');
+        return;
+      }
+
+      if (emailDomainRestricted && !email.toLowerCase().endsWith('@earist.edu.ph')) {
+        setErrorMessage('Email must use @earist.edu.ph domain.');
+        setSuccessMessage('');
+        return;
+      }
+    }
+
+    // Start loading
+    setIsLoading(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+
     try {
       const authHeaders = getAuthHeaders();
       const response = await fetch(`${API_BASE_URL}/register`, {
@@ -287,31 +349,38 @@ const Registration = () => {
       });
 
       if (response.ok) {
-        setSuccessMessage(
-          'User registered successfully! Login Information have been sent to their email.'
-        );
-        setErrorMessage('');
+        // Keep loading for a brief moment to show the success state
         setTimeout(() => {
-          setSuccessMessage('');
-        }, 3000);
-        setFormData({
-          firstName: '',
-          middleName: '',
-          lastName: '',
-          nameExtension: '',
-          email: '',
-          employeeNumber: '',
-          password: '',
-          employmentCategory: '',
-          department: '',
-        });
+          setIsLoading(false);
+          setSuccessMessage(
+            'User registered successfully! Login Information have been sent to their email.'
+          );
+          setErrorMessage('');
+          setTimeout(() => {
+            setSuccessMessage('');
+          }, 3000);
+          setFormData({
+            firstName: '',
+            middleName: '',
+            lastName: '',
+            nameExtension: '',
+            email: '',
+            employeeNumber: '',
+            password: '',
+            employmentCategory: '',
+            customCategory: '', // NEW: Reset custom category
+            department: '',
+          });
+        }, 500);
       } else {
         const errorData = await response.json();
+        setIsLoading(false);
         setErrorMessage(errorData.error || 'Registration failed. Try again.');
         setSuccessMessage('');
       }
     } catch (err) {
       console.error('Registration Error', err);
+      setIsLoading(false);
       setErrorMessage('Something went wrong.');
       setSuccessMessage('');
     }
@@ -715,54 +784,6 @@ const Registration = () => {
                   </Typography>
                 </Box>
 
-                {/* Alert Messages */}
-                {errMessage && (
-                  <Fade in={true}>
-                    <Alert
-                      icon={<ErrorOutline fontSize="inherit" />}
-                      sx={{
-                        mb: 3,
-                        backgroundColor: '#fff',
-                        color: '#d32f2f',
-                        border: '2px solid #d32f2f',
-                        borderRadius: 2,
-                        fontWeight: 500,
-                        fontSize: '0.95rem',
-                        boxShadow: '0 4px 12px rgba(211, 47, 47, 0.2)',
-                        '& .MuiAlert-icon': {
-                          color: '#d32f2f',
-                        },
-                      }}
-                      severity="error"
-                    >
-                      {errMessage}
-                    </Alert>
-                  </Fade>
-                )}
-                {successMessage && (
-                  <Fade in={true}>
-                    <Alert
-                      icon={<CheckCircleOutline fontSize="inherit" />}
-                      sx={{
-                        mb: 3,
-                        backgroundColor: '#fff',
-                        color: '#2e7d32',
-                        border: '2px solid #2e7d32',
-                        borderRadius: 2,
-                        fontWeight: 600,
-                        fontSize: '0.95rem',
-                        boxShadow: '0 4px 12px rgba(46, 125, 50, 0.2)',
-                        '& .MuiAlert-icon': {
-                          color: '#2e7d32',
-                        },
-                      }}
-                      severity="success"
-                    >
-                      {successMessage}
-                    </Alert>
-                  </Fade>
-                )}
-
                 <form onSubmit={handleRegister}>
                   <Box sx={{ mb: 2.5 }}>
                     <Grid container spacing={2.5}>
@@ -1006,6 +1027,11 @@ const Registration = () => {
                             required: false,
                             sx: { fontWeight: 600 },
                           }}
+                          helperText={
+                            emailDomainRestricted
+                              ? 'Must use @earist.edu.ph domain'
+                              : 'Enter a valid email address'
+                          }
                           InputProps={{
                             startAdornment: (
                               <InputAdornment position="start">
@@ -1102,7 +1128,7 @@ const Registration = () => {
                               setFocusedField('employmentCategory')
                             }
                             onBlur={() => setFocusedField(null)}
-                            displayEmpty // This is key prop!
+                            displayEmpty
                             startAdornment={
                               <InputAdornment position="start">
                                 <WorkOutline
@@ -1146,17 +1172,90 @@ const Registration = () => {
                               <ListItemIcon sx={{ minWidth: 30 }}>
                                 <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
                               </ListItemIcon>
-                              Teaching (Designated)
+                              Teaching (30Hrs)
                             </MenuItem>
                             <MenuItem value={4}>
                               <ListItemIcon sx={{ minWidth: 30 }}>
                                 <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
                               </ListItemIcon>
-                              30Hrs
+                              Designated (40Hrs)
+                            </MenuItem>
+
+                            <ListSubheader>Custom</ListSubheader>
+                            <MenuItem value={5}>
+                              <ListItemIcon sx={{ minWidth: 30 }}>
+                                <Circle sx={{ fontSize: 12, color: '#00796B' }} />
+                              </ListItemIcon>
+                              Other (specify)
                             </MenuItem>
                           </Select>
                         </FormControl>
                       </Grid>
+
+                      {/* NEW: Custom Category Field - Only shows when category 5 is selected */}
+                      {formData.employmentCategory === 5 && (
+                        <Grid item xs={6}>
+                          <Fade in>
+                            <TextField
+                              name="customCategory"
+                              label="Custom Category Description *"
+                              type="text"
+                              fullWidth
+                              value={formData.customCategory}
+                              onChange={handleChanges}
+                              onFocus={() => setFocusedField('customCategory')}
+                              onBlur={() => setFocusedField(null)}
+                              placeholder="e.g., Part-timer, OJT, Consultant..."
+                              helperText="Max 100 characters - describe the employment type"
+                              inputProps={{ maxLength: 100 }}
+                              InputLabelProps={{
+                                required: false,
+                                sx: { fontWeight: 600 },
+                              }}
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <WorkOutline
+                                      sx={{
+                                        color:
+                                          focusedField === 'customCategory'
+                                            ? '#6d2323'
+                                            : '#8a4747',
+                                        transition: 'color 0.3s ease',
+                                      }}
+                                    />
+                                  </InputAdornment>
+                                ),
+                              }}
+                              sx={{
+                                '& .MuiOutlinedInput-root': {
+                                  borderRadius: 2,
+                                  transition: 'all 0.3s ease',
+                                  '&:hover': {
+                                    transform: 'translateY(-2px)',
+                                  },
+                                  '&:hover fieldset': {
+                                    borderColor: '#8a4747',
+                                    borderWidth: 2,
+                                  },
+                                  '&.Mui-focused': {
+                                    transform: 'translateY(-2px)',
+                                    boxShadow: '0 4px 12px rgba(109, 35, 35, 0.15)',
+                                  },
+                                  '&.Mui-focused fieldset': {
+                                    borderColor: '#6d2323',
+                                    borderWidth: 2,
+                                  },
+                                },
+                                '& .MuiInputLabel-root.Mui-focused': {
+                                  color: '#6d2323',
+                                  fontWeight: 700,
+                                },
+                              }}
+                            />
+                          </Fade>
+                        </Grid>
+                      )}
 
                       {/* Employee Number */}
                       <Grid item xs={12} sm={6}>
@@ -1223,11 +1322,11 @@ const Registration = () => {
                         <TextField
                           name="password"
                           label={`Password${fieldRequirements.password ? ' *' : ''}`}
-                          type="text" // Changed from "password" to "text" to make it visible
+                          type="text"
                           fullWidth
                           value={formData.password}
                           InputProps={{
-                            readOnly: true, // Made to field read-only
+                            readOnly: true,
                             startAdornment: (
                               <InputAdornment position="start">
                                 <LockOutlined
@@ -1354,6 +1453,54 @@ const Registration = () => {
                     </Grid>
                   </Box>
 
+                  {/* Alert Messages */}
+                  {errMessage && (
+                    <Fade in={true}>
+                      <Alert
+                        icon={<ErrorOutline fontSize="inherit" />}
+                        sx={{
+                          mb: 2.5,
+                          backgroundColor: '#fff',
+                          color: '#d32f2f',
+                          border: '2px solid #d32f2f',
+                          borderRadius: 2,
+                          fontWeight: 500,
+                          fontSize: '0.95rem',
+                          boxShadow: '0 4px 12px rgba(211, 47, 47, 0.2)',
+                          '& .MuiAlert-icon': {
+                            color: '#d32f2f',
+                          },
+                        }}
+                        severity="error"
+                      >
+                        {errMessage}
+                      </Alert>
+                    </Fade>
+                  )}
+                  {successMessage && (
+                    <Fade in={true}>
+                      <Alert
+                        icon={<CheckCircleOutline fontSize="inherit" />}
+                        sx={{
+                          mb: 2.5,
+                          backgroundColor: '#fff',
+                          color: '#2e7d32',
+                          border: '2px solid #2e7d32',
+                          borderRadius: 2,
+                          fontWeight: 600,
+                          fontSize: '0.95rem',
+                          boxShadow: '0 4px 12px rgba(46, 125, 50, 0.2)',
+                          '& .MuiAlert-icon': {
+                            color: '#2e7d32',
+                          },
+                        }}
+                        severity="success"
+                      >
+                        {successMessage}
+                      </Alert>
+                    </Fade>
+                  )}
+
                   <Box
                     sx={{
                       mt: 4,
@@ -1372,6 +1519,7 @@ const Registration = () => {
                         type="submit"
                         variant="contained"
                         fullWidth
+                        disabled={isLoading}
                         startIcon={<PersonAddAlt1 sx={{ fontSize: 24 }} />}
                         sx={{
                           bgcolor: '#6d2323',
@@ -1402,10 +1550,15 @@ const Registration = () => {
                             transform: 'translateY(-3px)',
                             boxShadow: '0 8px 32px rgba(109, 35, 35, 0.45)',
                           },
+                          '&:disabled': {
+                            bgcolor: '#999',
+                            color: '#fff',
+                            cursor: 'not-allowed',
+                          },
                           transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                         }}
                       >
-                        Register User
+                        {isLoading ? 'Registering...' : 'Register User'}
                       </Button>
 
                       <Button
@@ -1445,6 +1598,12 @@ const Registration = () => {
           </Box>
         </Grid>
       </Grid>
+
+      {/* Loading Overlay */}
+      <LoadingOverlay 
+        open={isLoading} 
+        message="Registering user..."
+      />
     </Container>
   );
 };

@@ -46,6 +46,23 @@ function logAudit(
   );
 }
 
+// Helper function to get category label
+function getCategoryLabel(employmentCategory, customCategory) {
+  if (employmentCategory === 5 && customCategory) {
+    return customCategory;
+  }
+  
+  switch (employmentCategory) {
+    case 0: return 'Job Order - Graduate';
+    case 1: return 'Job Order - UnderGrad';
+    case 2: return 'Regular - Non-Teaching';
+    case 3: return 'Regular - Teaching (30Hrs)';
+    case 4: return 'Regular - Designated (40Hrs)';
+    case 5: return 'Other';
+    default: return 'Unknown';
+  }
+}
+
 // ========================================
 // GET ALL - Fetch all employment categories
 // ========================================
@@ -55,13 +72,16 @@ router.get('/employment-category', authenticateToken, (req, res) => {
       ec.id,
       ec.employeeNumber,
       ec.employmentCategory,
+      ec.customCategory,
       CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) AS employeeName,
       CASE 
         WHEN ec.employmentCategory = 0 THEN 'Job Order - Graduate'
         WHEN ec.employmentCategory = 1 THEN 'Job Order - UnderGrad'
         WHEN ec.employmentCategory = 2 THEN 'Regular - Non-Teaching'
-        WHEN ec.employmentCategory = 3 THEN 'Regular - Teaching (Designated)'
-        WHEN ec.employmentCategory = 4 THEN 'Regular - 30Hrs'
+        WHEN ec.employmentCategory = 3 THEN 'Regular - Teaching (30Hrs)'
+        WHEN ec.employmentCategory = 4 THEN 'Regular - Designated (40Hrs)'
+        WHEN ec.employmentCategory = 5 AND ec.customCategory IS NOT NULL THEN ec.customCategory
+        WHEN ec.employmentCategory = 5 THEN 'Other'
         ELSE 'Unknown'
       END AS categoryLabel
     FROM employment_category ec
@@ -96,13 +116,16 @@ router.get(
       ec.id,
       ec.employeeNumber,
       ec.employmentCategory,
+      ec.customCategory,
       CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) AS employeeName,
       CASE 
         WHEN ec.employmentCategory = 0 THEN 'Job Order - Graduate'
         WHEN ec.employmentCategory = 1 THEN 'Job Order - UnderGrad'
         WHEN ec.employmentCategory = 2 THEN 'Regular - Non-Teaching'
-        WHEN ec.employmentCategory = 3 THEN 'Regular - Teaching (Designated)'
-        WHEN ec.employmentCategory = 4 THEN 'Regular - 30Hrs'
+        WHEN ec.employmentCategory = 3 THEN 'Regular - Teaching (30Hrs)'
+        WHEN ec.employmentCategory = 4 THEN 'Regular - Designated (40Hrs)'
+        WHEN ec.employmentCategory = 5 AND ec.customCategory IS NOT NULL THEN ec.customCategory
+        WHEN ec.employmentCategory = 5 THEN 'Other'
         ELSE 'Unknown'
       END AS categoryLabel
     FROM employment_category ec
@@ -151,13 +174,16 @@ router.get(
         ec.id,
         ec.employeeNumber,
         ec.employmentCategory,
+        ec.customCategory,
         CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) AS employeeName,
         CASE 
           WHEN ec.employmentCategory = 0 THEN 'Job Order - Graduate'
           WHEN ec.employmentCategory = 1 THEN 'Job Order - UnderGrad'
           WHEN ec.employmentCategory = 2 THEN 'Regular - Non-Teaching'
-          WHEN ec.employmentCategory = 3 THEN 'Regular - Teaching (Designated)'
-          WHEN ec.employmentCategory = 4 THEN 'Regular - 30Hrs'
+          WHEN ec.employmentCategory = 3 THEN 'Regular - Teaching (30Hrs)'
+          WHEN ec.employmentCategory = 4 THEN 'Regular - Designated (40Hrs)'
+          WHEN ec.employmentCategory = 5 AND ec.customCategory IS NOT NULL THEN ec.customCategory
+          WHEN ec.employmentCategory = 5 THEN 'Other'
           ELSE 'Unknown'
         END AS categoryLabel
       FROM employment_category ec
@@ -168,6 +194,7 @@ router.get(
          OR pt.middleName LIKE ?
          OR CONCAT(pt.firstName, ' ', pt.lastName) LIKE ?
          OR CONCAT(pt.lastName, ' ', pt.firstName) LIKE ?
+         OR ec.customCategory LIKE ?
       ORDER BY ec.employeeNumber ASC
     `;
 
@@ -179,6 +206,7 @@ router.get(
         searchPattern, 
         searchPattern, 
         searchPattern, 
+        searchPattern,
         searchPattern,
         searchPattern,
         searchPattern
@@ -205,9 +233,9 @@ router.get(
 // ========================================
 router.put('/employment-category/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
-  const { employeeNumber, employmentCategory } = req.body;
+  const { employeeNumber, employmentCategory, customCategory } = req.body;
 
-  // Validation: Allow integers 0 through 4
+  // Validation: Allow integers 0 through 5
   if (!employeeNumber) {
     return res.status(400).json({ error: 'Employee number is required' });
   }
@@ -217,11 +245,25 @@ router.put('/employment-category/:id', authenticateToken, (req, res) => {
     employmentCategory === null ||
     isNaN(employmentCategory) ||
     employmentCategory < 0 ||
-    employmentCategory > 4
+    employmentCategory > 5
   ) {
     return res.status(400).json({
-      error: 'Invalid employment category. Must be between 0 and 4.',
+      error: 'Invalid employment category. Must be between 0 and 5.',
     });
+  }
+
+  // Validate customCategory when employmentCategory is 5
+  if (employmentCategory === 5) {
+    if (!customCategory || customCategory.trim() === '') {
+      return res.status(400).json({
+        error: 'Custom category description is required when selecting "Other".',
+      });
+    }
+    if (customCategory.length > 100) {
+      return res.status(400).json({
+        error: 'Custom category description must not exceed 100 characters.',
+      });
+    }
   }
 
   // Check if record exists
@@ -270,15 +312,18 @@ router.put('/employment-category/:id', authenticateToken, (req, res) => {
     }
 
     function performUpdate() {
+      // Set customCategory to null if employmentCategory is not 5
+      const finalCustomCategory = employmentCategory === 5 ? (customCategory || null) : null;
+
       const updateSql = `
         UPDATE employment_category 
-        SET employeeNumber = ?, employmentCategory = ?
+        SET employeeNumber = ?, employmentCategory = ?, customCategory = ?
         WHERE id = ?
       `;
 
       db.query(
         updateSql,
-        [employeeNumber, employmentCategory, id],
+        [employeeNumber, employmentCategory, finalCustomCategory, id],
         (err, result) => {
           if (err) {
             console.error('Error updating employment category:', err);
@@ -294,18 +339,17 @@ router.put('/employment-category/:id', authenticateToken, (req, res) => {
           // SYNC: Also update users table
           const updateUsersSql = `
             UPDATE users 
-            SET employmentCategory = ? 
+            SET employmentCategory = ?, customCategory = ?
             WHERE employeeNumber = ?
           `;
           
           db.query(
             updateUsersSql,
-            [employmentCategory, employeeNumber],
+            [employmentCategory, finalCustomCategory, employeeNumber],
             (updateErr, updateResult) => {
               if (updateErr) {
                 console.error('Error updating users table:', updateErr);
                 // Don't fail the whole operation, just log the error
-                // You might want to handle this differently based on your requirements
               }
 
               // Log audit trail
@@ -323,6 +367,7 @@ router.put('/employment-category/:id', authenticateToken, (req, res) => {
                 id,
                 employeeNumber,
                 employmentCategory,
+                customCategory: finalCustomCategory,
               });
             }
           );
@@ -336,7 +381,7 @@ router.put('/employment-category/:id', authenticateToken, (req, res) => {
 // CREATE - Add new employment category
 // ========================================
 router.post('/employment-category', authenticateToken, (req, res) => {
-  const { employeeNumber, employmentCategory } = req.body;
+  const { employeeNumber, employmentCategory, customCategory } = req.body;
 
   // Validation
   if (!employeeNumber) {
@@ -348,13 +393,27 @@ router.post('/employment-category', authenticateToken, (req, res) => {
     employmentCategory === null ||
     isNaN(employmentCategory) ||
     employmentCategory < 0 ||
-    employmentCategory > 4
+    employmentCategory > 5
   ) {
     return res
       .status(400)
       .json({
-        error: 'Invalid employment category. Must be between 0 and 4.',
+        error: 'Invalid employment category. Must be between 0 and 5.',
       });
+  }
+
+  // Validate customCategory when employmentCategory is 5
+  if (employmentCategory === 5) {
+    if (!customCategory || customCategory.trim() === '') {
+      return res.status(400).json({
+        error: 'Custom category description is required when selecting "Other".',
+      });
+    }
+    if (customCategory.length > 100) {
+      return res.status(400).json({
+        error: 'Custom category description must not exceed 100 characters.',
+      });
+    }
   }
 
   // Check if employee exists
@@ -389,15 +448,18 @@ router.post('/employment-category', authenticateToken, (req, res) => {
           });
       }
 
+      // Set customCategory to null if employmentCategory is not 5
+      const finalCustomCategory = employmentCategory === 5 ? (customCategory || null) : null;
+
       // Insert new record
       const insertSql = `
-        INSERT INTO employment_category (employeeNumber, employmentCategory)
-        VALUES (?, ?)
+        INSERT INTO employment_category (employeeNumber, employmentCategory, customCategory)
+        VALUES (?, ?, ?)
       `;
 
       db.query(
         insertSql,
-        [employeeNumber, employmentCategory],
+        [employeeNumber, employmentCategory, finalCustomCategory],
         (err, result) => {
           if (err) {
             console.error('Error creating employment category:', err);
@@ -407,10 +469,10 @@ router.post('/employment-category', authenticateToken, (req, res) => {
           }
 
           // Also update users table
-          const updateUsersSql = `UPDATE users SET employmentCategory = ? WHERE employeeNumber = ?`;
+          const updateUsersSql = `UPDATE users SET employmentCategory = ?, customCategory = ? WHERE employeeNumber = ?`;
           db.query(
             updateUsersSql,
-            [employmentCategory, employeeNumber],
+            [employmentCategory, finalCustomCategory, employeeNumber],
             (updateErr) => {
               if (updateErr) {
                 console.error('Error updating users table:', updateErr);
@@ -430,6 +492,7 @@ router.post('/employment-category', authenticateToken, (req, res) => {
             id: result.insertId,
             employeeNumber,
             employmentCategory,
+            customCategory: finalCustomCategory,
           });
         }
       );
@@ -475,11 +538,10 @@ router.delete('/employment-category/:id', authenticateToken, (req, res) => {
         return res.status(404).json({ message: 'Employment category not found' });
       }
 
-      // SYNC: Set employmentCategory to NULL (or 0) in users table
-      // You can choose NULL or a default value like 0
+      // SYNC: Set employmentCategory to NULL in users table
       const updateUsersSql = `
         UPDATE users 
-        SET employmentCategory = NULL 
+        SET employmentCategory = NULL, customCategory = NULL
         WHERE employeeNumber = ?
       `;
       
