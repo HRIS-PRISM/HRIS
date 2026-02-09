@@ -63,7 +63,7 @@ const app = express();
 // Allow localhost, any 192.168.* (LAN), and specific public origins so other devices can load data
 const allowedOrigins = [
   'http://localhost:5137',
-  'http://192.168.50.37:5137',
+  'http://192.168.50.36:5137',
   'http://192.168.50.45:5137',
   'http://136.239.248.42:5137',
   'http://192.168.50.97:5137',

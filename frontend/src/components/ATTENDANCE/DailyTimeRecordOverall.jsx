@@ -10,7 +10,7 @@ import {
   ArrowBack,
   ArrowForward,
   Close,
-  Circle, 
+  Circle,
 } from '@mui/icons-material';
 import PrintIcon from '@mui/icons-material/Print';
 import {
@@ -291,14 +291,12 @@ const DailyTimeRecordFaculty = () => {
       setOfficialTimes({});
     }
   };
-  
 
   useEffect(() => {
     if (personID) {
       fetchOfficialTimes(personID);
     }
   }, [personID]);
-
 
   // Fetch departments and employment categories for filters
   useEffect(() => {
@@ -307,27 +305,29 @@ const DailyTimeRecordFaculty = () => {
         // Fetch departments
         const deptResponse = await axios.get(
           `${API_BASE_URL}/api/department-table`,
-          getAuthHeaders()
+          getAuthHeaders(),
         );
-        setDepartments(Array.isArray(deptResponse.data) ? deptResponse.data : []);
+        setDepartments(
+          Array.isArray(deptResponse.data) ? deptResponse.data : [],
+        );
 
         // Fetch employment categories (unique categories from all users)
         const catResponse = await axios.get(
           `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
-          getAuthHeaders()
+          getAuthHeaders(),
         );
-        
+
         // Get unique employment category IDs
-        const uniqueCategories = Array.isArray(catResponse.data) 
-          ? [...new Set(catResponse.data.map(cat => cat.employmentCategory))]
+        const uniqueCategories = Array.isArray(catResponse.data)
+          ? [...new Set(catResponse.data.map((cat) => cat.employmentCategory))]
           : [];
-        
+
         setEmploymentCategories(uniqueCategories);
       } catch (error) {
         console.error('Error fetching filter options:', error);
       }
     };
-    
+
     fetchFilters();
   }, []);
 
@@ -667,7 +667,7 @@ const DailyTimeRecordFaculty = () => {
   };
 
   // New filter: free-text search that filters by name or employee number
-const getFilteredUsers = () => {
+  const getFilteredUsers = () => {
     let filtered = allUsersDTR.slice();
 
     // Apply record filter first
@@ -695,8 +695,12 @@ const getFilteredUsers = () => {
     // **NEW: Apply employment category filter**
     if (employmentCategoryFilter !== '') {
       filtered = filtered.filter((u) => {
-        const userCategory = u.rawUser?.employmentCategory ?? u.employmentCategory ?? null;
-        return userCategory !== null && userCategory === parseInt(employmentCategoryFilter);
+        const userCategory =
+          u.rawUser?.employmentCategory ?? u.employmentCategory ?? null;
+        return (
+          userCategory !== null &&
+          userCategory === parseInt(employmentCategoryFilter)
+        );
       });
     }
 
@@ -724,7 +728,6 @@ const getFilteredUsers = () => {
     (currentPage - 1) * rowsPerPage + rowsPerPage,
   );
 
-
   // Helper to get employment category label
   const getCategoryLabel = (categoryId) => {
     const labels = {
@@ -741,13 +744,20 @@ const getFilteredUsers = () => {
   // Helper to get employment category color (Legend Logic)
   const getCategoryColor = (catId) => {
     switch (parseInt(catId)) {
-      case 0: return '#F57C00'; // JO Graduate
-      case 1: return '#E64A19'; // JO UnderGrad
-      case 2: return '#2E7D32'; // Regular Non-Teaching
-      case 3: return '#1565C0'; // Regular Teaching (30Hrs)
-      case 4: return '#7B1FA2'; // Regular Designated (40Hrs)
-      case 5: return '#00796B'; // Other (Custom)
-      default: return '#757575';
+      case 0:
+        return '#F57C00'; // JO Graduate
+      case 1:
+        return '#E64A19'; // JO UnderGrad
+      case 2:
+        return '#2E7D32'; // Regular Non-Teaching
+      case 3:
+        return '#1565C0'; // Regular Teaching (30Hrs)
+      case 4:
+        return '#7B1FA2'; // Regular Designated (40Hrs)
+      case 5:
+        return '#00796B'; // Other (Custom)
+      default:
+        return '#757575';
     }
   };
 
@@ -2723,6 +2733,7 @@ const getFilteredUsers = () => {
             overflow-y: scroll;
           }
 
+
           /* Frontend responsive styles (NOT for print) */
           .dtr-responsive-header,
           .dtr-responsive-cell,
@@ -2731,19 +2742,23 @@ const getFilteredUsers = () => {
             max-width: none !important;
           }
 
+
           .dtr-time-cell {
             white-space: nowrap !important;
             word-break: keep-all !important;
           }
 
+
           table {
             table-layout: auto !important;
           }
+
 
           @page {
             size: A4;
             margin: 0;
           }
+
 
           @media print {
             .no-print { display: none !important; }
@@ -3454,7 +3469,7 @@ const getFilteredUsers = () => {
 
                         {/* Footer Pagination Buttons moved here */}
                         <Box sx={{ display: 'flex', gap: 1, ml: 2 }}>
-                           <ProfessionalButton
+                          <ProfessionalButton
                             variant="outlined"
                             onClick={() => goToPage(1)}
                             disabled={currentPage === 1}
@@ -3624,21 +3639,45 @@ const getFilteredUsers = () => {
                                   textOverflow: 'ellipsis',
                                 }}
                               >
-                                {user.rawUser?.departmentCode || user.departmentCode || 'N/A'}
+                                {user.rawUser?.departmentCode ||
+                                  user.departmentCode ||
+                                  'N/A'}
                               </TableCell>
                               <TableCell sx={{ minWidth: 180 }}>
                                 <Chip
-                                  label={getCategoryLabel(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null)}
+                                  label={getCategoryLabel(
+                                    user.rawUser?.employmentCategory ??
+                                      user.employmentCategory ??
+                                      null,
+                                  )}
                                   size="small"
                                   sx={{
-                                    backgroundColor: alpha(getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null), 0.1),
-                                    color: getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null),
+                                    backgroundColor: alpha(
+                                      getCategoryColor(
+                                        user.rawUser?.employmentCategory ??
+                                          user.employmentCategory ??
+                                          null,
+                                      ),
+                                      0.1,
+                                    ),
+                                    color: getCategoryColor(
+                                      user.rawUser?.employmentCategory ??
+                                        user.employmentCategory ??
+                                        null,
+                                    ),
                                     border: `1px solid ${getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null)}`,
                                     fontWeight: '600',
                                     fontSize: '0.75rem',
                                     '&:hover': {
-                                      backgroundColor: alpha(getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null), 0.2)
-                                    }
+                                      backgroundColor: alpha(
+                                        getCategoryColor(
+                                          user.rawUser?.employmentCategory ??
+                                            user.employmentCategory ??
+                                            null,
+                                        ),
+                                        0.2,
+                                      ),
+                                    },
                                   }}
                                 />
                               </TableCell>
@@ -3689,12 +3728,23 @@ const getFilteredUsers = () => {
                         border: '1px solid rgba(0,0,0,0.1)',
                       }}
                     >
-                      <Typography variant="caption" sx={{ fontWeight: 700, mb: 1, display: 'block', color: textPrimaryColor }}>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          fontWeight: 700,
+                          mb: 1,
+                          display: 'block',
+                          color: textPrimaryColor,
+                        }}
+                      >
                         EMPLOYMENT CATEGORY LEGEND
                       </Typography>
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
                         {[0, 1, 2, 3, 4, 5].map((id) => (
-                          <Box key={id} sx={{ display: 'flex', alignItems: 'center' }}>
+                          <Box
+                            key={id}
+                            sx={{ display: 'flex', alignItems: 'center' }}
+                          >
                             <Circle
                               sx={{
                                 color: getCategoryColor(id),
@@ -3702,7 +3752,10 @@ const getFilteredUsers = () => {
                                 mr: 0.5,
                               }}
                             />
-                            <Typography variant="caption" sx={{ color: '#555' }}>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: '#555' }}
+                            >
                               {getCategoryLabel(id)}
                             </Typography>
                           </Box>

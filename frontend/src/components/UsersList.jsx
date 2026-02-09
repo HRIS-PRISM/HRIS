@@ -191,7 +191,8 @@ const useSystemSettings = () => {
   return settings;
 };
 // Helper function to get employment category style and label
-const getEmploymentCategoryInfo = (category) => {
+// NOTE: category 5 supports a custom label ("Other - <custom>")
+const getEmploymentCategoryInfo = (category, customCategory) => {
   const catNum = parseInt(category);
 
   switch (catNum) {
@@ -225,9 +226,9 @@ const getEmploymentCategoryInfo = (category) => {
       };
     case 4: // Designated (40Hrs)
       return {
-        label: 'Designated (40Hrs)',
-        color: '#7B1FA2',
-        bgcolor: alpha('#7B1FA2', 0.1),
+        label: "Designated (40Hrs)",
+        color: "#7B1FA2",
+        bgcolor: alpha("#7B1FA2", 0.1),
         icon: <Circle sx={{ fontSize: 12 }} />,
       };
     default:
@@ -348,6 +349,13 @@ const UsersList = () => {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Bulk Employment Category Edit
+  const [selectedEmployeeNumbers, setSelectedEmployeeNumbers] = useState([]);
+  const [bulkCategoryDialog, setBulkCategoryDialog] = useState(false);
+  const [bulkEmploymentCategory, setBulkEmploymentCategory] = useState('');
+  const [bulkCustomCategory, setBulkCustomCategory] = useState('');
+  const [bulkEditLoading, setBulkEditLoading] = useState(false);
+
 
   // Bulk Employment Category Edit
   const [selectedEmployeeNumbers, setSelectedEmployeeNumbers] = useState([]);
@@ -382,13 +390,13 @@ const UsersList = () => {
   // Edit User States
   const [editDialog, setEditDialog] = useState(false);
   const [userToEdit, setUserToEdit] = useState(null);
-  const [editedEmployeeNumber, setEditedEmployeeNumber] = useState('');
-  const [editedFirstName, setEditedFirstName] = useState('');
-  const [editedMiddleName, setEditedMiddleName] = useState('');
-  const [editedLastName, setEditedLastName] = useState('');
-  const [editedNameExtension, setEditedNameExtension] = useState('');
-  const [editedEmail, setEditedEmail] = useState('');
-  const [editedEmploymentCategory, setEditedEmploymentCategory] = useState('');
+  const [editedEmployeeNumber, setEditedEmployeeNumber] = useState("");
+  const [editedFirstName, setEditedFirstName] = useState("");
+  const [editedMiddleName, setEditedMiddleName] = useState("");
+  const [editedLastName, setEditedLastName] = useState("");
+  const [editedNameExtension, setEditedNameExtension] = useState("");
+  const [editedEmail, setEditedEmail] = useState("");
+  const [editedEmploymentCategory, setEditedEmploymentCategory] = useState("");
   const [editLoading, setEditLoading] = useState(false);
 
   // Delete User States
@@ -586,13 +594,13 @@ const UsersList = () => {
 
     try {
       const authHeaders = getAuthHeaders();
-      const [usersResp, personsResp] = await Promise.all([
+      const [usersResp, personsResp, empCatsResp] = await Promise.all([
         fetch(`${API_BASE_URL}/users`, {
           method: 'GET',
           ...authHeaders,
         }),
         fetch(`${API_BASE_URL}/personalinfo/person_table`, {
-          method: 'GET',
+          method: "GET",
           ...authHeaders,
         }),
       ]);
@@ -609,6 +617,9 @@ const UsersList = () => {
 
       const usersDataRaw = await usersResp.json();
       const personsDataRaw = await personsResp.json().catch(() => []);
+      const empCatsDataRaw = empCatsResp?.ok
+        ? await empCatsResp.json().catch(() => [])
+        : [];
 
       const usersArray = Array.isArray(usersDataRaw)
         ? usersDataRaw
@@ -617,10 +628,21 @@ const UsersList = () => {
         ? personsDataRaw
         : personsDataRaw.persons || personsDataRaw.data || [];
 
+      const empCatsArray = Array.isArray(empCatsDataRaw)
+        ? empCatsDataRaw
+        : empCatsDataRaw.data || empCatsDataRaw.records || [];
+      const empCatsMap = (empCatsArray || []).reduce((acc, row) => {
+        const key = String(row.employeeNumber ?? row.employee_number ?? '');
+        if (!key) return acc;
+        acc[key] = row;
+        return acc;
+      }, {});
+
       const mergedUsers = (usersArray || []).map((user) => {
         const person = (personsArray || []).find(
           (p) => String(p.agencyEmployeeNum) === String(user.employeeNumber),
         );
+        const empCatRow = empCatsMap[String(user.employeeNumber)] || null;
 
         const fullName = person
           ? `${person.firstName || ''} ${person.middleName || ''} ${
@@ -644,10 +666,22 @@ const UsersList = () => {
           avatar: avatar || null,
           personData: person || {},
           employmentCategory:
-            user.employmentCategory !== undefined &&
-            user.employmentCategory !== null
-              ? user.employmentCategory
-              : null,
+            empCatRow?.employmentCategory !== undefined &&
+            empCatRow?.employmentCategory !== null
+              ? empCatRow.employmentCategory
+              : user.employmentCategory !== undefined &&
+                  user.employmentCategory !== null
+                ? user.employmentCategory
+                : null,
+          // Carry custom category text for Employment Category = 5 (Other)
+          customCategory:
+            empCatRow?.customCategory ??
+            empCatRow?.custom_category ??
+            user.customCategory ??
+            user.custom_category ??
+            user.customEmploymentCategory ??
+            user.custom_employment_category ??
+            null,
           // Ensure department data is carried over from backend response
           departmentCode: user.departmentCode || null,
           departmentDescription: user.departmentDescription || null,
@@ -1032,12 +1066,13 @@ const UsersList = () => {
         ? user.employmentCategory
         : '',
     );
+    setEditedCustomCategory(user.customCategory || user.custom_category || '');
     setEditDialog(true);
   };
 
   const handleSaveEdit = async () => {
     if (!editedEmployeeNumber || !editedFirstName || !editedLastName) {
-      setError('Employee Number, First Name, and Last Name are required');
+      setError("Employee Number, First Name, and Last Name are required");
       return;
     }
 
@@ -1131,6 +1166,10 @@ const UsersList = () => {
               body: JSON.stringify({
                 employeeNumber: editedEmployeeNumber,
                 employmentCategory: parseInt(newCategory),
+                customCategory:
+                  parseInt(newCategory) === 5
+                    ? String(editedCustomCategory || '').trim()
+                    : '',
               }),
             },
           );
@@ -1153,6 +1192,10 @@ const UsersList = () => {
               body: JSON.stringify({
                 employeeNumber: editedEmployeeNumber,
                 employmentCategory: parseInt(newCategory),
+                customCategory:
+                  parseInt(newCategory) === 5
+                    ? String(editedCustomCategory || '').trim()
+                    : '',
               }),
             },
           );
@@ -1187,161 +1230,6 @@ const UsersList = () => {
     setEditDialog(false);
     setUserToEdit(null);
   };
-
-
-  // =========================
-  // Bulk Employment Category Edit Handlers
-  // =========================
-  const toggleSelectEmployee = (employeeNumber) => {
-    setSelectedEmployeeNumbers((prev) => {
-      const exists = prev.includes(employeeNumber);
-      if (exists) return prev.filter((n) => n !== employeeNumber);
-      return [...prev, employeeNumber];
-    });
-  };
-
-  const isEmployeeSelected = (employeeNumber) =>
-    selectedEmployeeNumbers.includes(employeeNumber);
-
-  const isAllCurrentPageSelected = (currentPageUsers) => {
-    if (!currentPageUsers || currentPageUsers.length === 0) return false;
-    return currentPageUsers.every((u) =>
-      selectedEmployeeNumbers.includes(u.employeeNumber),
-    );
-  };
-
-  const isSomeCurrentPageSelected = (currentPageUsers) => {
-    if (!currentPageUsers || currentPageUsers.length === 0) return false;
-    const anySelected = currentPageUsers.some((u) =>
-      selectedEmployeeNumbers.includes(u.employeeNumber),
-    );
-    const allSelected = currentPageUsers.every((u) =>
-      selectedEmployeeNumbers.includes(u.employeeNumber),
-    );
-    return anySelected && !allSelected;
-  };
-
-  const toggleSelectAllCurrentPage = (currentPageUsers) => {
-    if (!currentPageUsers || currentPageUsers.length === 0) return;
-
-    const allSelected = currentPageUsers.every((u) =>
-      selectedEmployeeNumbers.includes(u.employeeNumber),
-    );
-
-    if (allSelected) {
-      const currentPageSet = new Set(
-        currentPageUsers.map((u) => u.employeeNumber),
-      );
-      setSelectedEmployeeNumbers((prev) =>
-        prev.filter((n) => !currentPageSet.has(n)),
-      );
-      return;
-    }
-
-    setSelectedEmployeeNumbers((prev) => {
-      const set = new Set(prev);
-      currentPageUsers.forEach((u) => set.add(u.employeeNumber));
-      return Array.from(set);
-    });
-  };
-
-  const openBulkCategoryEdit = () => {
-    if (!selectedEmployeeNumbers.length) {
-      setSnackbarMessage('Please select at least 1 employee.');
-      setSnackbarOpen(true);
-      return;
-    }
-    setBulkEmploymentCategory('');
-    setBulkCategoryDialog(true);
-  };
-
-  const closeBulkCategoryEdit = () => {
-    setBulkCategoryDialog(false);
-    setBulkEmploymentCategory('');
-  };
-
-  const handleSaveBulkCategoryEdit = async () => {
-    // allow numeric 0 (JO Graduate)
-    if (bulkEmploymentCategory === '' || bulkEmploymentCategory === null) {
-      setError('Please select an employment category to apply.');
-      return;
-    }
-    if (!selectedEmployeeNumbers.length) {
-      setError('No employees selected.');
-      return;
-    }
-
-    setBulkEditLoading(true);
-    try {
-      const authHeaders = getAuthHeaders();
-      const selected = [...selectedEmployeeNumbers];
-
-      for (const empNo of selected) {
-        const checkResponse = await fetch(
-          `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${empNo}`,
-          {
-            method: 'GET',
-            ...authHeaders,
-          },
-        );
-
-        if (checkResponse.ok) {
-          const categoryData = await checkResponse.json();
-          const updateRes = await fetch(
-            `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${categoryData.id}`,
-            {
-              method: 'PUT',
-              ...authHeaders,
-              body: JSON.stringify({
-                employeeNumber: empNo,
-                employmentCategory: parseInt(bulkEmploymentCategory),
-              }),
-            },
-          );
-
-          if (!updateRes.ok) {
-            const errData = await updateRes.json().catch(() => ({}));
-            throw new Error(errData.error || `Failed updating ${empNo}`);
-          }
-        } else {
-          const createRes = await fetch(
-            `${API_BASE_URL}/EmploymentCategoryRoutes/employee-category`,
-            {
-              method: 'POST',
-              ...authHeaders,
-              body: JSON.stringify({
-                employeeNumber: empNo,
-                employmentCategory: parseInt(bulkEmploymentCategory),
-              }),
-            },
-          );
-
-          if (!createRes.ok) {
-            const errData = await createRes.json().catch(() => ({}));
-            throw new Error(errData.error || `Failed creating ${empNo}`);
-          }
-        }
-      }
-
-      await fetchUsers();
-
-      setSuccessAction('bulk-edit');
-      setSuccessOpen(true);
-
-      setSelectedEmployeeNumbers([]);
-      setBulkCategoryDialog(false);
-      setBulkEmploymentCategory('');
-    } catch (err) {
-      console.error('Error bulk updating employment category:', err);
-      setError(
-        err?.message ||
-          'Network error occurred while bulk updating employment category',
-      );
-    } finally {
-      setBulkEditLoading(false);
-    }
-  };
-
 
   // Handle Delete User
   const handleDeleteUser = (user) => {
@@ -2316,6 +2204,14 @@ const UsersList = () => {
                         </ListItemIcon>
                         Designated (40Hrs)
                       </MenuItem>
+
+                      <ListSubheader>Custom</ListSubheader>
+                      <MenuItem value="5">
+                        <ListItemIcon sx={{ minWidth: 30 }}>
+                          <Circle sx={{ fontSize: 12, color: '#00796B' }} />
+                        </ListItemIcon>
+                        Other (specify)
+                      </MenuItem>
                     </Select>
                   </FormControl>
                 </Grid>
@@ -2460,37 +2356,6 @@ const UsersList = () => {
                         : 'Grant Admin Access'}
                     </ProfessionalButton>
                   </Tooltip>
-                  {isTechnical && (
-                    <Tooltip title="Bulk Edit Employment Category">
-                      <ProfessionalButton
-                        variant="outlined"
-                        startIcon={<Category />}
-                        onClick={openBulkCategoryEdit}
-                        disabled={selectedEmployeeNumbers.length === 0}
-                        sx={{
-                          borderColor: settings?.primaryColor || '#894444',
-                          color: settings?.primaryColor || '#894444',
-                          '&:hover': {
-                            bgcolor: alpha(
-                              settings?.primaryColor || '#894444',
-                              0.1,
-                            ),
-                            borderColor: settings?.secondaryColor || '#6d2323',
-                          },
-                          '&.Mui-disabled': {
-                            borderColor: alpha(
-                              settings?.primaryColor || '#894444',
-                              0.35,
-                            ),
-                            color: alpha(settings?.primaryColor || '#894444', 0.6),
-                          },
-                        }}
-                      >
-                        Bulk Edit Category ({selectedEmployeeNumbers.length})
-                      </ProfessionalButton>
-                    </Tooltip>
-                  )}
-
                 </Box>
               </Box>
 
@@ -2505,28 +2370,7 @@ const UsersList = () => {
 
                       <PremiumTableCell
                         isHeader
-                        sx={{
-                          color: settings?.textPrimaryColor || '#6D2323',
-                          width: 60,
-                        }}
-                      >
-                        <Checkbox
-                          checked={isAllCurrentPageSelected(paginatedUsers)}
-                          indeterminate={isSomeCurrentPageSelected(paginatedUsers)}
-                          onChange={() =>
-                            toggleSelectAllCurrentPage(paginatedUsers)
-                          }
-                          sx={{
-                            color: settings?.primaryColor || '#894444',
-                            '&.Mui-checked': {
-                              color: settings?.primaryColor || '#894444',
-                            },
-                          }}
-                        />
-                      </PremiumTableCell>
-                      <PremiumTableCell
-                        isHeader
-                        sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                        sx={{ color: settings?.textPrimaryColor || "#6D2323" }}
                       >
                         <BadgeIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                         Employee #
@@ -2595,6 +2439,8 @@ const UsersList = () => {
                       paginatedUsers.map((user, index) => {
                         const categoryInfo = getEmploymentCategoryInfo(
                           user.employmentCategory,
+                          // backend field (same as Registration.jsx payload)
+                          user.customCategory || user.custom_category,
                         );
 
                         return (
@@ -2616,21 +2462,6 @@ const UsersList = () => {
                               transition: 'all 0.2s ease',
                             }}
                           >
-
-                          <PremiumTableCell>
-                            <Checkbox
-                              checked={isEmployeeSelected(user.employeeNumber)}
-                              onChange={() =>
-                                toggleSelectEmployee(user.employeeNumber)
-                              }
-                              sx={{
-                                color: settings?.primaryColor || '#894444',
-                                '&.Mui-checked': {
-                                  color: settings?.primaryColor || '#894444',
-                                },
-                              }}
-                            />
-                          </PremiumTableCell>
                             <PremiumTableCell
                               sx={{
                                 fontWeight: 600,
@@ -3920,6 +3751,8 @@ const UsersList = () => {
                               {(() => {
                                 const categoryInfo = getEmploymentCategoryInfo(
                                   selectedUserForDetails.employmentCategory,
+                                  selectedUserForDetails.customCategory ||
+                                    selectedUserForDetails.custom_category,
                                 );
                                 return (
                                   <Chip
@@ -4540,9 +4373,13 @@ const UsersList = () => {
                     <Select
                       value={editedEmploymentCategory}
                       label="Employment Category"
-                      onChange={(e) =>
-                        setEditedEmploymentCategory(e.target.value)
-                      }
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEditedEmploymentCategory(val);
+                        if (parseInt(val) !== 5) {
+                          setEditedCustomCategory('');
+                        }
+                      }}
                       sx={{
                         borderRadius: 3,
                         backgroundColor: 'rgba(255, 255, 255, 0.8)',
@@ -4584,8 +4421,35 @@ const UsersList = () => {
                         </ListItemIcon>
                         Designated (40Hrs)
                       </MenuItem>
+
+                      <ListSubheader>Custom</ListSubheader>
+                      <MenuItem value={5}>
+                        <ListItemIcon sx={{ minWidth: 30 }}>
+                          <Circle sx={{ fontSize: 12, color: '#00796B' }} />
+                        </ListItemIcon>
+                        Other (specify)
+                      </MenuItem>
                     </Select>
                   </FormControl>
+
+                  {/* Custom Category Field - Only shows when "Other" is selected */}
+                  {parseInt(editedEmploymentCategory) === 5 && (
+                    <Fade in>
+                      <ModernTextField
+                        fullWidth
+                        label="Custom Category Description *"
+                        value={editedCustomCategory}
+                        onChange={(e) =>
+                          setEditedCustomCategory(e.target.value)
+                        }
+                        sx={{ mt: 2 }}
+                        placeholder="e.g., Part-timer, OJT, Consultant..."
+                        inputProps={{ maxLength: 100 }}
+                        helperText="Max 100 characters - describe the employment type"
+                        required
+                      />
+                    </Fade>
+                  )}
                 </Box>
 
                 <Alert
@@ -4636,7 +4500,7 @@ const UsersList = () => {
                 },
               }}
             >
-              {editLoading ? 'Saving...' : 'Save Changes'}
+              {editLoading ? "Saving..." : "Save Changes"}
             </ProfessionalButton>
           </DialogActions>
         </Dialog>
