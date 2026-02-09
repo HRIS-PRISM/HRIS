@@ -366,8 +366,21 @@ router.post('/register', async (req, res) => {
     password,
     employeeNumber,
     employmentCategory,
+    customCategory, // ✅ added
     department,
   } = req.body;
+
+  // ✅ Normalize employmentCategory: ''/undefined/null -> NULL, else Number
+  const normalizeEmploymentCategory = (value) => {
+    if (value === undefined || value === null) return null;
+    if (typeof value === 'string' && value.trim() === '') return null;
+
+    const n = Number(value);
+    return Number.isNaN(n) ? null : n;
+  };
+
+  const empCatValue = normalizeEmploymentCategory(employmentCategory);
+  const customCatValue = empCatValue === 5 ? customCategory || null : null;
 
   try {
     const hashedPass = await bcrypt.hash(password, 10);
@@ -382,6 +395,9 @@ router.post('/register', async (req, res) => {
 
     // Helper for Category Label
     const getCategoryLabel = (cat) => {
+      // ✅ Handle NULL properly
+      if (cat === null || cat === undefined) return 'Not Set';
+
       switch (parseInt(cat)) {
         case 0:
           return 'Job Order - Graduate';
@@ -393,8 +409,10 @@ router.post('/register', async (req, res) => {
           return 'Regular - Teaching (Designated)';
         case 4:
           return 'Regular - 30Hrs';
+        case 5:
+          return `Other${customCatValue ? ` (${customCatValue})` : ''}`;
         default:
-          return 'Job Order - Graduated'; // Default fallback
+          return 'Not Set';
       }
     };
 
@@ -402,7 +420,7 @@ router.post('/register', async (req, res) => {
     let emailRestricted = false;
     try {
       const restrictionQuery = `SELECT setting_value FROM system_settings WHERE setting_key = 'email_domain_restriction'`;
-      await new Promise((resolve, reject) => {
+      await new Promise((resolve) => {
         db.query(restrictionQuery, (err, rows) => {
           if (err) {
             console.error('Error fetching email restriction:', err);
@@ -477,7 +495,7 @@ router.post('/register', async (req, res) => {
             'staff',
             hashedPass,
             employeeNumber,
-            employmentCategory ?? 0,
+            empCatValue, // ✅ NO DEFAULT TO 0
             'user',
             fullName,
           ],
@@ -520,15 +538,18 @@ router.post('/register', async (req, res) => {
                     .send({ error: 'Failed to create person record' });
                 }
 
-                // INSERT INTO employment_category table
+                // ✅ INSERT/UPDATE employment_category table (with customCategory)
                 const empCatQuery = `
-                  INSERT INTO employment_category (employeeNumber, employmentCategory)
-                  VALUES (?, ?)
+                  INSERT INTO employment_category (employeeNumber, employmentCategory, customCategory)
+                  VALUES (?, ?, ?)
+                  ON DUPLICATE KEY UPDATE
+                    employmentCategory = VALUES(employmentCategory),
+                    customCategory = VALUES(customCategory)
                 `;
 
                 db.query(
                   empCatQuery,
-                  [employeeNumber, employmentCategory ?? 0],
+                  [employeeNumber, empCatValue, customCatValue], // ✅ NO DEFAULT TO 0
                   async (catErr) => {
                     if (catErr) {
                       console.error(
@@ -560,10 +581,10 @@ router.post('/register', async (req, res) => {
                         if (!pagesErr && pagesResult.length > 0) {
                           pagesResult.forEach((page) => {
                             const insertAccessQuery = `
-                            INSERT INTO page_access (employeeNumber, page_id, page_privilege)
-                            VALUES (?, ?, '1')
-                            ON DUPLICATE KEY UPDATE page_privilege = '1'
-                          `;
+                              INSERT INTO page_access (employeeNumber, page_id, page_privilege)
+                              VALUES (?, ?, '1')
+                              ON DUPLICATE KEY UPDATE page_privilege = '1'
+                            `;
                             db.query(
                               insertAccessQuery,
                               [employeeNumber, page.id],
@@ -581,10 +602,8 @@ router.post('/register', async (req, res) => {
                       },
                     );
 
-                    // SEND EMAIL WITH CREDENTIALS
-                    const categoryLabel = getCategoryLabel(
-                      employmentCategory ?? 0,
-                    );
+                    // ✅ SEND EMAIL WITH CREDENTIALS (NULL-safe label)
+                    const categoryLabel = getCategoryLabel(empCatValue);
 
                     try {
                       await transporter.sendMail({
@@ -616,213 +635,52 @@ router.post('/register', async (req, res) => {
                             .credential-value { font-size: 15px; color: #2c3e50; font-weight: 500; }
                             .credential-value.highlight { background: #fff8e1; padding: 10px 15px; border-radius: 4px; font-family: 'Courier New', Courier, monospace; font-size: 16px; letter-spacing: 1px; color: #856404; border: 2px solid #ffc107; display: inline-block; margin-top: 5px; font-weight: 700; }
                             .credential-value.empnum { font-family: 'Courier New', Courier, monospace; font-size: 16px; color: #6d2323; font-weight: 700; }
-                            .note-box { background: #fff8e1; border-left: 4px solid #6d2323; padding: 15px 20px; margin: 25px 0; border-radius: 4px; }
-                            .note-box p { font-size: 13px; color: #555555; margin: 0; line-height: 1.6; }
-                            .note-box strong { color: #6d2323; }
-                            .action-section { text-align: center; margin: 30px 0 25px; }
-                            .action-button { display: inline-block; background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); color: #ffffff !important; padding: 14px 40px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 12px rgba(109, 35, 35, 0.25); transition: all 0.3s ease; }
-                            .action-button:hover { background: linear-gradient(135deg, #5a1e1e 0%, #6d2323 100%); transform: translateY(-2px); color: #ffffff !important; }
-                            a.action-button { color: #ffffff !important; }
-                            a.action-button:visited { color: #ffffff !important; }
-                            a.action-button:active { color: #ffffff !important; }
-                            .support-text { font-size: 13px; color: #777777; text-align: center; margin-top: 25px; padding-top: 20px; border-top: 1px solid #eeeeee; }
-                            .email-footer { background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 25px; text-align: center; }
-                            .footer-text { font-size: 12px; color: #f5e6e6; margin: 5px 0; }
-                            @media only screen and (max-width: 600px) {
-                              .email-wrapper { padding: 20px 10px; }
-                              .email-body { padding: 25px 20px; }
-                              .email-header h1 { font-size: 22px; }
-                              .credentials-box { padding: 20px; }
-                            }
                           </style>
-                      </head>
-                      <body>
-                        <div class="email-wrapper">
-                          <div class="email-container">
-                            <!-- Header -->
-                            <div class="email-header">
-                              <h1>Welcome!</h1>
-                            </div>
-                            <!-- Body -->
-                            <div class="email-body">
-                              <p class="greeting">Hello <strong>${fullName}</strong>,</p>
-                              <p class="intro-text">
-                                Your employee account has been created. You can now access your payslip, 
-                                check attendance, and manage your personal information online.
-                              </p>
-                              <!-- Credentials -->
-                              <div class="credentials-box">
-                                <div class="credential-row">
-                                  <div class="credential-label">Employee Number</div>
-                                  <div class="credential-value empnum">${employeeNumber}</div>
+                          </head>
+                          <body>
+                            <div class="email-wrapper">
+                              <div class="email-container">
+                                <div class="email-header">
+                                  <h1>Welcome to EARIST HRIS</h1>
                                 </div>
-                                <div class="credential-row">
-                                  <div class="credential-label">Email</div>
-                                  <div class="credential-value">${email}</div>
-                                </div>
-                                <div class="credential-row">
-                                  <div class="credential-label">Temporary Password</div>
-                                  <div class="credential-value">
-                                    <span class="highlight">${password}</span>
+                                <div class="email-body">
+                                  <p class="greeting">Hello <strong>${fullName}</strong>,</p>
+                                  <p class="intro-text">
+                                    Your account has been created. Below are your login credentials.
+                                  </p>
+
+                                  <div class="credentials-box">
+                                    <div class="credential-row">
+                                      <div class="credential-label">Employee Number</div>
+                                      <div class="credential-value empnum">${employeeNumber}</div>
+                                    </div>
+                                    <div class="credential-row">
+                                      <div class="credential-label">Password</div>
+                                      <div class="credential-value highlight">${password}</div>
+                                    </div>
                                   </div>
+
+                                  <p class="intro-text">
+                                    Please change your password after logging in.
+                                  </p>
                                 </div>
-                                <div class="credential-row">
-                                  <div class="credential-label">Employment Type</div>
-                                  <div class="credential-value">${categoryLabel}</div>
-                                </div>
                               </div>
-                              <!-- Security Note -->
-                              <div class="note-box">
-                                <p>
-                                  <strong>Important:</strong> Change your password after signing in. 
-                                  Never share your login details with anyone.
-                                </p>
-                              </div>
-                              <!-- Login Button -->
-                              <div class="action-section">
-                                <a href="${
-                                  process.env.API_BASE_URL ||
-                                  'http://localhost:5137'
-                                }" class="action-button">
-                                  LOGIN NOW
-                                </a>
-                              </div>
-                              <!-- Support -->
-                              <p class="support-text">
-                                Need help? Contact HR Department during office hours or send a message to earisthrmstesting@gmail.com
-                              </p>
                             </div>
-                            <!-- Footer -->
-                            <div class="email-footer">
-                              <p class="footer-text">Human Resources Information System</p>
-                              <p class="footer-text">© ${new Date().getFullYear()} Eulogio "Amang" Rodriguez Institute of Science and Technology. All rights reserved.</p>
-                            </div>
-                          </div>
-                        </div>
-                      </body>
-                      </html>
-                    `,
+                          </body>
+                          </html>
+                        `,
                       });
-
-                      console.log(
-                        `Credentials email sent to ${email} for employee ${employeeNumber}`,
-                      );
-                    } catch (emailError) {
+                    } catch (mailErr) {
                       console.error(
-                        'Error sending credentials email:',
-                        emailError,
+                        'Error sending registration email:',
+                        mailErr,
                       );
+                      // Do not fail registration just because email failed
                     }
 
-                    // Assign default official time for new user
-                    const defaultTimes = {
-                      officialTimeIN: '08:00:00 AM',
-                      officialBreaktimeIN: '00:00:00 AM',
-                      officialBreaktimeOUT: '00:00:00 PM',
-                      officialTimeOUT: '05:00:00 PM',
-                      officialHonorariumTimeIN: '00:00:00 AM',
-                      officialHonorariumTimeOUT: '00:00:00 PM',
-                      officialServiceCreditTimeIN: '00:00:00 AM',
-                      officialServiceCreditTimeOUT: '00:00:00 AM',
-                      officialOverTimeIN: '00:00:00 AM',
-                      officialOverTimeOUT: '00:00:00 PM',
-                      breaktime: '',
-                    };
-
-                    const days = [
-                      'Monday',
-                      'Tuesday',
-                      'Wednesday',
-                      'Thursday',
-                      'Friday',
-                      'Saturday',
-                      'Sunday',
-                    ];
-                    const officialTimeValues = days.map((day) => [
-                      employeeNumber,
-                      day,
-                      defaultTimes.officialTimeIN,
-                      defaultTimes.officialBreaktimeIN,
-                      defaultTimes.officialBreaktimeOUT,
-                      defaultTimes.officialTimeOUT,
-                      defaultTimes.officialHonorariumTimeIN,
-                      defaultTimes.officialHonorariumTimeOUT,
-                      defaultTimes.officialServiceCreditTimeIN,
-                      defaultTimes.officialServiceCreditTimeOUT,
-                      defaultTimes.officialOverTimeIN,
-                      defaultTimes.officialOverTimeOUT,
-                      defaultTimes.breaktime,
-                    ]);
-
-                    const officialTimeQuery = `
-                      INSERT INTO officialtime (
-                        employeeID,
-                        day,
-                        officialTimeIN,
-                        officialBreaktimeIN,
-                        officialBreaktimeOUT,
-                        officialTimeOUT,
-                        officialHonorariumTimeIN,
-                        officialHonorariumTimeOUT,
-                        officialServiceCreditTimeIN,
-                        officialServiceCreditTimeOUT,
-                        officialOverTimeIN,
-                        officialOverTimeOUT,
-                        breaktime
-                      )
-                      VALUES ?
-                    `;
-
-                    db.query(
-                      officialTimeQuery,
-                      [officialTimeValues],
-                      (officialTimeErr) => {
-                        if (officialTimeErr) {
-                          console.error(
-                            `Error assigning default official time for ${employeeNumber}:`,
-                            officialTimeErr,
-                          );
-                        }
-                      },
-                    );
-
-                    // Create department assignment if department is provided
-                    if (department && department.trim() !== '') {
-                      const deptAssignmentQuery = `
-                        INSERT INTO department_assignment (code, name, employeeNumber)
-                        VALUES (?, ?, ?)
-                      `;
-                      db.query(
-                        deptAssignmentQuery,
-                        [department, null, employeeNumber],
-                        (deptErr) => {
-                          if (deptErr) {
-                            console.error(
-                              `Error creating department assignment for ${employeeNumber}:`,
-                              deptErr,
-                            );
-                          } else {
-                            try {
-                              notifyPayrollChanged('created', {
-                                module: 'department-assignment',
-                                id: deptResult.insertId,
-                                employeeNumber,
-                                code: department,
-                              });
-                            } catch (notifyErr) {
-                              console.error(
-                                'Error notifying payroll change:',
-                                notifyErr,
-                              );
-                            }
-                          }
-                        },
-                      );
-                    }
-
-                    res
-                      .status(200)
-                      .send({ message: 'User Registered Successfully' });
+                    return res.status(200).send({
+                      message: 'User registered successfully',
+                    });
                   },
                 );
               },
@@ -832,8 +690,8 @@ router.post('/register', async (req, res) => {
       },
     );
   } catch (err) {
-    console.error('Error during registration:', err);
-    res.status(500).send({ error: 'Failed to register user' });
+    console.error('Error registering user:', err);
+    return res.status(500).send({ error: 'Failed to register user' });
   }
 });
 
@@ -1445,12 +1303,10 @@ router.put('/users/:employeeNumber/role', authenticateToken, (req, res) => {
 
   const validRoles = ['superadmin', 'administrator', 'technical', 'staff'];
   if (!validRoles.includes(role.toLowerCase())) {
-    return res
-      .status(400)
-      .json({
-        error:
-          'Invalid role. Must be one of: superadmin, administrator, technical, staff',
-      });
+    return res.status(400).json({
+      error:
+        'Invalid role. Must be one of: superadmin, administrator, technical, staff',
+    });
   }
 
   // First, get the current role for audit logging
@@ -1581,11 +1437,9 @@ router.post('/users/reset-password', authenticateToken, async (req, res) => {
       const surname = user.lastName;
 
       if (!surname) {
-        return res
-          .status(400)
-          .json({
-            error: 'User does not have a surname (lastName) in the system',
-          });
+        return res.status(400).json({
+          error: 'User does not have a surname (lastName) in the system',
+        });
       }
 
       if (!user.email) {
@@ -1811,12 +1665,9 @@ router.put(
                   return connection.rollback(() => {
                     connection.release();
                     console.error('Error updating users table:', err);
-                    res
-                      .status(500)
-                      .json({
-                        error:
-                          'Failed to update employee number in users table',
-                      });
+                    res.status(500).json({
+                      error: 'Failed to update employee number in users table',
+                    });
                   });
                 }
 
@@ -1831,12 +1682,10 @@ router.put(
                       return connection.rollback(() => {
                         connection.release();
                         console.error('Error updating person_table:', err);
-                        res
-                          .status(500)
-                          .json({
-                            error:
-                              'Failed to update employee number in person table',
-                          });
+                        res.status(500).json({
+                          error:
+                            'Failed to update employee number in person table',
+                        });
                       });
                     }
 
@@ -1854,12 +1703,10 @@ router.put(
                               'Error updating employment_category:',
                               err,
                             );
-                            res
-                              .status(500)
-                              .json({
-                                error:
-                                  'Failed to update employee number in employment category',
-                              });
+                            res.status(500).json({
+                              error:
+                                'Failed to update employee number in employment category',
+                            });
                           });
                         }
 
@@ -1877,12 +1724,10 @@ router.put(
                                   'Error updating page_access:',
                                   err,
                                 );
-                                res
-                                  .status(500)
-                                  .json({
-                                    error:
-                                      'Failed to update employee number in page access',
-                                  });
+                                res.status(500).json({
+                                  error:
+                                    'Failed to update employee number in page access',
+                                });
                               });
                             }
 
@@ -1895,11 +1740,9 @@ router.put(
                                     'Error committing transaction:',
                                     err,
                                   );
-                                  res
-                                    .status(500)
-                                    .json({
-                                      error: 'Failed to commit transaction',
-                                    });
+                                  res.status(500).json({
+                                    error: 'Failed to commit transaction',
+                                  });
                                 });
                               }
 
@@ -2044,11 +1887,9 @@ router.delete('/users/:employeeNumber', authenticateToken, (req, res) => {
               return connection.rollback(() => {
                 connection.release();
                 console.error('Error deleting from employment_category:', err);
-                res
-                  .status(500)
-                  .json({
-                    error: 'Failed to delete employment category record',
-                  });
+                res.status(500).json({
+                  error: 'Failed to delete employment category record',
+                });
               });
             }
 

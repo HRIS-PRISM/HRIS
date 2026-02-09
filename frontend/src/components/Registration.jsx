@@ -114,7 +114,7 @@ const Registration = () => {
             headers: {
               Authorization: `Bearer ${token}`,
             },
-          }
+          },
         );
         if (response.ok) {
           const data = await response.json();
@@ -146,7 +146,7 @@ const Registration = () => {
             headers: {
               Authorization: `Bearer ${token}`,
             },
-          }
+          },
         );
         if (response.ok) {
           const data = await response.json();
@@ -165,14 +165,11 @@ const Registration = () => {
       try {
         const token =
           localStorage.getItem('token') || sessionStorage.getItem('token');
-        const response = await fetch(
-          `${API_BASE_URL}/api/department-table`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+        const response = await fetch(`${API_BASE_URL}/api/department-table`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
         if (response.ok) {
           const data = await response.json();
           setDepartmentCodes(data.map((item) => item.code));
@@ -212,22 +209,30 @@ const Registration = () => {
   const handleChanges = (e) => {
     const { name, value } = e.target;
 
-    // Update form data
     setFormData((prev) => {
-      const newData = {
-        ...prev,
-        [name]: name === 'employmentCategory' ? Number(value) : value,
-      };
+      const newData = { ...prev };
+
+      // ✅ Fix: employmentCategory should NOT turn '' into 0
+      if (name === 'employmentCategory') {
+        // keep '' as '' (Unset), otherwise convert to number
+        const parsed = value === '' ? '' : Number(value);
+        newData.employmentCategory = parsed;
+
+        // Clear customCategory unless "Other" (5) is selected
+        if (parsed !== 5) {
+          newData.customCategory = '';
+        }
+
+        return newData;
+      }
+
+      // Default behavior for other fields
+      newData[name] = value;
 
       // If lastName is being updated, also update password
       if (name === 'lastName') {
         // Convert to uppercase and remove all spaces
         newData.password = value.toUpperCase().replace(/\s+/g, '');
-      }
-
-      // NEW: Clear customCategory when employmentCategory is not 5
-      if (name === 'employmentCategory' && Number(value) !== 5) {
-        newData.customCategory = '';
       }
 
       return newData;
@@ -272,10 +277,7 @@ const Registration = () => {
     if (fieldRequirements.password && !password) {
       missingFields.push('Password');
     }
-    if (
-      fieldRequirements.employmentCategory &&
-      employmentCategory === ''
-    ) {
+    if (fieldRequirements.employmentCategory && employmentCategory === '') {
       missingFields.push('Employment Category');
     }
     if (fieldRequirements.department && !department) {
@@ -289,7 +291,7 @@ const Registration = () => {
 
     if (missingFields.length > 0) {
       setErrorMessage(
-        `Please fill all required fields: ${missingFields.join(', ')}.`
+        `Please fill all required fields: ${missingFields.join(', ')}.`,
       );
       setSuccessMessage('');
       return;
@@ -297,7 +299,7 @@ const Registration = () => {
 
     if (!isValidName(firstName)) {
       setErrorMessage(
-        'Please enter a valid first name (2-50 characters, letters only).'
+        'Please enter a valid first name (2-50 characters, letters only).',
       );
       setSuccessMessage('');
       return;
@@ -305,7 +307,7 @@ const Registration = () => {
 
     if (!isValidName(lastName)) {
       setErrorMessage(
-        'Please enter a valid last name (2-50 characters, letters only).'
+        'Please enter a valid last name (2-50 characters, letters only).',
       );
       setSuccessMessage('');
       return;
@@ -313,7 +315,7 @@ const Registration = () => {
 
     if (formData.middleName && !isValidName(formData.middleName)) {
       setErrorMessage(
-        'Please enter a valid middle name (2-50 characters, letters only).'
+        'Please enter a valid middle name (2-50 characters, letters only).',
       );
       setSuccessMessage('');
       return;
@@ -328,7 +330,10 @@ const Registration = () => {
         return;
       }
 
-      if (emailDomainRestricted && !email.toLowerCase().endsWith('@earist.edu.ph')) {
+      if (
+        emailDomainRestricted &&
+        !email.toLowerCase().endsWith('@earist.edu.ph')
+      ) {
         setErrorMessage('Email must use @earist.edu.ph domain.');
         setSuccessMessage('');
         return;
@@ -353,7 +358,7 @@ const Registration = () => {
         setTimeout(() => {
           setIsLoading(false);
           setSuccessMessage(
-            'User registered successfully! Login Information have been sent to their email.'
+            'User registered successfully! Login Information have been sent to their email.',
           );
           setErrorMessage('');
           setTimeout(() => {
@@ -518,8 +523,8 @@ const Registration = () => {
                     lineHeight: 1.6,
                   }}
                 >
-                  Before registering users, ensure following tables are
-                  properly configured:
+                  Before registering users, ensure following tables are properly
+                  configured:
                 </Typography>
 
                 <Grid container spacing={2}>
@@ -1146,37 +1151,47 @@ const Registration = () => {
                             <MenuItem value="" disabled>
                               <em>Select Employment Category</em>
                             </MenuItem>
-                            
+
                             <ListSubheader>Job Order (JO)</ListSubheader>
                             <MenuItem value={0}>
                               <ListItemIcon sx={{ minWidth: 30 }}>
-                                <Circle sx={{ fontSize: 12, color: '#F57C00' }} />
+                                <Circle
+                                  sx={{ fontSize: 12, color: '#F57C00' }}
+                                />
                               </ListItemIcon>
                               Graduate
                             </MenuItem>
                             <MenuItem value={1}>
                               <ListItemIcon sx={{ minWidth: 30 }}>
-                                <Circle sx={{ fontSize: 12, color: '#E64A19' }} />
+                                <Circle
+                                  sx={{ fontSize: 12, color: '#E64A19' }}
+                                />
                               </ListItemIcon>
                               UnderGrad
                             </MenuItem>
-                            
+
                             <ListSubheader>Regular</ListSubheader>
                             <MenuItem value={2}>
                               <ListItemIcon sx={{ minWidth: 30 }}>
-                                <Circle sx={{ fontSize: 12, color: '#2E7D32' }} />
+                                <Circle
+                                  sx={{ fontSize: 12, color: '#2E7D32' }}
+                                />
                               </ListItemIcon>
                               Non-Teaching
                             </MenuItem>
                             <MenuItem value={3}>
                               <ListItemIcon sx={{ minWidth: 30 }}>
-                                <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
+                                <Circle
+                                  sx={{ fontSize: 12, color: '#1565C0' }}
+                                />
                               </ListItemIcon>
                               Teaching (30Hrs)
                             </MenuItem>
                             <MenuItem value={4}>
                               <ListItemIcon sx={{ minWidth: 30 }}>
-                                <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
+                                <Circle
+                                  sx={{ fontSize: 12, color: '#7B1FA2' }}
+                                />
                               </ListItemIcon>
                               Designated (40Hrs)
                             </MenuItem>
@@ -1184,7 +1199,9 @@ const Registration = () => {
                             <ListSubheader>Custom</ListSubheader>
                             <MenuItem value={5}>
                               <ListItemIcon sx={{ minWidth: 30 }}>
-                                <Circle sx={{ fontSize: 12, color: '#00796B' }} />
+                                <Circle
+                                  sx={{ fontSize: 12, color: '#00796B' }}
+                                />
                               </ListItemIcon>
                               Other (specify)
                             </MenuItem>
@@ -1240,7 +1257,8 @@ const Registration = () => {
                                   },
                                   '&.Mui-focused': {
                                     transform: 'translateY(-2px)',
-                                    boxShadow: '0 4px 12px rgba(109, 35, 35, 0.15)',
+                                    boxShadow:
+                                      '0 4px 12px rgba(109, 35, 35, 0.15)',
                                   },
                                   '&.Mui-focused fieldset': {
                                     borderColor: '#6d2323',
@@ -1420,9 +1438,7 @@ const Registration = () => {
                             value={formData.department}
                             label={`Department${fieldRequirements.department ? ' *' : ''}`}
                             onChange={handleChanges}
-                            onFocus={() =>
-                              setFocusedField('department')
-                            }
+                            onFocus={() => setFocusedField('department')}
                             onBlur={() => setFocusedField(null)}
                             displayEmpty
                             startAdornment={
@@ -1600,10 +1616,7 @@ const Registration = () => {
       </Grid>
 
       {/* Loading Overlay */}
-      <LoadingOverlay 
-        open={isLoading} 
-        message="Registering user..."
-      />
+      <LoadingOverlay open={isLoading} message="Registering user..." />
     </Container>
   );
 };
