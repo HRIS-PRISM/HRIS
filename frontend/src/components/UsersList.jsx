@@ -1,7 +1,7 @@
-import API_BASE_URL from "../apiConfig";
-import React, { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { getAuthHeaders } from "../utils/auth";
+import API_BASE_URL from '../apiConfig';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { getAuthHeaders } from '../utils/auth';
 import {
   Container,
   Paper,
@@ -33,6 +33,7 @@ import {
   ListItem,
   ListItemText,
   Switch,
+  Checkbox,
   Avatar,
   MenuItem,
   Divider,
@@ -58,7 +59,7 @@ import {
   FormControl,
   InputLabel,
   Select,
-} from "@mui/material";
+} from '@mui/material';
 import {
   People,
   Search,
@@ -103,17 +104,25 @@ import {
   ErrorOutline,
   Circle,
   WorkOutline,
-} from "@mui/icons-material";
-import SearchIcon from "@mui/icons-material/Search";
-import axios from "axios";
-import SuccessfulOverlay from "./SuccessfulOverlay";
+  Category,
+  Assignment,
+  Payment,
+  Description,
+  FolderSpecial,
+  Folder,
+  ChevronLeft,
+  ChevronRight,
+} from '@mui/icons-material';
+import SearchIcon from '@mui/icons-material/Search';
+import axios from 'axios';
+import SuccessfulOverlay from './SuccessfulOverlay';
 
 // Get user role from token
 const getUserRole = () => {
   try {
     const token = localStorage.getItem('token');
     if (!token) return null;
-    
+
     // Parse JWT token to get user role
     const base64Url = token.split('.')[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
@@ -123,9 +132,9 @@ const getUserRole = () => {
         .map(function (c) {
           return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
         })
-        .join('')
+        .join(''),
     );
-    
+
     const payload = JSON.parse(jsonPayload);
     return payload.role || payload.userRole || null;
   } catch (error) {
@@ -141,8 +150,8 @@ const useSystemSettings = () => {
     secondaryColor: '#6d2323',
     accentColor: '#FEF9E1',
     textColor: '#FFFFFF',
-    textPrimaryColor: '#6D2323', 
-    textSecondaryColor: '#FEF9E1', 
+    textPrimaryColor: '#6D2323',
+    textSecondaryColor: '#FEF9E1',
     hoverColor: '#6D2323',
     backgroundColor: '#FFFFFF',
   });
@@ -162,10 +171,10 @@ const useSystemSettings = () => {
 
     const fetchSettings = async () => {
       try {
-        const url = API_BASE_URL.includes('/api') 
+        const url = API_BASE_URL.includes('/api')
           ? `${API_BASE_URL}/system-settings`
           : `${API_BASE_URL}/api/system-settings`;
-        
+
         const response = await axios.get(url);
         if (response.data && typeof response.data === 'object') {
           setSettings(response.data);
@@ -181,11 +190,11 @@ const useSystemSettings = () => {
 
   return settings;
 };
-
 // Helper function to get employment category style and label
-const getEmploymentCategoryInfo = (category) => {
+// NOTE: category 5 supports a custom label ("Other - <custom>")
+const getEmploymentCategoryInfo = (category, customCategory) => {
   const catNum = parseInt(category);
-  
+
   switch (catNum) {
     case 0: // JO Graduate
       return {
@@ -208,18 +217,27 @@ const getEmploymentCategoryInfo = (category) => {
         bgcolor: alpha('#2E7D32', 0.1),
         icon: <Circle sx={{ fontSize: 12 }} />,
       };
-    case 3: // Regular Teaching (Designated)
+    case 3: // Teaching (30Hrs)
       return {
-        label: 'Regular - Teaching',
+        label: 'Teaching (30Hrs)',
         color: '#1565C0',
         bgcolor: alpha('#1565C0', 0.1),
         icon: <Circle sx={{ fontSize: 12 }} />,
       };
-    case 4: // Regular 30Hrs
+    case 4: // Designated (40Hrs)
       return {
-        label: 'Regular - 30Hrs',
+        label: 'Designated (40Hrs)',
         color: '#7B1FA2',
         bgcolor: alpha('#7B1FA2', 0.1),
+        icon: <Circle sx={{ fontSize: 12 }} />,
+      };
+    case 5: // Other (specify)
+      return {
+        label: customCategory
+          ? `Other (${String(customCategory).trim()})`
+          : 'Other (specify)',
+        color: '#455A64',
+        bgcolor: alpha('#455A64', 0.1),
         icon: <Circle sx={{ fontSize: 12 }} />,
       };
     default:
@@ -232,11 +250,99 @@ const getEmploymentCategoryInfo = (category) => {
   }
 };
 
+// Helper function to get page description color and icon
+const getDescriptionColor = (description, settings) => {
+  switch (description?.toLowerCase()) {
+    case 'general':
+      return {
+        sx: {
+          bgcolor: alpha(settings?.primaryColor || '#894444', 0.15),
+          color: settings?.primaryColor || '#894444',
+        },
+        icon: <Category />,
+      };
+    case 'system administration':
+      return {
+        sx: {
+          bgcolor: alpha(settings?.primaryColor || '#894444', 0.15),
+          color: settings?.primaryColor || '#894444',
+        },
+        icon: <Category />,
+      };
+    case 'registration':
+      return {
+        sx: {
+          bgcolor: alpha(settings?.secondaryColor || '#6d2323', 0.15),
+          color: settings?.secondaryColor || '#6d2323',
+        },
+        icon: <Assignment />,
+      };
+    case 'information management':
+      return {
+        sx: {
+          bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
+          color: settings?.primaryColor || '#894444',
+        },
+        icon: <Info />,
+      };
+    case 'attendance management':
+      return {
+        sx: {
+          bgcolor: alpha(settings?.primaryColor || '#894444', 0.12),
+          color: settings?.primaryColor || '#894444',
+        },
+        icon: <Assessment />,
+      };
+    case 'payroll management':
+      return {
+        sx: {
+          bgcolor: alpha(settings?.secondaryColor || '#6d2323', 0.12),
+          color: settings?.secondaryColor || '#6d2323',
+        },
+        icon: <Payment />,
+      };
+    case 'form':
+      return {
+        sx: {
+          bgcolor: alpha(settings?.primaryColor || '#894444', 0.08),
+          color: settings?.primaryColor || '#894444',
+        },
+        icon: <Description />,
+      };
+    case 'pages management':
+      return {
+        sx: {
+          bgcolor: alpha(settings?.primaryColor || '#894444', 0.18),
+          color: settings?.primaryColor || '#894444',
+        },
+        icon: <FolderSpecial />,
+      };
+    case 'personal data sheets':
+      return {
+        sx: {
+          bgcolor: alpha(settings?.secondaryColor || '#6d2323', 0.18),
+          color: settings?.secondaryColor || '#6d2323',
+        },
+        icon: <Folder />,
+      };
+    default:
+      return {
+        sx: {
+          bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
+          color: settings?.primaryColor || '#894444',
+        },
+        icon: <Description />,
+      };
+  }
+};
+
 const UsersList = () => {
   // Module Access State
   const [moduleAuthorized, setModuleAuthorized] = useState(false);
-  const [confidentialPasswordInput, setConfidentialPasswordInput] = useState('');
-  const [openConfidentialPassword, setOpenConfidentialPassword] = useState(true);
+  const [confidentialPasswordInput, setConfidentialPasswordInput] =
+    useState('');
+  const [openConfidentialPassword, setOpenConfidentialPassword] =
+    useState(true);
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
@@ -246,11 +352,18 @@ const UsersList = () => {
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [error, setError] = useState("");
+  const [searchTerm, setSearchTerm] = useState('');
+  const [error, setError] = useState('');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Bulk Employment Category Edit
+  const [selectedEmployeeNumbers, setSelectedEmployeeNumbers] = useState([]);
+  const [bulkCategoryDialog, setBulkCategoryDialog] = useState(false);
+  const [bulkEmploymentCategory, setBulkEmploymentCategory] = useState('');
+  const [bulkCustomCategory, setBulkCustomCategory] = useState('');
+  const [bulkEditLoading, setBulkEditLoading] = useState(false);
 
   // Page Access Management States
   const [pageAccessDialog, setPageAccessDialog] = useState(false);
@@ -258,35 +371,37 @@ const UsersList = () => {
   const [pages, setPages] = useState([]);
   const [pageAccess, setPageAccess] = useState({});
   const [pageAccessLoading, setPageAccessLoading] = useState(false);
-  const [roleFilter, setRoleFilter] = useState("");
+  const [roleFilter, setRoleFilter] = useState('');
   const [accessChangeInProgress, setAccessChangeInProgress] = useState({});
+  const [activeAccessCategory, setActiveAccessCategory] = useState(null); // For Tabbed View
 
   // Additional UI States
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
   const [selectedUserForDetails, setSelectedUserForDetails] = useState(null);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [successOpen, setSuccessOpen] = useState(false);
-  const [successAction, setSuccessAction] = useState("");
+  const [successAction, setSuccessAction] = useState('');
   const [hoveredCard, setHoveredCard] = useState(null);
   const [hoveredRow, setHoveredRow] = useState(null);
-  const [activeTab, setActiveTab] = useState("info");
+  const [activeTab, setActiveTab] = useState('info');
   const [animatedValue, setAnimatedValue] = useState(0);
   const [roleChangeDialog, setRoleChangeDialog] = useState(false);
   const [pendingRoleChange, setPendingRoleChange] = useState(null);
   const [roleChangeLoading, setRoleChangeLoading] = useState(false);
-  
+
   // Edit User States
   const [editDialog, setEditDialog] = useState(false);
   const [userToEdit, setUserToEdit] = useState(null);
-  const [editedEmployeeNumber, setEditedEmployeeNumber] = useState("");
-  const [editedFirstName, setEditedFirstName] = useState("");
-  const [editedMiddleName, setEditedMiddleName] = useState("");
-  const [editedLastName, setEditedLastName] = useState("");
-  const [editedNameExtension, setEditedNameExtension] = useState("");
-  const [editedEmail, setEditedEmail] = useState("");
-  const [editedEmploymentCategory, setEditedEmploymentCategory] = useState("");
+  const [editedEmployeeNumber, setEditedEmployeeNumber] = useState('');
+  const [editedFirstName, setEditedFirstName] = useState('');
+  const [editedMiddleName, setEditedMiddleName] = useState('');
+  const [editedLastName, setEditedLastName] = useState('');
+  const [editedNameExtension, setEditedNameExtension] = useState('');
+  const [editedEmail, setEditedEmail] = useState('');
+  const [editedEmploymentCategory, setEditedEmploymentCategory] = useState('');
+  const [editedCustomCategory, setEditedCustomCategory] = useState('');
   const [editLoading, setEditLoading] = useState(false);
-  
+
   // Delete User States
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
@@ -297,18 +412,21 @@ const UsersList = () => {
   const [grantingAdminAccess, setGrantingAdminAccess] = useState(false);
 
   // Employment Category Filter
-  const [categoryFilter, setCategoryFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState('');
 
   // Department Filter State
-  const [departmentFilter, setDepartmentFilter] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState('');
+
+  // Chip Scroll Ref
+  const chipScrollRef = useRef(null);
 
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const navigate = useNavigate();
 
   // Use system settings
   const settings = useSystemSettings();
-  
+
   // Check user role on component mount
   useEffect(() => {
     const role = getUserRole();
@@ -318,7 +436,7 @@ const UsersList = () => {
 
   // Check if user is superadmin
   const isSuperAdmin = userRole === 'superadmin' || userRole === 'technical';
-  
+
   // Check if user is technical (for restricted features)
   const isTechnical = userRole === 'technical';
 
@@ -336,7 +454,7 @@ const UsersList = () => {
       const response = await axios.post(
         `${API_BASE_URL}/api/confidential-password/verify`,
         { password: confidentialPasswordInput },
-        getAuthHeaders()
+        getAuthHeaders(),
       );
 
       if (response.data.verified) {
@@ -352,7 +470,10 @@ const UsersList = () => {
       }
     } catch (error) {
       console.error('Error verifying authorized password:', error);
-      setSnackbarMessage(error.response?.data?.error || 'Failed to verify password. Please try again.');
+      setSnackbarMessage(
+        error.response?.data?.error ||
+          'Failed to verify password. Please try again.',
+      );
       setSnackbarOpen(true);
       setConfidentialPasswordInput('');
     } finally {
@@ -366,78 +487,104 @@ const UsersList = () => {
   };
 
   // Memoize styled components to prevent recreation on every render
-  const GlassCard = useMemo(() => styled(Card)(({ theme }) => ({
-    borderRadius: 20,
-    background: `${settings?.accentColor || '#FEF9E1'}F2`,
-    backdropFilter: "blur(10px)",
-    boxShadow: `0 8px 40px ${settings?.primaryColor || '#894444'}14`,
-    border: `1px solid ${settings?.primaryColor || '#894444'}1A`,
-    overflow: "hidden",
-    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    "&:hover": {
-      boxShadow: `0 12px 48px ${settings?.primaryColor || '#894444'}26`,
-      transform: "translateY(-4px)",
-    },
-  })), [settings]);
+  const GlassCard = useMemo(
+    () =>
+      styled(Card)(({ theme }) => ({
+        borderRadius: 20,
+        background: `${settings?.accentColor || '#FEF9E1'}F2`,
+        backdropFilter: 'blur(10px)',
+        boxShadow: `0 8px 40px ${settings?.primaryColor || '#894444'}14`,
+        border: `1px solid ${settings?.primaryColor || '#894444'}1A`,
+        overflow: 'hidden',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        '&:hover': {
+          boxShadow: `0 12px 48px ${settings?.primaryColor || '#894444'}26`,
+          transform: 'translateY(-4px)',
+        },
+      })),
+    [settings],
+  );
 
-  const ProfessionalButton = useMemo(() => styled(Button)(({ theme, variant }) => ({
-    borderRadius: 12,
-    fontWeight: 600,
-    padding: "12px 24px",
-    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    textTransform: "none",
-    fontSize: "0.95rem",
-    letterSpacing: "0.025em",
-    boxShadow: variant === "contained" ? `0 4px 14px ${settings?.primaryColor || '#894444'}40` : "none",
-    "&:hover": {
-      transform: "translateY(-2px)",
-      boxShadow: variant === "contained" ? `0 6px 20px ${settings?.primaryColor || '#894444'}59` : "none",
-    },
-    "&:active": {
-      transform: "translateY(0)",
-    },
-  })), [settings]);
+  const ProfessionalButton = useMemo(
+    () =>
+      styled(Button)(({ theme, variant }) => ({
+        borderRadius: 12,
+        fontWeight: 600,
+        padding: '12px 24px',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        textTransform: 'none',
+        fontSize: '0.95rem',
+        letterSpacing: '0.025em',
+        boxShadow:
+          variant === 'contained'
+            ? `0 4px 14px ${settings?.primaryColor || '#894444'}40`
+            : 'none',
+        '&:hover': {
+          transform: 'translateY(-2px)',
+          boxShadow:
+            variant === 'contained'
+              ? `0 6px 20px ${settings?.primaryColor || '#894444'}59`
+              : 'none',
+        },
+        '&:active': {
+          transform: 'translateY(0)',
+        },
+      })),
+    [settings],
+  );
 
-  const ModernTextField = useMemo(() => styled(TextField)(({ theme }) => ({
-    "& .MuiOutlinedInput-root": {
-      borderRadius: 12,
-      transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-      backgroundColor: "rgba(255, 255, 255, 0.8)",
-      "&:hover": {
-        transform: "translateY(-1px)",
-        backgroundColor: "rgba(255, 255, 255, 0.95)",
-      },
-      "&.Mui-focused": {
-        transform: "translateY(-1px)",
-        boxShadow: `0 4px 20px ${settings?.primaryColor || '#894444'}40`,
-        backgroundColor: "rgba(255, 255, 255, 1)",
-      },
-    },
-    "& .MuiInputLabel-root": {
-      fontWeight: 500,
-    },
-  })), [settings]);
+  const ModernTextField = useMemo(
+    () =>
+      styled(TextField)(({ theme }) => ({
+        '& .MuiOutlinedInput-root': {
+          borderRadius: 12,
+          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          backgroundColor: 'rgba(255, 255, 255, 0.8)',
+          '&:hover': {
+            transform: 'translateY(-1px)',
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          },
+          '&.Mui-focused': {
+            transform: 'translateY(-1px)',
+            boxShadow: `0 4px 20px ${settings?.primaryColor || '#894444'}40`,
+            backgroundColor: 'rgba(255, 255, 255, 1)',
+          },
+        },
+        '& .MuiInputLabel-root': {
+          fontWeight: 500,
+        },
+      })),
+    [settings],
+  );
 
-  const PremiumTableContainer = useMemo(() => styled(TableContainer)(({ theme }) => ({
-    borderRadius: 16,
-    overflow: "hidden",
-    boxShadow: `0 4px 24px ${settings?.primaryColor || '#894444'}0F`,
-    border: `1px solid ${settings?.primaryColor || '#894444'}14`,
-  })), [settings]);
+  const PremiumTableContainer = useMemo(
+    () =>
+      styled(TableContainer)(({ theme }) => ({
+        borderRadius: 16,
+        overflow: 'hidden',
+        boxShadow: `0 4px 24px ${settings?.primaryColor || '#894444'}0F`,
+        border: `1px solid ${settings?.primaryColor || '#894444'}14`,
+      })),
+    [settings],
+  );
 
-  const PremiumTableCell = useMemo(() => styled(TableCell)(({ theme, isHeader = false }) => ({
-    fontWeight: isHeader ? 600 : 500,
-    padding: "18px 20px",
-    borderBottom: isHeader
-      ? `2px solid ${settings?.primaryColor || '#894444'}4D`
-      : `1px solid ${settings?.primaryColor || '#894444'}0F`,
-    fontSize: "0.95rem",
-    letterSpacing: "0.025em",
-  })), [settings]);
+  const PremiumTableCell = useMemo(
+    () =>
+      styled(TableCell)(({ theme, isHeader = false }) => ({
+        fontWeight: isHeader ? 600 : 500,
+        padding: '18px 20px',
+        borderBottom: isHeader
+          ? `2px solid ${settings?.primaryColor || '#894444'}4D`
+          : `1px solid ${settings?.primaryColor || '#894444'}0F`,
+        fontSize: '0.95rem',
+        letterSpacing: '0.025em',
+      })),
+    [settings],
+  );
 
   // Generate unique department list for filter
   const uniqueDepartments = useMemo(() => {
-    const depts = new Set(users.map(u => u.departmentCode).filter(Boolean));
+    const depts = new Set(users.map((u) => u.departmentCode).filter(Boolean));
     return Array.from(depts).sort();
   }, [users]);
 
@@ -446,24 +593,29 @@ const UsersList = () => {
     if (isManualRefresh) {
       setRefreshing(true);
     }
-    setError("");
+    setError('');
 
     try {
       const authHeaders = getAuthHeaders();
-      const [usersResp, personsResp] = await Promise.all([
+      const [usersResp, personsResp, empCatsResp] = await Promise.all([
         fetch(`${API_BASE_URL}/users`, {
-          method: "GET",
+          method: 'GET',
           ...authHeaders,
         }),
         fetch(`${API_BASE_URL}/personalinfo/person_table`, {
-          method: "GET",
+          method: 'GET',
+          ...authHeaders,
+        }),
+        // Fetch Employment Category (including customCategory) from employment_category table
+        fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, {
+          method: 'GET',
           ...authHeaders,
         }),
       ]);
 
       if (!usersResp.ok) {
         const err = await usersResp.json().catch(() => ({}));
-        setError(err.error || "Failed to fetch users");
+        setError(err.error || 'Failed to fetch users');
         setUsers([]);
         setFilteredUsers([]);
         setLoading(false);
@@ -473,6 +625,9 @@ const UsersList = () => {
 
       const usersDataRaw = await usersResp.json();
       const personsDataRaw = await personsResp.json().catch(() => []);
+      const empCatsDataRaw = empCatsResp?.ok
+        ? await empCatsResp.json().catch(() => [])
+        : [];
 
       const usersArray = Array.isArray(usersDataRaw)
         ? usersDataRaw
@@ -481,35 +636,60 @@ const UsersList = () => {
         ? personsDataRaw
         : personsDataRaw.persons || personsDataRaw.data || [];
 
+      const empCatsArray = Array.isArray(empCatsDataRaw)
+        ? empCatsDataRaw
+        : empCatsDataRaw.data || empCatsDataRaw.records || [];
+      const empCatsMap = (empCatsArray || []).reduce((acc, row) => {
+        const key = String(row.employeeNumber ?? row.employee_number ?? '');
+        if (!key) return acc;
+        acc[key] = row;
+        return acc;
+      }, {});
+
       const mergedUsers = (usersArray || []).map((user) => {
         const person = (personsArray || []).find(
-          (p) => String(p.agencyEmployeeNum) === String(user.employeeNumber)
+          (p) => String(p.agencyEmployeeNum) === String(user.employeeNumber),
         );
+        const empCatRow = empCatsMap[String(user.employeeNumber)] || null;
 
         const fullName = person
-          ? `${person.firstName || ""} ${person.middleName || ""} ${
-              person.lastName || ""
-            } ${person.nameExtension || ""}`.trim()
+          ? `${person.firstName || ''} ${person.middleName || ''} ${
+              person.lastName || ''
+            } ${person.nameExtension || ''}`.trim()
           : user.fullName ||
             user.username ||
-            `${user.firstName || ""} ${user.lastName || ""}`.trim();
+            `${user.firstName || ''} ${user.lastName || ''}`.trim();
 
         const avatar = person?.profile_picture
           ? `${API_BASE_URL}${person.profile_picture}`
           : user.avatar
-          ? String(user.avatar).startsWith("http")
-            ? user.avatar
-            : `${API_BASE_URL}${user.avatar}`
-          : null;
+            ? String(user.avatar).startsWith('http')
+              ? user.avatar
+              : `${API_BASE_URL}${user.avatar}`
+            : null;
 
         return {
           ...user,
-          fullName: fullName || "Username",
+          fullName: fullName || 'Username',
           avatar: avatar || null,
           personData: person || {},
-          employmentCategory: user.employmentCategory !== undefined && user.employmentCategory !== null 
-            ? user.employmentCategory 
-            : null,
+          employmentCategory:
+            empCatRow?.employmentCategory !== undefined &&
+            empCatRow?.employmentCategory !== null
+              ? empCatRow.employmentCategory
+              : user.employmentCategory !== undefined &&
+                  user.employmentCategory !== null
+                ? user.employmentCategory
+                : null,
+          // Carry custom category text for Employment Category = 5 (Other)
+          customCategory:
+            empCatRow?.customCategory ??
+            empCatRow?.custom_category ??
+            user.customCategory ??
+            user.custom_category ??
+            user.customEmploymentCategory ??
+            user.custom_employment_category ??
+            null,
           // Ensure department data is carried over from backend response
           departmentCode: user.departmentCode || null,
           departmentDescription: user.departmentDescription || null,
@@ -521,8 +701,8 @@ const UsersList = () => {
 
       // Note: Success overlay removed from refresh - it should only show for actual CRUD operations
     } catch (err) {
-      console.error("Error fetching users:", err);
-      setError("Something went wrong while fetching users");
+      console.error('Error fetching users:', err);
+      setError('Something went wrong while fetching users');
       setUsers([]);
       setFilteredUsers([]);
     } finally {
@@ -537,9 +717,9 @@ const UsersList = () => {
       const accessResponse = await fetch(
         `${API_BASE_URL}/page_access/${user.employeeNumber}`,
         {
-          method: "GET",
+          method: 'GET',
           ...authHeaders,
-        }
+        },
       );
 
       if (accessResponse.ok) {
@@ -548,14 +728,14 @@ const UsersList = () => {
           ? accessDataRaw
           : accessDataRaw.data || [];
         const accessMap = (accessData || []).reduce((acc, curr) => {
-          const privilege = String(curr.page_privilege || "0");
-          acc[curr.page_id] = privilege !== "0" && privilege !== "";
+          const privilege = String(curr.page_privilege || '0');
+          acc[curr.page_id] = privilege !== '0' && privilege !== '';
           return acc;
         }, {});
 
         const authHeaders = getAuthHeaders();
         const pagesResponse = await fetch(`${API_BASE_URL}/pages`, {
-          method: "GET",
+          method: 'GET',
           ...authHeaders,
         });
 
@@ -565,11 +745,11 @@ const UsersList = () => {
             ? pagesData
             : pagesData.pages || pagesData.data || [];
           pagesData = (pagesData || []).sort(
-            (a, b) => (a.id || 0) - (b.id || 0)
+            (a, b) => (a.id || 0) - (b.id || 0),
           );
 
           const accessiblePages = pagesData.filter(
-            (page) => accessMap[page.id] === true
+            (page) => accessMap[page.id] === true,
           );
 
           setSelectedUserForDetails((prev) => ({
@@ -596,7 +776,7 @@ const UsersList = () => {
         }
       }
     } catch (err) {
-      console.error("Error fetching user page access:", err);
+      console.error('Error fetching user page access:', err);
     }
   };
 
@@ -604,11 +784,12 @@ const UsersList = () => {
     setSelectedUser(user);
     setPageAccessLoading(true);
     setPageAccessDialog(true);
+    setActiveAccessCategory(null); // Reset tab
 
     try {
       const authHeaders = getAuthHeaders();
       const pagesResponse = await fetch(`${API_BASE_URL}/pages`, {
-        method: "GET",
+        method: 'GET',
         ...authHeaders,
       });
 
@@ -623,9 +804,9 @@ const UsersList = () => {
         const accessResponse = await fetch(
           `${API_BASE_URL}/page_access/${user.employeeNumber}`,
           {
-            method: "GET",
+            method: 'GET',
             ...authHeaders,
-          }
+          },
         );
 
         if (accessResponse.ok) {
@@ -634,11 +815,41 @@ const UsersList = () => {
             ? accessDataRaw
             : accessDataRaw.data || [];
           const accessMap = (accessData || []).reduce((acc, curr) => {
-            const privilege = String(curr.page_privilege || "0");
-            acc[curr.page_id] = privilege !== "0" && privilege !== "";
+            const privilege = String(curr.page_privilege || '0');
+            acc[curr.page_id] = privilege !== '0' && privilege !== '';
             return acc;
           }, {});
           setPageAccess(accessMap);
+
+          // Automatically set to first category to avoid scrolling
+          if (pagesData.length > 0) {
+            const grouped = pagesData.reduce((acc, page) => {
+              const desc = page.page_description || 'Uncategorized';
+              acc[desc] = true;
+              return acc;
+            }, {});
+            const descriptions = Object.keys(grouped).sort((a, b) => {
+              const order = [
+                'General',
+                'System Administration',
+                'Registration',
+                'Information Management',
+                'Attendance Management',
+                'Payroll Management',
+                'Form',
+                'Pages Management',
+                'Personal Data Sheets',
+                'Uncategorized',
+              ];
+              const ia = order.indexOf(a);
+              const ib = order.indexOf(b);
+              if (ia !== -1 && ib !== -1) return ia - ib;
+              if (ia !== -1) return -1;
+              if (ib !== -1) return 1;
+              return a.localeCompare(b);
+            });
+            setActiveAccessCategory(descriptions[0] || 'General');
+          }
         } else {
           setPageAccess({});
         }
@@ -646,8 +857,8 @@ const UsersList = () => {
         setPages([]);
       }
     } catch (err) {
-      console.error("Error fetching page access data:", err);
-      setError("Failed to load page access data");
+      console.error('Error fetching page access data:', err);
+      setError('Failed to load page access data');
     } finally {
       setPageAccessLoading(false);
     }
@@ -663,25 +874,25 @@ const UsersList = () => {
         const existingAccessResponse = await fetch(
           `${API_BASE_URL}/page_access/${selectedUser.employeeNumber}`,
           {
-            method: "GET",
+            method: 'GET',
             ...authHeaders,
-          }
+          },
         );
 
         if (existingAccessResponse.ok) {
           const existingAccess = await existingAccessResponse.json();
           const existingRecord = (existingAccess || []).find(
-            (access) => access.page_id === pageId
+            (access) => access.page_id === pageId,
           );
 
           if (!existingRecord) {
             const createResponse = await fetch(`${API_BASE_URL}/page_access`, {
-              method: "POST",
+              method: 'POST',
               ...authHeaders,
               body: JSON.stringify({
                 employeeNumber: selectedUser.employeeNumber,
                 page_id: pageId,
-                page_privilege: newAccess ? "1" : "0",
+                page_privilege: newAccess ? '1' : '0',
               }),
             });
 
@@ -689,8 +900,8 @@ const UsersList = () => {
               const errorData = await createResponse.json().catch(() => ({}));
               setError(
                 `Failed to create page access: ${
-                  errorData.error || "Unknown error"
-                }`
+                  errorData.error || 'Unknown error'
+                }`,
               );
               setAccessChangeInProgress((prev) => ({
                 ...prev,
@@ -702,12 +913,12 @@ const UsersList = () => {
             const updateResponse = await fetch(
               `${API_BASE_URL}/page_access/${selectedUser.employeeNumber}/${pageId}`,
               {
-                method: "PUT",
+                method: 'PUT',
                 ...authHeaders,
                 body: JSON.stringify({
-                  page_privilege: newAccess ? "1" : "0",
+                  page_privilege: newAccess ? '1' : '0',
                 }),
-              }
+              },
             );
 
             if (!updateResponse.ok) {
@@ -725,20 +936,20 @@ const UsersList = () => {
         const updateResponse = await fetch(
           `${API_BASE_URL}/page_access/${selectedUser.employeeNumber}/${pageId}`,
           {
-            method: "PUT",
+            method: 'PUT',
             ...authHeaders,
             body: JSON.stringify({
-              page_privilege: newAccess ? "1" : "0",
+              page_privilege: newAccess ? '1' : '0',
             }),
-          }
+          },
         );
 
         if (!updateResponse.ok) {
           const errorData = await updateResponse.json().catch(() => ({}));
           setError(
             `Failed to update page access: ${
-              errorData.error || "Unknown error"
-            }`
+              errorData.error || 'Unknown error'
+            }`,
           );
           setAccessChangeInProgress((prev) => ({ ...prev, [pageId]: false }));
           return;
@@ -750,8 +961,8 @@ const UsersList = () => {
         [pageId]: newAccess,
       }));
     } catch (err) {
-      console.error("Error updating page access:", err);
-      setError("Network error occurred while updating page access");
+      console.error('Error updating page access:', err);
+      setError('Network error occurred while updating page access');
     } finally {
       setAccessChangeInProgress((prev) => ({ ...prev, [pageId]: false }));
     }
@@ -762,6 +973,7 @@ const UsersList = () => {
     setSelectedUser(null);
     setPages([]);
     setPageAccess({});
+    setActiveAccessCategory(null);
   };
 
   const openUserDetails = (user) => {
@@ -774,13 +986,13 @@ const UsersList = () => {
   const closeUserDetails = () => {
     setDetailsDrawerOpen(false);
     setSelectedUserForDetails(null);
-    setActiveTab("info");
+    setActiveTab('info');
     setAnimatedValue(0);
   };
 
   const handleRoleChange = (user, newRole) => {
     if (user.role === newRole) return;
-    
+
     setPendingRoleChange({
       user,
       oldRole: user.role,
@@ -798,17 +1010,15 @@ const UsersList = () => {
       const response = await fetch(
         `${API_BASE_URL}/users/${pendingRoleChange.user.employeeNumber}/role`,
         {
-          method: "PUT",
+          method: 'PUT',
           ...authHeaders,
           body: JSON.stringify({ role: pendingRoleChange.newRole }),
-        }
+        },
       );
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        setError(
-          errorData.error || "Failed to update user role"
-        );
+        setError(errorData.error || 'Failed to update user role');
         setRoleChangeDialog(false);
         setPendingRoleChange(null);
         setRoleChangeLoading(false);
@@ -820,26 +1030,26 @@ const UsersList = () => {
         prevUsers.map((u) =>
           u.employeeNumber === pendingRoleChange.user.employeeNumber
             ? { ...u, role: pendingRoleChange.newRole }
-            : u
-        )
+            : u,
+        ),
       );
 
       setFilteredUsers((prevUsers) =>
         prevUsers.map((u) =>
           u.employeeNumber === pendingRoleChange.user.employeeNumber
             ? { ...u, role: pendingRoleChange.newRole }
-            : u
-        )
+            : u,
+        ),
       );
 
-      setSuccessAction("edit");
+      setSuccessAction('edit');
       setSuccessOpen(true);
 
       setRoleChangeDialog(false);
       setPendingRoleChange(null);
     } catch (err) {
-      console.error("Error updating user role:", err);
-      setError("Network error occurred while updating user role");
+      console.error('Error updating user role:', err);
+      setError('Network error occurred while updating user role');
     } finally {
       setRoleChangeLoading(false);
     }
@@ -854,41 +1064,55 @@ const UsersList = () => {
   const handleEditUser = (user) => {
     setUserToEdit(user);
     setEditedEmployeeNumber(user.employeeNumber);
-    setEditedFirstName(user.firstName || "");
-    setEditedMiddleName(user.middleName || "");
-    setEditedLastName(user.lastName || "");
-    setEditedNameExtension(user.nameExtension || "");
-    setEditedEmail(user.email || "");
-    setEditedEmploymentCategory(user.employmentCategory !== undefined && user.employmentCategory !== null 
-      ? user.employmentCategory 
-      : "");
+    setEditedFirstName(user.firstName || '');
+    setEditedMiddleName(user.middleName || '');
+    setEditedLastName(user.lastName || '');
+    setEditedNameExtension(user.nameExtension || '');
+    setEditedEmail(user.email || '');
+    setEditedEmploymentCategory(
+      user.employmentCategory !== undefined && user.employmentCategory !== null
+        ? user.employmentCategory
+        : '',
+    );
+    setEditedCustomCategory(user.customCategory || user.custom_category || '');
     setEditDialog(true);
   };
 
   const handleSaveEdit = async () => {
     if (!editedEmployeeNumber || !editedFirstName || !editedLastName) {
-      setError("Employee Number, First Name, and Last Name are required");
+      setError('Employee Number, First Name, and Last Name are required');
+      return;
+    }
+
+    // If "Other (specify)" is selected, require a custom description
+    if (
+      parseInt(editedEmploymentCategory) === 5 &&
+      !String(editedCustomCategory || '').trim()
+    ) {
+      setError(
+        'Please enter a custom category description for Other (specify)',
+      );
       return;
     }
 
     setEditLoading(true);
     try {
       const authHeaders = getAuthHeaders();
-      
+
       // Update user's employee number if changed
       if (editedEmployeeNumber !== userToEdit.employeeNumber) {
         const updateUserResponse = await fetch(
           `${API_BASE_URL}/users/${userToEdit.employeeNumber}/employee-number`,
           {
-            method: "PUT",
+            method: 'PUT',
             ...authHeaders,
             body: JSON.stringify({ newEmployeeNumber: editedEmployeeNumber }),
-          }
+          },
         );
 
         if (!updateUserResponse.ok) {
           const errorData = await updateUserResponse.json().catch(() => ({}));
-          setError(errorData.error || "Failed to update employee number");
+          setError(errorData.error || 'Failed to update employee number');
           setEditLoading(false);
           return;
         }
@@ -898,7 +1122,7 @@ const UsersList = () => {
       const updatePersonResponse = await fetch(
         `${API_BASE_URL}/personalinfo/person/${editedEmployeeNumber}`,
         {
-          method: "PUT",
+          method: 'PUT',
           ...authHeaders,
           body: JSON.stringify({
             firstName: editedFirstName,
@@ -906,31 +1130,31 @@ const UsersList = () => {
             lastName: editedLastName,
             nameExtension: editedNameExtension || null,
           }),
-        }
+        },
       );
 
       if (!updatePersonResponse.ok) {
         const errorData = await updatePersonResponse.json().catch(() => ({}));
-        setError(errorData.error || "Failed to update user name");
+        setError(errorData.error || 'Failed to update user name');
         setEditLoading(false);
         return;
       }
 
       // Update email if changed (users + person_table)
-      const currentEmail = (userToEdit.email || "").trim();
-      const newEmail = (editedEmail || "").trim();
+      const currentEmail = (userToEdit.email || '').trim();
+      const newEmail = (editedEmail || '').trim();
       if (newEmail !== currentEmail) {
         const updateEmailResponse = await fetch(
           `${API_BASE_URL}/users/${editedEmployeeNumber}/email`,
           {
-            method: "PUT",
+            method: 'PUT',
             ...authHeaders,
             body: JSON.stringify({ email: newEmail || null }),
-          }
+          },
         );
         if (!updateEmailResponse.ok) {
           const errorData = await updateEmailResponse.json().catch(() => ({}));
-          setError(errorData.error || "Failed to update email");
+          setError(errorData.error || 'Failed to update email');
           setEditLoading(false);
           return;
         }
@@ -939,15 +1163,15 @@ const UsersList = () => {
       // Update employment category if changed
       const currentCategory = userToEdit.employmentCategory;
       const newCategory = editedEmploymentCategory;
-      
-      if (newCategory !== currentCategory && newCategory !== "") {
+
+      if (newCategory !== currentCategory && newCategory !== '') {
         // First check if employment_category record exists
         const checkResponse = await fetch(
           `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${editedEmployeeNumber}`,
           {
-            method: "GET",
+            method: 'GET',
             ...authHeaders,
-          }
+          },
         );
 
         if (checkResponse.ok) {
@@ -956,18 +1180,24 @@ const UsersList = () => {
           const updateCategoryResponse = await fetch(
             `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${categoryData.id}`,
             {
-              method: "PUT",
+              method: 'PUT',
               ...authHeaders,
               body: JSON.stringify({
                 employeeNumber: editedEmployeeNumber,
-                employmentCategory: parseInt(newCategory)
+                employmentCategory: parseInt(newCategory),
+                customCategory:
+                  parseInt(newCategory) === 5
+                    ? String(editedCustomCategory || '').trim()
+                    : '',
               }),
-            }
+            },
           );
-          
+
           if (!updateCategoryResponse.ok) {
-            const errorData = await updateCategoryResponse.json().catch(() => ({}));
-            setError(errorData.error || "Failed to update employment category");
+            const errorData = await updateCategoryResponse
+              .json()
+              .catch(() => ({}));
+            setError(errorData.error || 'Failed to update employment category');
             setEditLoading(false);
             return;
           }
@@ -976,18 +1206,24 @@ const UsersList = () => {
           const createCategoryResponse = await fetch(
             `${API_BASE_URL}/EmploymentCategoryRoutes/employee-category`,
             {
-              method: "POST",
+              method: 'POST',
               ...authHeaders,
               body: JSON.stringify({
                 employeeNumber: editedEmployeeNumber,
-                employmentCategory: parseInt(newCategory)
+                employmentCategory: parseInt(newCategory),
+                customCategory:
+                  parseInt(newCategory) === 5
+                    ? String(editedCustomCategory || '').trim()
+                    : '',
               }),
-            }
+            },
           );
-          
+
           if (!createCategoryResponse.ok) {
-            const errorData = await createCategoryResponse.json().catch(() => ({}));
-            setError(errorData.error || "Failed to create employment category");
+            const errorData = await createCategoryResponse
+              .json()
+              .catch(() => ({}));
+            setError(errorData.error || 'Failed to create employment category');
             setEditLoading(false);
             return;
           }
@@ -997,13 +1233,13 @@ const UsersList = () => {
       // Refresh users list
       await fetchUsers();
 
-      setSuccessAction("edit");
+      setSuccessAction('edit');
       setSuccessOpen(true);
       setEditDialog(false);
       setUserToEdit(null);
     } catch (err) {
-      console.error("Error updating user:", err);
-      setError("Network error occurred while updating user");
+      console.error('Error updating user:', err);
+      setError('Network error occurred while updating user');
     } finally {
       setEditLoading(false);
     }
@@ -1012,6 +1248,181 @@ const UsersList = () => {
   const handleCancelEdit = () => {
     setEditDialog(false);
     setUserToEdit(null);
+  };
+
+  // =========================
+  // Bulk Employment Category Edit Handlers
+  // =========================
+  const toggleSelectEmployee = (employeeNumber) => {
+    setSelectedEmployeeNumbers((prev) => {
+      const exists = prev.includes(employeeNumber);
+      if (exists) return prev.filter((n) => n !== employeeNumber);
+      return [...prev, employeeNumber];
+    });
+  };
+
+  const isEmployeeSelected = (employeeNumber) =>
+    selectedEmployeeNumbers.includes(employeeNumber);
+
+  const isAllCurrentPageSelected = (currentPageUsers) => {
+    if (!currentPageUsers || currentPageUsers.length === 0) return false;
+    return currentPageUsers.every((u) =>
+      selectedEmployeeNumbers.includes(u.employeeNumber),
+    );
+  };
+
+  const isSomeCurrentPageSelected = (currentPageUsers) => {
+    if (!currentPageUsers || currentPageUsers.length === 0) return false;
+    const anySelected = currentPageUsers.some((u) =>
+      selectedEmployeeNumbers.includes(u.employeeNumber),
+    );
+    const allSelected = currentPageUsers.every((u) =>
+      selectedEmployeeNumbers.includes(u.employeeNumber),
+    );
+    return anySelected && !allSelected;
+  };
+
+  const toggleSelectAllCurrentPage = (currentPageUsers) => {
+    if (!currentPageUsers || currentPageUsers.length === 0) return;
+
+    const allSelected = currentPageUsers.every((u) =>
+      selectedEmployeeNumbers.includes(u.employeeNumber),
+    );
+
+    if (allSelected) {
+      const currentPageSet = new Set(
+        currentPageUsers.map((u) => u.employeeNumber),
+      );
+      setSelectedEmployeeNumbers((prev) =>
+        prev.filter((n) => !currentPageSet.has(n)),
+      );
+      return;
+    }
+
+    setSelectedEmployeeNumbers((prev) => {
+      const set = new Set(prev);
+      currentPageUsers.forEach((u) => set.add(u.employeeNumber));
+      return Array.from(set);
+    });
+  };
+
+  const openBulkCategoryEdit = () => {
+    if (!selectedEmployeeNumbers.length) {
+      setSnackbarMessage('Please select at least 1 employee.');
+      setSnackbarOpen(true);
+      return;
+    }
+    setBulkEmploymentCategory('');
+    setBulkCustomCategory('');
+    setBulkCategoryDialog(true);
+  };
+
+  const closeBulkCategoryEdit = () => {
+    setBulkCategoryDialog(false);
+    setBulkEmploymentCategory('');
+    setBulkCustomCategory('');
+  };
+
+  const handleSaveBulkCategoryEdit = async () => {
+    // allow numeric 0 (JO Graduate)
+    if (bulkEmploymentCategory === '' || bulkEmploymentCategory === null) {
+      setError('Please select an employment category to apply.');
+      return;
+    }
+    // If "Other (specify)" is selected, require a custom description
+    if (
+      parseInt(bulkEmploymentCategory) === 5 &&
+      !String(bulkCustomCategory || '').trim()
+    ) {
+      setError(
+        'Please enter a custom category description for Other (specify)',
+      );
+      return;
+    }
+
+    if (!selectedEmployeeNumbers.length) {
+      setError('No employees selected.');
+      return;
+    }
+
+    setBulkEditLoading(true);
+    try {
+      const authHeaders = getAuthHeaders();
+      const selected = [...selectedEmployeeNumbers];
+
+      for (const empNo of selected) {
+        const checkResponse = await fetch(
+          `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${empNo}`,
+          {
+            method: 'GET',
+            ...authHeaders,
+          },
+        );
+
+        if (checkResponse.ok) {
+          const categoryData = await checkResponse.json();
+          const updateRes = await fetch(
+            `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${categoryData.id}`,
+            {
+              method: 'PUT',
+              ...authHeaders,
+              body: JSON.stringify({
+                employeeNumber: empNo,
+                employmentCategory: parseInt(bulkEmploymentCategory),
+                customCategory:
+                  parseInt(bulkEmploymentCategory) === 5
+                    ? String(bulkCustomCategory || '').trim()
+                    : '',
+              }),
+            },
+          );
+
+          if (!updateRes.ok) {
+            const errData = await updateRes.json().catch(() => ({}));
+            throw new Error(errData.error || `Failed updating ${empNo}`);
+          }
+        } else {
+          const createRes = await fetch(
+            `${API_BASE_URL}/EmploymentCategoryRoutes/employee-category`,
+            {
+              method: 'POST',
+              ...authHeaders,
+              body: JSON.stringify({
+                employeeNumber: empNo,
+                employmentCategory: parseInt(bulkEmploymentCategory),
+                customCategory:
+                  parseInt(bulkEmploymentCategory) === 5
+                    ? String(bulkCustomCategory || '').trim()
+                    : '',
+              }),
+            },
+          );
+
+          if (!createRes.ok) {
+            const errData = await createRes.json().catch(() => ({}));
+            throw new Error(errData.error || `Failed creating ${empNo}`);
+          }
+        }
+      }
+
+      await fetchUsers();
+
+      setSuccessAction('bulk-edit');
+      setSuccessOpen(true);
+
+      setSelectedEmployeeNumbers([]);
+      setBulkCategoryDialog(false);
+      setBulkEmploymentCategory('');
+      setBulkCustomCategory('');
+    } catch (err) {
+      console.error('Error bulk updating employment category:', err);
+      setError(
+        err?.message ||
+          'Network error occurred while bulk updating employment category',
+      );
+    } finally {
+      setBulkEditLoading(false);
+    }
   };
 
   // Handle Delete User
@@ -1029,14 +1440,14 @@ const UsersList = () => {
       const response = await fetch(
         `${API_BASE_URL}/users/${userToDelete.employeeNumber}`,
         {
-          method: "DELETE",
+          method: 'DELETE',
           ...authHeaders,
-        }
+        },
       );
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        setError(errorData.error || "Failed to delete user");
+        setError(errorData.error || 'Failed to delete user');
         setDeleteLoading(false);
         return;
       }
@@ -1044,13 +1455,13 @@ const UsersList = () => {
       // Refresh users list
       await fetchUsers();
 
-      setSuccessAction("delete");
+      setSuccessAction('delete');
       setSuccessOpen(true);
       setDeleteDialog(false);
       setUserToDelete(null);
     } catch (err) {
-      console.error("Error deleting user:", err);
-      setError("Network error occurred while deleting user");
+      console.error('Error deleting user:', err);
+      setError('Network error occurred while deleting user');
     } finally {
       setDeleteLoading(false);
     }
@@ -1064,7 +1475,7 @@ const UsersList = () => {
   // Handle Grant Default Access to All Staff
   const handleGrantDefaultAccess = async () => {
     const confirmGrant = window.confirm(
-      "This will grant default page access (Home, Attendance, DTR, Payslip, PDS, Settings) to ALL existing staff users. Continue?"
+      'This will grant default page access (Home, Attendance, DTR, Payslip, PDS, Settings) to ALL existing staff users. Continue?',
     );
 
     if (!confirmGrant) return;
@@ -1075,41 +1486,41 @@ const UsersList = () => {
       const response = await fetch(
         `${API_BASE_URL}/users/grant-default-access`,
         {
-          method: "POST",
+          method: 'POST',
           ...authHeaders,
-        }
+        },
       );
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        setError(errorData.error || "Failed to grant default access");
+        setError(errorData.error || 'Failed to grant default access');
         setGrantingAccess(false);
         return;
       }
 
       const result = await response.json();
-      
+
       // Show success message
-      setSuccessAction("grant-access");
+      setSuccessAction('grant-access');
       setSuccessOpen(true);
-      
+
       // Show details in console
-      console.log("Default access granted:", result);
-      
+      console.log('Default access granted:', result);
+
       // Optionally show an alert with details
       alert(
         `✅ Default access granted successfully!\n\n` +
-        `Users Processed: ${result.usersProcessed}\n` +
-        `Pages Granted: ${result.pagesGranted}\n` +
-        `Successful Operations: ${result.successfulOperations}\n` +
-        `Failed Operations: ${result.failedOperations}`
+          `Users Processed: ${result.usersProcessed}\n` +
+          `Pages Granted: ${result.pagesGranted}\n` +
+          `Successful Operations: ${result.successfulOperations}\n` +
+          `Failed Operations: ${result.failedOperations}`,
       );
 
       // Refresh users list
       await fetchUsers();
     } catch (err) {
-      console.error("Error granting default access:", err);
-      setError("Network error occurred while granting default access");
+      console.error('Error granting default access:', err);
+      setError('Network error occurred while granting default access');
     } finally {
       setGrantingAccess(false);
     }
@@ -1117,7 +1528,7 @@ const UsersList = () => {
 
   const handleGrantDefaultAccessAdministrator = async () => {
     const confirmGrant = window.confirm(
-      "This will grant default page access to ALL existing administrator users (excluding User Management, Payroll Formulas, Admin Security). Continue?"
+      'This will grant default page access to ALL existing administrator users (excluding User Management, Payroll Formulas, Admin Security). Continue?',
     );
 
     if (!confirmGrant) return;
@@ -1128,41 +1539,45 @@ const UsersList = () => {
       const response = await fetch(
         `${API_BASE_URL}/users/grant-default-access-administrator`,
         {
-          method: "POST",
+          method: 'POST',
           ...authHeaders,
-        }
+        },
       );
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        setError(errorData.error || "Failed to grant default access to administrators");
+        setError(
+          errorData.error || 'Failed to grant default access to administrators',
+        );
         setGrantingAdminAccess(false);
         return;
       }
 
       const result = await response.json();
-      
+
       // Show success message
-      setSuccessAction("grant-admin-access");
+      setSuccessAction('grant-admin-access');
       setSuccessOpen(true);
-      
+
       // Show details in console
-      console.log("Default access granted to administrators:", result);
-      
+      console.log('Default access granted to administrators:', result);
+
       // Optionally show an alert with details
       alert(
         `✅ Default access granted to administrators successfully!\n\n` +
-        `Users Processed: ${result.usersProcessed}\n` +
-        `Pages Granted: ${result.pagesGranted}\n` +
-        `Successful Operations: ${result.successfulOperations}\n` +
-        `Failed Operations: ${result.failedOperations}`
+          `Users Processed: ${result.usersProcessed}\n` +
+          `Pages Granted: ${result.pagesGranted}\n` +
+          `Successful Operations: ${result.successfulOperations}\n` +
+          `Failed Operations: ${result.failedOperations}`,
       );
 
       // Refresh users list
       await fetchUsers();
     } catch (err) {
-      console.error("Error granting default access to administrators:", err);
-      setError("Network error occurred while granting default access to administrators");
+      console.error('Error granting default access to administrators:', err);
+      setError(
+        'Network error occurred while granting default access to administrators',
+      );
     } finally {
       setGrantingAdminAccess(false);
     }
@@ -1178,26 +1593,30 @@ const UsersList = () => {
   useEffect(() => {
     const filtered = users.filter((user) => {
       const matchesSearch =
-        (user.fullName || "")
+        (user.fullName || '')
           .toLowerCase()
           .includes(searchTerm.toLowerCase()) ||
-        (user.email || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        String(user.employeeNumber || "").includes(searchTerm) ||
-        (user.role || "").toLowerCase().includes(searchTerm.toLowerCase());
+        (user.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        String(user.employeeNumber || '').includes(searchTerm) ||
+        (user.role || '').toLowerCase().includes(searchTerm.toLowerCase());
 
       const matchesRole = roleFilter
-        ? (user.role || "").toLowerCase() === roleFilter.toLowerCase()
+        ? (user.role || '').toLowerCase() === roleFilter.toLowerCase()
         : true;
 
-      const matchesCategory = categoryFilter !== ""
-        ? String(user.employmentCategory) === String(categoryFilter)
-        : true;
+      const matchesCategory =
+        categoryFilter !== ''
+          ? String(user.employmentCategory) === String(categoryFilter)
+          : true;
 
-      const matchesDepartment = departmentFilter !== ""
-        ? (user.departmentCode || "") === departmentFilter
-        : true;
+      const matchesDepartment =
+        departmentFilter !== ''
+          ? (user.departmentCode || '') === departmentFilter
+          : true;
 
-      return matchesSearch && matchesRole && matchesCategory && matchesDepartment;
+      return (
+        matchesSearch && matchesRole && matchesCategory && matchesDepartment
+      );
     });
 
     setFilteredUsers(filtered);
@@ -1214,41 +1633,56 @@ const UsersList = () => {
   };
 
   const formatDate = (dateString) => {
-    if (!dateString) return "N/A";
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     });
   };
 
-  const getRoleColor = (role = "") => {
-    switch ((role || "").toLowerCase()) {
-      case "superadmin":
+  const getRoleColor = (role = '') => {
+    switch ((role || '').toLowerCase()) {
+      case 'superadmin':
         return {
-          sx: { bgcolor: alpha(settings?.primaryColor || '#894444', 0.15), color: settings?.primaryColor || '#894444' },
+          sx: {
+            bgcolor: alpha(settings?.primaryColor || '#894444', 0.15),
+            color: settings?.primaryColor || '#894444',
+          },
           icon: <SupervisorAccount />,
         };
-      case "administrator":
+      case 'administrator':
         return {
-          sx: { bgcolor: alpha(settings?.secondaryColor || '#6d2323', 0.15), color: settings?.secondaryColor || '#6d2323' },
+          sx: {
+            bgcolor: alpha(settings?.secondaryColor || '#6d2323', 0.15),
+            color: settings?.secondaryColor || '#6d2323',
+          },
           icon: <AdminPanelSettings />,
         };
-      case "technical":
+      case 'technical':
         return {
-          sx: { bgcolor: alpha(settings?.primaryColor || '#894444', 0.15), color: settings?.primaryColor || '#894444' },
+          sx: {
+            bgcolor: alpha(settings?.primaryColor || '#894444', 0.15),
+            color: settings?.primaryColor || '#894444',
+          },
           icon: <SupervisorAccount />,
         };
-      case "staff":
+      case 'staff':
         return {
-          sx: { bgcolor: alpha(settings?.primaryColor || '#894444', 0.1), color: settings?.primaryColor || '#894444' },
+          sx: {
+            bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
+            color: settings?.primaryColor || '#894444',
+          },
           icon: <Work />,
         };
       default:
         return {
-          sx: { bgcolor: alpha(settings?.primaryColor || '#894444', 0.1), color: settings?.primaryColor || '#894444' },
+          sx: {
+            bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
+            color: settings?.primaryColor || '#894444',
+          },
           icon: <Person />,
         };
     }
@@ -1256,12 +1690,12 @@ const UsersList = () => {
 
   const paginatedUsers = filteredUsers.slice(
     page * rowsPerPage,
-    page * rowsPerPage + rowsPerPage
+    page * rowsPerPage + rowsPerPage,
   );
 
   const getInitials = (nameOrUsername) => {
-    if (!nameOrUsername) return "U";
-    const parts = nameOrUsername.trim().split(" ").filter(Boolean);
+    if (!nameOrUsername) return 'U';
+    const parts = nameOrUsername.trim().split(' ').filter(Boolean);
     if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
     return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
   };
@@ -1311,7 +1745,10 @@ const UsersList = () => {
               <Lock sx={{ fontSize: 28 }} />
             </Avatar>
             <Box>
-              <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
+              <Typography
+                variant="h5"
+                sx={{ fontWeight: 'bold', color: '#333' }}
+              >
                 User Management Access
               </Typography>
               <Typography variant="body2" sx={{ color: '#666' }}>
@@ -1336,12 +1773,15 @@ const UsersList = () => {
                 },
               }}
             >
-              <Typography variant="body1" sx={{ fontWeight: 600, mb: 1, color: '#333' }}>
+              <Typography
+                variant="body1"
+                sx={{ fontWeight: 600, mb: 1, color: '#333' }}
+              >
                 Restricted Access
               </Typography>
               <Typography variant="body2" sx={{ color: '#666' }}>
-                The User Management contains sensitive information and requires authorized access. 
-                Please enter authorized password to proceed.
+                The User Management contains sensitive information and requires
+                authorized access. Please enter authorized password to proceed.
               </Typography>
             </Alert>
 
@@ -1384,7 +1824,10 @@ const UsersList = () => {
                   borderRadius: 2,
                   '&:hover': {
                     borderColor: settings?.secondaryColor || '#6d2323',
-                    backgroundColor: alpha(settings?.primaryColor || '#894444', 0.08),
+                    backgroundColor: alpha(
+                      settings?.primaryColor || '#894444',
+                      0.08,
+                    ),
                   },
                 }}
               >
@@ -1407,10 +1850,19 @@ const UsersList = () => {
                     backgroundColor: settings?.secondaryColor || '#6d2323',
                   },
                   '&:disabled': {
-                    backgroundColor: alpha(settings?.primaryColor || '#894444', 0.5),
+                    backgroundColor: alpha(
+                      settings?.primaryColor || '#894444',
+                      0.5,
+                    ),
                   },
                 }}
-                startIcon={passwordLoading ? <CircularProgress size={18} sx={{ color: 'white' }} /> : <Lock />}
+                startIcon={
+                  passwordLoading ? (
+                    <CircularProgress size={18} sx={{ color: 'white' }} />
+                  ) : (
+                    <Lock />
+                  )
+                }
               >
                 {passwordLoading ? 'Verifying...' : 'Access'}
               </Button>
@@ -1426,18 +1878,18 @@ const UsersList = () => {
     <Box
       sx={{
         py: 4,
-        borderRadius: "14px",
-        width: "100vw",
-        mx: "auto",
-        maxWidth: "100%",
-        overflow: "hidden",
-        position: "relative",
-        left: "50%",
-        transform: "translateX(-50%)",
-        minHeight: "92vh",
+        borderRadius: '14px',
+        width: '100vw',
+        mx: 'auto',
+        maxWidth: '100%',
+        overflow: 'hidden',
+        position: 'relative',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        minHeight: '92vh',
       }}
     >
-      <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
+      <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
         {/* Header */}
         <Fade in timeout={500}>
           <Box sx={{ mb: 4 }}>
@@ -1447,13 +1899,13 @@ const UsersList = () => {
                   p: 5,
                   background: `linear-gradient(135deg, ${settings?.accentColor || '#FEF9E1'} 0%, ${alpha(settings?.accentColor || '#FEF9E1', 0.9)} 100%)`,
                   color: settings?.primaryColor || '#894444',
-                  position: "relative",
-                  overflow: "hidden",
+                  position: 'relative',
+                  overflow: 'hidden',
                 }}
               >
                 <Box
                   sx={{
-                    position: "absolute",
+                    position: 'absolute',
                     top: -50,
                     right: -50,
                     width: 200,
@@ -1463,9 +1915,9 @@ const UsersList = () => {
                 />
                 <Box
                   sx={{
-                    position: "absolute",
+                    position: 'absolute',
                     bottom: -30,
-                    left: "30%",
+                    left: '30%',
                     width: 150,
                     height: 150,
                     background: `radial-gradient(circle, ${alpha(settings?.primaryColor || '#894444', 0.08)} 0%, ${alpha(settings?.primaryColor || '#894444', 0)} 70%)`,
@@ -1482,14 +1934,22 @@ const UsersList = () => {
                   <Box display="flex" alignItems="center">
                     <Avatar
                       sx={{
-                        bgcolor: alpha(settings?.primaryColor || '#894444', 0.15),
+                        bgcolor: alpha(
+                          settings?.primaryColor || '#894444',
+                          0.15,
+                        ),
                         mr: 4,
                         width: 64,
                         height: 64,
                         boxShadow: `0 8px 24px ${alpha(settings?.primaryColor || '#894444', 0.15)}`,
                       }}
                     >
-                      <People sx={{ fontSize: 32, color: settings?.primaryColor || '#894444' }} />
+                      <People
+                        sx={{
+                          fontSize: 32,
+                          color: settings?.primaryColor || '#894444',
+                        }}
+                      />
                     </Avatar>
                     <Box>
                       <Typography
@@ -1521,10 +1981,13 @@ const UsersList = () => {
                       label={`${users.length} Users`}
                       size="small"
                       sx={{
-                        bgcolor: alpha(settings?.primaryColor || '#894444', 0.15),
+                        bgcolor: alpha(
+                          settings?.primaryColor || '#894444',
+                          0.15,
+                        ),
                         color: settings?.primaryColor || '#894444',
                         fontWeight: 500,
-                        "& .MuiChip-label": { px: 1 },
+                        '& .MuiChip-label': { px: 1 },
                       }}
                     />
                     <Tooltip title="Refresh Users">
@@ -1532,14 +1995,28 @@ const UsersList = () => {
                         onClick={() => fetchUsers(true)}
                         disabled={loading}
                         sx={{
-                          bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
-                          "&:hover": { bgcolor: alpha(settings?.primaryColor || '#894444', 0.2) },
+                          bgcolor: alpha(
+                            settings?.primaryColor || '#894444',
+                            0.1,
+                          ),
+                          '&:hover': {
+                            bgcolor: alpha(
+                              settings?.primaryColor || '#894444',
+                              0.2,
+                            ),
+                          },
                           color: settings?.primaryColor || '#894444',
                           width: 48,
                           height: 48,
-                          "&:disabled": {
-                            bgcolor: alpha(settings?.primaryColor || '#894444', 0.05),
-                            color: alpha(settings?.primaryColor || '#894444', 0.3),
+                          '&:disabled': {
+                            bgcolor: alpha(
+                              settings?.primaryColor || '#894444',
+                              0.05,
+                            ),
+                            color: alpha(
+                              settings?.primaryColor || '#894444',
+                              0.3,
+                            ),
                           },
                         }}
                       >
@@ -1557,11 +2034,11 @@ const UsersList = () => {
                     <ProfessionalButton
                       variant="contained"
                       startIcon={<PersonAdd />}
-                      onClick={() => navigate("/registration")}
+                      onClick={() => navigate('/registration')}
                       sx={{
                         bgcolor: settings?.primaryColor || '#894444',
                         color: settings?.accentColor || '#FEF9E1',
-                        "&:hover": {
+                        '&:hover': {
                           bgcolor: settings?.secondaryColor || '#6d2323',
                         },
                       }}
@@ -1574,11 +2051,11 @@ const UsersList = () => {
                       <ProfessionalButton
                         variant="contained"
                         startIcon={<Pages />}
-                        onClick={() => navigate("/pages-list")}
+                        onClick={() => navigate('/pages-list')}
                         sx={{
                           bgcolor: settings?.primaryColor || '#894444',
                           color: settings?.accentColor || '#FEF9E1',
-                          "&:hover": {
+                          '&:hover': {
                             bgcolor: settings?.secondaryColor || '#6d2323',
                           },
                         }}
@@ -1595,10 +2072,10 @@ const UsersList = () => {
 
         {/* Success Overlay - Rendered via Portal for full-screen coverage */}
         <Portal>
-          <SuccessfulOverlay 
-            open={successOpen} 
-            action={successAction} 
-            onClose={() => setSuccessOpen(false)} 
+          <SuccessfulOverlay
+            open={successOpen}
+            action={successAction}
+            onClose={() => setSuccessOpen(false)}
           />
         </Portal>
 
@@ -1608,32 +2085,32 @@ const UsersList = () => {
             open={true}
             sx={{
               zIndex: 9999,
-              backdropFilter: "blur(8px)",
-              backgroundColor: "rgba(0, 0, 0, 0.5)",
+              backdropFilter: 'blur(8px)',
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
             }}
-            onClick={() => setError("")}
+            onClick={() => setError('')}
           >
             <Fade in timeout={300}>
               <Box
                 onClick={(e) => e.stopPropagation()}
                 sx={{
-                  position: "relative",
-                  minWidth: "400px",
-                  maxWidth: "600px",
+                  position: 'relative',
+                  minWidth: '400px',
+                  maxWidth: '600px',
                 }}
               >
                 <Alert
                   severity="error"
                   sx={{
                     borderRadius: 4,
-                    boxShadow: "0 12px 48px rgba(0, 0, 0, 0.4)",
-                    fontSize: "1.1rem",
+                    boxShadow: '0 12px 48px rgba(0, 0, 0, 0.4)',
+                    fontSize: '1.1rem',
                     p: 3,
-                    "& .MuiAlert-message": { fontWeight: 500 },
-                    "& .MuiAlert-icon": { fontSize: "2rem" },
+                    '& .MuiAlert-message': { fontWeight: 500 },
+                    '& .MuiAlert-icon': { fontSize: '2rem' },
                   }}
                   icon={<Cancel />}
-                  onClose={() => setError("")}
+                  onClose={() => setError('')}
                 >
                   {error}
                 </Alert>
@@ -1647,17 +2124,27 @@ const UsersList = () => {
           <Grid container spacing={3} sx={{ mb: 4 }}>
             <Grid item xs={12} sm={6} md sx={{ minWidth: 0, flex: '1 1 0%' }}>
               <GlassCard>
-                <CardContent sx={{ textAlign: "center", p: 3 }}>
+                <CardContent sx={{ textAlign: 'center', p: 3 }}>
                   <AccountCircle
-                    sx={{ fontSize: 44, color: settings?.textPrimaryColor || '#6D2323', mb: 1 }}
+                    sx={{
+                      fontSize: 44,
+                      color: settings?.textPrimaryColor || '#6D2323',
+                      mb: 1,
+                    }}
                   />
                   <Typography
                     variant="h5"
-                    sx={{ color: settings?.textPrimaryColor || '#6D2323', fontWeight: 700 }}
+                    sx={{
+                      color: settings?.textPrimaryColor || '#6D2323',
+                      fontWeight: 700,
+                    }}
                   >
                     {users.length}
                   </Typography>
-                  <Typography variant="body2" sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
+                  <Typography
+                    variant="body2"
+                    sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                  >
                     Total Users
                   </Typography>
                 </CardContent>
@@ -1666,17 +2153,27 @@ const UsersList = () => {
 
             <Grid item xs={12} sm={6} md sx={{ minWidth: 0, flex: '1 1 0%' }}>
               <GlassCard>
-                <CardContent sx={{ textAlign: "center", p: 3 }}>
+                <CardContent sx={{ textAlign: 'center', p: 3 }}>
                   <SupervisorAccount
-                    sx={{ fontSize: 44, color: settings?.textPrimaryColor || '#6D2323', mb: 1 }}
+                    sx={{
+                      fontSize: 44,
+                      color: settings?.textPrimaryColor || '#6D2323',
+                      mb: 1,
+                    }}
                   />
                   <Typography
                     variant="h5"
-                    sx={{ color: settings?.textPrimaryColor || '#6D2323', fontWeight: 700 }}
+                    sx={{
+                      color: settings?.textPrimaryColor || '#6D2323',
+                      fontWeight: 700,
+                    }}
                   >
-                    {users.filter((u) => u.role === "superadmin").length}
+                    {users.filter((u) => u.role === 'superadmin').length}
                   </Typography>
-                  <Typography variant="body2" sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
+                  <Typography
+                    variant="body2"
+                    sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                  >
                     Superadmins
                   </Typography>
                 </CardContent>
@@ -1685,17 +2182,27 @@ const UsersList = () => {
 
             <Grid item xs={12} sm={6} md sx={{ minWidth: 0, flex: '1 1 0%' }}>
               <GlassCard>
-                <CardContent sx={{ textAlign: "center", p: 3 }}>
+                <CardContent sx={{ textAlign: 'center', p: 3 }}>
                   <AdminPanelSettings
-                    sx={{ fontSize: 44, color: settings?.textPrimaryColor || '#6D2323', mb: 1 }}
+                    sx={{
+                      fontSize: 44,
+                      color: settings?.textPrimaryColor || '#6D2323',
+                      mb: 1,
+                    }}
                   />
                   <Typography
                     variant="h5"
-                    sx={{ color: settings?.textPrimaryColor || '#6D2323', fontWeight: 700 }}
+                    sx={{
+                      color: settings?.textPrimaryColor || '#6D2323',
+                      fontWeight: 700,
+                    }}
                   >
-                    {users.filter((u) => u.role === "administrator").length}
+                    {users.filter((u) => u.role === 'administrator').length}
                   </Typography>
-                  <Typography variant="body2" sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
+                  <Typography
+                    variant="body2"
+                    sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                  >
                     Administrators
                   </Typography>
                 </CardContent>
@@ -1704,15 +2211,27 @@ const UsersList = () => {
 
             <Grid item xs={12} sm={6} md sx={{ minWidth: 0, flex: '1 1 0%' }}>
               <GlassCard>
-                <CardContent sx={{ textAlign: "center", p: 3 }}>
-                  <Work sx={{ fontSize: 44, color: settings?.textPrimaryColor || '#6D2323', mb: 1 }} />
+                <CardContent sx={{ textAlign: 'center', p: 3 }}>
+                  <Work
+                    sx={{
+                      fontSize: 44,
+                      color: settings?.textPrimaryColor || '#6D2323',
+                      mb: 1,
+                    }}
+                  />
                   <Typography
                     variant="h5"
-                    sx={{ color: settings?.textPrimaryColor || '#6D2323', fontWeight: 700 }}
+                    sx={{
+                      color: settings?.textPrimaryColor || '#6D2323',
+                      fontWeight: 700,
+                    }}
                   >
-                    {users.filter((u) => u.role === "staff").length}
+                    {users.filter((u) => u.role === 'staff').length}
                   </Typography>
-                  <Typography variant="body2" sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
+                  <Typography
+                    variant="body2"
+                    sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                  >
                     Staff Members
                   </Typography>
                 </CardContent>
@@ -1721,17 +2240,27 @@ const UsersList = () => {
 
             <Grid item xs={12} sm={6} md sx={{ minWidth: 0, flex: '1 1 0%' }}>
               <GlassCard>
-                <CardContent sx={{ textAlign: "center", p: 3 }}>
+                <CardContent sx={{ textAlign: 'center', p: 3 }}>
                   <Visibility
-                    sx={{ fontSize: 44, color: settings?.textPrimaryColor || '#6D2323', mb: 1 }}
+                    sx={{
+                      fontSize: 44,
+                      color: settings?.textPrimaryColor || '#6D2323',
+                      mb: 1,
+                    }}
                   />
                   <Typography
                     variant="h5"
-                    sx={{ color: settings?.textPrimaryColor || '#6D2323', fontWeight: 700 }}
+                    sx={{
+                      color: settings?.textPrimaryColor || '#6D2323',
+                      fontWeight: 700,
+                    }}
                   >
                     {filteredUsers.length}
                   </Typography>
-                  <Typography variant="body2" sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
+                  <Typography
+                    variant="body2"
+                    sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                  >
                     Filtered Results
                   </Typography>
                 </CardContent>
@@ -1745,7 +2274,7 @@ const UsersList = () => {
           <GlassCard sx={{ mb: 4 }}>
             <CardHeader
               title={
-                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                   <Avatar
                     sx={{
                       bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.8),
@@ -1758,7 +2287,10 @@ const UsersList = () => {
                     <Typography
                       variant="h5"
                       component="div"
-                      sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                      sx={{
+                        fontWeight: 600,
+                        color: settings?.textPrimaryColor || '#6D2323',
+                      }}
                     >
                       Search & Filter
                     </Typography>
@@ -1790,7 +2322,11 @@ const UsersList = () => {
                     InputProps={{
                       startAdornment: (
                         <InputAdornment position="start">
-                          <SearchIcon sx={{ color: settings?.textPrimaryColor || '#6D2323' }} />
+                          <SearchIcon
+                            sx={{
+                              color: settings?.textPrimaryColor || '#6D2323',
+                            }}
+                          />
                         </InputAdornment>
                       ),
                     }}
@@ -1813,15 +2349,17 @@ const UsersList = () => {
                 </Grid>
                 <Grid item xs={6} md={3}>
                   <FormControl fullWidth>
-                    <InputLabel sx={{ fontWeight: 500 }}>Filter by Employment Category</InputLabel>
+                    <InputLabel sx={{ fontWeight: 500 }}>
+                      Filter by Employment Category
+                    </InputLabel>
                     <Select
                       value={categoryFilter}
                       label="Filter by Employment Category"
                       onChange={(e) => setCategoryFilter(e.target.value)}
                       sx={{
                         borderRadius: 3,
-                        backgroundColor: "rgba(255, 255, 255, 0.8)",
-                        "& .MuiOutlinedInput-notchedOutline": {
+                        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                        '& .MuiOutlinedInput-notchedOutline': {
                           borderRadius: 3,
                         },
                       }}
@@ -1851,28 +2389,38 @@ const UsersList = () => {
                         <ListItemIcon sx={{ minWidth: 30 }}>
                           <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
                         </ListItemIcon>
-                        Teaching (Designated)
+                        Teaching (30Hrs)
                       </MenuItem>
                       <MenuItem value="4">
                         <ListItemIcon sx={{ minWidth: 30 }}>
                           <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
                         </ListItemIcon>
-                        30Hrs
+                        Designated (40Hrs)
+                      </MenuItem>
+
+                      <ListSubheader>Custom</ListSubheader>
+                      <MenuItem value="5">
+                        <ListItemIcon sx={{ minWidth: 30 }}>
+                          <Circle sx={{ fontSize: 12, color: '#00796B' }} />
+                        </ListItemIcon>
+                        Other (specify)
                       </MenuItem>
                     </Select>
                   </FormControl>
                 </Grid>
                 <Grid item xs={12} md={3}>
                   <FormControl fullWidth>
-                    <InputLabel sx={{ fontWeight: 500 }}>Filter by Department</InputLabel>
+                    <InputLabel sx={{ fontWeight: 500 }}>
+                      Filter by Department
+                    </InputLabel>
                     <Select
                       value={departmentFilter}
                       label="Filter by Department"
                       onChange={(e) => setDepartmentFilter(e.target.value)}
                       sx={{
                         borderRadius: 3,
-                        backgroundColor: "rgba(255, 255, 255, 0.8)",
-                        "& .MuiOutlinedInput-notchedOutline": {
+                        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                        '& .MuiOutlinedInput-notchedOutline': {
                           borderRadius: 3,
                         },
                       }}
@@ -1904,9 +2452,12 @@ const UsersList = () => {
               backgroundColor: 'rgba(0, 0, 0, 0.4)',
             }}
           >
-            <Box sx={{ textAlign: "center" }}>
+            <Box sx={{ textAlign: 'center' }}>
               <CircularProgress color="inherit" size={60} thickness={4} />
-              <Typography variant="h6" sx={{ mt: 2, color: settings?.accentColor || '#FEF9E1' }}>
+              <Typography
+                variant="h6"
+                sx={{ mt: 2, color: settings?.accentColor || '#FEF9E1' }}
+              >
                 Loading users...
               </Typography>
             </Box>
@@ -1922,24 +2473,33 @@ const UsersList = () => {
                   p: 3,
                   background: `linear-gradient(135deg, ${settings?.accentColor || '#FEF9E1'} 0%, ${alpha(settings?.accentColor || '#FEF9E1', 0.9)} 100%)`,
                   color: settings?.primaryColor || '#894444',
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
                   borderBottom: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.1)}`,
                 }}
               >
                 <Box>
                   <Typography
                     variant="h5"
-                    sx={{ fontWeight: 600, color: settings?.primaryColor || '#894444' }}
+                    sx={{
+                      fontWeight: 600,
+                      color: settings?.primaryColor || '#894444',
+                    }}
                   >
                     Registered Users
                   </Typography>
                   <Typography
                     variant="body2"
-                    sx={{ opacity: 0.8, color: settings?.accentColor || '#FEF9E1' }}
+                    sx={{
+                      opacity: 0.8,
+                      color: settings?.accentColor || '#FEF9E1',
+                    }}
                   >
-                    {searchTerm || roleFilter || categoryFilter !== "" || departmentFilter !== ""
+                    {searchTerm ||
+                    roleFilter ||
+                    categoryFilter !== '' ||
+                    departmentFilter !== ''
                       ? `Showing ${filteredUsers.length} of ${users.length} users`
                       : `Total: ${users.length} registered users`}
                   </Typography>
@@ -1954,8 +2514,11 @@ const UsersList = () => {
                       sx={{
                         borderColor: settings?.primaryColor || '#894444',
                         color: settings?.primaryColor || '#894444',
-                        "&:hover": {
-                          bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
+                        '&:hover': {
+                          bgcolor: alpha(
+                            settings?.primaryColor || '#894444',
+                            0.1,
+                          ),
                           borderColor: settings?.secondaryColor || '#6d2323',
                         },
                       }}
@@ -1972,59 +2535,148 @@ const UsersList = () => {
                       sx={{
                         borderColor: settings?.primaryColor || '#894444',
                         color: settings?.primaryColor || '#894444',
-                        "&:hover": {
-                          bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
+                        '&:hover': {
+                          bgcolor: alpha(
+                            settings?.primaryColor || '#894444',
+                            0.1,
+                          ),
                           borderColor: settings?.secondaryColor || '#6d2323',
                         },
                       }}
                     >
-                      {grantingAdminAccess ? 'Granting...' : 'Grant Admin Access'}
+                      {grantingAdminAccess
+                        ? 'Granting...'
+                        : 'Grant Admin Access'}
                     </ProfessionalButton>
                   </Tooltip>
+                  {isTechnical && (
+                    <Tooltip title="Bulk Edit Employment Category">
+                      <ProfessionalButton
+                        variant="outlined"
+                        startIcon={<Category />}
+                        onClick={openBulkCategoryEdit}
+                        disabled={selectedEmployeeNumbers.length === 0}
+                        sx={{
+                          borderColor: settings?.primaryColor || '#894444',
+                          color: settings?.primaryColor || '#894444',
+                          '&:hover': {
+                            bgcolor: alpha(
+                              settings?.primaryColor || '#894444',
+                              0.1,
+                            ),
+                            borderColor: settings?.secondaryColor || '#6d2323',
+                          },
+                          '&.Mui-disabled': {
+                            borderColor: alpha(
+                              settings?.primaryColor || '#894444',
+                              0.35,
+                            ),
+                            color: alpha(
+                              settings?.primaryColor || '#894444',
+                              0.6,
+                            ),
+                          },
+                        }}
+                      >
+                        Bulk Edit Category ({selectedEmployeeNumbers.length})
+                      </ProfessionalButton>
+                    </Tooltip>
+                  )}
                 </Box>
               </Box>
 
               <PremiumTableContainer component={Paper} elevation={0}>
                 <Table sx={{ minWidth: 800 }}>
-                  <TableHead sx={{ bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.7) }}>
+                  <TableHead
+                    sx={{
+                      bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.7),
+                    }}
+                  >
                     <TableRow>
-                      <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
-                        <BadgeIcon sx={{ mr: 1, verticalAlign: "middle" }} />
+                      <PremiumTableCell
+                        isHeader
+                        sx={{
+                          color: settings?.textPrimaryColor || '#6D2323',
+                          width: 60,
+                        }}
+                      >
+                        <Checkbox
+                          checked={isAllCurrentPageSelected(paginatedUsers)}
+                          indeterminate={isSomeCurrentPageSelected(
+                            paginatedUsers,
+                          )}
+                          onChange={() =>
+                            toggleSelectAllCurrentPage(paginatedUsers)
+                          }
+                          sx={{
+                            color: settings?.primaryColor || '#894444',
+                            '&.Mui-checked': {
+                              color: settings?.primaryColor || '#894444',
+                            },
+                          }}
+                        />
+                      </PremiumTableCell>
+                      <PremiumTableCell
+                        isHeader
+                        sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                      >
+                        <BadgeIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                         Employee #
                       </PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
-                        <Person sx={{ mr: 1, verticalAlign: "middle" }} />
+                      <PremiumTableCell
+                        isHeader
+                        sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                      >
+                        <Person sx={{ mr: 1, verticalAlign: 'middle' }} />
                         Full Name
                       </PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
-                        <Email sx={{ mr: 1, verticalAlign: "middle" }} />
+                      <PremiumTableCell
+                        isHeader
+                        sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                      >
+                        <Email sx={{ mr: 1, verticalAlign: 'middle' }} />
                         Email
                       </PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
-                        <Business sx={{ mr: 1, verticalAlign: "middle" }} />
+                      <PremiumTableCell
+                        isHeader
+                        sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                      >
+                        <Business sx={{ mr: 1, verticalAlign: 'middle' }} />
                         Role
                       </PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
-                        <WorkOutline sx={{ mr: 1, verticalAlign: "middle" }} />
+                      <PremiumTableCell
+                        isHeader
+                        sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                      >
+                        <WorkOutline sx={{ mr: 1, verticalAlign: 'middle' }} />
                         Employment Category
                       </PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
-                        <Business sx={{ mr: 1, verticalAlign: "middle" }} />
+                      <PremiumTableCell
+                        isHeader
+                        sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                      >
+                        <Business sx={{ mr: 1, verticalAlign: 'middle' }} />
                         Department
                       </PremiumTableCell>
                       <PremiumTableCell
                         isHeader
-                        sx={{ color: settings?.textPrimaryColor || '#6D2323', textAlign: "center" }}
+                        sx={{
+                          color: settings?.textPrimaryColor || '#6D2323',
+                          textAlign: 'center',
+                        }}
                       >
-                        <Security sx={{ mr: 1, verticalAlign: "middle" }} />
+                        <Security sx={{ mr: 1, verticalAlign: 'middle' }} />
                         Page Access
                       </PremiumTableCell>
                       {isTechnical && (
                         <PremiumTableCell
                           isHeader
-                          sx={{ color: settings?.textPrimaryColor || '#6D2323', textAlign: "center" }}
+                          sx={{
+                            color: settings?.textPrimaryColor || '#6D2323',
+                            textAlign: 'center',
+                          }}
                         >
-                          <Settings sx={{ mr: 1, verticalAlign: "middle" }} />
+                          <Settings sx={{ mr: 1, verticalAlign: 'middle' }} />
                           Actions
                         </PremiumTableCell>
                       )}
@@ -2033,21 +2685,52 @@ const UsersList = () => {
                   <TableBody>
                     {paginatedUsers.length > 0 ? (
                       paginatedUsers.map((user, index) => {
-                        const categoryInfo = getEmploymentCategoryInfo(user.employmentCategory);
-                        
+                        const categoryInfo = getEmploymentCategoryInfo(
+                          user.employmentCategory,
+                          // backend field (same as Registration.jsx payload)
+                          user.customCategory || user.custom_category,
+                        );
+
                         return (
                           <TableRow
                             key={user.employeeNumber}
                             sx={{
-                              "&:nth-of-type(even)": {
-                                bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.3),
+                              '&:nth-of-type(even)': {
+                                bgcolor: alpha(
+                                  settings?.accentColor || '#FEF9E1',
+                                  0.3,
+                                ),
                               },
-                              "&:hover": { bgcolor: alpha(settings?.primaryColor || '#894444', 0.05) },
-                              transition: "all 0.2s ease",
+                              '&:hover': {
+                                bgcolor: alpha(
+                                  settings?.primaryColor || '#894444',
+                                  0.05,
+                                ),
+                              },
+                              transition: 'all 0.2s ease',
                             }}
                           >
+                            <PremiumTableCell>
+                              <Checkbox
+                                checked={isEmployeeSelected(
+                                  user.employeeNumber,
+                                )}
+                                onChange={() =>
+                                  toggleSelectEmployee(user.employeeNumber)
+                                }
+                                sx={{
+                                  color: settings?.primaryColor || '#894444',
+                                  '&.Mui-checked': {
+                                    color: settings?.primaryColor || '#894444',
+                                  },
+                                }}
+                              />
+                            </PremiumTableCell>
                             <PremiumTableCell
-                              sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                fontWeight: 600,
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               {user.employeeNumber}
                             </PremiumTableCell>
@@ -2055,23 +2738,24 @@ const UsersList = () => {
                             <PremiumTableCell>
                               <Box
                                 sx={{
-                                  display: "flex",
-                                  alignItems: "center",
+                                  display: 'flex',
+                                  alignItems: 'center',
                                   gap: 2,
                                 }}
                               >
                                 <Avatar
-                                  src={user.avatar || ""}
+                                  src={user.avatar || ''}
                                   alt={user.fullName}
                                   sx={{
                                     width: 48,
                                     height: 48,
-                                    bgcolor: settings?.primaryColor || '#894444',
+                                    bgcolor:
+                                      settings?.primaryColor || '#894444',
                                     color: settings?.accentColor || '#FEF9E1',
                                     fontWeight: 700,
-                                    fontSize: "1rem",
+                                    fontSize: '1rem',
                                     boxShadow: `0 4px 12px ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
-                                    border: "2px solid #fff",
+                                    border: '2px solid #fff',
                                   }}
                                 >
                                   {!user.avatar && getInitials(user.fullName)}
@@ -2079,14 +2763,22 @@ const UsersList = () => {
                                 <Box>
                                   <Typography
                                     variant="body1"
-                                    sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                                    sx={{
+                                      fontWeight: 600,
+                                      color:
+                                        settings?.textPrimaryColor || '#6D2323',
+                                    }}
                                   >
                                     {user.fullName}
                                   </Typography>
                                   {user.nameExtension && (
                                     <Typography
                                       variant="caption"
-                                      sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                                      sx={{
+                                        color:
+                                          settings?.textPrimaryColor ||
+                                          '#6D2323',
+                                      }}
                                     >
                                       ({user.nameExtension})
                                     </Typography>
@@ -2095,38 +2787,50 @@ const UsersList = () => {
                               </Box>
                             </PremiumTableCell>
 
-                            <PremiumTableCell sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>
+                            <PremiumTableCell
+                              sx={{
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
+                            >
                               {user.email}
                             </PremiumTableCell>
 
                             <PremiumTableCell>
-                              {user.role === "technical" ? (
+                              {user.role === 'technical' ? (
                                 <Chip
                                   size="small"
                                   label="Technical"
-                                  icon={getRoleColor("technical").icon}
+                                  icon={getRoleColor('technical').icon}
                                   sx={{
-                                    ...getRoleColor("technical").sx,
+                                    ...getRoleColor('technical').sx,
                                     fontWeight: 600,
-                                    pointerEvents: "none",
+                                    pointerEvents: 'none',
                                   }}
                                 />
                               ) : (
                                 <ModernTextField
                                   select
-                                  value={user.role || "staff"}
-                                  onChange={(e) => handleRoleChange(user, e.target.value)}
+                                  value={user.role || 'staff'}
+                                  onChange={(e) =>
+                                    handleRoleChange(user, e.target.value)
+                                  }
                                   size="small"
                                   sx={{
                                     minWidth: 150,
-                                    "& .MuiOutlinedInput-root": {
-                                      bgcolor: "rgba(255, 255, 255, 0.9)",
+                                    '& .MuiOutlinedInput-root': {
+                                      bgcolor: 'rgba(255, 255, 255, 0.9)',
                                     },
                                   }}
                                 >
-                                  <MenuItem value="superadmin">Superadmin</MenuItem>
-                                  <MenuItem value="administrator">Administrator</MenuItem>
-                                  <MenuItem value="technical">Technical</MenuItem>
+                                  <MenuItem value="superadmin">
+                                    Superadmin
+                                  </MenuItem>
+                                  <MenuItem value="administrator">
+                                    Administrator
+                                  </MenuItem>
+                                  <MenuItem value="technical">
+                                    Technical
+                                  </MenuItem>
                                   <MenuItem value="staff">Staff</MenuItem>
                                 </ModernTextField>
                               )}
@@ -2155,14 +2859,29 @@ const UsersList = () => {
                                   gap: 1,
                                 }}
                               >
-                                <Business sx={{ color: settings?.textPrimaryColor || '#6D2323', fontSize: 18 }} />
-                                <Typography variant="body2" sx={{ fontWeight: 500, color: settings?.textPrimaryColor || '#6D2323' }}>
-                                  {user.departmentDescription || user.departmentCode || '-'}
+                                <Business
+                                  sx={{
+                                    color:
+                                      settings?.textPrimaryColor || '#6D2323',
+                                    fontSize: 18,
+                                  }}
+                                />
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    fontWeight: 500,
+                                    color:
+                                      settings?.textPrimaryColor || '#6D2323',
+                                  }}
+                                >
+                                  {user.departmentDescription ||
+                                    user.departmentCode ||
+                                    '-'}
                                 </Typography>
                               </Box>
                             </PremiumTableCell>
 
-                            <PremiumTableCell sx={{ textAlign: "center" }}>
+                            <PremiumTableCell sx={{ textAlign: 'center' }}>
                               <ProfessionalButton
                                 onClick={() => handlePageAccessClick(user)}
                                 startIcon={<Security />}
@@ -2171,8 +2890,9 @@ const UsersList = () => {
                                 sx={{
                                   bgcolor: settings?.primaryColor || '#894444',
                                   color: settings?.accentColor || '#FEF9E1',
-                                  "&:hover": {
-                                    bgcolor: settings?.secondaryColor || '#6d2323',
+                                  '&:hover': {
+                                    bgcolor:
+                                      settings?.secondaryColor || '#6d2323',
                                   },
                                 }}
                               >
@@ -2182,18 +2902,30 @@ const UsersList = () => {
 
                             {/* Actions Column - Only visible for technical users */}
                             {isTechnical && (
-                              <PremiumTableCell sx={{ textAlign: "center" }}>
-                                <Box sx={{ display: "flex", gap: 1, justifyContent: "center" }}>
+                              <PremiumTableCell sx={{ textAlign: 'center' }}>
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    gap: 1,
+                                    justifyContent: 'center',
+                                  }}
+                                >
                                   <Tooltip title="Edit User" arrow>
                                     <IconButton
                                       size="small"
                                       onClick={() => handleEditUser(user)}
                                       sx={{
-                                        bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
-                                        color: settings?.primaryColor || '#894444',
-                                        "&:hover": {
-                                          bgcolor: settings?.primaryColor || '#894444',
-                                          color: settings?.accentColor || '#FEF9E1',
+                                        bgcolor: alpha(
+                                          settings?.primaryColor || '#894444',
+                                          0.1,
+                                        ),
+                                        color:
+                                          settings?.primaryColor || '#894444',
+                                        '&:hover': {
+                                          bgcolor:
+                                            settings?.primaryColor || '#894444',
+                                          color:
+                                            settings?.accentColor || '#FEF9E1',
                                         },
                                       }}
                                     >
@@ -2207,7 +2939,7 @@ const UsersList = () => {
                                       sx={{
                                         bgcolor: alpha('#d32f2f', 0.1),
                                         color: '#d32f2f',
-                                        "&:hover": {
+                                        '&:hover': {
                                           bgcolor: '#d32f2f',
                                           color: 'white',
                                         },
@@ -2226,19 +2958,25 @@ const UsersList = () => {
                       <TableRow>
                         <TableCell
                           colSpan={isTechnical ? 8 : 7}
-                          sx={{ textAlign: "center", py: 8 }}
+                          sx={{ textAlign: 'center', py: 8 }}
                         >
-                          <Box sx={{ textAlign: "center" }}>
+                          <Box sx={{ textAlign: 'center' }}>
                             <Info
                               sx={{
                                 fontSize: 80,
-                                color: alpha(settings?.primaryColor || '#894444', 0.3),
+                                color: alpha(
+                                  settings?.primaryColor || '#894444',
+                                  0.3,
+                                ),
                                 mb: 3,
                               }}
                             />
                             <Typography
                               variant="h5"
-                              color={alpha(settings?.primaryColor || '#894444', 0.6)}
+                              color={alpha(
+                                settings?.primaryColor || '#894444',
+                                0.6,
+                              )}
                               gutterBottom
                               sx={{ fontWeight: 600 }}
                             >
@@ -2246,11 +2984,17 @@ const UsersList = () => {
                             </Typography>
                             <Typography
                               variant="body1"
-                              color={alpha(settings?.primaryColor || '#894444', 0.4)}
+                              color={alpha(
+                                settings?.primaryColor || '#894444',
+                                0.4,
+                              )}
                             >
-                              {searchTerm || roleFilter || categoryFilter !== "" || departmentFilter !== ""
-                                ? "Try adjusting your search criteria"
-                                : "No users registered yet"}
+                              {searchTerm ||
+                              roleFilter ||
+                              categoryFilter !== '' ||
+                              departmentFilter !== ''
+                                ? 'Try adjusting your search criteria'
+                                : 'No users registered yet'}
                             </Typography>
                           </Box>
                         </TableCell>
@@ -2262,7 +3006,7 @@ const UsersList = () => {
 
               {/* Pagination */}
               {filteredUsers.length > 0 && (
-                <Box sx={{ display: "flex", justifyContent: "flex-end", p: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 2 }}>
                   <TablePagination
                     component="div"
                     count={filteredUsers.length}
@@ -2272,7 +3016,7 @@ const UsersList = () => {
                     onRowsPerPageChange={handleChangeRowsPerPage}
                     rowsPerPageOptions={[5, 10, 25, 50, 100]}
                     sx={{
-                      "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows":
+                      '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows':
                         {
                           color: settings?.textPrimaryColor || '#6D2323',
                           fontWeight: 600,
@@ -2302,14 +3046,14 @@ const UsersList = () => {
             sx={{
               background: `linear-gradient(135deg, ${settings?.primaryColor || '#894444'} 0%, ${settings?.secondaryColor || '#6d2323'} 100%)`,
               color: settings?.accentColor || '#FEF9E1',
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
               p: 3,
               fontWeight: 700,
             }}
           >
-            <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <Security sx={{ fontSize: 30 }} />
               Page Access Management
             </Box>
@@ -2333,17 +3077,17 @@ const UsersList = () => {
                     bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.5),
                   }}
                 >
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <Avatar
-                      src={selectedUser.avatar || ""}
+                      src={selectedUser.avatar || ''}
                       alt={selectedUser.fullName}
                       sx={{
                         bgcolor: settings?.primaryColor || '#894444',
                         width: 64,
                         height: 64,
                         fontWeight: 700,
-                        fontSize: "1.2rem",
-                        border: "3px solid #fff",
+                        fontSize: '1.2rem',
+                        border: '3px solid #fff',
                         boxShadow: `0 4px 12px ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
                       }}
                     >
@@ -2353,147 +3097,638 @@ const UsersList = () => {
                     <Box>
                       <Typography
                         variant="h6"
-                        sx={{ fontWeight: 700, color: settings?.textPrimaryColor || '#6D2323' }}
+                        sx={{
+                          fontWeight: 700,
+                          color: settings?.textPrimaryColor || '#6D2323',
+                        }}
                       >
                         {selectedUser.fullName}
                       </Typography>
                       <Typography
                         variant="body2"
-                        sx={{ color: settings?.textPrimaryColor || '#6D2323', mt: 1 }}
+                        sx={{
+                          color: settings?.textPrimaryColor || '#6D2323',
+                          mt: 1,
+                        }}
                       >
-                        Employee: <strong>{selectedUser.employeeNumber}</strong>{" "}
+                        Employee: <strong>{selectedUser.employeeNumber}</strong>{' '}
                         | Role: <strong>{selectedUser.role}</strong>
                       </Typography>
                     </Box>
                   </Box>
                 </Box>
 
-                {!pageAccessLoading && pages.length > 0 && (
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "flex-end",
-                      mb: 3,
-                      alignItems: "center",
-                      gap: 2,
-                    }}
-                  >
-                    <Typography sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}>
-                      Toggle All Pages:
-                    </Typography>
-                    <Switch
-                      checked={Object.values(pageAccess).every(
-                        (v) => v === true
-                      )}
-                      onChange={(e) => {
-                        const enableAll = e.target.checked;
-                        pages.forEach((page) => {
-                          if (pageAccess[page.id] !== enableAll)
-                            handleTogglePageAccess(page.id, !enableAll);
-                        });
-                      }}
+                {!pageAccessLoading && pages.length > 0 ? (
+                  <Box>
+                    {/* Toggle All Section */}
+                    <Box
                       sx={{
-                        "& .MuiSwitch-switchBase.Mui-checked": {
-                          color: settings?.primaryColor || '#894444',
-                        },
-                        "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
-                          {
-                            backgroundColor: settings?.primaryColor || '#894444',
-                          },
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        mb: 1,
+                        gap: 2,
                       }}
-                    />
-                  </Box>
-                )}
-
-                {pageAccessLoading ? (
-                  <Box sx={{ display: "flex", justifyContent: "center", p: 5 }}>
-                    <CircularProgress sx={{ color: settings?.primaryColor || '#894444' }} />
-                  </Box>
-                ) : pages.length > 0 ? (
-                  <Box sx={{ maxHeight: 400, overflow: "auto" }}>
-                    <List>
-                      {pages.map((page) => (
-                        <ListItem
-                          key={page.id}
-                          sx={{
-                            p: 2,
-                            mb: 1,
-                            borderRadius: 2,
-                            bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.3),
-                            border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.1)}`,
-                            "&:hover": {
-                              bgcolor: alpha(settings?.primaryColor || '#894444', 0.05),
+                    >
+                      <Typography
+                        sx={{
+                          fontWeight: 600,
+                          color: settings?.textPrimaryColor || '#6D2323',
+                        }}
+                      >
+                        Toggle All Pages:
+                      </Typography>
+                      <Switch
+                        checked={Object.values(pageAccess).every(
+                          (v) => v === true,
+                        )}
+                        onChange={(e) => {
+                          const enableAll = e.target.checked;
+                          pages.forEach((page) => {
+                            if (pageAccess[page.id] !== enableAll)
+                              handleTogglePageAccess(page.id, !enableAll);
+                          });
+                        }}
+                        sx={{
+                          '& .MuiSwitch-switchBase.Mui-checked': {
+                            color: settings?.primaryColor || '#894444',
+                          },
+                          '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track':
+                            {
+                              backgroundColor:
+                                settings?.primaryColor || '#894444',
                             },
-                          }}
-                        >
-                          <ListItemText
-                            primary={
-                              <Typography
-                                variant="subtitle1"
-                                sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
-                              >
-                                {page.page_name}
-                              </Typography>
-                            }
-                            secondary={
-                              <Typography
-                                variant="body2"
-                                sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
-                              >
-                                Page ID: {page.id}
-                              </Typography>
-                            }
-                          />
+                        }}
+                      />
+                    </Box>
+
+                    {/* Grouping Logic */}
+                    {(() => {
+                      // Group pages by their description
+                      const groupedPages = pages.reduce((acc, page) => {
+                        const description =
+                          page.page_description || 'Uncategorized';
+                        if (!acc[description]) {
+                          acc[description] = [];
+                        }
+                        acc[description].push(page);
+                        return acc;
+                      }, {});
+
+                      // Define the order of descriptions to display
+                      const descriptionOrder = [
+                        'General',
+                        'System Administration',
+                        'Registration',
+                        'Information Management',
+                        'Attendance Management',
+                        'Payroll Management',
+                        'Form',
+                        'Pages Management',
+                        'Personal Data Sheets',
+                        'Uncategorized',
+                      ];
+
+                      // Sort descriptions according to the defined order
+                      const sortedDescriptions = Object.keys(groupedPages).sort(
+                        (a, b) => {
+                          const indexA = descriptionOrder.indexOf(a);
+                          const indexB = descriptionOrder.indexOf(b);
+
+                          // If both are in the order array, sort by their position
+                          if (indexA !== -1 && indexB !== -1) {
+                            return indexA - indexB;
+                          }
+                          // If only A is in the order array, it comes first
+                          if (indexA !== -1) return -1;
+                          // If only B is in the order array, it comes first
+                          if (indexB !== -1) return 1;
+                          // If neither is in the order array, sort alphabetically
+                          return a.localeCompare(b);
+                        },
+                      );
+
+                      return (
+                        <Box>
+                          {/* NAVIGATION BAR WITH ARROWS AND TIPS */}
                           <Box
                             sx={{
-                              display: "flex",
-                              alignItems: "center",
+                              mb: 3,
+                              pb: 3,
+                              borderBottom: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.1)}`,
+                              display: 'flex',
+                              alignItems: 'center',
                               gap: 1,
                             }}
                           >
-                            {accessChangeInProgress[page.id] ? (
-                              <CircularProgress
-                                size={24}
-                                sx={{ color: settings?.primaryColor || '#894444' }}
-                              />
-                            ) : (
-                              <>
-                                {pageAccess[page.id] ? (
-                                  <LockOpen sx={{ color: settings?.primaryColor || '#894444' }} />
-                                ) : (
-                                  <Lock sx={{ color: settings?.textPrimaryColor || '#6D2323' }} />
-                                )}
-                                <Switch
-                                  checked={!!pageAccess[page.id]}
-                                  onChange={() =>
-                                    handleTogglePageAccess(
-                                      page.id,
-                                      !!pageAccess[page.id]
-                                    )
-                                  }
-                                  sx={{
-                                    "& .MuiSwitch-switchBase.Mui-checked": {
-                                      color: settings?.primaryColor || '#894444',
-                                    },
-                                    "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
-                                      {
-                                        backgroundColor: settings?.primaryColor || '#894444',
-                                      },
-                                  }}
-                                />
-                              </>
-                            )}
+                            <IconButton
+                              onClick={() => {
+                                if (chipScrollRef.current) {
+                                  chipScrollRef.current.scrollBy({
+                                    left: -300,
+                                    behavior: 'smooth',
+                                  });
+                                }
+                              }}
+                              sx={{
+                                color: settings?.primaryColor || '#894444',
+                                bgcolor: alpha(
+                                  settings?.primaryColor || '#894444',
+                                  0.1,
+                                ),
+                                borderRadius: '50%',
+                                flexShrink: 0,
+                                '&:hover': {
+                                  bgcolor: alpha(
+                                    settings?.primaryColor || '#894444',
+                                    0.2,
+                                  ),
+                                },
+                              }}
+                            >
+                              <ChevronLeft />
+                            </IconButton>
+
+                            <Box
+                              ref={chipScrollRef}
+                              sx={{
+                                display: 'flex',
+                                gap: 1.5,
+                                overflowX: 'auto',
+                                pb: 1,
+                                flex: 1,
+                                scrollBehavior: 'smooth',
+                                '&::-webkit-scrollbar': {
+                                  height: 4,
+                                },
+                                '&::-webkit-scrollbar-thumb': {
+                                  bgcolor: alpha(
+                                    settings?.primaryColor || '#894444',
+                                    0.3,
+                                  ),
+                                  borderRadius: 4,
+                                },
+                              }}
+                            >
+                              {sortedDescriptions.map((description) => {
+                                const isActive =
+                                  activeAccessCategory === description;
+
+                                return (
+                                  <Box
+                                    key={description}
+                                    sx={{
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      alignItems: 'center',
+                                      position: 'relative',
+                                    }}
+                                  >
+                                    {/* Arrow Indicator for Active Tab */}
+                                    {isActive && (
+                                      <Box
+                                        sx={{
+                                          position: 'absolute',
+                                          bottom: -6,
+                                          left: '50%',
+                                          transform: 'translateX(-50%)',
+                                          width: 0,
+                                          height: 0,
+                                          borderLeft: '6px solid transparent',
+                                          borderRight: '6px solid transparent',
+                                          borderTop: `6px solid ${settings?.primaryColor || '#894444'}`,
+                                          zIndex: 2,
+                                        }}
+                                      />
+                                    )}
+
+                                    <Chip
+                                      label={description}
+                                      size="medium"
+                                      clickable
+                                      onClick={() =>
+                                        setActiveAccessCategory(description)
+                                      }
+                                      sx={{
+                                        borderRadius: 20,
+                                        fontSize: '0.85rem',
+                                        fontWeight: isActive ? 700 : 600,
+                                        bgcolor: isActive
+                                          ? settings?.primaryColor || '#894444'
+                                          : alpha(
+                                              settings?.primaryColor ||
+                                                '#894444',
+                                              0.05,
+                                            ),
+                                        color: isActive
+                                          ? settings?.accentColor || '#FEF9E1'
+                                          : settings?.textPrimaryColor ||
+                                            '#6D2323',
+                                        border: isActive
+                                          ? 'none'
+                                          : `1px solid ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
+                                        whiteSpace: 'nowrap',
+                                        boxShadow: isActive
+                                          ? `0 4px 12px ${alpha(settings?.primaryColor || '#894444', 0.3)}`
+                                          : 'none',
+                                        transition: 'all 0.2s ease',
+                                        mb: 1,
+                                        '&:hover': {
+                                          bgcolor: alpha(
+                                            settings?.primaryColor || '#894444',
+                                            0.1,
+                                          ),
+                                          transform: isActive
+                                            ? 'none'
+                                            : 'translateY(-1px)',
+                                        },
+                                      }}
+                                    />
+                                  </Box>
+                                );
+                              })}
+                            </Box>
+
+                            <IconButton
+                              onClick={() => {
+                                if (chipScrollRef.current) {
+                                  chipScrollRef.current.scrollBy({
+                                    left: 300,
+                                    behavior: 'smooth',
+                                  });
+                                }
+                              }}
+                              sx={{
+                                color: settings?.primaryColor || '#894444',
+                                bgcolor: alpha(
+                                  settings?.primaryColor || '#894444',
+                                  0.1,
+                                ),
+                                borderRadius: '50%',
+                                flexShrink: 0,
+                                '&:hover': {
+                                  bgcolor: alpha(
+                                    settings?.primaryColor || '#894444',
+                                    0.2,
+                                  ),
+                                },
+                              }}
+                            >
+                              <ChevronRight />
+                            </IconButton>
                           </Box>
-                        </ListItem>
-                      ))}
-                    </List>
+
+                          {/* TIP SECTION */}
+                          <Box
+                            sx={{
+                              mt: 2,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 1,
+                              px: 2,
+                              py: 1.5,
+                              bgcolor: alpha(
+                                settings?.primaryColor || '#894444',
+                                0.04,
+                              ),
+                              borderRadius: 2,
+                              border: `1px dashed ${alpha(settings?.primaryColor || '#894444', 0.3)}`,
+                            }}
+                          >
+                            <Info
+                              sx={{
+                                fontSize: 16,
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
+                            />
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontWeight: 500,
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
+                            >
+                              Tip: Click a category above to view pages
+                              instantly. Use the switch to toggle access.
+                            </Typography>
+                          </Box>
+
+                          {/* CONTENT AREA - FILTERED BY ACTIVE TAB */}
+                          {activeAccessCategory && (
+                            <Fade in={!!activeAccessCategory} timeout={300}>
+                              <Box
+                                sx={{
+                                  mt: 4,
+                                  animation: 'fadeIn 0.3s ease-in-out',
+                                }}
+                              >
+                                {(() => {
+                                  const pagesInGroup =
+                                    groupedPages[activeAccessCategory];
+                                  const descriptionInfo = getDescriptionColor(
+                                    activeAccessCategory,
+                                    settings,
+                                  );
+
+                                  // Calculate how many pages in this group are enabled
+                                  const enabledCount = pagesInGroup.filter(
+                                    (page) => pageAccess[page.id],
+                                  ).length;
+
+                                  return (
+                                    <Box
+                                      sx={{
+                                        borderRadius: 2,
+                                        overflow: 'hidden',
+                                        border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.15)}`,
+                                        bgcolor: alpha(
+                                          settings?.accentColor || '#FEF9E1',
+                                          0.3,
+                                        ),
+                                        minHeight: 200, // Prevent layout jump
+                                      }}
+                                    >
+                                      {/* Category Header */}
+                                      <Box
+                                        sx={{
+                                          p: 2,
+                                          bgcolor: alpha(
+                                            settings?.primaryColor || '#894444',
+                                            0.08,
+                                          ),
+                                          borderBottom: `1px solid ${alpha(
+                                            settings?.primaryColor || '#894444',
+                                            0.15,
+                                          )}`,
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'space-between',
+                                        }}
+                                      >
+                                        <Box
+                                          sx={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 1.5,
+                                          }}
+                                        >
+                                          <Box
+                                            sx={{
+                                              width: 40,
+                                              height: 40,
+                                              borderRadius: '50%',
+                                              bgcolor:
+                                                descriptionInfo.sx.bgcolor,
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                            }}
+                                          >
+                                            {React.cloneElement(
+                                              descriptionInfo.icon,
+                                              {
+                                                sx: {
+                                                  color:
+                                                    descriptionInfo.sx.color,
+                                                  fontSize: 20,
+                                                },
+                                              },
+                                            )}
+                                          </Box>
+                                          <Box>
+                                            <Typography
+                                              variant="subtitle1"
+                                              sx={{
+                                                fontWeight: 700,
+                                                color:
+                                                  settings?.textPrimaryColor ||
+                                                  '#6D2323',
+                                              }}
+                                            >
+                                              {activeAccessCategory}
+                                            </Typography>
+                                            <Typography
+                                              variant="caption"
+                                              sx={{
+                                                color: alpha(
+                                                  settings?.textPrimaryColor ||
+                                                    '#6D2323',
+                                                  0.7,
+                                                ),
+                                              }}
+                                            >
+                                              {enabledCount} of{' '}
+                                              {pagesInGroup.length} enabled
+                                            </Typography>
+                                          </Box>
+                                        </Box>
+
+                                        {/* Toggle all in category */}
+                                        <Box
+                                          sx={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 1,
+                                          }}
+                                        >
+                                          <Typography
+                                            variant="caption"
+                                            sx={{
+                                              color:
+                                                settings?.textPrimaryColor ||
+                                                '#6D2323',
+                                              fontWeight: 500,
+                                            }}
+                                          >
+                                            Toggle All
+                                          </Typography>
+                                          <Switch
+                                            size="small"
+                                            checked={
+                                              enabledCount ===
+                                              pagesInGroup.length
+                                            }
+                                            onChange={(e) => {
+                                              const enableAll =
+                                                e.target.checked;
+                                              pagesInGroup.forEach((page) => {
+                                                if (
+                                                  pageAccess[page.id] !==
+                                                  enableAll
+                                                ) {
+                                                  handleTogglePageAccess(
+                                                    page.id,
+                                                    !enableAll,
+                                                  );
+                                                }
+                                              });
+                                            }}
+                                            sx={{
+                                              '& .MuiSwitch-switchBase.Mui-checked':
+                                                {
+                                                  color:
+                                                    settings?.primaryColor ||
+                                                    '#894444',
+                                                },
+                                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track':
+                                                {
+                                                  backgroundColor:
+                                                    settings?.primaryColor ||
+                                                    '#894444',
+                                                },
+                                            }}
+                                          />
+                                        </Box>
+                                      </Box>
+
+                                      {/* Pages in this category */}
+                                      <List sx={{ p: 0 }}>
+                                        {pagesInGroup.map((page, index) => (
+                                          <ListItem
+                                            key={page.id}
+                                            sx={{
+                                              p: 2,
+                                              borderBottom:
+                                                index < pagesInGroup.length - 1
+                                                  ? `1px solid ${alpha(
+                                                      settings?.primaryColor ||
+                                                        '#894444',
+                                                      0.08,
+                                                    )}`
+                                                  : 'none',
+                                              '&:hover': {
+                                                bgcolor: alpha(
+                                                  settings?.primaryColor ||
+                                                    '#894444',
+                                                  0.05,
+                                                ),
+                                              },
+                                            }}
+                                          >
+                                            <ListItemText
+                                              primary={
+                                                <Typography
+                                                  variant="subtitle2"
+                                                  sx={{
+                                                    fontWeight: 600,
+                                                    color:
+                                                      settings?.textPrimaryColor ||
+                                                      '#6D2323',
+                                                  }}
+                                                >
+                                                  {page.page_name}
+                                                </Typography>
+                                              }
+                                              secondary={
+                                                <Typography
+                                                  variant="caption"
+                                                  sx={{
+                                                    color:
+                                                      settings?.textPrimaryColor ||
+                                                      '#6D2323',
+                                                  }}
+                                                >
+                                                  Page ID: {page.id}
+                                                  {page.page_url &&
+                                                    ` • ${page.page_url}`}
+                                                </Typography>
+                                              }
+                                            />
+                                            <Box
+                                              sx={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 1,
+                                              }}
+                                            >
+                                              {accessChangeInProgress[
+                                                page.id
+                                              ] ? (
+                                                <CircularProgress
+                                                  size={24}
+                                                  sx={{
+                                                    color:
+                                                      settings?.primaryColor ||
+                                                      '#894444',
+                                                  }}
+                                                />
+                                              ) : (
+                                                <>
+                                                  {pageAccess[page.id] ? (
+                                                    <LockOpen
+                                                      sx={{
+                                                        color:
+                                                          settings?.primaryColor ||
+                                                          '#894444',
+                                                      }}
+                                                    />
+                                                  ) : (
+                                                    <Lock
+                                                      sx={{
+                                                        color:
+                                                          settings?.textPrimaryColor ||
+                                                          '#6D2323',
+                                                      }}
+                                                    />
+                                                  )}
+                                                  <Switch
+                                                    checked={
+                                                      !!pageAccess[page.id]
+                                                    }
+                                                    onChange={() =>
+                                                      handleTogglePageAccess(
+                                                        page.id,
+                                                        !!pageAccess[page.id],
+                                                      )
+                                                    }
+                                                    sx={{
+                                                      '& .MuiSwitch-switchBase.Mui-checked':
+                                                        {
+                                                          color:
+                                                            settings?.primaryColor ||
+                                                            '#894444',
+                                                        },
+                                                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track':
+                                                        {
+                                                          backgroundColor:
+                                                            settings?.primaryColor ||
+                                                            '#894444',
+                                                        },
+                                                    }}
+                                                  />
+                                                </>
+                                              )}
+                                            </Box>
+                                          </ListItem>
+                                        ))}
+                                      </List>
+                                    </Box>
+                                  );
+                                })()}
+                              </Box>
+                            </Fade>
+                          )}
+                        </Box>
+                      );
+                    })()}
+                  </Box>
+                ) : pageAccessLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}>
+                    <CircularProgress
+                      sx={{ color: settings?.primaryColor || '#894444' }}
+                    />
                   </Box>
                 ) : (
                   <Typography
                     variant="body1"
-                    sx={{ textAlign: "center", p: 4, color: settings?.textPrimaryColor || '#6D2323' }}
+                    sx={{
+                      textAlign: 'center',
+                      p: 4,
+                      color: settings?.textPrimaryColor || '#6D2323',
+                    }}
                   >
-                    No pages found in the system.
+                    No pages found in system.
                   </Typography>
                 )}
               </>
@@ -2507,7 +3742,7 @@ const UsersList = () => {
               sx={{
                 bgcolor: settings?.primaryColor || '#894444',
                 color: settings?.accentColor || '#FEF9E1',
-                "&:hover": {
+                '&:hover': {
                   bgcolor: settings?.secondaryColor || '#6d2323',
                 },
               }}
@@ -2524,14 +3759,14 @@ const UsersList = () => {
           onClose={closeUserDetails}
           PaperProps={{
             sx: {
-              width: isMobile ? "100%" : "520px",
+              width: isMobile ? '100%' : '520px',
               bgcolor: settings?.accentColor || '#FEF9E1',
             },
           }}
         >
           {selectedUserForDetails && (
             <Box
-              sx={{ height: "100%", display: "flex", flexDirection: "column" }}
+              sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}
             >
               {/* Header */}
               <Box
@@ -2543,14 +3778,14 @@ const UsersList = () => {
               >
                 <Box
                   sx={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
                   }}
                 >
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <Avatar
-                      src={selectedUserForDetails.avatar || ""}
+                      src={selectedUserForDetails.avatar || ''}
                       alt={selectedUserForDetails.fullName}
                       sx={{
                         width: 80,
@@ -2558,9 +3793,9 @@ const UsersList = () => {
                         bgcolor: settings?.accentColor || '#FEF9E1',
                         color: settings?.primaryColor || '#894444',
                         fontWeight: 700,
-                        fontSize: "2rem",
-                        border: "4px solid rgba(255,255,255,0.8)",
-                        boxShadow: "0 8px 20px rgba(0,0,0,0.3)",
+                        fontSize: '2rem',
+                        border: '4px solid rgba(255,255,255,0.8)',
+                        boxShadow: '0 8px 20px rgba(0,0,0,0.3)',
                       }}
                     >
                       {!selectedUserForDetails.avatar &&
@@ -2571,7 +3806,7 @@ const UsersList = () => {
                         {selectedUserForDetails.fullName}
                       </Typography>
                       <Box
-                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                        sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
                       >
                         {getRoleColor(selectedUserForDetails.role).icon}
                         <Typography variant="body2">
@@ -2592,58 +3827,64 @@ const UsersList = () => {
               {/* Tab Navigation */}
               <Box
                 sx={{
-                  display: "flex",
+                  display: 'flex',
                   bgcolor: settings?.backgroundColor || '#FFFFFF',
                   borderBottom: `2px solid ${alpha(settings?.primaryColor || '#894444', 0.1)}`,
                 }}
               >
                 <Box
-                  onClick={() => setActiveTab("info")}
+                  onClick={() => setActiveTab('info')}
                   sx={{
                     flex: 1,
                     p: 2,
-                    textAlign: "center",
-                    cursor: "pointer",
+                    textAlign: 'center',
+                    cursor: 'pointer',
                     borderBottom:
-                      activeTab === "info"
+                      activeTab === 'info'
                         ? `3px solid ${settings?.primaryColor || '#894444'}`
-                        : "none",
-                    color: activeTab === "info" ? settings?.primaryColor || '#894444' : settings?.textPrimaryColor || '#6D2323',
-                    fontWeight: activeTab === "info" ? 600 : 500,
-                    "&:hover": {
+                        : 'none',
+                    color:
+                      activeTab === 'info'
+                        ? settings?.primaryColor || '#894444'
+                        : settings?.textPrimaryColor || '#6D2323',
+                    fontWeight: activeTab === 'info' ? 600 : 500,
+                    '&:hover': {
                       bgcolor: alpha(settings?.primaryColor || '#894444', 0.05),
                     },
                   }}
                 >
-                  <Info sx={{ mr: 1, verticalAlign: "middle" }} />
+                  <Info sx={{ mr: 1, verticalAlign: 'middle' }} />
                   Information
                 </Box>
                 <Box
-                  onClick={() => setActiveTab("access")}
+                  onClick={() => setActiveTab('access')}
                   sx={{
                     flex: 1,
                     p: 2,
-                    textAlign: "center",
-                    cursor: "pointer",
+                    textAlign: 'center',
+                    cursor: 'pointer',
                     borderBottom:
-                      activeTab === "access"
+                      activeTab === 'access'
                         ? `3px solid ${settings?.primaryColor || '#894444'}`
-                        : "none",
-                    color: activeTab === "access" ? settings?.primaryColor || '#894444' : settings?.textPrimaryColor || '#6D2323',
-                    fontWeight: activeTab === "access" ? 600 : 500,
-                    "&:hover": {
+                        : 'none',
+                    color:
+                      activeTab === 'access'
+                        ? settings?.primaryColor || '#894444'
+                        : settings?.textPrimaryColor || '#6D2323',
+                    fontWeight: activeTab === 'access' ? 600 : 500,
+                    '&:hover': {
                       bgcolor: alpha(settings?.primaryColor || '#894444', 0.05),
                     },
                   }}
                 >
-                  <Key sx={{ mr: 1, verticalAlign: "middle" }} />
+                  <Key sx={{ mr: 1, verticalAlign: 'middle' }} />
                   Page Access
                 </Box>
               </Box>
 
               {/* Content */}
-              <Box sx={{ flex: 1, overflow: "auto", p: 3 }}>
-                {activeTab === "info" && (
+              <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
+                {activeTab === 'info' && (
                   <Stack spacing={3}>
                     {/* Personal Information */}
                     <GlassCard>
@@ -2651,34 +3892,51 @@ const UsersList = () => {
                         title={
                           <Box
                             sx={{
-                              display: "flex",
-                              alignItems: "center",
+                              display: 'flex',
+                              alignItems: 'center',
                               gap: 1,
                             }}
                           >
-                            <AssignmentInd sx={{ color: settings?.primaryColor || '#894444' }} />
+                            <AssignmentInd
+                              sx={{
+                                color: settings?.primaryColor || '#894444',
+                              }}
+                            />
                             <Typography
                               variant="h6"
-                              sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                fontWeight: 600,
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               Personal Information
                             </Typography>
                           </Box>
                         }
-                        sx={{ bgcolor: alpha(settings?.primaryColor || '#894444', 0.05) }}
+                        sx={{
+                          bgcolor: alpha(
+                            settings?.primaryColor || '#894444',
+                            0.05,
+                          ),
+                        }}
                       />
                       <CardContent>
                         <Stack spacing={2}>
                           <Box>
                             <Typography
                               variant="caption"
-                              sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               Full Name
                             </Typography>
                             <Typography
                               variant="body1"
-                              sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                fontWeight: 600,
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               {selectedUserForDetails.fullName}
                             </Typography>
@@ -2686,13 +3944,18 @@ const UsersList = () => {
                           <Box>
                             <Typography
                               variant="caption"
-                              sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               Employee Number
                             </Typography>
                             <Typography
                               variant="body1"
-                              sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                fontWeight: 600,
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               {selectedUserForDetails.employeeNumber}
                             </Typography>
@@ -2700,13 +3963,18 @@ const UsersList = () => {
                           <Box>
                             <Typography
                               variant="caption"
-                              sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               Email Address
                             </Typography>
                             <Typography
                               variant="body1"
-                              sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                fontWeight: 600,
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               {selectedUserForDetails.email}
                             </Typography>
@@ -2714,7 +3982,9 @@ const UsersList = () => {
                           <Box>
                             <Typography
                               variant="caption"
-                              sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               Role
                             </Typography>
@@ -2735,13 +4005,19 @@ const UsersList = () => {
                           <Box>
                             <Typography
                               variant="caption"
-                              sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               Employment Category
                             </Typography>
                             <Box sx={{ mt: 1 }}>
                               {(() => {
-                                const categoryInfo = getEmploymentCategoryInfo(selectedUserForDetails.employmentCategory);
+                                const categoryInfo = getEmploymentCategoryInfo(
+                                  selectedUserForDetails.employmentCategory,
+                                  selectedUserForDetails.customCategory ||
+                                    selectedUserForDetails.custom_category,
+                                );
                                 return (
                                   <Chip
                                     label={categoryInfo.label}
@@ -2760,30 +4036,56 @@ const UsersList = () => {
                           <Box>
                             <Typography
                               variant="caption"
-                              sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               Department
                             </Typography>
-                            <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Business sx={{ color: settings?.textPrimaryColor || '#6D2323', fontSize: 18 }} />
+                            <Box
+                              sx={{
+                                mt: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
+                              }}
+                            >
+                              <Business
+                                sx={{
+                                  color:
+                                    settings?.textPrimaryColor || '#6D2323',
+                                  fontSize: 18,
+                                }}
+                              />
                               <Typography
                                 variant="body1"
-                                sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                                sx={{
+                                  fontWeight: 600,
+                                  color:
+                                    settings?.textPrimaryColor || '#6D2323',
+                                }}
                               >
-                                {selectedUserForDetails.departmentDescription || selectedUserForDetails.departmentCode || 'Unassigned'}
+                                {selectedUserForDetails.departmentDescription ||
+                                  selectedUserForDetails.departmentCode ||
+                                  'Unassigned'}
                               </Typography>
                             </Box>
                           </Box>
                           <Box>
                             <Typography
                               variant="caption"
-                              sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               Last Login
                             </Typography>
                             <Typography
                               variant="body1"
-                              sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                fontWeight: 600,
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               {formatDate(selectedUserForDetails.lastLogin)}
                             </Typography>
@@ -2794,7 +4096,7 @@ const UsersList = () => {
                   </Stack>
                 )}
 
-                {activeTab === "access" && (
+                {activeTab === 'access' && (
                   <Stack spacing={3}>
                     {/* Access Summary */}
                     <GlassCard>
@@ -2802,34 +4104,51 @@ const UsersList = () => {
                         title={
                           <Box
                             sx={{
-                              display: "flex",
-                              alignItems: "center",
+                              display: 'flex',
+                              alignItems: 'center',
                               gap: 1,
                             }}
                           >
-                            <TrendingUp sx={{ color: settings?.primaryColor || '#894444' }} />
+                            <TrendingUp
+                              sx={{
+                                color: settings?.primaryColor || '#894444',
+                              }}
+                            />
                             <Typography
                               variant="h6"
-                              sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                fontWeight: 600,
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               Page Access Summary
                             </Typography>
                           </Box>
                         }
-                        sx={{ bgcolor: alpha(settings?.primaryColor || '#894444', 0.05) }}
+                        sx={{
+                          bgcolor: alpha(
+                            settings?.primaryColor || '#894444',
+                            0.05,
+                          ),
+                        }}
                       />
                       <CardContent>
-                        <Box sx={{ textAlign: "center", mb: 3 }}>
+                        <Box sx={{ textAlign: 'center', mb: 3 }}>
                           <Typography
                             variant="h2"
-                            sx={{ color: settings?.primaryColor || '#894444', fontWeight: 700 }}
+                            sx={{
+                              color: settings?.primaryColor || '#894444',
+                              fontWeight: 700,
+                            }}
                           >
                             {selectedUserForDetails.accessiblePages?.length ||
                               0}
                           </Typography>
                           <Typography
                             variant="body2"
-                            sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                            sx={{
+                              color: settings?.textPrimaryColor || '#6D2323',
+                            }}
                           >
                             of {selectedUserForDetails.totalPages || 0} pages
                             accessible
@@ -2841,8 +4160,11 @@ const UsersList = () => {
                           sx={{
                             height: 10,
                             borderRadius: 5,
-                            bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
-                            "& .MuiLinearProgress-bar": {
+                            bgcolor: alpha(
+                              settings?.primaryColor || '#894444',
+                              0.1,
+                            ),
+                            '& .MuiLinearProgress-bar': {
                               bgcolor: settings?.primaryColor || '#894444',
                             },
                           }}
@@ -2856,21 +4178,33 @@ const UsersList = () => {
                         title={
                           <Box
                             sx={{
-                              display: "flex",
-                              alignItems: "center",
+                              display: 'flex',
+                              alignItems: 'center',
                               gap: 1,
                             }}
                           >
-                            <Shield sx={{ color: settings?.primaryColor || '#894444' }} />
+                            <Shield
+                              sx={{
+                                color: settings?.primaryColor || '#894444',
+                              }}
+                            />
                             <Typography
                               variant="h6"
-                              sx={{ fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                fontWeight: 600,
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               Accessible Pages
                             </Typography>
                           </Box>
                         }
-                        sx={{ bgcolor: alpha(settings?.primaryColor || '#894444', 0.05) }}
+                        sx={{
+                          bgcolor: alpha(
+                            settings?.primaryColor || '#894444',
+                            0.05,
+                          ),
+                        }}
                       />
                       <CardContent>
                         {selectedUserForDetails.accessiblePages &&
@@ -2883,50 +4217,69 @@ const UsersList = () => {
                                   sx={{
                                     p: 2,
                                     borderRadius: 2,
-                                    bgcolor: alpha(settings?.primaryColor || '#894444', 0.05),
+                                    bgcolor: alpha(
+                                      settings?.primaryColor || '#894444',
+                                      0.05,
+                                    ),
                                     border: `1px solid ${alpha(
                                       settings?.primaryColor || '#894444',
-                                      0.1
+                                      0.1,
                                     )}`,
-                                    display: "flex",
-                                    alignItems: "center",
+                                    display: 'flex',
+                                    alignItems: 'center',
                                     gap: 2,
                                   }}
                                 >
-                                  <CheckCircle sx={{ color: settings?.primaryColor || '#894444' }} />
+                                  <CheckCircle
+                                    sx={{
+                                      color:
+                                        settings?.primaryColor || '#894444',
+                                    }}
+                                  />
                                   <Box sx={{ flex: 1 }}>
                                     <Typography
                                       variant="body1"
                                       sx={{
                                         fontWeight: 600,
-                                        color: settings?.textPrimaryColor || '#6D2323',
+                                        color:
+                                          settings?.textPrimaryColor ||
+                                          '#6D2323',
                                       }}
                                     >
                                       {page.page_name}
                                     </Typography>
                                     <Typography
                                       variant="caption"
-                                      sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                                      sx={{
+                                        color:
+                                          settings?.textPrimaryColor ||
+                                          '#6D2323',
+                                      }}
                                     >
                                       ID: {page.id}
                                     </Typography>
                                   </Box>
                                 </Box>
-                              )
+                              ),
                             )}
                           </Stack>
                         ) : (
-                          <Box sx={{ textAlign: "center", p: 4 }}>
+                          <Box sx={{ textAlign: 'center', p: 4 }}>
                             <Cancel
                               sx={{
                                 fontSize: 60,
-                                color: alpha(settings?.primaryColor || '#894444', 0.3),
+                                color: alpha(
+                                  settings?.primaryColor || '#894444',
+                                  0.3,
+                                ),
                                 mb: 2,
                               }}
                             />
                             <Typography
                               variant="body1"
-                              sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                              sx={{
+                                color: settings?.textPrimaryColor || '#6D2323',
+                              }}
                             >
                               No page access granted
                             </Typography>
@@ -2940,7 +4293,10 @@ const UsersList = () => {
 
               {/* Action Button */}
               <Box
-                sx={{ p: 3, borderTop: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.1)}` }}
+                sx={{
+                  p: 3,
+                  borderTop: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.1)}`,
+                }}
               >
                 <ProfessionalButton
                   variant="contained"
@@ -2954,7 +4310,7 @@ const UsersList = () => {
                     bgcolor: settings?.primaryColor || '#894444',
                     color: settings?.accentColor || '#FEF9E1',
                     py: 1.5,
-                    "&:hover": {
+                    '&:hover': {
                       bgcolor: settings?.secondaryColor || '#6d2323',
                     },
                   }}
@@ -2983,8 +4339,8 @@ const UsersList = () => {
             sx={{
               background: `linear-gradient(135deg, ${settings?.primaryColor || '#894444'} 0%, ${settings?.secondaryColor || '#6d2323'} 100%)`,
               color: settings?.accentColor || '#FEF9E1',
-              display: "flex",
-              alignItems: "center",
+              display: 'flex',
+              alignItems: 'center',
               gap: 2,
               p: 3,
               fontWeight: 700,
@@ -3006,17 +4362,17 @@ const UsersList = () => {
                     bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.5),
                   }}
                 >
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <Avatar
-                      src={pendingRoleChange.user.avatar || ""}
+                      src={pendingRoleChange.user.avatar || ''}
                       alt={pendingRoleChange.user.fullName}
                       sx={{
                         bgcolor: settings?.primaryColor || '#894444',
                         width: 64,
                         height: 64,
                         fontWeight: 700,
-                        fontSize: "1.2rem",
-                        border: "3px solid #fff",
+                        fontSize: '1.2rem',
+                        border: '3px solid #fff',
                         boxShadow: `0 4px 12px ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
                       }}
                     >
@@ -3026,15 +4382,22 @@ const UsersList = () => {
                     <Box>
                       <Typography
                         variant="h6"
-                        sx={{ fontWeight: 700, color: settings?.textPrimaryColor || '#6D2323' }}
+                        sx={{
+                          fontWeight: 700,
+                          color: settings?.textPrimaryColor || '#6D2323',
+                        }}
                       >
                         {pendingRoleChange.user.fullName}
                       </Typography>
                       <Typography
                         variant="body2"
-                        sx={{ color: settings?.textPrimaryColor || '#6D2323', mt: 1 }}
+                        sx={{
+                          color: settings?.textPrimaryColor || '#6D2323',
+                          mt: 1,
+                        }}
                       >
-                        Employee: <strong>{pendingRoleChange.user.employeeNumber}</strong>
+                        Employee:{' '}
+                        <strong>{pendingRoleChange.user.employeeNumber}</strong>
                       </Typography>
                     </Box>
                   </Box>
@@ -3045,11 +4408,12 @@ const UsersList = () => {
                   sx={{
                     mb: 3,
                     borderRadius: 2,
-                    "& .MuiAlert-message": { fontWeight: 500 },
+                    '& .MuiAlert-message': { fontWeight: 500 },
                   }}
                   icon={<Info />}
                 >
-                  You are about to change the user's role. This action will be logged in the audit trail.
+                  You are about to change the user's role. This action will be
+                  logged in the audit trail.
                 </Alert>
 
                 <Box
@@ -3062,11 +4426,22 @@ const UsersList = () => {
                 >
                   <Typography
                     variant="body1"
-                    sx={{ mb: 2, fontWeight: 600, color: settings?.textPrimaryColor || '#6D2323' }}
+                    sx={{
+                      mb: 2,
+                      fontWeight: 600,
+                      color: settings?.textPrimaryColor || '#6D2323',
+                    }}
                   >
                     Role Change Details:
                   </Typography>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 2,
+                      mb: 2,
+                    }}
+                  >
                     <Chip
                       label={pendingRoleChange.oldRole.toUpperCase()}
                       size="small"
@@ -3076,7 +4451,11 @@ const UsersList = () => {
                         fontWeight: 600,
                       }}
                     />
-                    <Typography sx={{ color: settings?.textPrimaryColor || '#6D2323' }}>→</Typography>
+                    <Typography
+                      sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
+                    >
+                      →
+                    </Typography>
                     <Chip
                       label={pendingRoleChange.newRole.toUpperCase()}
                       size="small"
@@ -3100,7 +4479,7 @@ const UsersList = () => {
               sx={{
                 borderColor: settings?.primaryColor || '#894444',
                 color: settings?.primaryColor || '#894444',
-                "&:hover": {
+                '&:hover': {
                   borderColor: settings?.secondaryColor || '#6d2323',
                   bgcolor: alpha(settings?.primaryColor || '#894444', 0.05),
                 },
@@ -3112,19 +4491,25 @@ const UsersList = () => {
               onClick={confirmRoleChange}
               variant="contained"
               disabled={roleChangeLoading}
-              startIcon={roleChangeLoading ? <CircularProgress size={20} /> : <CheckCircle />}
+              startIcon={
+                roleChangeLoading ? (
+                  <CircularProgress size={20} />
+                ) : (
+                  <CheckCircle />
+                )
+              }
               sx={{
                 bgcolor: settings?.primaryColor || '#894444',
                 color: settings?.accentColor || '#FEF9E1',
-                "&:hover": {
+                '&:hover': {
                   bgcolor: settings?.secondaryColor || '#6d2323',
                 },
-                "&:disabled": {
+                '&:disabled': {
                   bgcolor: alpha(settings?.primaryColor || '#894444', 0.5),
                 },
               }}
             >
-              {roleChangeLoading ? "Updating..." : "Confirm Change"}
+              {roleChangeLoading ? 'Updating...' : 'Confirm Change'}
             </ProfessionalButton>
           </DialogActions>
         </Dialog>
@@ -3146,22 +4531,32 @@ const UsersList = () => {
             sx={{
               background: `linear-gradient(135deg, ${settings?.primaryColor || '#894444'} 0%, ${settings?.secondaryColor || '#6d2323'} 100%)`,
               color: settings?.accentColor || '#FEF9E1',
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-start",
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-start',
               gap: 0.5,
               p: 3,
               fontWeight: 700,
             }}
           >
-            <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <EditIcon sx={{ fontSize: 30 }} />
               Edit User Information
             </Box>
             {userToEdit && (
-              <Typography variant="body2" sx={{ fontWeight: 500, opacity: 0.95, pl: 5.5 }}>
-                Editing: <strong>{userToEdit.employeeNumber}</strong> — {[userToEdit.firstName, userToEdit.middleName, userToEdit.lastName].filter(Boolean).join(" ")}
-                {userToEdit.nameExtension ? ` ${userToEdit.nameExtension}` : ""}
+              <Typography
+                variant="body2"
+                sx={{ fontWeight: 500, opacity: 0.95, pl: 5.5 }}
+              >
+                Editing: <strong>{userToEdit.employeeNumber}</strong> —{' '}
+                {[
+                  userToEdit.firstName,
+                  userToEdit.middleName,
+                  userToEdit.lastName,
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                {userToEdit.nameExtension ? ` ${userToEdit.nameExtension}` : ''}
               </Typography>
             )}
           </DialogTitle>
@@ -3187,7 +4582,7 @@ const UsersList = () => {
                     sx={{ mb: 2 }}
                     required
                   />
-                  
+
                   <Grid container spacing={2}>
                     <Grid item xs={12} sm={6}>
                       <ModernTextField
@@ -3236,15 +4631,23 @@ const UsersList = () => {
 
                   {/* Employment Category Field */}
                   <FormControl fullWidth sx={{ mt: 2 }}>
-                    <InputLabel sx={{ fontWeight: 500 }}>Employment Category</InputLabel>
+                    <InputLabel sx={{ fontWeight: 500 }}>
+                      Employment Category
+                    </InputLabel>
                     <Select
                       value={editedEmploymentCategory}
                       label="Employment Category"
-                      onChange={(e) => setEditedEmploymentCategory(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEditedEmploymentCategory(val);
+                        if (parseInt(val) !== 5) {
+                          setEditedCustomCategory('');
+                        }
+                      }}
                       sx={{
                         borderRadius: 3,
-                        backgroundColor: "rgba(255, 255, 255, 0.8)",
-                        "& .MuiOutlinedInput-notchedOutline": {
+                        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                        '& .MuiOutlinedInput-notchedOutline': {
                           borderRadius: 3,
                         },
                       }}
@@ -3262,7 +4665,7 @@ const UsersList = () => {
                         </ListItemIcon>
                         UnderGrad
                       </MenuItem>
-                      
+
                       <ListSubheader>Regular</ListSubheader>
                       <MenuItem value={2}>
                         <ListItemIcon sx={{ minWidth: 30 }}>
@@ -3274,23 +4677,50 @@ const UsersList = () => {
                         <ListItemIcon sx={{ minWidth: 30 }}>
                           <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
                         </ListItemIcon>
-                        Teaching (Designated)
+                        Teaching (30Hrs)
                       </MenuItem>
                       <MenuItem value={4}>
                         <ListItemIcon sx={{ minWidth: 30 }}>
                           <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
                         </ListItemIcon>
-                        30Hrs
+                        Designated (40Hrs)
+                      </MenuItem>
+
+                      <ListSubheader>Custom</ListSubheader>
+                      <MenuItem value={5}>
+                        <ListItemIcon sx={{ minWidth: 30 }}>
+                          <Circle sx={{ fontSize: 12, color: '#00796B' }} />
+                        </ListItemIcon>
+                        Other (specify)
                       </MenuItem>
                     </Select>
                   </FormControl>
+
+                  {/* Custom Category Field - Only shows when "Other" is selected */}
+                  {parseInt(editedEmploymentCategory) === 5 && (
+                    <Fade in>
+                      <ModernTextField
+                        fullWidth
+                        label="Custom Category Description *"
+                        value={editedCustomCategory}
+                        onChange={(e) =>
+                          setEditedCustomCategory(e.target.value)
+                        }
+                        sx={{ mt: 2 }}
+                        placeholder="e.g., Part-timer, OJT, Consultant..."
+                        inputProps={{ maxLength: 100 }}
+                        helperText="Max 100 characters - describe the employment type"
+                        required
+                      />
+                    </Fade>
+                  )}
                 </Box>
 
                 <Alert
                   severity="info"
                   sx={{
                     borderRadius: 2,
-                    "& .MuiAlert-message": { fontWeight: 500 },
+                    '& .MuiAlert-message': { fontWeight: 500 },
                   }}
                   icon={<Info />}
                 >
@@ -3308,7 +4738,7 @@ const UsersList = () => {
               sx={{
                 borderColor: settings?.primaryColor || '#894444',
                 color: settings?.primaryColor || '#894444',
-                "&:hover": {
+                '&:hover': {
                   borderColor: settings?.secondaryColor || '#6d2323',
                   bgcolor: alpha(settings?.primaryColor || '#894444', 0.05),
                 },
@@ -3320,19 +4750,406 @@ const UsersList = () => {
               onClick={handleSaveEdit}
               variant="contained"
               disabled={editLoading}
-              startIcon={editLoading ? <CircularProgress size={20} /> : <CheckCircle />}
+              startIcon={
+                editLoading ? <CircularProgress size={20} /> : <CheckCircle />
+              }
               sx={{
                 bgcolor: settings?.primaryColor || '#894444',
                 color: settings?.accentColor || '#FEF9E1',
-                "&:hover": {
+                '&:hover': {
                   bgcolor: settings?.secondaryColor || '#6d2323',
                 },
-                "&:disabled": {
+                '&:disabled': {
                   bgcolor: alpha(settings?.primaryColor || '#894444', 0.5),
                 },
               }}
             >
-              {editLoading ? "Saving..." : "Save Changes"}
+              {editLoading ? 'Saving...' : 'Save Changes'}
+            </ProfessionalButton>
+          </DialogActions>
+        </Dialog>
+        {/* Bulk Employment Category Edit Dialog */}
+        <Dialog
+          open={bulkCategoryDialog}
+          onClose={closeBulkCategoryEdit}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: 4,
+              bgcolor: settings?.accentColor || '#FEF9E1',
+            },
+          }}
+        >
+          <DialogTitle
+            sx={{
+              background: `linear-gradient(135deg, ${
+                settings?.primaryColor || '#894444'
+              } 0%, ${settings?.secondaryColor || '#6d2323'} 100%)`,
+              color: settings?.accentColor || '#FEF9E1',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              p: 3,
+              fontWeight: 700,
+            }}
+          >
+            <Category sx={{ fontSize: 30 }} />
+            Bulk Edit Employment Category
+            <Box sx={{ ml: 'auto' }}>
+              <Chip
+                label={`${selectedEmployeeNumbers.length} selected`}
+                sx={{
+                  bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.2),
+                  color: settings?.accentColor || '#FEF9E1',
+                  fontWeight: 700,
+                }}
+              />
+            </Box>
+          </DialogTitle>
+
+          <DialogContent
+            sx={{
+              p: 4,
+              pt: 3,
+            }}
+          >
+            <Box
+              sx={{
+                mb: 3,
+                p: 2,
+                borderRadius: 3,
+                border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.18)}`,
+                bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.55),
+              }}
+            >
+              <Typography
+                variant="body2"
+                sx={{
+                  color: settings?.textPrimaryColor || '#6d2323',
+                  fontWeight: 600,
+                }}
+              >
+                This will apply the selected employment category to all selected
+                employees.
+              </Typography>
+            </Box>
+
+            {/* 1) Selected employees */}
+            <Typography
+              variant="caption"
+              sx={{
+                color: settings?.textPrimaryColor || '#6d2323',
+                fontWeight: 700,
+                letterSpacing: 0.4,
+              }}
+            >
+              Selected Employee Numbers
+            </Typography>
+
+            <Box
+              sx={{
+                mt: 1,
+                maxHeight: 180,
+                overflow: 'auto',
+                p: 2,
+                borderRadius: 3,
+                border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
+                bgcolor: 'rgba(255, 255, 255, 0.7)',
+              }}
+            >
+              {selectedEmployeeNumbers.length === 0 ? (
+                <Typography
+                  variant="body2"
+                  sx={{ color: settings?.textPrimaryColor || '#6d2323' }}
+                >
+                  None selected
+                </Typography>
+              ) : (
+                <List dense disablePadding>
+                  {selectedEmployeeNumbers.map((empNo) => {
+                    const u = users.find(
+                      (x) => String(x.employeeNumber) === String(empNo),
+                    );
+                    const p = u?.personData || {};
+                    const lastName = (p?.lastName || u?.lastName || '').trim();
+                    const firstName = (
+                      p?.firstName ||
+                      u?.firstName ||
+                      ''
+                    ).trim();
+                    const middleName = (p?.middleName || '').trim();
+                    const middleInitial = middleName
+                      ? middleName.charAt(0).toUpperCase() + '.'
+                      : '';
+                    const ext = (p?.nameExtension || '').trim();
+
+                    const displayName = [
+                      `${lastName}${ext ? ' ' + ext : ''},`,
+                      firstName,
+                      middleInitial,
+                    ]
+                      .filter(Boolean)
+                      .join(' ')
+                      .replace(/\s+/g, ' ')
+                      .trim();
+
+                    return (
+                      <ListItem key={empNo} sx={{ py: 0.5 }} disableGutters>
+                        <ListItemText
+                          primary={
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                color: settings?.textPrimaryColor || '#6d2323',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {empNo} -{' '}
+                              {displayName || u?.fullName || 'Unknown'}
+                            </Typography>
+                          }
+                        />
+                      </ListItem>
+                    );
+                  })}
+                </List>
+              )}
+            </Box>
+
+            <Divider
+              sx={{
+                my: 3,
+                borderColor: alpha(settings?.primaryColor || '#894444', 0.15),
+              }}
+            />
+
+            {/* 2) Category change */}
+            <Typography
+              variant="caption"
+              sx={{
+                color: settings?.textPrimaryColor || '#6d2323',
+                fontWeight: 700,
+                letterSpacing: 0.4,
+              }}
+            >
+              Employment Category Change
+            </Typography>
+
+            <Box
+              sx={{
+                mt: 1,
+                p: 2,
+                borderRadius: 3,
+                border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
+                bgcolor: 'rgba(255, 255, 255, 0.7)',
+              }}
+            >
+              <FormControl fullWidth>
+                <InputLabel
+                  sx={{
+                    fontWeight: 600,
+                    color: settings?.textPrimaryColor || '#6d2323',
+                  }}
+                >
+                  Employment Category
+                </InputLabel>
+                <Select
+                  value={bulkEmploymentCategory}
+                  label="Employment Category"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setBulkEmploymentCategory(val);
+                    if (parseInt(val) !== 5) {
+                      setBulkCustomCategory('');
+                    }
+                  }}
+                  sx={{
+                    borderRadius: 3,
+                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      borderRadius: 3,
+                    },
+                  }}
+                >
+                  <ListSubheader>Job Order (JO)</ListSubheader>
+                  <MenuItem value={0}>
+                    <ListItemIcon sx={{ minWidth: 30 }}>
+                      <Circle sx={{ fontSize: 12, color: '#F57C00' }} />
+                    </ListItemIcon>
+                    Graduate
+                  </MenuItem>
+                  <MenuItem value={1}>
+                    <ListItemIcon sx={{ minWidth: 30 }}>
+                      <Circle sx={{ fontSize: 12, color: '#E64A19' }} />
+                    </ListItemIcon>
+                    UnderGrad
+                  </MenuItem>
+
+                  <ListSubheader>Regular</ListSubheader>
+                  <MenuItem value={2}>
+                    <ListItemIcon sx={{ minWidth: 30 }}>
+                      <Circle sx={{ fontSize: 12, color: '#2E7D32' }} />
+                    </ListItemIcon>
+                    Non-Teaching
+                  </MenuItem>
+                  <MenuItem value={3}>
+                    <ListItemIcon sx={{ minWidth: 30 }}>
+                      <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
+                    </ListItemIcon>
+                    Teaching (30Hrs)
+                  </MenuItem>
+                  <MenuItem value={4}>
+                    <ListItemIcon sx={{ minWidth: 30 }}>
+                      <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
+                    </ListItemIcon>
+                    Designated (40Hrs)
+                  </MenuItem>
+
+                  <ListSubheader>Custom</ListSubheader>
+                  <MenuItem value={5}>
+                    <ListItemIcon sx={{ minWidth: 30 }}>
+                      <Circle sx={{ fontSize: 12, color: '#00796B' }} />
+                    </ListItemIcon>
+                    Other (specify)
+                  </MenuItem>
+                </Select>
+              </FormControl>
+
+              {/* Custom Category Field - Only shows when "Other" is selected */}
+              {parseInt(bulkEmploymentCategory) === 5 && (
+                <Fade in>
+                  <ModernTextField
+                    fullWidth
+                    label="Custom Category Description *"
+                    value={bulkCustomCategory}
+                    onChange={(e) => setBulkCustomCategory(e.target.value)}
+                    sx={{ mt: 2 }}
+                    placeholder="e.g., Part-timer, OJT, Consultant..."
+                    inputProps={{ maxLength: 100 }}
+                    helperText="Max 100 characters - describe the employment type"
+                    required
+                  />
+                </Fade>
+              )}
+
+              <Box sx={{ mt: 2 }}>
+                {selectedEmployeeNumbers.length === 0 ? (
+                  <Typography
+                    variant="body2"
+                    sx={{ color: settings?.textPrimaryColor || '#6d2323' }}
+                  >
+                    Select employees first to see the preview.
+                  </Typography>
+                ) : bulkEmploymentCategory === '' ? (
+                  <Typography
+                    variant="body2"
+                    sx={{ color: settings?.textPrimaryColor || '#6d2323' }}
+                  >
+                    Select an employment category to see the preview.
+                  </Typography>
+                ) : (
+                  <List dense disablePadding>
+                    {selectedEmployeeNumbers.map((empNo) => {
+                      const u = users.find(
+                        (x) => String(x.employeeNumber) === String(empNo),
+                      );
+
+                      const oldInfo = getEmploymentCategoryInfo(
+                        u?.employmentCategory,
+                        u?.customCategory || u?.custom_category,
+                      );
+                      const newInfo = getEmploymentCategoryInfo(
+                        bulkEmploymentCategory,
+                        bulkEmploymentCategory === 5 ? bulkCustomCategory : '',
+                      );
+
+                      return (
+                        <ListItem key={empNo} sx={{ py: 0.5 }} disableGutters>
+                          <ListItemText
+                            primary={
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  color:
+                                    settings?.textPrimaryColor || '#6d2323',
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {empNo}
+                                {' - '}
+                                <Box
+                                  component="span"
+                                  sx={{
+                                    color: oldInfo?.color || '#6d2323',
+                                    fontWeight: 800,
+                                  }}
+                                >
+                                  {oldInfo?.label || 'Not Set'}
+                                </Box>
+                                {' -> '}
+                                <Box
+                                  component="span"
+                                  sx={{
+                                    color: newInfo?.color || '#6d2323',
+                                    fontWeight: 800,
+                                  }}
+                                >
+                                  {newInfo?.label || 'Not Set'}
+                                </Box>
+                              </Typography>
+                            }
+                          />
+                        </ListItem>
+                      );
+                    })}
+                  </List>
+                )}
+              </Box>
+            </Box>
+          </DialogContent>
+
+          <DialogActions sx={{ p: 3, pt: 0 }}>
+            <ProfessionalButton
+              onClick={closeBulkCategoryEdit}
+              variant="outlined"
+              startIcon={<Close />}
+              disabled={bulkEditLoading}
+              sx={{
+                borderColor: settings?.primaryColor || '#894444',
+                color: settings?.primaryColor || '#894444',
+                '&:hover': {
+                  bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
+                  borderColor: settings?.secondaryColor || '#6d2323',
+                },
+              }}
+            >
+              Cancel
+            </ProfessionalButton>
+
+            <ProfessionalButton
+              onClick={handleSaveBulkCategoryEdit}
+              variant="contained"
+              disabled={bulkEditLoading}
+              startIcon={
+                bulkEditLoading ? (
+                  <CircularProgress size={20} />
+                ) : (
+                  <CheckCircle />
+                )
+              }
+              sx={{
+                bgcolor: settings?.primaryColor || '#894444',
+                color: settings?.accentColor || '#FEF9E1',
+                '&:hover': {
+                  bgcolor: settings?.secondaryColor || '#6d2323',
+                },
+                '&:disabled': {
+                  bgcolor: alpha(settings?.primaryColor || '#894444', 0.5),
+                },
+              }}
+            >
+              {bulkEditLoading ? 'Saving...' : 'Apply to Selected'}
             </ProfessionalButton>
           </DialogActions>
         </Dialog>
@@ -3354,8 +5171,8 @@ const UsersList = () => {
             sx={{
               background: 'linear-gradient(135deg, #d32f2f 0%, #b71c1c 100%)',
               color: 'white',
-              display: "flex",
-              alignItems: "center",
+              display: 'flex',
+              alignItems: 'center',
               gap: 2,
               p: 3,
               fontWeight: 700,
@@ -3377,32 +5194,46 @@ const UsersList = () => {
                     bgcolor: 'rgba(211, 47, 47, 0.05)',
                   }}
                 >
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 2,
+                      mb: 2,
+                    }}
+                  >
                     <Avatar
-                      src={userToDelete.avatar || ""}
+                      src={userToDelete.avatar || ''}
                       alt={userToDelete.fullName}
                       sx={{
                         bgcolor: '#d32f2f',
                         width: 64,
                         height: 64,
                         fontWeight: 700,
-                        fontSize: "1.2rem",
-                        border: "3px solid #fff",
+                        fontSize: '1.2rem',
+                        border: '3px solid #fff',
                         boxShadow: '0 4px 12px rgba(211, 47, 47, 0.2)',
                       }}
                     >
-                      {!userToDelete.avatar && getInitials(userToDelete.fullName)}
+                      {!userToDelete.avatar &&
+                        getInitials(userToDelete.fullName)}
                     </Avatar>
                     <Box>
                       <Typography
                         variant="h6"
-                        sx={{ fontWeight: 700, color: settings?.textPrimaryColor || '#6D2323' }}
+                        sx={{
+                          fontWeight: 700,
+                          color: settings?.textPrimaryColor || '#6D2323',
+                        }}
                       >
                         {userToDelete.fullName}
                       </Typography>
                       <Typography
                         variant="body2"
-                        sx={{ color: settings?.textPrimaryColor || '#6D2323', mt: 1 }}
+                        sx={{
+                          color: settings?.textPrimaryColor || '#6D2323',
+                          mt: 1,
+                        }}
                       >
                         Employee: <strong>{userToDelete.employeeNumber}</strong>
                       </Typography>
@@ -3414,7 +5245,7 @@ const UsersList = () => {
                   severity="warning"
                   sx={{
                     borderRadius: 2,
-                    "& .MuiAlert-message": { fontWeight: 500 },
+                    '& .MuiAlert-message': { fontWeight: 500 },
                   }}
                   icon={<ErrorOutline />}
                 >
@@ -3422,7 +5253,8 @@ const UsersList = () => {
                     Warning: This action cannot be undone!
                   </Typography>
                   <Typography variant="body2">
-                    Deleting this user will permanently remove their account and all associated data from the system.
+                    Deleting this user will permanently remove their account and
+                    all associated data from the system.
                   </Typography>
                 </Alert>
               </>
@@ -3437,7 +5269,7 @@ const UsersList = () => {
               sx={{
                 borderColor: '#666',
                 color: '#666',
-                "&:hover": {
+                '&:hover': {
                   borderColor: '#333',
                   bgcolor: 'rgba(0,0,0,0.05)',
                 },
@@ -3449,19 +5281,25 @@ const UsersList = () => {
               onClick={handleConfirmDelete}
               variant="contained"
               disabled={deleteLoading}
-              startIcon={deleteLoading ? <CircularProgress size={20} /> : <DeleteForever />}
+              startIcon={
+                deleteLoading ? (
+                  <CircularProgress size={20} />
+                ) : (
+                  <DeleteForever />
+                )
+              }
               sx={{
                 bgcolor: '#d32f2f',
                 color: 'white',
-                "&:hover": {
+                '&:hover': {
                   bgcolor: '#b71c1c',
                 },
-                "&:disabled": {
+                '&:disabled': {
                   bgcolor: 'rgba(211, 47, 47, 0.5)',
                 },
               }}
             >
-              {deleteLoading ? "Deleting..." : "Delete User"}
+              {deleteLoading ? 'Deleting...' : 'Delete User'}
             </ProfessionalButton>
           </DialogActions>
         </Dialog>
@@ -3506,3 +5344,5 @@ const UsersList = () => {
 };
 
 export default UsersList;
+
+
