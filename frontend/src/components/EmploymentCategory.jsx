@@ -1,5 +1,11 @@
 import API_BASE_URL from '../apiConfig';
-import React, { useState, useEffect, useRef } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useDeferredValue,
+} from 'react';
 import axios from 'axios';
 import {
   Container,
@@ -35,6 +41,7 @@ import {
   InputLabel,
   ListSubheader,
   ListItemIcon,
+  TablePagination,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -66,7 +73,7 @@ const hexToRgb = (hex) => {
   return result
     ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(
         result[3],
-        16
+        16,
       )}`
     : '109, 35, 35';
 };
@@ -103,7 +110,7 @@ const ProfessionalButton = styled(Button)(
     '&:active': {
       transform: 'translateY(0)',
     },
-  })
+  }),
 );
 
 const ModernTextField = styled(TextField)(({ theme }) => ({
@@ -212,9 +219,9 @@ const EmployeeAutocomplete = ({
     try {
       const response = await axios.get(
         `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(
-          searchQuery
+          searchQuery,
         )}`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setEmployees(response.data);
     } catch (error) {
@@ -230,7 +237,7 @@ const EmployeeAutocomplete = ({
     try {
       const response = await axios.get(
         `${API_BASE_URL}/Remittance/employees/search`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setEmployees(response.data);
     } catch (error) {
@@ -245,7 +252,7 @@ const EmployeeAutocomplete = ({
     try {
       const response = await axios.get(
         `${API_BASE_URL}/Remittance/employees/${employeeNumber}`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       const employee = response.data;
       onEmployeeSelect(employee);
@@ -416,6 +423,11 @@ const EmployeeAutocomplete = ({
 const EmploymentCategoryManagement = () => {
   const [employmentCategories, setEmploymentCategories] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const deferredSearchTerm = useDeferredValue(searchTerm);
+
+  useEffect(() => {
+    setPage(0);
+  }, [deferredSearchTerm]);
   const [editRecord, setEditRecord] = useState(null);
   const [originalRecord, setOriginalRecord] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -428,6 +440,8 @@ const EmploymentCategoryManagement = () => {
   const [successOpen, setSuccessOpen] = useState(false);
   const [successAction, setSuccessAction] = useState('');
   const [viewMode, setViewMode] = useState('grid');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(24);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
@@ -452,13 +466,20 @@ const EmploymentCategoryManagement = () => {
   // COLOR LEGEND: Map each ID to a unique professional color
   const getCategoryStyle = (catId) => {
     switch (parseInt(catId)) {
-      case 0: return '#F57C00'; // JO Graduate
-      case 1: return '#E64A19'; // JO UnderGrad
-      case 2: return '#2E7D32'; // Regular Non-Teaching
-      case 3: return '#1565C0'; // Regular Teaching (30Hrs)
-      case 4: return '#7B1FA2'; // Regular Designated (40Hrs)
-      case 5: return '#00796B'; // Other (Custom)
-      default: return '#757575';
+      case 0:
+        return '#F57C00'; // JO Graduate
+      case 1:
+        return '#E64A19'; // JO UnderGrad
+      case 2:
+        return '#2E7D32'; // Regular Non-Teaching
+      case 3:
+        return '#1565C0'; // Regular Teaching (30Hrs)
+      case 4:
+        return '#7B1FA2'; // Regular Designated (40Hrs)
+      case 5:
+        return '#00796B'; // Other (Custom)
+      default:
+        return '#757575';
     }
   };
 
@@ -472,7 +493,7 @@ const EmploymentCategoryManagement = () => {
     try {
       const response = await axios.get(
         `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setEmploymentCategories(response.data);
     } catch (error) {
@@ -495,7 +516,10 @@ const EmploymentCategoryManagement = () => {
       return;
     }
 
-    if (newRecord.employmentCategory === 5 && !newRecord.customCategory.trim()) {
+    if (
+      newRecord.employmentCategory === 5 &&
+      !newRecord.customCategory.trim()
+    ) {
       showSnackbar('Please enter a custom category description', 'error');
       setErrors({ customCategory: 'Custom category is required for "Other"' });
       return;
@@ -506,9 +530,13 @@ const EmploymentCategoryManagement = () => {
       await axios.post(
         `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
         newRecord,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
-      setNewRecord({ employeeNumber: '', employmentCategory: 0, customCategory: '' });
+      setNewRecord({
+        employeeNumber: '',
+        employmentCategory: 0,
+        customCategory: '',
+      });
       setSelectedEmployee(null);
       setErrors({});
       setTimeout(() => {
@@ -534,7 +562,10 @@ const EmploymentCategoryManagement = () => {
       return;
     }
 
-    if (editRecord.employmentCategory === 5 && !editRecord.customCategory?.trim()) {
+    if (
+      editRecord.employmentCategory === 5 &&
+      !editRecord.customCategory?.trim()
+    ) {
       showSnackbar('Please enter a custom category description', 'error');
       return;
     }
@@ -547,7 +578,7 @@ const EmploymentCategoryManagement = () => {
           employmentCategory: editRecord.employmentCategory,
           customCategory: editRecord.customCategory || '',
         },
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setEditRecord(null);
       setOriginalRecord(null);
@@ -570,7 +601,7 @@ const EmploymentCategoryManagement = () => {
     try {
       await axios.delete(
         `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${id}`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setEditRecord(null);
       setOriginalRecord(null);
@@ -621,12 +652,12 @@ const EmploymentCategoryManagement = () => {
   const handleOpenModal = async (record) => {
     setEditRecord({ ...record });
     setOriginalRecord({ ...record });
-    
+
     // Fetch employee details
     try {
       const response = await axios.get(
         `${API_BASE_URL}/Remittance/employees/${record.employeeNumber}`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setSelectedEditEmployee({
         name: response.data.name,
@@ -676,13 +707,25 @@ const EmploymentCategoryManagement = () => {
     );
   };
 
-  const filteredData = employmentCategories.filter((record) => {
-    const employeeNumber = record.employeeNumber?.toString() || '';
-    const employeeName = record.employeeName?.toLowerCase() || '';
-    const categoryLabel = record.categoryLabel?.toLowerCase() || '';
-    const search = searchTerm.toLowerCase();
-    return employeeNumber.includes(search) || employeeName.includes(search) || categoryLabel.includes(search);
-  });
+  const filteredData = useMemo(() => {
+    const search = (deferredSearchTerm || '').toString().toLowerCase().trim();
+    if (!search) return employmentCategories;
+    return employmentCategories.filter((record) => {
+      const employeeNumber = record.employeeNumber?.toString() || '';
+      const employeeName = record.employeeName?.toLowerCase() || '';
+      const categoryLabel = record.categoryLabel?.toLowerCase() || '';
+      return (
+        employeeNumber.includes(search) ||
+        employeeName.includes(search) ||
+        categoryLabel.includes(search)
+      );
+    });
+  }, [employmentCategories, deferredSearchTerm]);
+
+  const pagedData = useMemo(() => {
+    const start = page * rowsPerPage;
+    return filteredData.slice(start, start + rowsPerPage);
+  }, [filteredData, page, rowsPerPage]);
 
   return (
     <Box
@@ -726,7 +769,7 @@ const EmploymentCategoryManagement = () => {
                     height: 200,
                     background: `radial-gradient(circle, ${alpha(
                       accentColor,
-                      0.1
+                      0.1,
                     )} 0%, ${alpha(accentColor, 0)} 70%)`,
                   }}
                 />
@@ -739,7 +782,7 @@ const EmploymentCategoryManagement = () => {
                     height: 150,
                     background: `radial-gradient(circle, ${alpha(
                       accentColor,
-                      0.08
+                      0.08,
                     )} 0%, ${alpha(accentColor, 0)} 70%)`,
                   }}
                 />
@@ -844,6 +887,9 @@ const EmploymentCategoryManagement = () => {
                 <Box
                   sx={{
                     p: 4,
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 1200,
                     background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                     color: accentColor,
                     display: 'flex',
@@ -1052,7 +1098,7 @@ const EmploymentCategoryManagement = () => {
                             </ListItemIcon>
                             UnderGrad
                           </MenuItem>
-                          
+
                           <ListSubheader>Regular</ListSubheader>
                           <MenuItem value={2}>
                             <ListItemIcon sx={{ minWidth: 30 }}>
@@ -1091,7 +1137,11 @@ const EmploymentCategoryManagement = () => {
                           <Box>
                             <Typography
                               variant="body2"
-                              sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                              sx={{
+                                fontWeight: 500,
+                                mb: 1,
+                                color: accentColor,
+                              }}
                             >
                               Custom Category Description{' '}
                               <span style={{ color: 'red' }}>*</span>
@@ -1105,7 +1155,9 @@ const EmploymentCategoryManagement = () => {
                               fullWidth
                               size="small"
                               error={!!errors.customCategory}
-                              helperText={errors.customCategory || 'Max 100 characters'}
+                              helperText={
+                                errors.customCategory || 'Max 100 characters'
+                              }
                               inputProps={{ maxLength: 100 }}
                             />
                           </Box>
@@ -1147,6 +1199,7 @@ const EmploymentCategoryManagement = () => {
                   display: 'flex',
                   flexDirection: 'column',
                   border: `1px solid ${alpha(accentColor, 0.1)}`,
+                  overflow: 'visible',
                 }}
               >
                 <Box
@@ -1245,7 +1298,7 @@ const EmploymentCategoryManagement = () => {
                   >
                     {viewMode === 'grid' ? (
                       <Grid container spacing={2}>
-                        {filteredData.map((record) => (
+                        {pagedData.map((record) => (
                           <Grid item xs={12} sm={6} md={4} key={record.id}>
                             <Card
                               onClick={() => handleOpenModal(record)}
@@ -1303,19 +1356,34 @@ const EmploymentCategoryManagement = () => {
                                   {record.employeeName || 'Loading...'}
                                 </Typography>
 
-                                <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 1 }}>
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    justifyContent: 'flex-start',
+                                    mt: 1,
+                                  }}
+                                >
                                   <Chip
                                     label={record.categoryLabel}
                                     variant="outlined"
                                     size="small"
                                     sx={{
-                                      color: getCategoryStyle(record.employmentCategory),
-                                      borderColor: getCategoryStyle(record.employmentCategory),
+                                      color: getCategoryStyle(
+                                        record.employmentCategory,
+                                      ),
+                                      borderColor: getCategoryStyle(
+                                        record.employmentCategory,
+                                      ),
                                       fontWeight: '600',
                                       fontSize: '0.75rem',
                                       '&:hover': {
-                                        backgroundColor: alpha(getCategoryStyle(record.employmentCategory), 0.04)
-                                      }
+                                        backgroundColor: alpha(
+                                          getCategoryStyle(
+                                            record.employmentCategory,
+                                          ),
+                                          0.04,
+                                        ),
+                                      },
                                     }}
                                   />
                                 </Box>
@@ -1325,7 +1393,7 @@ const EmploymentCategoryManagement = () => {
                         ))}
                       </Grid>
                     ) : (
-                      filteredData.map((record) => (
+                      pagedData.map((record) => (
                         <Card
                           key={record.id}
                           onClick={() => handleOpenModal(record)}
@@ -1379,13 +1447,22 @@ const EmploymentCategoryManagement = () => {
                                   variant="outlined"
                                   size="small"
                                   sx={{
-                                    color: getCategoryStyle(record.employmentCategory),
-                                    borderColor: getCategoryStyle(record.employmentCategory),
+                                    color: getCategoryStyle(
+                                      record.employmentCategory,
+                                    ),
+                                    borderColor: getCategoryStyle(
+                                      record.employmentCategory,
+                                    ),
                                     fontWeight: '600',
                                     fontSize: '0.75rem',
                                     '&:hover': {
-                                      backgroundColor: alpha(getCategoryStyle(record.employmentCategory), 0.04)
-                                    }
+                                      backgroundColor: alpha(
+                                        getCategoryStyle(
+                                          record.employmentCategory,
+                                        ),
+                                        0.04,
+                                      ),
+                                    },
                                   }}
                                 />
                               </Box>
@@ -1394,6 +1471,34 @@ const EmploymentCategoryManagement = () => {
                         </Card>
                       ))
                     )}
+
+                    {/* Sticky pagination so "Rows per page" is always visible while scrolling */}
+                    <Box
+                      sx={{
+                        position: 'sticky',
+                        bottom: 0,
+                        zIndex: 5,
+                        mt: 2,
+                        pt: 1,
+                        pb: 1,
+                        backgroundColor: '#fff',
+                        borderTop: `1px solid ${alpha(accentColor, 0.12)}`,
+                        boxShadow: '0 -8px 18px rgba(0,0,0,0.06)',
+                      }}
+                    >
+                      <TablePagination
+                        component="div"
+                        count={filteredData.length}
+                        page={page}
+                        onPageChange={(e, newPage) => setPage(newPage)}
+                        rowsPerPage={rowsPerPage}
+                        onRowsPerPageChange={(e) => {
+                          setRowsPerPage(parseInt(e.target.value, 10));
+                          setPage(0);
+                        }}
+                        rowsPerPageOptions={[12, 24, 48, 96]}
+                      />
+                    </Box>
 
                     {filteredData.length === 0 && (
                       <Box textAlign="center" py={4}>
@@ -1628,7 +1733,10 @@ const EmploymentCategoryManagement = () => {
                                 setEditRecord({
                                   ...editRecord,
                                   employmentCategory: e.target.value,
-                                  customCategory: e.target.value === 5 ? editRecord.customCategory : '',
+                                  customCategory:
+                                    e.target.value === 5
+                                      ? editRecord.customCategory
+                                      : '',
                                 })
                               }
                               sx={{
@@ -1638,41 +1746,52 @@ const EmploymentCategoryManagement = () => {
                                 '&:hover .MuiOutlinedInput-notchedOutline': {
                                   borderColor: alpha(accentColor, 0.5),
                                 },
-                                '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                                  borderColor: accentColor,
-                                },
+                                '&.Mui-focused .MuiOutlinedInput-notchedOutline':
+                                  {
+                                    borderColor: accentColor,
+                                  },
                               }}
                             >
                               <ListSubheader>Job Order (JO)</ListSubheader>
                               <MenuItem value={0}>
                                 <ListItemIcon sx={{ minWidth: 30 }}>
-                                  <Circle sx={{ fontSize: 12, color: '#F57C00' }} />
+                                  <Circle
+                                    sx={{ fontSize: 12, color: '#F57C00' }}
+                                  />
                                 </ListItemIcon>
                                 Graduated
                               </MenuItem>
                               <MenuItem value={1}>
                                 <ListItemIcon sx={{ minWidth: 30 }}>
-                                  <Circle sx={{ fontSize: 12, color: '#E64A19' }} />
+                                  <Circle
+                                    sx={{ fontSize: 12, color: '#E64A19' }}
+                                  />
                                 </ListItemIcon>
                                 UnderGrad
                               </MenuItem>
-                              
+
                               <ListSubheader>Regular</ListSubheader>
                               <MenuItem value={2}>
                                 <ListItemIcon sx={{ minWidth: 30 }}>
-                                  <Circle sx={{ fontSize: 12, color: '#2E7D32' }} />
+                                  <Circle
+                                    sx={{ fontSize: 12, color: '#2E7D32' }}
+                                  />
                                 </ListItemIcon>
                                 Non-Teaching
                               </MenuItem>
                               <MenuItem value={3}>
                                 <ListItemIcon sx={{ minWidth: 30 }}>
-                                  <Circle sx={{ fontSize: 12, color: '#1565C0' }} />
+                                  <Circle
+                                    sx={{ fontSize: 12, color: '#1565C0' }}
+                                  />
                                 </ListItemIcon>
                                 Teaching (30Hrs)
                               </MenuItem>
                               <MenuItem value={4}>
                                 <ListItemIcon sx={{ minWidth: 30 }}>
-                                  <Circle sx={{ fontSize: 12, color: '#7B1FA2' }} />
+                                  <Circle
+                                    sx={{ fontSize: 12, color: '#7B1FA2' }}
+                                  />
                                 </ListItemIcon>
                                 Designated (40Hrs)
                               </MenuItem>
@@ -1680,7 +1799,9 @@ const EmploymentCategoryManagement = () => {
                               <ListSubheader>Custom</ListSubheader>
                               <MenuItem value={5}>
                                 <ListItemIcon sx={{ minWidth: 30 }}>
-                                  <Circle sx={{ fontSize: 12, color: '#00796B' }} />
+                                  <Circle
+                                    sx={{ fontSize: 12, color: '#00796B' }}
+                                  />
                                 </ListItemIcon>
                                 Other (specify)
                               </MenuItem>
@@ -1696,7 +1817,9 @@ const EmploymentCategoryManagement = () => {
                             border: `1px solid ${getCategoryStyle(editRecord.employmentCategory)}`,
                             display: 'flex',
                             alignItems: 'center',
-                            color: getCategoryStyle(editRecord.employmentCategory),
+                            color: getCategoryStyle(
+                              editRecord.employmentCategory,
+                            ),
                           }}
                         >
                           <WorkIcon sx={{ mr: 1 }} />
@@ -1714,7 +1837,11 @@ const EmploymentCategoryManagement = () => {
                           <Box>
                             <Typography
                               variant="body2"
-                              sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                              sx={{
+                                fontWeight: 500,
+                                mb: 1,
+                                color: accentColor,
+                              }}
                             >
                               Custom Category Description{' '}
                               <span style={{ color: 'red' }}>*</span>
