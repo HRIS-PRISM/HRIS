@@ -496,28 +496,72 @@ const DailyTimeRecordFaculty = () => {
 
     setLoadingAllUsers(true);
     try {
-      const usersResponse = await axios.get(
-        `${API_BASE_URL}/users`,
-        getAuthHeaders(),
-      );
+      const [usersResponse, empCatsResponse] = await Promise.all([
+        axios.get(`${API_BASE_URL}/users`, getAuthHeaders()),
+        // Fetch Employment Category (including customCategory) from employment_category table
+        axios.get(
+          `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
+          getAuthHeaders(),
+        ),
+      ]);
 
-      const users = usersResponse.data || [];
+      const usersRaw = usersResponse.data || [];
+      const empCatsDataRaw = empCatsResponse?.data || [];
+
+      const users = Array.isArray(usersRaw)
+        ? usersRaw
+        : usersRaw.users || usersRaw.data || [];
+      const empCatsArray = Array.isArray(empCatsDataRaw)
+        ? empCatsDataRaw
+        : empCatsDataRaw.data || empCatsDataRaw.records || [];
+
+      // Map employment_category rows by employeeNumber for fast lookup
+      const empCatsMap = (empCatsArray || []).reduce((acc, row) => {
+        const key = String(row.employeeNumber ?? row.employee_number ?? '');
+        if (!key) return acc;
+        acc[key] = row;
+        return acc;
+      }, {});
+
+      // Merge employmentCategory + customCategory onto users list (same logic style as UsersList.jsx)
+      const mergedUsers = (users || []).map((u) => {
+        const empCatRow = empCatsMap[String(u.employeeNumber)] || null;
+        return {
+          ...u,
+          employmentCategory:
+            empCatRow?.employmentCategory !== undefined &&
+            empCatRow?.employmentCategory !== null
+              ? empCatRow.employmentCategory
+              : u.employmentCategory !== undefined &&
+                  u.employmentCategory !== null
+                ? u.employmentCategory
+                : null,
+          customCategory:
+            empCatRow?.customCategory ??
+            empCatRow?.custom_category ??
+            u.customCategory ??
+            u.custom_category ??
+            u.customEmploymentCategory ??
+            u.custom_employment_category ??
+            null,
+        };
+      });
 
       // No alert needed - data is already in database (auto-saved from device)
       // Process in batches for better performance
       const BATCH_SIZE = 30; // Increased batch size since we're reading from DB (faster)
       const allDTRData = [];
 
-      for (let i = 0; i < users.length; i += BATCH_SIZE) {
-        const batch = users.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < mergedUsers.length; i += BATCH_SIZE) {
+        const batch = mergedUsers.slice(i, i + BATCH_SIZE);
         const progress = Math.min(
           100,
-          Math.round(((i + batch.length) / users.length) * 100),
+          Math.round(((i + batch.length) / mergedUsers.length) * 100),
         );
 
         // Update status - clarify that data is from database
         setPrintingStatus(
-          `Loading DTR data from database: ${i + batch.length} of ${users.length} (${progress}%)`,
+          `Loading DTR data from database: ${i + batch.length} of ${mergedUsers.length} (${progress}%)`,
         );
 
         const batchPromises = batch.map(async (user) => {
@@ -695,8 +739,16 @@ const DailyTimeRecordFaculty = () => {
     // **NEW: Apply employment category filter**
     if (employmentCategoryFilter !== '') {
       filtered = filtered.filter((u) => {
-        const userCategory =
+        const userCategoryRaw =
           u.rawUser?.employmentCategory ?? u.employmentCategory ?? null;
+
+        // IMPORTANT: backend sometimes returns category as string (e.g. "2"),
+        // so we normalize both sides to integers before comparing.
+        const userCategory =
+          userCategoryRaw === null || userCategoryRaw === undefined
+            ? null
+            : parseInt(userCategoryRaw);
+
         return (
           userCategory !== null &&
           userCategory === parseInt(employmentCategoryFilter)
