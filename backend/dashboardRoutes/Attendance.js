@@ -396,16 +396,20 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
       DAYNAME(ar.date) AS Day,
       ar.timeIN, ar.breaktimeIN, ar.breaktimeOUT, ar.timeOUT,
       p.*,
-      ot.officialTimeIN, ot.officialTimeOUT
+      ot.officialTimeIN, ot.officialTimeOUT,
+      ot.officialBreaktimeIN, ot.officialBreaktimeOUT,
+      ot.officialHonorariumTimeIN, ot.officialHonorariumTimeOUT,
+      ot.officialServiceCreditTimeIN, ot.officialServiceCreditTimeOUT,
+      ot.officialOverTimeIN, ot.officialOverTimeOUT
     FROM attendanceRecord ar
     INNER JOIN person_table p ON ar.personID = p.agencyEmployeeNum
-    INNER JOIN (
-      SELECT day, MIN(officialTimeIN) AS officialTimeIN, MIN(officialTimeOUT) AS officialTimeOUT
-      FROM officialtime
-      GROUP BY day
-    ) ot ON DAYNAME(ar.date) = ot.day
+    LEFT JOIN officialtime ot ON DAYNAME(ar.date) = ot.day
+      AND ar.personID = ot.employeeID
+      AND ar.date BETWEEN ot.startDate AND ot.endDate
+      AND ot.status = 'active'
     WHERE ar.personID = ? AND ar.date BETWEEN ? AND ?
-    ORDER BY ar.date ASC;
+    ORDER BY ar.date ASC, ot.id DESC
+    LIMIT 1000;
   `;
 
   db.query(query, [personID, startDate, endDate], (err, results) => {

@@ -113,6 +113,125 @@ const ModernTextField = styled(TextField)(({ theme }) => ({
   },
 }));
 
+// Helper function to parse time string to minutes from midnight
+const parseTimeToMinutes = (timeStr) => {
+  if (!timeStr || timeStr === '—' || timeStr === '') return null;
+  
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!match) return null;
+  
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const meridiem = match[4];
+  
+  if (meridiem) {
+    // 12-hour format
+    if (hours === 12 && meridiem.toUpperCase() === 'AM') {
+      hours = 0; // 12 AM is 0 hours
+    } else if (hours !== 12 && meridiem.toUpperCase() === 'PM') {
+      hours += 12; // PM hours (except 12 PM) add 12
+    }
+  }
+  
+  return hours * 60 + minutes;
+};
+
+// Helper function to categorize a time entry based on official time ranges
+const categorizeTimeEntry = (time, record) => {
+  if (!time || !record) return null;
+  
+  const timeMinutes = parseTimeToMinutes(time);
+  if (timeMinutes === null) return null;
+  
+  // Check if time falls within each category
+  const categories = [];
+  
+  // Regular time (work time)
+  const regularInMinutes = parseTimeToMinutes(record.officialTimeIN);
+  const regularOutMinutes = parseTimeToMinutes(record.officialTimeOUT);
+  if (regularInMinutes !== null && regularOutMinutes !== null) {
+    if (timeMinutes >= regularInMinutes && timeMinutes <= regularOutMinutes) {
+      categories.push('regular');
+    }
+  }
+  
+  // Honorarium time
+  const honorariumInMinutes = parseTimeToMinutes(record.officialHonorariumTimeIN);
+  const honorariumOutMinutes = parseTimeToMinutes(record.officialHonorariumTimeOUT);
+  if (honorariumInMinutes !== null && honorariumOutMinutes !== null) {
+    if (timeMinutes >= honorariumInMinutes && timeMinutes <= honorariumOutMinutes) {
+      categories.push('honorarium');
+    }
+  }
+  
+  // Service Credit time
+  const serviceCreditInMinutes = parseTimeToMinutes(record.officialServiceCreditTimeIN);
+  const serviceCreditOutMinutes = parseTimeToMinutes(record.officialServiceCreditTimeOUT);
+  if (serviceCreditInMinutes !== null && serviceCreditOutMinutes !== null) {
+    if (timeMinutes >= serviceCreditInMinutes && timeMinutes <= serviceCreditOutMinutes) {
+      categories.push('serviceCredit');
+    }
+  }
+  
+  // Overtime
+  const overtimeInMinutes = parseTimeToMinutes(record.officialOverTimeIN);
+  const overtimeOutMinutes = parseTimeToMinutes(record.officialOverTimeOUT);
+  if (overtimeInMinutes !== null && overtimeOutMinutes !== null) {
+    if (timeMinutes >= overtimeInMinutes && timeMinutes <= overtimeOutMinutes) {
+      categories.push('overtime');
+    }
+  }
+  
+  // Return the first matching category (priority: regular, honorarium, serviceCredit, overtime)
+  // Return null if no category matches (time falls outside all official ranges)
+  return categories.length > 0 ? categories[0] : null;
+};
+
+// Helper function to get display label for attendance type
+const getAttendanceTypeLabel = (type) => {
+  const labels = {
+    all: 'All Types',
+    regular: 'Regular Time',
+    honorarium: 'Honorarium',
+    serviceCredit: 'Service Credit',
+    overtime: 'Overtime',
+  };
+  return labels[type] || 'All Types';
+};
+
+// Helper function to filter times based on selected attendance type
+const getFilteredTimes = (record, attendanceType) => {
+  if (!record) return { timeIN: '', timeOUT: '', breaktimeIN: '', breaktimeOUT: '' };
+  
+  if (attendanceType === 'all') {
+    // Show all actual attendance times
+    return {
+      timeIN: record.timeIN || '',
+      timeOUT: record.timeOUT || '',
+      breaktimeIN: record.breaktimeIN || '',
+      breaktimeOUT: record.breaktimeOUT || '',
+    };
+  }
+  
+  // For specific types, only show times that fall within that type's official time range
+  const timeIN = record.timeIN || '';
+  const timeOUT = record.timeOUT || '';
+  const breaktimeIN = record.breaktimeIN || '';
+  const breaktimeOUT = record.breaktimeOUT || '';
+  
+  const timeINCategory = categorizeTimeEntry(timeIN, record);
+  const timeOUTCategory = categorizeTimeEntry(timeOUT, record);
+  const breaktimeINCategory = categorizeTimeEntry(breaktimeIN, record);
+  const breaktimeOUTCategory = categorizeTimeEntry(breaktimeOUT, record);
+  
+  return {
+    timeIN: timeINCategory === attendanceType ? timeIN : '',
+    timeOUT: timeOUTCategory === attendanceType ? timeOUT : '',
+    breaktimeIN: breaktimeINCategory === attendanceType ? breaktimeIN : '',
+    breaktimeOUT: breaktimeOUTCategory === attendanceType ? breaktimeOUT : '',
+  };
+};
+
 const DailyTimeRecordFaculty = () => {
   const { socket, connected } = useSocket();
   const { settings } = useSystemSettings();
@@ -141,6 +260,7 @@ const DailyTimeRecordFaculty = () => {
 
   const [holidays, setHolidays] = useState([]);
   const [suspensions, setSuspensions] = useState([]);
+  const [attendanceType, setAttendanceType] = useState('all'); // 'all', 'regular', 'honorarium', 'serviceCredit', 'overtime'
 
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
@@ -675,6 +795,30 @@ const DailyTimeRecordFaculty = () => {
       filtered = filtered.filter((u) => u.records && u.records.length > 0);
     } else if (recordFilter === 'no') {
       filtered = filtered.filter((u) => !u.records || u.records.length === 0);
+    }
+
+    // Apply attendance type filter - only show users with records matching the selected type
+    if (attendanceType !== 'all') {
+      // Map attendance types to their corresponding official time field names
+      const officialTimeFields = {
+        regular: { inField: 'officialTimeIN', outField: 'officialTimeOUT' },
+        honorarium: { inField: 'officialHonorariumTimeIN', outField: 'officialHonorariumTimeOUT' },
+        serviceCredit: { inField: 'officialServiceCreditTimeIN', outField: 'officialServiceCreditTimeOUT' },
+        overtime: { inField: 'officialOverTimeIN', outField: 'officialOverTimeOUT' },
+      };
+
+      const fields = officialTimeFields[attendanceType];
+      if (fields) {
+        filtered = filtered.filter((user) => {
+          if (!user.records || user.records.length === 0) return false;
+          
+          // Check if user has the official time schedule defined for the selected attendance type
+          // Both IN and OUT times must be defined to have a valid schedule
+          return user.records.some((record) => {
+            return record[fields.inField] && record[fields.outField];
+          });
+        });
+      }
     }
 
     // Apply print status filter
@@ -1476,7 +1620,7 @@ const DailyTimeRecordFaculty = () => {
               lineHeight: '1.2',
             }}
           >
-            Official hours for arrival (regular day) and departure
+            Official hours for arrival ({getAttendanceTypeLabel(attendanceType)}) and departure
           </td>
         </tr>
 
@@ -1495,7 +1639,7 @@ const DailyTimeRecordFaculty = () => {
                 fontSize: '10px',
               }}
             >
-              <span style={{ marginRight: '5px' }}>Regular Days:</span>
+              <span style={{ marginRight: '5px' }}>{getAttendanceTypeLabel(attendanceType)}:</span>
               <span
                 style={{
                   display: 'inline-block',
@@ -1720,6 +1864,7 @@ const DailyTimeRecordFaculty = () => {
                   }
 
                   const indicator = getDateIndicator(fullDate);
+                  const filteredTimes = getFilteredTimes(record, attendanceType);
 
                   return (
                     <tr key={i}>
@@ -1757,7 +1902,7 @@ const DailyTimeRecordFaculty = () => {
                           />
                         )}
                         <span style={{ position: 'relative', zIndex: 1 }}>
-                          {formatTime(record?.timeIN || '')}
+                          {formatTime(filteredTimes.timeIN)}
                         </span>
                       </td>
                       <td
@@ -1784,7 +1929,7 @@ const DailyTimeRecordFaculty = () => {
                           />
                         )}
                         <span style={{ position: 'relative', zIndex: 1 }}>
-                          {formatTime(record?.breaktimeIN || '')}
+                          {formatTime(filteredTimes.breaktimeIN)}
                         </span>
                       </td>
                       <td
@@ -1811,7 +1956,7 @@ const DailyTimeRecordFaculty = () => {
                           />
                         )}
                         <span style={{ position: 'relative', zIndex: 1 }}>
-                          {formatTime(record?.breaktimeOUT || '')}
+                          {formatTime(filteredTimes.breaktimeOUT)}
                         </span>
                       </td>
                       <td
@@ -2105,7 +2250,7 @@ const DailyTimeRecordFaculty = () => {
                           />
                         )}
                         <span style={{ position: 'relative', zIndex: 1 }}>
-                          {formatTime(record?.timeIN || '')}
+                          {formatTime(filteredTimes.timeIN)}
                         </span>
                       </td>
                       <td
@@ -2132,7 +2277,7 @@ const DailyTimeRecordFaculty = () => {
                           />
                         )}
                         <span style={{ position: 'relative', zIndex: 1 }}>
-                          {formatTime(record?.breaktimeIN || '')}
+                          {formatTime(filteredTimes.breaktimeIN)}
                         </span>
                       </td>
                       <td
@@ -2159,7 +2304,7 @@ const DailyTimeRecordFaculty = () => {
                           />
                         )}
                         <span style={{ position: 'relative', zIndex: 1 }}>
-                          {formatTime(record?.breaktimeOUT || '')}
+                          {formatTime(filteredTimes.breaktimeOUT)}
                         </span>
                       </td>
                       <td
@@ -3063,6 +3208,71 @@ const DailyTimeRecordFaculty = () => {
                     </ProfessionalButton>
                   );
                 })}
+              </Box>
+
+              {/* Attendance Type Buttons - Show in both Single User and All Users modes */}
+              <Box sx={{ mt: 3 }}>
+                <Typography
+                  variant="subtitle1"
+                  sx={{
+                    fontWeight: 600,
+                    mb: 2,
+                    color: textPrimaryColor,
+                    textAlign: 'center',
+                  }}
+                >
+                  Attendance Type
+                </Typography>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    gap: 2,
+                    flexWrap: 'wrap',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {[
+                    { value: 'all', label: 'All Types' },
+                    { value: 'regular', label: 'Regular Time' },
+                    { value: 'honorarium', label: 'Honorarium' },
+                    { value: 'serviceCredit', label: 'Service Credit' },
+                    { value: 'overtime', label: 'Overtime' },
+                  ].map((type) => {
+                    const isSelected = attendanceType === type.value;
+                    return (
+                      <ProfessionalButton
+                        key={type.value}
+                        variant={isSelected ? 'contained' : 'outlined'}
+                        size="medium"
+                        onClick={() => setAttendanceType(type.value)}
+                        sx={{
+                          border: `1px solid ${accentColor}`,
+                          backgroundColor: isSelected
+                            ? accentColor
+                            : 'transparent',
+                          color: isSelected
+                            ? textSecondaryColor
+                            : textPrimaryColor,
+                          py: 1.5,
+                          px: 3,
+                          fontWeight: 600,
+                          '&:hover': {
+                            backgroundColor: isSelected
+                              ? accentDark
+                              : alpha(accentColor, 0.1),
+                            border: `2px solid ${accentColor}`,
+                          },
+                          transition: 'all 0.3s ease',
+                          boxShadow: isSelected
+                            ? `0 4px 12px ${alpha(accentColor, 0.3)}`
+                            : 'none',
+                        }}
+                      >
+                        {type.label}
+                      </ProfessionalButton>
+                    );
+                  })}
+                </Box>
               </Box>
 
               {/* Show Employee Number, Date fields, and Search button only in Single User mode */}
@@ -4131,7 +4341,7 @@ const DailyTimeRecordFaculty = () => {
                                   lineHeight: '1.2',
                                 }}
                               >
-                                Official hours for arrival (regular day) and
+                                Official hours for arrival ({getAttendanceTypeLabel(attendanceType)}) and
                                 departure
                               </td>
                             </tr>
@@ -4157,7 +4367,7 @@ const DailyTimeRecordFaculty = () => {
                                   }}
                                 >
                                   <span style={{ marginRight: '5px' }}>
-                                    Regular Days:
+                                    {getAttendanceTypeLabel(attendanceType)}:
                                   </span>
                                   <span
                                     style={{
@@ -4352,17 +4562,18 @@ const DailyTimeRecordFaculty = () => {
                                   const record = records.find((r) =>
                                     r.date.endsWith(`-${day}`),
                                   );
+                                  const filteredTimes = getFilteredTimes(record, attendanceType);
                                   return (
                                     <tr key={i}>
                                       <td style={cellStyle}>{day}</td>
                                       <td style={cellStyle}>
-                                        {formatTime(record?.timeIN || '')}
+                                        {formatTime(filteredTimes.timeIN)}
                                       </td>
                                       <td style={cellStyle}>
-                                        {formatTime(record?.breaktimeIN || '')}
+                                        {formatTime(filteredTimes.breaktimeIN)}
                                       </td>
                                       <td style={cellStyle}>
-                                        {formatTime(record?.breaktimeOUT || '')}
+                                        {formatTime(filteredTimes.breaktimeOUT)}
                                       </td>
                                       <td style={cellStyle}>
                                         {formatTime(record?.timeOUT || '')}
@@ -4515,20 +4726,21 @@ const DailyTimeRecordFaculty = () => {
                                   const record = records.find((r) =>
                                     r.date.endsWith(`-${day}`),
                                   );
+                                  const filteredTimes = getFilteredTimes(record, attendanceType);
                                   return (
                                     <tr key={i}>
                                       <td style={cellStyle}>{day}</td>
                                       <td style={cellStyle}>
-                                        {formatTime(record?.timeIN || '')}
+                                        {formatTime(filteredTimes.timeIN)}
                                       </td>
                                       <td style={cellStyle}>
-                                        {formatTime(record?.breaktimeIN || '')}
+                                        {formatTime(filteredTimes.breaktimeIN)}
                                       </td>
                                       <td style={cellStyle}>
-                                        {formatTime(record?.breaktimeOUT || '')}
+                                        {formatTime(filteredTimes.breaktimeOUT)}
                                       </td>
                                       <td style={cellStyle}>
-                                        {formatTime(record?.timeOUT || '')}
+                                        {formatTime(filteredTimes.timeOUT)}
                                       </td>
                                       <td style={cellStyle}>
                                         {record?.hours || ''}
