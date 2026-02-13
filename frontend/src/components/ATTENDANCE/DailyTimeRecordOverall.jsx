@@ -802,12 +802,22 @@ const DailyTimeRecordFaculty = () => {
       filtered = filtered.filter((user) => {
         if (!user.records || user.records.length === 0) return false;
         
-        // Check if user has any records that match the selected attendance type
+        // Check if user has the official time schedule defined for the selected attendance type
         return user.records.some((record) => {
-          const filteredTimes = getFilteredTimes(record, attendanceType);
-          // User has matching records if any of the filtered times are not empty
-          return filteredTimes.timeIN || filteredTimes.timeOUT || 
-                 filteredTimes.breaktimeIN || filteredTimes.breaktimeOUT;
+          if (attendanceType === 'regular') {
+            // Check if regular work time is defined
+            return record.officialTimeIN && record.officialTimeOUT;
+          } else if (attendanceType === 'honorarium') {
+            // Check if honorarium time is defined
+            return record.officialHonorariumTimeIN && record.officialHonorariumTimeOUT;
+          } else if (attendanceType === 'serviceCredit') {
+            // Check if service credit time is defined
+            return record.officialServiceCreditTimeIN && record.officialServiceCreditTimeOUT;
+          } else if (attendanceType === 'overtime') {
+            // Check if overtime is defined
+            return record.officialOverTimeIN && record.officialOverTimeOUT;
+          }
+          return false;
         });
       });
     }
