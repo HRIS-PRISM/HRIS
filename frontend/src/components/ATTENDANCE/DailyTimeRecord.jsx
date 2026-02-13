@@ -164,7 +164,8 @@ const categorizeTimeEntry = (time, record) => {
   }
   
   // Return the first matching category (priority: regular, honorarium, serviceCredit, overtime)
-  return categories.length > 0 ? categories[0] : 'regular';
+  // Return null if no category matches (time falls outside all official ranges)
+  return categories.length > 0 ? categories[0] : null;
 };
 
 // Helper function to get display label for attendance type

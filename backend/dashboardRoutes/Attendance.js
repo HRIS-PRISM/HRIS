@@ -408,7 +408,8 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
       AND ar.date BETWEEN ot.startDate AND ot.endDate
       AND ot.status = 'active'
     WHERE ar.personID = ? AND ar.date BETWEEN ? AND ?
-    ORDER BY ar.date ASC;
+    ORDER BY ar.date ASC, ot.id DESC
+    LIMIT 1000;
   `;
 
   db.query(query, [personID, startDate, endDate], (err, results) => {
