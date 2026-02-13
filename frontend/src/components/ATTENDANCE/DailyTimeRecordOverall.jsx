@@ -813,6 +813,7 @@ const DailyTimeRecordFaculty = () => {
           if (!user.records || user.records.length === 0) return false;
           
           // Check if user has the official time schedule defined for the selected attendance type
+          // Both IN and OUT times must be defined to have a valid schedule
           return user.records.some((record) => {
             return record[fields.inField] && record[fields.outField];
           });
