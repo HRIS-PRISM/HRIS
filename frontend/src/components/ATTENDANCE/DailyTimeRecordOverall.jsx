@@ -809,15 +809,25 @@ const DailyTimeRecordFaculty = () => {
 
       const fields = officialTimeFields[attendanceType];
       if (fields) {
+        console.log('Filtering users by attendance type:', attendanceType, 'Fields:', fields);
+        console.log('Total users before filtering:', filtered.length);
+        
         filtered = filtered.filter((user) => {
           if (!user.records || user.records.length === 0) return false;
           
           // Check if user has the official time schedule defined for the selected attendance type
           // Both IN and OUT times must be defined to have a valid schedule
-          return user.records.some((record) => {
-            return record[fields.inField] && record[fields.outField];
+          const hasSchedule = user.records.some((record) => {
+            const hasFields = record[fields.inField] && record[fields.outField];
+            if (hasFields) {
+              console.log('User', user.employeeNumber, 'has schedule:', record[fields.inField], record[fields.outField]);
+            }
+            return hasFields;
           });
+          return hasSchedule;
         });
+        
+        console.log('Total users after filtering:', filtered.length);
       }
     }
 
