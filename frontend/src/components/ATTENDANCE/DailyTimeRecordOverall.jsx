@@ -1769,6 +1769,37 @@ const DailyTimeRecordFaculty = () => {
       </thead>
     );
 
+    // Helper function to get header text based on DTR type
+    const getHeaderText = (type) => {
+      const headerTexts = {
+        regular: {
+          firstColumn: 'A.M.',
+          secondColumn: 'P.M.',
+          thirdColumn: 'Late',
+          fourthColumn: 'Undertime'
+        },
+        honorarium: {
+          firstColumn: 'Honorarium Time',
+          secondColumn: 'Official Honorarium Time',
+          thirdColumn: 'Rendered Time',
+          fourthColumn: ''
+        },
+        'service-credit': {
+          firstColumn: 'Service Credit Time',
+          secondColumn: 'Official Service Credit Time',
+          thirdColumn: 'Rendered Time',
+          fourthColumn: ''
+        },
+        overtime: {
+          firstColumn: 'Overtime',
+          secondColumn: 'Official Overtime',
+          thirdColumn: 'Rendered Time',
+          fourthColumn: ''
+        }
+      };
+      return headerTexts[type] || headerTexts.regular;
+    };
+
     const cellStyle = {
       border: '1px solid black',
       textAlign: 'center',
@@ -1780,6 +1811,9 @@ const DailyTimeRecordFaculty = () => {
     };
 
     // Helper function to calculate rendered time based on DTR type
+    // Note: The backend/Attendance Modules calculate the rendered times and store them in the record.
+    // For regular type: uses existing 'minutes' field
+    // For other types: splits total minutes into hours and remaining minutes for display
     const getRenderedTimeData = (record, type) => {
       if (!record) return { hours: '', minutes: '' };
       
@@ -1788,9 +1822,9 @@ const DailyTimeRecordFaculty = () => {
         return { hours: '', minutes: record.minutes || '' };
       }
       
-      // For other types, calculate from the time fields
-      // This is a simplified version - the actual calculation would be done by the backend
-      // We'll display the data that's already calculated in the attendance records
+      // For other types (honorarium, service-credit, overtime),
+      // the backend already calculates rendered times. We display them as hours and minutes.
+      // The 'minutes' field contains total rendered minutes calculated by Attendance Modules.
       const minutes = record.minutes || 0;
       const hours = Math.floor(minutes / 60);
       const remainingMinutes = minutes % 60;
