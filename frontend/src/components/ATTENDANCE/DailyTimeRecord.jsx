@@ -1361,6 +1361,71 @@ const DailyTimeRecord = () => {
                 </Box>
               </Box>
 
+              {/* Attendance Type Buttons */}
+              <Box sx={{ mt: 3 }}>
+                <Typography
+                  variant="subtitle1"
+                  sx={{
+                    fontWeight: 600,
+                    mb: 2,
+                    color: textPrimaryColor,
+                    textAlign: 'center',
+                  }}
+                >
+                  Attendance Type
+                </Typography>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    gap: 2,
+                    flexWrap: 'wrap',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {[
+                    { value: 'all', label: 'All Types' },
+                    { value: 'regular', label: 'Regular Time' },
+                    { value: 'honorarium', label: 'Honorarium' },
+                    { value: 'serviceCredit', label: 'Service Credit' },
+                    { value: 'overtime', label: 'Overtime' },
+                  ].map((type) => {
+                    const isSelected = attendanceType === type.value;
+                    return (
+                      <ProfessionalButton
+                        key={type.value}
+                        variant={isSelected ? 'contained' : 'outlined'}
+                        size="medium"
+                        onClick={() => setAttendanceType(type.value)}
+                        sx={{
+                          borderColor: accentColor,
+                          backgroundColor: isSelected
+                            ? accentColor
+                            : 'transparent',
+                          color: isSelected
+                            ? textSecondaryColor
+                            : textPrimaryColor,
+                          py: 1.5,
+                          px: 3,
+                          fontWeight: 600,
+                          '&:hover': {
+                            backgroundColor: isSelected
+                              ? accentDark
+                              : alpha(accentColor, 0.1),
+                            borderWidth: 2,
+                          },
+                          transition: 'all 0.3s ease',
+                          boxShadow: isSelected
+                            ? `0 4px 12px ${alpha(accentColor, 0.3)}`
+                            : 'none',
+                        }}
+                      >
+                        {type.label}
+                      </ProfessionalButton>
+                    );
+                  })}
+                </Box>
+              </Box>
+
               <Box
                 sx={{
                   display: 'flex',
@@ -1419,39 +1484,6 @@ const DailyTimeRecord = () => {
                     InputLabelProps={{ shrink: true }}
                     fullWidth
                   />
-                </Box>
-
-                <Box sx={{ minWidth: 225 }}>
-                  <Typography
-                    variant="body2"
-                    sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}
-                  >
-                    Attendance Type
-                  </Typography>
-                  <FormControl fullWidth variant="outlined">
-                    <Select
-                      value={attendanceType}
-                      onChange={(e) => setAttendanceType(e.target.value)}
-                      sx={{
-                        borderRadius: '12px',
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.3),
-                        },
-                        '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: accentColor,
-                        },
-                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                          borderColor: accentColor,
-                        },
-                      }}
-                    >
-                      <MenuItem value="all">All Types</MenuItem>
-                      <MenuItem value="regular">Regular Time</MenuItem>
-                      <MenuItem value="honorarium">Honorarium</MenuItem>
-                      <MenuItem value="serviceCredit">Service Credit</MenuItem>
-                      <MenuItem value="overtime">Overtime</MenuItem>
-                    </Select>
-                  </FormControl>
                 </Box>
 
                 <ProfessionalButton
