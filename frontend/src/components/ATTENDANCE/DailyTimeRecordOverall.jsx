@@ -797,6 +797,21 @@ const DailyTimeRecordFaculty = () => {
       filtered = filtered.filter((u) => !u.records || u.records.length === 0);
     }
 
+    // Apply attendance type filter - only show users with records matching the selected type
+    if (attendanceType !== 'all') {
+      filtered = filtered.filter((user) => {
+        if (!user.records || user.records.length === 0) return false;
+        
+        // Check if user has any records that match the selected attendance type
+        return user.records.some((record) => {
+          const filteredTimes = getFilteredTimes(record, attendanceType);
+          // User has matching records if any of the filtered times are not empty
+          return filteredTimes.timeIN || filteredTimes.timeOUT || 
+                 filteredTimes.breaktimeIN || filteredTimes.breaktimeOUT;
+        });
+      });
+    }
+
     // Apply print status filter
     if (printStatusFilter === 'printed') {
       filtered = filtered.filter((u) => printStatusMap.has(u.employeeNumber));
@@ -3186,72 +3201,70 @@ const DailyTimeRecordFaculty = () => {
                 })}
               </Box>
 
-              {/* Attendance Type Buttons - Only show in Single User mode */}
-              {viewMode === 'single' && (
-                <Box sx={{ mt: 3 }}>
-                  <Typography
-                    variant="subtitle1"
-                    sx={{
-                      fontWeight: 600,
-                      mb: 2,
-                      color: textPrimaryColor,
-                      textAlign: 'center',
-                    }}
-                  >
-                    Attendance Type
-                  </Typography>
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      gap: 2,
-                      flexWrap: 'wrap',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    {[
-                      { value: 'all', label: 'All Types' },
-                      { value: 'regular', label: 'Regular Time' },
-                      { value: 'honorarium', label: 'Honorarium' },
-                      { value: 'serviceCredit', label: 'Service Credit' },
-                      { value: 'overtime', label: 'Overtime' },
-                    ].map((type) => {
-                      const isSelected = attendanceType === type.value;
-                      return (
-                        <ProfessionalButton
-                          key={type.value}
-                          variant={isSelected ? 'contained' : 'outlined'}
-                          size="medium"
-                          onClick={() => setAttendanceType(type.value)}
-                          sx={{
-                            border: `1px solid ${accentColor}`,
+              {/* Attendance Type Buttons - Show in both Single User and All Users modes */}
+              <Box sx={{ mt: 3 }}>
+                <Typography
+                  variant="subtitle1"
+                  sx={{
+                    fontWeight: 600,
+                    mb: 2,
+                    color: textPrimaryColor,
+                    textAlign: 'center',
+                  }}
+                >
+                  Attendance Type
+                </Typography>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    gap: 2,
+                    flexWrap: 'wrap',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {[
+                    { value: 'all', label: 'All Types' },
+                    { value: 'regular', label: 'Regular Time' },
+                    { value: 'honorarium', label: 'Honorarium' },
+                    { value: 'serviceCredit', label: 'Service Credit' },
+                    { value: 'overtime', label: 'Overtime' },
+                  ].map((type) => {
+                    const isSelected = attendanceType === type.value;
+                    return (
+                      <ProfessionalButton
+                        key={type.value}
+                        variant={isSelected ? 'contained' : 'outlined'}
+                        size="medium"
+                        onClick={() => setAttendanceType(type.value)}
+                        sx={{
+                          border: `1px solid ${accentColor}`,
+                          backgroundColor: isSelected
+                            ? accentColor
+                            : 'transparent',
+                          color: isSelected
+                            ? textSecondaryColor
+                            : textPrimaryColor,
+                          py: 1.5,
+                          px: 3,
+                          fontWeight: 600,
+                          '&:hover': {
                             backgroundColor: isSelected
-                              ? accentColor
-                              : 'transparent',
-                            color: isSelected
-                              ? textSecondaryColor
-                              : textPrimaryColor,
-                            py: 1.5,
-                            px: 3,
-                            fontWeight: 600,
-                            '&:hover': {
-                              backgroundColor: isSelected
-                                ? accentDark
-                                : alpha(accentColor, 0.1),
-                              border: `2px solid ${accentColor}`,
-                            },
-                            transition: 'all 0.3s ease',
-                            boxShadow: isSelected
-                              ? `0 4px 12px ${alpha(accentColor, 0.3)}`
-                              : 'none',
-                          }}
-                        >
-                          {type.label}
-                        </ProfessionalButton>
-                      );
-                    })}
-                  </Box>
+                              ? accentDark
+                              : alpha(accentColor, 0.1),
+                            border: `2px solid ${accentColor}`,
+                          },
+                          transition: 'all 0.3s ease',
+                          boxShadow: isSelected
+                            ? `0 4px 12px ${alpha(accentColor, 0.3)}`
+                            : 'none',
+                        }}
+                      >
+                        {type.label}
+                      </ProfessionalButton>
+                    );
+                  })}
                 </Box>
-              )}
+              </Box>
 
               {/* Show Employee Number, Date fields, and Search button only in Single User mode */}
               {viewMode === 'single' && (
