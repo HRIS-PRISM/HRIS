@@ -1397,7 +1397,7 @@ const DailyTimeRecord = () => {
                         size="medium"
                         onClick={() => setAttendanceType(type.value)}
                         sx={{
-                          borderColor: accentColor,
+                          border: `1px solid ${accentColor}`,
                           backgroundColor: isSelected
                             ? accentColor
                             : 'transparent',
@@ -1411,7 +1411,7 @@ const DailyTimeRecord = () => {
                             backgroundColor: isSelected
                               ? accentDark
                               : alpha(accentColor, 0.1),
-                            borderWidth: 2,
+                            border: `2px solid ${accentColor}`,
                           },
                           transition: 'all 0.3s ease',
                           boxShadow: isSelected
