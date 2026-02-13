@@ -126,8 +126,11 @@ const parseTimeToMinutes = (timeStr) => {
   
   if (meridiem) {
     // 12-hour format
-    if (hours === 12) hours = 0;
-    if (meridiem.toUpperCase() === 'PM') hours += 12;
+    if (hours === 12 && meridiem.toUpperCase() === 'AM') {
+      hours = 0; // 12 AM is 0 hours
+    } else if (hours !== 12 && meridiem.toUpperCase() === 'PM') {
+      hours += 12; // PM hours (except 12 PM) add 12
+    }
   }
   
   return hours * 60 + minutes;
@@ -1874,7 +1877,7 @@ const DailyTimeRecordFaculty = () => {
                           />
                         )}
                         <span style={{ position: 'relative', zIndex: 1 }}>
-                          {formatTime(record?.timeIN || '')}
+                          {formatTime(filteredTimes.timeIN)}
                         </span>
                       </td>
                       <td
@@ -2222,7 +2225,7 @@ const DailyTimeRecordFaculty = () => {
                           />
                         )}
                         <span style={{ position: 'relative', zIndex: 1 }}>
-                          {formatTime(record?.timeIN || '')}
+                          {formatTime(filteredTimes.timeIN)}
                         </span>
                       </td>
                       <td
@@ -4502,17 +4505,18 @@ const DailyTimeRecordFaculty = () => {
                                   const record = records.find((r) =>
                                     r.date.endsWith(`-${day}`),
                                   );
+                                  const filteredTimes = getFilteredTimes(record, attendanceType);
                                   return (
                                     <tr key={i}>
                                       <td style={cellStyle}>{day}</td>
                                       <td style={cellStyle}>
-                                        {formatTime(record?.timeIN || '')}
+                                        {formatTime(filteredTimes.timeIN)}
                                       </td>
                                       <td style={cellStyle}>
                                         {formatTime(filteredTimes.breaktimeIN)}
                                       </td>
                                       <td style={cellStyle}>
-                                        {formatTime(record?.breaktimeOUT || '')}
+                                        {formatTime(filteredTimes.breaktimeOUT)}
                                       </td>
                                       <td style={cellStyle}>
                                         {formatTime(record?.timeOUT || '')}
@@ -4665,20 +4669,21 @@ const DailyTimeRecordFaculty = () => {
                                   const record = records.find((r) =>
                                     r.date.endsWith(`-${day}`),
                                   );
+                                  const filteredTimes = getFilteredTimes(record, attendanceType);
                                   return (
                                     <tr key={i}>
                                       <td style={cellStyle}>{day}</td>
                                       <td style={cellStyle}>
-                                        {formatTime(record?.timeIN || '')}
+                                        {formatTime(filteredTimes.timeIN)}
                                       </td>
                                       <td style={cellStyle}>
                                         {formatTime(filteredTimes.breaktimeIN)}
                                       </td>
                                       <td style={cellStyle}>
-                                        {formatTime(record?.breaktimeOUT || '')}
+                                        {formatTime(filteredTimes.breaktimeOUT)}
                                       </td>
                                       <td style={cellStyle}>
-                                        {formatTime(record?.timeOUT || '')}
+                                        {formatTime(filteredTimes.timeOUT)}
                                       </td>
                                       <td style={cellStyle}>
                                         {record?.hours || ''}

@@ -107,8 +107,11 @@ const parseTimeToMinutes = (timeStr) => {
   
   if (meridiem) {
     // 12-hour format
-    if (hours === 12) hours = 0;
-    if (meridiem.toUpperCase() === 'PM') hours += 12;
+    if (hours === 12 && meridiem.toUpperCase() === 'AM') {
+      hours = 0; // 12 AM is 0 hours
+    } else if (hours !== 12 && meridiem.toUpperCase() === 'PM') {
+      hours += 12; // PM hours (except 12 PM) add 12
+    }
   }
   
   return hours * 60 + minutes;
