@@ -799,27 +799,25 @@ const DailyTimeRecordFaculty = () => {
 
     // Apply attendance type filter - only show users with records matching the selected type
     if (attendanceType !== 'all') {
-      filtered = filtered.filter((user) => {
-        if (!user.records || user.records.length === 0) return false;
-        
-        // Check if user has the official time schedule defined for the selected attendance type
-        return user.records.some((record) => {
-          if (attendanceType === 'regular') {
-            // Check if regular work time is defined
-            return record.officialTimeIN && record.officialTimeOUT;
-          } else if (attendanceType === 'honorarium') {
-            // Check if honorarium time is defined
-            return record.officialHonorariumTimeIN && record.officialHonorariumTimeOUT;
-          } else if (attendanceType === 'serviceCredit') {
-            // Check if service credit time is defined
-            return record.officialServiceCreditTimeIN && record.officialServiceCreditTimeOUT;
-          } else if (attendanceType === 'overtime') {
-            // Check if overtime is defined
-            return record.officialOverTimeIN && record.officialOverTimeOUT;
-          }
-          return false;
+      // Map attendance types to their corresponding official time field names
+      const officialTimeFields = {
+        regular: { inField: 'officialTimeIN', outField: 'officialTimeOUT' },
+        honorarium: { inField: 'officialHonorariumTimeIN', outField: 'officialHonorariumTimeOUT' },
+        serviceCredit: { inField: 'officialServiceCreditTimeIN', outField: 'officialServiceCreditTimeOUT' },
+        overtime: { inField: 'officialOverTimeIN', outField: 'officialOverTimeOUT' },
+      };
+
+      const fields = officialTimeFields[attendanceType];
+      if (fields) {
+        filtered = filtered.filter((user) => {
+          if (!user.records || user.records.length === 0) return false;
+          
+          // Check if user has the official time schedule defined for the selected attendance type
+          return user.records.some((record) => {
+            return record[fields.inField] && record[fields.outField];
+          });
         });
-      });
+      }
     }
 
     // Apply print status filter
