@@ -9,14 +9,14 @@ const { notifyPayrollChanged } = require('../socket/socketService');
 // Helper function to validate email
 const validateEmail = (email, isRestricted) => {
   if (!email || typeof email !== 'string') return false;
-  
+
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) return false;
-  
+
   if (isRestricted) {
     return email.toLowerCase().endsWith('@earist.edu.ph');
   }
-  
+
   return true;
 };
 
@@ -24,21 +24,24 @@ const validateEmail = (email, isRestricted) => {
 router.get('/email-domain-restriction', authenticateToken, async (req, res) => {
   try {
     const query = `SELECT setting_value FROM system_settings WHERE setting_key = 'email_domain_restriction'`;
-    
+
     db.query(query, (err, results) => {
       if (err) {
         console.error('Error fetching email domain restriction:', err);
-        return res.status(500).json({ error: 'Failed to fetch email domain restriction' });
+        return res
+          .status(500)
+          .json({ error: 'Failed to fetch email domain restriction' });
       }
-      
+
       // Default to false (disabled) if not set
-      const isRestricted = results.length > 0 ? results[0].setting_value === 'true' : false;
-      
+      const isRestricted =
+        results.length > 0 ? results[0].setting_value === 'true' : false;
+
       res.status(200).json({
         setting_value: isRestricted,
-        message: isRestricted 
+        message: isRestricted
           ? 'Email domain restricted to @earist.edu.ph'
-          : 'All email domains allowed'
+          : 'All email domains allowed',
       });
     });
   } catch (err) {
@@ -57,32 +60,39 @@ router.put('/email-domain-restriction', authenticateToken, async (req, res) => {
 
   try {
     const checkQuery = `SELECT * FROM system_settings WHERE setting_key = 'email_domain_restriction'`;
-    
+
     db.query(checkQuery, (err, results) => {
       if (err) {
         console.error('Error checking email domain restriction:', err);
-        return res.status(500).json({ error: 'Failed to update email domain restriction' });
+        return res
+          .status(500)
+          .json({ error: 'Failed to update email domain restriction' });
       }
 
-      const query = results.length > 0
-        ? `UPDATE system_settings SET setting_value = ? WHERE setting_key = 'email_domain_restriction'`
-        : `INSERT INTO system_settings (setting_key, setting_value) VALUES ('email_domain_restriction', ?)`;
+      const query =
+        results.length > 0
+          ? `UPDATE system_settings SET setting_value = ? WHERE setting_key = 'email_domain_restriction'`
+          : `INSERT INTO system_settings (setting_key, setting_value) VALUES ('email_domain_restriction', ?)`;
 
       db.query(query, [value.toString()], (updateErr) => {
         if (updateErr) {
           console.error('Error updating email domain restriction:', updateErr);
-          return res.status(500).json({ error: 'Failed to update email domain restriction' });
+          return res
+            .status(500)
+            .json({ error: 'Failed to update email domain restriction' });
         }
 
         res.status(200).json({
           message: 'Email domain restriction updated successfully',
-          setting_value: value
+          setting_value: value,
         });
       });
     });
   } catch (err) {
     console.error('Error updating email domain restriction:', err);
-    res.status(500).json({ error: 'Failed to update email domain restriction' });
+    res
+      .status(500)
+      .json({ error: 'Failed to update email domain restriction' });
   }
 });
 
@@ -92,8 +102,8 @@ router.put('/email-domain-restriction', authenticateToken, async (req, res) => {
 router.put('/send-registration-emails', authenticateToken, async (req, res) => {
   const { value } = req.body;
 
-  console.log("--- DEBUG: Received Request ---");
-  console.log("Value:", value, "Type:", typeof value);
+  console.log('--- DEBUG: Received Request ---');
+  console.log('Value:', value, 'Type:', typeof value);
 
   if (typeof value !== 'boolean') {
     return res.status(400).json({ error: 'Value must be a boolean' });
@@ -101,55 +111,57 @@ router.put('/send-registration-emails', authenticateToken, async (req, res) => {
 
   try {
     const checkQuery = `SELECT * FROM system_settings WHERE setting_key = 'send_registration_emails'`;
-    
+
     db.query(checkQuery, (err, results) => {
       if (err) {
-        console.error("DEBUG: Check Query Failed:", err);
-        return res.status(500).json({ 
-          error: 'Failed to check email send setting', 
-          details: err.message 
+        console.error('DEBUG: Check Query Failed:', err);
+        return res.status(500).json({
+          error: 'Failed to check email send setting',
+          details: err.message,
         });
       }
 
-      console.log("DEBUG: Existing Records Found:", results.length);
+      console.log('DEBUG: Existing Records Found:', results.length);
 
-      const query = results.length > 0
-        ? `UPDATE system_settings SET setting_value = ? WHERE setting_key = 'send_registration_emails'`
-        : `INSERT INTO system_settings (setting_key, setting_value) VALUES ('send_registration_emails', ?)`;
+      const query =
+        results.length > 0
+          ? `UPDATE system_settings SET setting_value = ? WHERE setting_key = 'send_registration_emails'`
+          : `INSERT INTO system_settings (setting_key, setting_value) VALUES ('send_registration_emails', ?)`;
 
       const params = [value.toString()];
 
-      console.log("DEBUG: Executing Query:", query);
-      console.log("DEBUG: Params:", params);
+      console.log('DEBUG: Executing Query:', query);
+      console.log('DEBUG: Params:', params);
 
       db.query(query, params, (updateErr) => {
         if (updateErr) {
-          console.error("!!! DEBUG: Update/Insert Query FAILED !!!");
-          console.error("SQL Error:", updateErr.message);
-          console.error("SQL Code:", updateErr.code);
-          
+          console.error('!!! DEBUG: Update/Insert Query FAILED !!!');
+          console.error('SQL Error:', updateErr.message);
+          console.error('SQL Code:', updateErr.code);
+
           // Send the actual error back to the frontend
-          return res.status(500).json({ 
-            error: 'Failed to update email send setting', 
+          return res.status(500).json({
+            error: 'Failed to update email send setting',
             details: updateErr.message,
-            code: updateErr.code 
+            code: updateErr.code,
           });
         }
 
-        console.log("DEBUG: Query Successful");
+        console.log('DEBUG: Query Successful');
         res.status(200).json({
-          message: value ? 'Registration emails enabled' : 'Registration emails disabled',
-          setting_value: value
+          message: value
+            ? 'Registration emails enabled'
+            : 'Registration emails disabled',
+          setting_value: value,
         });
       });
     });
   } catch (err) {
-    console.error("!!! DEBUG: Server Exception !!!");
+    console.error('!!! DEBUG: Server Exception !!!');
     console.error(err);
     res.status(500).json({ error: 'Server error', details: err.message });
   }
 });
-
 
 // POST: Broadcast Login Info ONLY to users with Default Password (Last Name)
 router.post('/broadcast-login-info', authenticateToken, async (req, res) => {
@@ -191,19 +203,27 @@ router.post('/broadcast-login-info', authenticateToken, async (req, res) => {
       const promises = users.map(async (user) => {
         const firstName = user.firstName || '';
         const lastName = user.lastName || '';
-        const fullName = [firstName, user.middleName, lastName].filter(Boolean).join(' ');
+        const fullName = [firstName, user.middleName, lastName]
+          .filter(Boolean)
+          .join(' ');
 
         // 1. Generate the DEFAULT password based on your business logic
         // Last Name, Uppercase, No Spaces
-        const defaultPassword = lastName.trim().toUpperCase().replace(/\s+/g, '');
+        const defaultPassword = lastName
+          .trim()
+          .toUpperCase()
+          .replace(/\s+/g, '');
 
         // 2. Check if the user's CURRENT password matches the DEFAULT password
         // If yes, they haven't changed it yet.
         let isDefaultPasswordUser = false;
-        
+
         try {
           if (defaultPassword) {
-            isDefaultPasswordUser = await bcrypt.compare(defaultPassword, user.password);
+            isDefaultPasswordUser = await bcrypt.compare(
+              defaultPassword,
+              user.password,
+            );
           }
         } catch (bcryptErr) {
           console.error(`Bcrypt error for ${user.employeeNumber}:`, bcryptErr);
@@ -297,26 +317,33 @@ router.put('/send-registration-emails', authenticateToken, async (req, res) => {
 
   try {
     const checkQuery = `SELECT * FROM system_settings WHERE setting_key = 'send_registration_emails'`;
-    
+
     db.query(checkQuery, (err, results) => {
       if (err) {
         console.error('Error checking email send setting:', err);
-        return res.status(500).json({ error: 'Failed to update email send setting' });
+        return res
+          .status(500)
+          .json({ error: 'Failed to update email send setting' });
       }
 
-      const query = results.length > 0
-        ? `UPDATE system_settings SET setting_value = ? WHERE setting_key = 'send_registration_emails'`
-        : `INSERT INTO system_settings (setting_key, setting_value) VALUES ('send-registration-emails', ?)`;
+      const query =
+        results.length > 0
+          ? `UPDATE system_settings SET setting_value = ? WHERE setting_key = 'send_registration_emails'`
+          : `INSERT INTO system_settings (setting_key, setting_value) VALUES ('send-registration-emails', ?)`;
 
       db.query(query, [value.toString()], (updateErr) => {
         if (updateErr) {
           console.error('Error updating email send setting:', updateErr);
-          return res.status(500).json({ error: 'Failed to update email send setting' });
+          return res
+            .status(500)
+            .json({ error: 'Failed to update email send setting' });
         }
 
         res.status(200).json({
-          message: value ? 'Registration emails enabled' : 'Registration emails disabled',
-          setting_value: value
+          message: value
+            ? 'Registration emails enabled'
+            : 'Registration emails disabled',
+          setting_value: value,
         });
       });
     });
@@ -339,8 +366,21 @@ router.post('/register', async (req, res) => {
     password,
     employeeNumber,
     employmentCategory,
+    customCategory, // ✅ added
     department,
   } = req.body;
+
+  // ✅ Normalize employmentCategory: ''/undefined/null -> NULL, else Number
+  const normalizeEmploymentCategory = (value) => {
+    if (value === undefined || value === null) return null;
+    if (typeof value === 'string' && value.trim() === '') return null;
+
+    const n = Number(value);
+    return Number.isNaN(n) ? null : n;
+  };
+
+  const empCatValue = normalizeEmploymentCategory(employmentCategory);
+  const customCatValue = empCatValue === 5 ? customCategory || null : null;
 
   try {
     const hashedPass = await bcrypt.hash(password, 10);
@@ -355,13 +395,24 @@ router.post('/register', async (req, res) => {
 
     // Helper for Category Label
     const getCategoryLabel = (cat) => {
+      // ✅ Handle NULL properly
+      if (cat === null || cat === undefined) return 'Not Set';
+
       switch (parseInt(cat)) {
-        case 0: return 'Job Order - Graduate';
-        case 1: return 'Job Order - UnderGrad';
-        case 2: return 'Regular - Non-Teaching';
-        case 3: return 'Regular - Teaching (Designated)';
-        case 4: return 'Regular - 30Hrs';
-        default: return 'Job Order - Graduated'; // Default fallback
+        case 0:
+          return 'Job Order - Graduate';
+        case 1:
+          return 'Job Order - UnderGrad';
+        case 2:
+          return 'Regular - Non-Teaching';
+        case 3:
+          return 'Regular - Teaching (Designated)';
+        case 4:
+          return 'Regular - 30Hrs';
+        case 5:
+          return `Other${customCatValue ? ` (${customCatValue})` : ''}`;
+        default:
+          return 'Not Set';
       }
     };
 
@@ -369,7 +420,7 @@ router.post('/register', async (req, res) => {
     let emailRestricted = false;
     try {
       const restrictionQuery = `SELECT setting_value FROM system_settings WHERE setting_key = 'email_domain_restriction'`;
-      await new Promise((resolve, reject) => {
+      await new Promise((resolve) => {
         db.query(restrictionQuery, (err, rows) => {
           if (err) {
             console.error('Error fetching email restriction:', err);
@@ -382,18 +433,21 @@ router.post('/register', async (req, res) => {
         });
       });
     } catch (restrictionErr) {
-      console.error('Error loading email restriction, using defaults:', restrictionErr);
+      console.error(
+        'Error loading email restriction, using defaults:',
+        restrictionErr,
+      );
     }
 
     // Email domain validation
     if (email && !validateEmail(email, emailRestricted)) {
       if (emailRestricted) {
-        return res.status(400).send({ 
-          error: 'Email must use @earist.edu.ph domain' 
+        return res.status(400).send({
+          error: 'Email must use @earist.edu.ph domain',
         });
       } else {
-        return res.status(400).send({ 
-          error: 'Invalid email format' 
+        return res.status(400).send({
+          error: 'Invalid email format',
         });
       }
     }
@@ -441,7 +495,7 @@ router.post('/register', async (req, res) => {
             'staff',
             hashedPass,
             employeeNumber,
-            employmentCategory ?? 0,
+            empCatValue, // ✅ NO DEFAULT TO 0
             'user',
             fullName,
           ],
@@ -484,24 +538,27 @@ router.post('/register', async (req, res) => {
                     .send({ error: 'Failed to create person record' });
                 }
 
-                // INSERT INTO employment_category table
+                // ✅ INSERT/UPDATE employment_category table (with customCategory)
                 const empCatQuery = `
-                  INSERT INTO employment_category (employeeNumber, employmentCategory)
-                  VALUES (?, ?)
+                  INSERT INTO employment_category (employeeNumber, employmentCategory, customCategory)
+                  VALUES (?, ?, ?)
+                  ON DUPLICATE KEY UPDATE
+                    employmentCategory = VALUES(employmentCategory),
+                    customCategory = VALUES(customCategory)
                 `;
 
                 db.query(
                   empCatQuery,
-                  [employeeNumber, employmentCategory ?? 0],
+                  [employeeNumber, empCatValue, customCatValue], // ✅ NO DEFAULT TO 0
                   async (catErr) => {
                     if (catErr) {
                       console.error(
                         'Error inserting into employment_category:',
-                        catErr
+                        catErr,
                       );
                       db.query(
                         'DELETE FROM person_table WHERE agencyEmployeeNum = ?',
-                        [employeeNumber]
+                        [employeeNumber],
                       );
                       db.query('DELETE FROM users WHERE employeeNumber = ?', [
                         employeeNumber,
@@ -517,26 +574,36 @@ router.post('/register', async (req, res) => {
                       WHERE page_url IN ('/home', '/admin-home', '/attendance-user-state', '/daily_time_record', '/payslip', '/pds1', '/pds2', '/pds3', '/pds4', '/settings') 
                       OR component_identifier IN ('HomeEmployee', 'HomeAdmin', 'AttendanceUserState', 'DailyTimeRecord', 'Payslip', 'PDS1', 'PDS2', 'PDS3', 'PDS4', 'Settings')
                     `;
-                    
-                    db.query(grantDefaultAccessQuery, (pagesErr, pagesResult) => {
-                      if (!pagesErr && pagesResult.length > 0) {
-                        pagesResult.forEach((page) => {
-                          const insertAccessQuery = `
-                            INSERT INTO page_access (employeeNumber, page_id, page_privilege)
-                            VALUES (?, ?, '1')
-                            ON DUPLICATE KEY UPDATE page_privilege = '1'
-                          `;
-                          db.query(insertAccessQuery, [employeeNumber, page.id], (insertErr) => {
-                            if (insertErr) {
-                              console.error('Error granting default page access:', insertErr);
-                            }
-                          });
-                        });
-                      }
-                    });
 
-                    // SEND EMAIL WITH CREDENTIALS
-                    const categoryLabel = getCategoryLabel(employmentCategory ?? 0);
+                    db.query(
+                      grantDefaultAccessQuery,
+                      (pagesErr, pagesResult) => {
+                        if (!pagesErr && pagesResult.length > 0) {
+                          pagesResult.forEach((page) => {
+                            const insertAccessQuery = `
+                              INSERT INTO page_access (employeeNumber, page_id, page_privilege)
+                              VALUES (?, ?, '1')
+                              ON DUPLICATE KEY UPDATE page_privilege = '1'
+                            `;
+                            db.query(
+                              insertAccessQuery,
+                              [employeeNumber, page.id],
+                              (insertErr) => {
+                                if (insertErr) {
+                                  console.error(
+                                    'Error granting default page access:',
+                                    insertErr,
+                                  );
+                                }
+                              },
+                            );
+                          });
+                        }
+                      },
+                    );
+
+                    // ✅ SEND EMAIL WITH CREDENTIALS (NULL-safe label)
+                    const categoryLabel = getCategoryLabel(empCatValue);
 
                     try {
                       await transporter.sendMail({
@@ -568,205 +635,63 @@ router.post('/register', async (req, res) => {
                             .credential-value { font-size: 15px; color: #2c3e50; font-weight: 500; }
                             .credential-value.highlight { background: #fff8e1; padding: 10px 15px; border-radius: 4px; font-family: 'Courier New', Courier, monospace; font-size: 16px; letter-spacing: 1px; color: #856404; border: 2px solid #ffc107; display: inline-block; margin-top: 5px; font-weight: 700; }
                             .credential-value.empnum { font-family: 'Courier New', Courier, monospace; font-size: 16px; color: #6d2323; font-weight: 700; }
-                            .note-box { background: #fff8e1; border-left: 4px solid #6d2323; padding: 15px 20px; margin: 25px 0; border-radius: 4px; }
-                            .note-box p { font-size: 13px; color: #555555; margin: 0; line-height: 1.6; }
-                            .note-box strong { color: #6d2323; }
-                            .action-section { text-align: center; margin: 30px 0 25px; }
-                            .action-button { display: inline-block; background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); color: #ffffff !important; padding: 14px 40px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 12px rgba(109, 35, 35, 0.25); transition: all 0.3s ease; }
-                            .action-button:hover { background: linear-gradient(135deg, #5a1e1e 0%, #6d2323 100%); transform: translateY(-2px); color: #ffffff !important; }
-                            a.action-button { color: #ffffff !important; }
-                            a.action-button:visited { color: #ffffff !important; }
-                            a.action-button:active { color: #ffffff !important; }
-                            .support-text { font-size: 13px; color: #777777; text-align: center; margin-top: 25px; padding-top: 20px; border-top: 1px solid #eeeeee; }
-                            .email-footer { background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 25px; text-align: center; }
-                            .footer-text { font-size: 12px; color: #f5e6e6; margin: 5px 0; }
-                            @media only screen and (max-width: 600px) {
-                              .email-wrapper { padding: 20px 10px; }
-                              .email-body { padding: 25px 20px; }
-                              .email-header h1 { font-size: 22px; }
-                              .credentials-box { padding: 20px; }
-                            }
                           </style>
-                      </head>
-                      <body>
-                        <div class="email-wrapper">
-                          <div class="email-container">
-                            <!-- Header -->
-                            <div class="email-header">
-                              <h1>Welcome!</h1>
-                            </div>
-                            <!-- Body -->
-                            <div class="email-body">
-                              <p class="greeting">Hello <strong>${fullName}</strong>,</p>
-                              <p class="intro-text">
-                                Your employee account has been created. You can now access your payslip, 
-                                check attendance, and manage your personal information online.
-                              </p>
-                              <!-- Credentials -->
-                              <div class="credentials-box">
-                                <div class="credential-row">
-                                  <div class="credential-label">Employee Number</div>
-                                  <div class="credential-value empnum">${employeeNumber}</div>
+                          </head>
+                          <body>
+                            <div class="email-wrapper">
+                              <div class="email-container">
+                                <div class="email-header">
+                                  <h1>Welcome to EARIST HRIS</h1>
                                 </div>
-                                <div class="credential-row">
-                                  <div class="credential-label">Email</div>
-                                  <div class="credential-value">${email}</div>
-                                </div>
-                                <div class="credential-row">
-                                  <div class="credential-label">Temporary Password</div>
-                                  <div class="credential-value">
-                                    <span class="highlight">${password}</span>
+                                <div class="email-body">
+                                  <p class="greeting">Hello <strong>${fullName}</strong>,</p>
+                                  <p class="intro-text">
+                                    Your account has been created. Below are your login credentials.
+                                  </p>
+
+                                  <div class="credentials-box">
+                                    <div class="credential-row">
+                                      <div class="credential-label">Employee Number</div>
+                                      <div class="credential-value empnum">${employeeNumber}</div>
+                                    </div>
+                                    <div class="credential-row">
+                                      <div class="credential-label">Password</div>
+                                      <div class="credential-value highlight">${password}</div>
+                                    </div>
                                   </div>
+
+                                  <p class="intro-text">
+                                    Please change your password after logging in.
+                                  </p>
                                 </div>
                               </div>
-                              <!-- Security Note -->
-                              <div class="note-box">
-                                <p>
-                                  <strong>Important:</strong> Change your password after signing in. 
-                                  Never share your login details with anyone.
-                                </p>
-                              </div>
-                              <!-- Login Button -->
-                              <div class="action-section">
-                                <a href="${
-                                  process.env.API_BASE_URL ||
-                                  'http://localhost:5137'
-                                }" class="action-button">
-                                  LOGIN NOW
-                                </a>
-                              </div>
-                              <!-- Support -->
-                              <p class="support-text">
-                                Need help? Contact HR Department during office hours or send a message to earisthrmstesting@gmail.com
-                              </p>
                             </div>
-                            <!-- Footer -->
-                            <div class="email-footer">
-                              <p class="footer-text">Human Resources Information System</p>
-                              <p class="footer-text">© ${new Date().getFullYear()} Eulogio "Amang" Rodriguez Institute of Science and Technology. All rights reserved.</p>
-                            </div>
-                          </div>
-                        </div>
-                      </body>
-                      </html>
-                    `,
+                          </body>
+                          </html>
+                        `,
                       });
-
-                      console.log(
-                        `Credentials email sent to ${email} for employee ${employeeNumber}`
-                      );
-                    } catch (emailError) {
+                    } catch (mailErr) {
                       console.error(
-                        'Error sending credentials email:',
-                        emailError
+                        'Error sending registration email:',
+                        mailErr,
                       );
+                      // Do not fail registration just because email failed
                     }
 
-                    // Assign default official time for new user
-                    const defaultTimes = {
-                      officialTimeIN: '08:00:00 AM',
-                      officialBreaktimeIN: '00:00:00 AM',
-                      officialBreaktimeOUT: '00:00:00 PM',
-                      officialTimeOUT: '05:00:00 PM',
-                      officialHonorariumTimeIN: '00:00:00 AM',
-                      officialHonorariumTimeOUT: '00:00:00 PM',
-                      officialServiceCreditTimeIN: '00:00:00 AM',
-                      officialServiceCreditTimeOUT: '00:00:00 AM',
-                      officialOverTimeIN: '00:00:00 AM',
-                      officialOverTimeOUT: '00:00:00 PM',
-                      breaktime: '',
-                    };
-
-                    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-                    const officialTimeValues = days.map((day) => [
-                      employeeNumber,
-                      day,
-                      defaultTimes.officialTimeIN,
-                      defaultTimes.officialBreaktimeIN,
-                      defaultTimes.officialBreaktimeOUT,
-                      defaultTimes.officialTimeOUT,
-                      defaultTimes.officialHonorariumTimeIN,
-                      defaultTimes.officialHonorariumTimeOUT,
-                      defaultTimes.officialServiceCreditTimeIN,
-                      defaultTimes.officialServiceCreditTimeOUT,
-                      defaultTimes.officialOverTimeIN,
-                      defaultTimes.officialOverTimeOUT,
-                      defaultTimes.breaktime,
-                    ]);
-
-                    const officialTimeQuery = `
-                      INSERT INTO officialtime (
-                        employeeID,
-                        day,
-                        officialTimeIN,
-                        officialBreaktimeIN,
-                        officialBreaktimeOUT,
-                        officialTimeOUT,
-                        officialHonorariumTimeIN,
-                        officialHonorariumTimeOUT,
-                        officialServiceCreditTimeIN,
-                        officialServiceCreditTimeOUT,
-                        officialOverTimeIN,
-                        officialOverTimeOUT,
-                        breaktime
-                      )
-                      VALUES ?
-                    `;
-
-                    db.query(officialTimeQuery, [officialTimeValues], (officialTimeErr) => {
-                      if (officialTimeErr) {
-                        console.error(
-                          `Error assigning default official time for ${employeeNumber}:`,
-                          officialTimeErr
-                        );
-                      }
+                    return res.status(200).send({
+                      message: 'User registered successfully',
                     });
-
-                    // Create department assignment if department is provided
-                    if (department && department.trim() !== '') {
-                      const deptAssignmentQuery = `
-                        INSERT INTO department_assignment (code, name, employeeNumber)
-                        VALUES (?, ?, ?)
-                      `;
-                      db.query(
-                        deptAssignmentQuery,
-                        [department, null, employeeNumber],
-                        (deptErr) => {
-                          if (deptErr) {
-                            console.error(
-                              `Error creating department assignment for ${employeeNumber}:`,
-                              deptErr
-                            );
-                          } else {
-                            try {
-                              notifyPayrollChanged('created', {
-                                module: 'department-assignment',
-                                id: deptResult.insertId,
-                                employeeNumber,
-                                code: department,
-                              });
-                            } catch (notifyErr) {
-                              console.error('Error notifying payroll change:', notifyErr);
-                            }
-                          }
-                        }
-                      );
-                    }
-
-                    res
-                      .status(200)
-                      .send({ message: 'User Registered Successfully' });
-                  }
+                  },
                 );
-              }
+              },
             );
-          }
+          },
         );
-      }
+      },
     );
   } catch (err) {
-    console.error('Error during registration:', err);
-    res.status(500).send({ error: 'Failed to register user' });
+    console.error('Error registering user:', err);
+    return res.status(500).send({ error: 'Failed to register user' });
   }
 });
 
@@ -814,7 +739,10 @@ router.post('/excel-register', async (req, res) => {
         });
       });
     } catch (settingsErr) {
-      console.error('Error loading field requirements, using defaults:', settingsErr);
+      console.error(
+        'Error loading field requirements, using defaults:',
+        settingsErr,
+      );
     }
 
     // Helper for Category Label (kept, in case you use it elsewhere)
@@ -850,7 +778,8 @@ router.post('/excel-register', async (req, res) => {
 
             // ✅ FIX: Normalize employmentCategory input
             const rawEmpCat =
-              user.employmentCategory === undefined || user.employmentCategory === null
+              user.employmentCategory === undefined ||
+              user.employmentCategory === null
                 ? ''
                 : String(user.employmentCategory).trim();
 
@@ -891,12 +820,16 @@ router.post('/excel-register', async (req, res) => {
               [user.employeeNumber, user.employeeNumber],
               (err, existingRecords) => {
                 if (err) {
-                  errors.push(`Error checking user ${user.employeeNumber}: ${err.message}`);
+                  errors.push(
+                    `Error checking user ${user.employeeNumber}: ${err.message}`,
+                  );
                   return resolve();
                 }
 
                 if (existingRecords.length > 0) {
-                  errors.push(`Employee number ${user.employeeNumber} already exists`);
+                  errors.push(
+                    `Employee number ${user.employeeNumber} already exists`,
+                  );
                   return resolve();
                 }
 
@@ -957,9 +890,10 @@ router.post('/excel-register', async (req, res) => {
                           errors.push(
                             `Error inserting person ${user.employeeNumber}: ${err.message}`,
                           );
-                          db.query('DELETE FROM users WHERE employeeNumber = ?', [
-                            user.employeeNumber,
-                          ]);
+                          db.query(
+                            'DELETE FROM users WHERE employeeNumber = ?',
+                            [user.employeeNumber],
+                          );
                           return resolve();
                         }
 
@@ -983,9 +917,10 @@ router.post('/excel-register', async (req, res) => {
                                   'DELETE FROM person_table WHERE agencyEmployeeNum = ?',
                                   [user.employeeNumber],
                                 );
-                                db.query('DELETE FROM users WHERE employeeNumber = ?', [
-                                  user.employeeNumber,
-                                ]);
+                                db.query(
+                                  'DELETE FROM users WHERE employeeNumber = ?',
+                                  [user.employeeNumber],
+                                );
                                 return done();
                               }
 
@@ -1005,8 +940,14 @@ router.post('/excel-register', async (req, res) => {
 
                               const empCatParams =
                                 existingEmpCat.length > 0
-                                  ? [user.employmentCategory, user.employeeNumber]
-                                  : [user.employeeNumber, user.employmentCategory];
+                                  ? [
+                                      user.employmentCategory,
+                                      user.employeeNumber,
+                                    ]
+                                  : [
+                                      user.employeeNumber,
+                                      user.employmentCategory,
+                                    ];
 
                               db.query(empCatQuery, empCatParams, (catErr) => {
                                 if (catErr) {
@@ -1017,9 +958,10 @@ router.post('/excel-register', async (req, res) => {
                                     'DELETE FROM person_table WHERE agencyEmployeeNum = ?',
                                     [user.employeeNumber],
                                   );
-                                  db.query('DELETE FROM users WHERE employeeNumber = ?', [
-                                    user.employeeNumber,
-                                  ]);
+                                  db.query(
+                                    'DELETE FROM users WHERE employeeNumber = ?',
+                                    [user.employeeNumber],
+                                  );
                                 }
                                 done();
                               });
@@ -1035,18 +977,24 @@ router.post('/excel-register', async (req, res) => {
                             OR component_identifier IN ('HomeEmployee', 'HomeAdmin', 'AttendanceUserState', 'DailyTimeRecord', 'Payslip', 'PDS1', 'PDS2', 'PDS3', 'PDS4', 'Settings')
                           `;
 
-                          db.query(grantDefaultAccessQuery, (pagesErr, pagesResult) => {
-                            if (!pagesErr && pagesResult.length > 0) {
-                              pagesResult.forEach((page) => {
-                                const insertAccessQuery = `
+                          db.query(
+                            grantDefaultAccessQuery,
+                            (pagesErr, pagesResult) => {
+                              if (!pagesErr && pagesResult.length > 0) {
+                                pagesResult.forEach((page) => {
+                                  const insertAccessQuery = `
                                   INSERT INTO page_access (employeeNumber, page_id, page_privilege)
                                   VALUES (?, ?, '1')
                                   ON DUPLICATE KEY UPDATE page_privilege = '1'
                                 `;
-                                db.query(insertAccessQuery, [user.employeeNumber, page.id]);
-                              });
-                            }
-                          });
+                                  db.query(insertAccessQuery, [
+                                    user.employeeNumber,
+                                    page.id,
+                                  ]);
+                                });
+                              }
+                            },
+                          );
 
                           // ✅ REMOVED: SEND EMAIL WITH CREDENTIALS
                           // We keep only a log for auditing.
@@ -1055,14 +1003,21 @@ router.post('/excel-register', async (req, res) => {
                           );
 
                           // Create department assignment if department is provided
-                          if (user.department && user.department.trim() !== '') {
+                          if (
+                            user.department &&
+                            user.department.trim() !== ''
+                          ) {
                             const deptAssignmentQuery = `
                               INSERT INTO department_assignment (code, name, employeeNumber)
                               VALUES (?, ?, ?)
                             `;
                             db.query(
                               deptAssignmentQuery,
-                              [user.department.trim(), null, user.employeeNumber],
+                              [
+                                user.department.trim(),
+                                null,
+                                user.employeeNumber,
+                              ],
                               (deptErr, deptResult) => {
                                 if (deptErr) {
                                   console.error(
@@ -1078,7 +1033,10 @@ router.post('/excel-register', async (req, res) => {
                                       code: user.department.trim(),
                                     });
                                   } catch (notifyErr) {
-                                    console.error('Error notifying payroll change:', notifyErr);
+                                    console.error(
+                                      'Error notifying payroll change:',
+                                      notifyErr,
+                                    );
                                   }
                                 }
                               },
@@ -1113,11 +1071,6 @@ router.post('/excel-register', async (req, res) => {
   }
 });
 
-
-
-
-
-
 // GET ALL REGISTERED USERS WITH PAGE ACCESS AND DEPARTMENT
 router.get('/users', authenticateToken, async (req, res) => {
   try {
@@ -1151,9 +1104,9 @@ router.get('/users', authenticateToken, async (req, res) => {
         console.error('SQL Error details:', err.message);
         console.error('SQL Error code:', err.code);
         console.error('SQL Error sqlMessage:', err.sqlMessage);
-        return res.status(500).json({ 
+        return res.status(500).json({
           error: 'Failed to fetch users',
-          details: err.message || err.sqlMessage || 'Database query error'
+          details: err.message || err.sqlMessage || 'Database query error',
         });
       }
 
@@ -1196,9 +1149,9 @@ router.get('/users', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Error during user fetch:', err);
     console.error('Error stack:', err.stack);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to fetch users',
-      details: err.message || 'Unknown error occurred'
+      details: err.message || 'Unknown error occurred',
     });
   }
 });
@@ -1236,7 +1189,13 @@ router.get('/users/search', authenticateToken, (req, res) => {
         OR u.email LIKE ?
       )`;
       const searchTerm = `%${q.trim()}%`;
-      queryParams = [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm];
+      queryParams = [
+        searchTerm,
+        searchTerm,
+        searchTerm,
+        searchTerm,
+        searchTerm,
+      ];
     }
 
     query += ` ORDER BY p.lastName, p.firstName ASC`;
@@ -1344,7 +1303,10 @@ router.put('/users/:employeeNumber/role', authenticateToken, (req, res) => {
 
   const validRoles = ['superadmin', 'administrator', 'technical', 'staff'];
   if (!validRoles.includes(role.toLowerCase())) {
-    return res.status(400).json({ error: 'Invalid role. Must be one of: superadmin, administrator, technical, staff' });
+    return res.status(400).json({
+      error:
+        'Invalid role. Must be one of: superadmin, administrator, technical, staff',
+    });
   }
 
   // First, get the current role for audit logging
@@ -1387,7 +1349,7 @@ router.put('/users/:employeeNumber/role', authenticateToken, (req, res) => {
           WHERE page_url IN ('/home', '/admin-home', '/attendance-user-state', '/daily_time_record', '/payslip', '/pds1', '/pds2', '/pds3', '/pds4', '/settings') 
           OR component_identifier IN ('HomeEmployee', 'HomeAdmin', 'AttendanceUserState', 'DailyTimeRecord', 'Payslip', 'PDS1', 'PDS2', 'PDS3', 'PDS4', 'Settings')
         `;
-        
+
         db.query(getDefaultPagesQuery, (pagesErr, pagesResult) => {
           if (!pagesErr && pagesResult.length > 0) {
             // Grant access to default pages for staff
@@ -1397,14 +1359,23 @@ router.put('/users/:employeeNumber/role', authenticateToken, (req, res) => {
                 VALUES (?, ?, '1')
                 ON DUPLICATE KEY UPDATE page_privilege = '1'
               `;
-              
-              db.query(upsertAccessQuery, [employeeNumber, page.id], (accessErr) => {
-                if (accessErr) {
-                  console.error('Error granting default page access:', accessErr);
-                } else {
-                  console.log(`Granted access to page ${page.id} for staff user ${employeeNumber}`);
-                }
-              });
+
+              db.query(
+                upsertAccessQuery,
+                [employeeNumber, page.id],
+                (accessErr) => {
+                  if (accessErr) {
+                    console.error(
+                      'Error granting default page access:',
+                      accessErr,
+                    );
+                  } else {
+                    console.log(
+                      `Granted access to page ${page.id} for staff user ${employeeNumber}`,
+                    );
+                  }
+                },
+              );
             });
           }
         });
@@ -1412,13 +1383,7 @@ router.put('/users/:employeeNumber/role', authenticateToken, (req, res) => {
 
       // Log audit
       try {
-        logAudit(
-          req.user,
-          'Update',
-          'users',
-          employeeNumber,
-          employeeNumber
-        );
+        logAudit(req.user, 'Update', 'users', employeeNumber, employeeNumber);
       } catch (e) {
         console.error('Audit log error:', e);
       }
@@ -1472,11 +1437,15 @@ router.post('/users/reset-password', authenticateToken, async (req, res) => {
       const surname = user.lastName;
 
       if (!surname) {
-        return res.status(400).json({ error: 'User does not have a surname (lastName) in the system' });
+        return res.status(400).json({
+          error: 'User does not have a surname (lastName) in the system',
+        });
       }
 
       if (!user.email) {
-        return res.status(400).json({ error: 'User does not have an email address' });
+        return res
+          .status(400)
+          .json({ error: 'User does not have an email address' });
       }
 
       // Convert surname to ALL CAPS and remove ALL spaces for the password
@@ -1486,20 +1455,24 @@ router.post('/users/reset-password', authenticateToken, async (req, res) => {
       const hashedPassword = await bcrypt.hash(surnameUpperCase, 10);
 
       // Update password in database
-      const updateQuery = 'UPDATE users SET password = ? WHERE employeeNumber = ?';
-      db.query(updateQuery, [hashedPassword, employeeNumber], async (updateErr) => {
-        if (updateErr) {
-          console.error('Error updating password:', updateErr);
-          return res.status(500).json({ error: 'Failed to update password' });
-        }
+      const updateQuery =
+        'UPDATE users SET password = ? WHERE employeeNumber = ?';
+      db.query(
+        updateQuery,
+        [hashedPassword, employeeNumber],
+        async (updateErr) => {
+          if (updateErr) {
+            console.error('Error updating password:', updateErr);
+            return res.status(500).json({ error: 'Failed to update password' });
+          }
 
-        // Send email notification
-        try {
-          const mailOptions = {
-            from: `"HRIS System" <${process.env.GMAIL_USER}>`,
-            to: user.email,
-            subject: 'Password Reset Notification - HRIS System',
-            html: `
+          // Send email notification
+          try {
+            const mailOptions = {
+              from: `"HRIS System" <${process.env.GMAIL_USER}>`,
+              to: user.email,
+              subject: 'Password Reset Notification - HRIS System',
+              html: `
               <!DOCTYPE html>
               <html lang="en">
               <head>
@@ -1579,38 +1552,42 @@ router.post('/users/reset-password', authenticateToken, async (req, res) => {
               </body>
               </html>
             `,
-          };
+            };
 
-          await transporter.sendMail(mailOptions);
+            await transporter.sendMail(mailOptions);
 
-          // Log audit
-          try {
-            logAudit(
-              req.user,
-              'Update',
-              'users',
-              employeeNumber,
-              employeeNumber
-            );
-          } catch (e) {
-            console.error('Audit log error:', e);
+            // Log audit
+            try {
+              logAudit(
+                req.user,
+                'Update',
+                'users',
+                employeeNumber,
+                employeeNumber,
+              );
+            } catch (e) {
+              console.error('Audit log error:', e);
+            }
+
+            res.status(200).json({
+              message:
+                'Password reset successfully and email notification sent',
+              employeeNumber: user.employeeNumber,
+              email: user.email,
+            });
+          } catch (emailErr) {
+            console.error('Error sending email:', emailErr);
+            // Password was updated but email failed - still return success but with warning
+            res.status(200).json({
+              message:
+                'Password reset successfully but email notification failed',
+              employeeNumber: user.employeeNumber,
+              warning:
+                'Email could not be sent. Please notify the user manually.',
+            });
           }
-
-          res.status(200).json({
-            message: 'Password reset successfully and email notification sent',
-            employeeNumber: user.employeeNumber,
-            email: user.email,
-          });
-        } catch (emailErr) {
-          console.error('Error sending email:', emailErr);
-          // Password was updated but email failed - still return success but with warning
-          res.status(200).json({
-            message: 'Password reset successfully but email notification failed',
-            employeeNumber: user.employeeNumber,
-            warning: 'Email could not be sent. Please notify the user manually.',
-          });
-        }
-      });
+        },
+      );
     });
   } catch (err) {
     console.error('Error during password reset:', err);
@@ -1619,133 +1596,191 @@ router.post('/users/reset-password', authenticateToken, async (req, res) => {
 });
 
 // PUT: Update employee number
-router.put('/users/:employeeNumber/employee-number', authenticateToken, (req, res) => {
-  const { employeeNumber } = req.params;
-  const { newEmployeeNumber } = req.body;
+router.put(
+  '/users/:employeeNumber/employee-number',
+  authenticateToken,
+  (req, res) => {
+    const { employeeNumber } = req.params;
+    const { newEmployeeNumber } = req.body;
 
-  if (!newEmployeeNumber) {
-    return res.status(400).json({ error: 'New employee number is required' });
-  }
+    if (!newEmployeeNumber) {
+      return res.status(400).json({ error: 'New employee number is required' });
+    }
 
-  if (newEmployeeNumber === employeeNumber) {
-    return res.status(200).json({ message: 'Employee number unchanged' });
-  }
+    if (newEmployeeNumber === employeeNumber) {
+      return res.status(200).json({ message: 'Employee number unchanged' });
+    }
 
-  // Check if new employee number already exists
-  const checkQuery = `
+    // Check if new employee number already exists
+    const checkQuery = `
     SELECT employeeNumber FROM users WHERE employeeNumber = ? 
     UNION 
     SELECT agencyEmployeeNum FROM person_table WHERE agencyEmployeeNum = ?
   `;
 
-  db.query(checkQuery, [newEmployeeNumber, newEmployeeNumber], (err, existingRecords) => {
-    if (err) {
-      console.error('Error checking employee number:', err);
-      return res.status(500).json({ error: 'Failed to check employee number' });
-    }
-
-    if (existingRecords.length > 0) {
-      return res.status(400).json({ error: 'Employee number already exists' });
-    }
-
-    // Get connection from pool for transaction
-    db.getConnection((err, connection) => {
-      if (err) {
-        console.error('Error getting connection:', err);
-        return res.status(500).json({ error: 'Failed to get database connection' });
-      }
-
-      // Begin transaction
-      connection.beginTransaction((err) => {
+    db.query(
+      checkQuery,
+      [newEmployeeNumber, newEmployeeNumber],
+      (err, existingRecords) => {
         if (err) {
-          connection.release();
-          console.error('Error starting transaction:', err);
-          return res.status(500).json({ error: 'Failed to start transaction' });
+          console.error('Error checking employee number:', err);
+          return res
+            .status(500)
+            .json({ error: 'Failed to check employee number' });
         }
 
-        // Update users table
-        const updateUserQuery = 'UPDATE users SET employeeNumber = ? WHERE employeeNumber = ?';
-        connection.query(updateUserQuery, [newEmployeeNumber, employeeNumber], (err) => {
+        if (existingRecords.length > 0) {
+          return res
+            .status(400)
+            .json({ error: 'Employee number already exists' });
+        }
+
+        // Get connection from pool for transaction
+        db.getConnection((err, connection) => {
           if (err) {
-            return connection.rollback(() => {
-              connection.release();
-              console.error('Error updating users table:', err);
-              res.status(500).json({ error: 'Failed to update employee number in users table' });
-            });
+            console.error('Error getting connection:', err);
+            return res
+              .status(500)
+              .json({ error: 'Failed to get database connection' });
           }
 
-          // Update person_table
-          const updatePersonQuery = 'UPDATE person_table SET agencyEmployeeNum = ? WHERE agencyEmployeeNum = ?';
-          connection.query(updatePersonQuery, [newEmployeeNumber, employeeNumber], (err) => {
+          // Begin transaction
+          connection.beginTransaction((err) => {
             if (err) {
-              return connection.rollback(() => {
-                connection.release();
-                console.error('Error updating person_table:', err);
-                res.status(500).json({ error: 'Failed to update employee number in person table' });
-              });
+              connection.release();
+              console.error('Error starting transaction:', err);
+              return res
+                .status(500)
+                .json({ error: 'Failed to start transaction' });
             }
 
-            // Update employment_category
-            const updateEmpCatQuery = 'UPDATE employment_category SET employeeNumber = ? WHERE employeeNumber = ?';
-            connection.query(updateEmpCatQuery, [newEmployeeNumber, employeeNumber], (err) => {
-              if (err) {
-                return connection.rollback(() => {
-                  connection.release();
-                  console.error('Error updating employment_category:', err);
-                  res.status(500).json({ error: 'Failed to update employee number in employment category' });
-                });
-              }
-
-              // Update page_access
-              const updatePageAccessQuery = 'UPDATE page_access SET employeeNumber = ? WHERE employeeNumber = ?';
-              connection.query(updatePageAccessQuery, [newEmployeeNumber, employeeNumber], (err) => {
+            // Update users table
+            const updateUserQuery =
+              'UPDATE users SET employeeNumber = ? WHERE employeeNumber = ?';
+            connection.query(
+              updateUserQuery,
+              [newEmployeeNumber, employeeNumber],
+              (err) => {
                 if (err) {
                   return connection.rollback(() => {
                     connection.release();
-                    console.error('Error updating page_access:', err);
-                    res.status(500).json({ error: 'Failed to update employee number in page access' });
+                    console.error('Error updating users table:', err);
+                    res.status(500).json({
+                      error: 'Failed to update employee number in users table',
+                    });
                   });
                 }
 
-                // Commit transaction
-                connection.commit((err) => {
-                  if (err) {
-                    return connection.rollback(() => {
-                      connection.release();
-                      console.error('Error committing transaction:', err);
-                      res.status(500).json({ error: 'Failed to commit transaction' });
-                    });
-                  }
+                // Update person_table
+                const updatePersonQuery =
+                  'UPDATE person_table SET agencyEmployeeNum = ? WHERE agencyEmployeeNum = ?';
+                connection.query(
+                  updatePersonQuery,
+                  [newEmployeeNumber, employeeNumber],
+                  (err) => {
+                    if (err) {
+                      return connection.rollback(() => {
+                        connection.release();
+                        console.error('Error updating person_table:', err);
+                        res.status(500).json({
+                          error:
+                            'Failed to update employee number in person table',
+                        });
+                      });
+                    }
 
-                  connection.release();
+                    // Update employment_category
+                    const updateEmpCatQuery =
+                      'UPDATE employment_category SET employeeNumber = ? WHERE employeeNumber = ?';
+                    connection.query(
+                      updateEmpCatQuery,
+                      [newEmployeeNumber, employeeNumber],
+                      (err) => {
+                        if (err) {
+                          return connection.rollback(() => {
+                            connection.release();
+                            console.error(
+                              'Error updating employment_category:',
+                              err,
+                            );
+                            res.status(500).json({
+                              error:
+                                'Failed to update employee number in employment category',
+                            });
+                          });
+                        }
 
-                  // Log audit
-                  try {
-                    logAudit(
-                      req.user,
-                      'Update',
-                      'users',
-                      newEmployeeNumber,
-                      newEmployeeNumber
+                        // Update page_access
+                        const updatePageAccessQuery =
+                          'UPDATE page_access SET employeeNumber = ? WHERE employeeNumber = ?';
+                        connection.query(
+                          updatePageAccessQuery,
+                          [newEmployeeNumber, employeeNumber],
+                          (err) => {
+                            if (err) {
+                              return connection.rollback(() => {
+                                connection.release();
+                                console.error(
+                                  'Error updating page_access:',
+                                  err,
+                                );
+                                res.status(500).json({
+                                  error:
+                                    'Failed to update employee number in page access',
+                                });
+                              });
+                            }
+
+                            // Commit transaction
+                            connection.commit((err) => {
+                              if (err) {
+                                return connection.rollback(() => {
+                                  connection.release();
+                                  console.error(
+                                    'Error committing transaction:',
+                                    err,
+                                  );
+                                  res.status(500).json({
+                                    error: 'Failed to commit transaction',
+                                  });
+                                });
+                              }
+
+                              connection.release();
+
+                              // Log audit
+                              try {
+                                logAudit(
+                                  req.user,
+                                  'Update',
+                                  'users',
+                                  newEmployeeNumber,
+                                  newEmployeeNumber,
+                                );
+                              } catch (e) {
+                                console.error('Audit log error:', e);
+                              }
+
+                              res.status(200).json({
+                                message: 'Employee number updated successfully',
+                                oldEmployeeNumber: employeeNumber,
+                                newEmployeeNumber: newEmployeeNumber,
+                              });
+                            });
+                          },
+                        );
+                      },
                     );
-                  } catch (e) {
-                    console.error('Audit log error:', e);
-                  }
-
-                  res.status(200).json({
-                    message: 'Employee number updated successfully',
-                    oldEmployeeNumber: employeeNumber,
-                    newEmployeeNumber: newEmployeeNumber,
-                  });
-                });
-              });
-            });
+                  },
+                );
+              },
+            );
           });
         });
-      });
-    });
-  });
-});
+      },
+    );
+  },
+);
 
 // PUT: Update user email (admin)
 router.put('/users/:employeeNumber/email', authenticateToken, (req, res) => {
@@ -1753,29 +1788,43 @@ router.put('/users/:employeeNumber/email', authenticateToken, (req, res) => {
   const { email } = req.body;
 
   // Allow empty string to clear/remove email (users.email is NOT NULL, use '' for removed)
-  const newEmail = email == null ? '' : (typeof email === 'string' ? email.trim() : String(email));
+  const newEmail =
+    email == null
+      ? ''
+      : typeof email === 'string'
+        ? email.trim()
+        : String(email);
 
   const updateUserQuery = 'UPDATE users SET email = ? WHERE employeeNumber = ?';
-  db.query(updateUserQuery, [newEmail || '', employeeNumber], (err, userResult) => {
-    if (err) {
-      console.error('Error updating user email:', err);
-      return res.status(500).json({ error: 'Failed to update user email' });
-    }
-    if (userResult.affectedRows === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    const updatePersonQuery = 'UPDATE person_table SET emailAddress = ? WHERE agencyEmployeeNum = ?';
-    db.query(updatePersonQuery, [newEmail || '', employeeNumber], (errPerson) => {
-      if (errPerson) {
-        console.error('Error updating person_table email:', errPerson);
-        // User email was updated; still return success
+  db.query(
+    updateUserQuery,
+    [newEmail || '', employeeNumber],
+    (err, userResult) => {
+      if (err) {
+        console.error('Error updating user email:', err);
+        return res.status(500).json({ error: 'Failed to update user email' });
       }
-      res.status(200).json({
-        message: 'Email updated successfully',
-        employeeNumber,
-      });
-    });
-  });
+      if (userResult.affectedRows === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const updatePersonQuery =
+        'UPDATE person_table SET emailAddress = ? WHERE agencyEmployeeNum = ?';
+      db.query(
+        updatePersonQuery,
+        [newEmail || '', employeeNumber],
+        (errPerson) => {
+          if (errPerson) {
+            console.error('Error updating person_table email:', errPerson);
+            // User email was updated; still return success
+          }
+          res.status(200).json({
+            message: 'Email updated successfully',
+            employeeNumber,
+          });
+        },
+      );
+    },
+  );
 });
 
 // DELETE: Delete user
@@ -1787,7 +1836,8 @@ router.delete('/users/:employeeNumber', authenticateToken, (req, res) => {
   }
 
   // Check if user exists
-  const checkQuery = 'SELECT employeeNumber FROM users WHERE employeeNumber = ?';
+  const checkQuery =
+    'SELECT employeeNumber FROM users WHERE employeeNumber = ?';
   db.query(checkQuery, [employeeNumber], (err, results) => {
     if (err) {
       console.error('Error checking user:', err);
@@ -1802,7 +1852,9 @@ router.delete('/users/:employeeNumber', authenticateToken, (req, res) => {
     db.getConnection((err, connection) => {
       if (err) {
         console.error('Error getting connection:', err);
-        return res.status(500).json({ error: 'Failed to get database connection' });
+        return res
+          .status(500)
+          .json({ error: 'Failed to get database connection' });
       }
 
       // Begin transaction
@@ -1814,46 +1866,58 @@ router.delete('/users/:employeeNumber', authenticateToken, (req, res) => {
         }
 
         // Delete from page_access
-        const deletePageAccessQuery = 'DELETE FROM page_access WHERE employeeNumber = ?';
+        const deletePageAccessQuery =
+          'DELETE FROM page_access WHERE employeeNumber = ?';
         connection.query(deletePageAccessQuery, [employeeNumber], (err) => {
           if (err) {
             return connection.rollback(() => {
               connection.release();
               console.error('Error deleting from page_access:', err);
-              res.status(500).json({ error: 'Failed to delete page access records' });
+              res
+                .status(500)
+                .json({ error: 'Failed to delete page access records' });
             });
           }
 
           // Delete from employment_category
-          const deleteEmpCatQuery = 'DELETE FROM employment_category WHERE employeeNumber = ?';
+          const deleteEmpCatQuery =
+            'DELETE FROM employment_category WHERE employeeNumber = ?';
           connection.query(deleteEmpCatQuery, [employeeNumber], (err) => {
             if (err) {
               return connection.rollback(() => {
                 connection.release();
                 console.error('Error deleting from employment_category:', err);
-                res.status(500).json({ error: 'Failed to delete employment category record' });
+                res.status(500).json({
+                  error: 'Failed to delete employment category record',
+                });
               });
             }
 
             // Delete from person_table
-            const deletePersonQuery = 'DELETE FROM person_table WHERE agencyEmployeeNum = ?';
+            const deletePersonQuery =
+              'DELETE FROM person_table WHERE agencyEmployeeNum = ?';
             connection.query(deletePersonQuery, [employeeNumber], (err) => {
               if (err) {
                 return connection.rollback(() => {
                   connection.release();
                   console.error('Error deleting from person_table:', err);
-                  res.status(500).json({ error: 'Failed to delete person record' });
+                  res
+                    .status(500)
+                    .json({ error: 'Failed to delete person record' });
                 });
               }
 
               // Delete from users
-              const deleteUserQuery = 'DELETE FROM users WHERE employeeNumber = ?';
+              const deleteUserQuery =
+                'DELETE FROM users WHERE employeeNumber = ?';
               connection.query(deleteUserQuery, [employeeNumber], (err) => {
                 if (err) {
                   return connection.rollback(() => {
                     connection.release();
                     console.error('Error deleting from users:', err);
-                    res.status(500).json({ error: 'Failed to delete user record' });
+                    res
+                      .status(500)
+                      .json({ error: 'Failed to delete user record' });
                   });
                 }
 
@@ -1863,7 +1927,9 @@ router.delete('/users/:employeeNumber', authenticateToken, (req, res) => {
                     return connection.rollback(() => {
                       connection.release();
                       console.error('Error committing transaction:', err);
-                      res.status(500).json({ error: 'Failed to commit transaction' });
+                      res
+                        .status(500)
+                        .json({ error: 'Failed to commit transaction' });
                     });
                   }
 
@@ -1876,7 +1942,7 @@ router.delete('/users/:employeeNumber', authenticateToken, (req, res) => {
                       'Delete',
                       'users',
                       employeeNumber,
-                      employeeNumber
+                      employeeNumber,
                     );
                   } catch (e) {
                     console.error('Audit log error:', e);
@@ -1897,105 +1963,123 @@ router.delete('/users/:employeeNumber', authenticateToken, (req, res) => {
 });
 
 // POST: Grant default page access to all existing staff users
-router.post('/users/grant-default-access', authenticateToken, async (req, res) => {
-  try {
-    // Get all staff users
-    const getStaffQuery = 'SELECT employeeNumber FROM users WHERE role = ?';
-    
-    db.query(getStaffQuery, ['staff'], (err, staffUsers) => {
-      if (err) {
-        console.error('Error fetching staff users:', err);
-        return res.status(500).json({ error: 'Failed to fetch staff users' });
-      }
+router.post(
+  '/users/grant-default-access',
+  authenticateToken,
+  async (req, res) => {
+    try {
+      // Get all staff users
+      const getStaffQuery = 'SELECT employeeNumber FROM users WHERE role = ?';
 
-      if (staffUsers.length === 0) {
-        return res.status(200).json({ 
-          message: 'No staff users found',
-          usersProcessed: 0 
-        });
-      }
+      db.query(getStaffQuery, ['staff'], (err, staffUsers) => {
+        if (err) {
+          console.error('Error fetching staff users:', err);
+          return res.status(500).json({ error: 'Failed to fetch staff users' });
+        }
 
-      // Get default pages for staff
-      const getDefaultPagesQuery = `
+        if (staffUsers.length === 0) {
+          return res.status(200).json({
+            message: 'No staff users found',
+            usersProcessed: 0,
+          });
+        }
+
+        // Get default pages for staff
+        const getDefaultPagesQuery = `
         SELECT id FROM pages 
         WHERE page_url IN ('home', 'admin-home', 'attendance-user-state', 'daily-time-record', 'payslip', 'pds1', 'pds2', 'pds3', 'pds4', 'settings') 
         OR component_identifier IN ('HomeEmployee', 'HomeAdmin', 'AttendanceUserState', 'DailyTimeRecord', 'Payslip', 'PDS1', 'PDS2', 'PDS3', 'PDS4', 'Settings', 'attendance-user-state', 'daily-time-record')
       `;
 
-      db.query(getDefaultPagesQuery, (pagesErr, pages) => {
-        if (pagesErr) {
-          console.error('Error fetching pages:', pagesErr);
-          return res.status(500).json({ error: 'Failed to fetch pages' });
-        }
+        db.query(getDefaultPagesQuery, (pagesErr, pages) => {
+          if (pagesErr) {
+            console.error('Error fetching pages:', pagesErr);
+            return res.status(500).json({ error: 'Failed to fetch pages' });
+          }
 
-        if (pages.length === 0) {
-          return res.status(404).json({ error: 'No default pages found in database' });
-        }
+          if (pages.length === 0) {
+            return res
+              .status(404)
+              .json({ error: 'No default pages found in database' });
+          }
 
-        let processedCount = 0;
-        let errorCount = 0;
-        const totalOperations = staffUsers.length * pages.length;
+          let processedCount = 0;
+          let errorCount = 0;
+          const totalOperations = staffUsers.length * pages.length;
 
-        // Grant access to each staff user for each default page
-        staffUsers.forEach((user) => {
-          pages.forEach((page) => {
-            const upsertAccessQuery = `
+          // Grant access to each staff user for each default page
+          staffUsers.forEach((user) => {
+            pages.forEach((page) => {
+              const upsertAccessQuery = `
               INSERT INTO page_access (employeeNumber, page_id, page_privilege)
               VALUES (?, ?, '1')
               ON DUPLICATE KEY UPDATE page_privilege = '1'
             `;
 
-            db.query(upsertAccessQuery, [user.employeeNumber, page.id], (accessErr) => {
-              if (accessErr) {
-                console.error(`Error granting access to ${user.employeeNumber} for page ${page.id}:`, accessErr);
-                errorCount++;
-              } else {
-                processedCount++;
-              }
+              db.query(
+                upsertAccessQuery,
+                [user.employeeNumber, page.id],
+                (accessErr) => {
+                  if (accessErr) {
+                    console.error(
+                      `Error granting access to ${user.employeeNumber} for page ${page.id}:`,
+                      accessErr,
+                    );
+                    errorCount++;
+                  } else {
+                    processedCount++;
+                  }
 
-              // Check if all operations are complete
-              if (processedCount + errorCount === totalOperations) {
-                res.status(200).json({
-                  message: 'Default access granted to all staff users',
-                  usersProcessed: staffUsers.length,
-                  pagesGranted: pages.length,
-                  successfulOperations: processedCount,
-                  failedOperations: errorCount
-                });
-              }
+                  // Check if all operations are complete
+                  if (processedCount + errorCount === totalOperations) {
+                    res.status(200).json({
+                      message: 'Default access granted to all staff users',
+                      usersProcessed: staffUsers.length,
+                      pagesGranted: pages.length,
+                      successfulOperations: processedCount,
+                      failedOperations: errorCount,
+                    });
+                  }
+                },
+              );
             });
           });
         });
       });
-    });
-  } catch (err) {
-    console.error('Error granting default access:', err);
-    res.status(500).json({ error: 'Failed to grant default access' });
-  }
-});
+    } catch (err) {
+      console.error('Error granting default access:', err);
+      res.status(500).json({ error: 'Failed to grant default access' });
+    }
+  },
+);
 
 // POST: Grant default page access to all existing administrator users (excluding User Management, Payroll Formulas, Admin Security)
-router.post('/users/grant-default-access-administrator', authenticateToken, async (req, res) => {
-  try {
-    // Get all administrator users
-    const getAdminQuery = 'SELECT employeeNumber FROM users WHERE role = ?';
-    
-    db.query(getAdminQuery, ['administrator'], (err, adminUsers) => {
-      if (err) {
-        console.error('Error fetching administrator users:', err);
-        return res.status(500).json({ error: 'Failed to fetch administrator users' });
-      }
+router.post(
+  '/users/grant-default-access-administrator',
+  authenticateToken,
+  async (req, res) => {
+    try {
+      // Get all administrator users
+      const getAdminQuery = 'SELECT employeeNumber FROM users WHERE role = ?';
 
-      if (adminUsers.length === 0) {
-        return res.status(200).json({ 
-          message: 'No administrator users found',
-          usersProcessed: 0 
-        });
-      }
+      db.query(getAdminQuery, ['administrator'], (err, adminUsers) => {
+        if (err) {
+          console.error('Error fetching administrator users:', err);
+          return res
+            .status(500)
+            .json({ error: 'Failed to fetch administrator users' });
+        }
 
-      // Get all pages EXCEPT User Management, Payroll Formulas, and Admin Security
-      // Exclude by page_url or component_identifier
-      const getDefaultPagesQuery = `
+        if (adminUsers.length === 0) {
+          return res.status(200).json({
+            message: 'No administrator users found',
+            usersProcessed: 0,
+          });
+        }
+
+        // Get all pages EXCEPT User Management, Payroll Formulas, and Admin Security
+        // Exclude by page_url or component_identifier
+        const getDefaultPagesQuery = `
         SELECT id FROM pages 
         WHERE (page_url NOT LIKE '%users-list%' 
           AND page_url NOT LIKE '%user-management%'
@@ -2004,57 +2088,69 @@ router.post('/users/grant-default-access-administrator', authenticateToken, asyn
           AND component_identifier NOT IN ('users-list', 'UsersList', 'UserManagement', 'payroll-formulas', 'PayrollFormulas', 'admin-security', 'AdminSecurity'))
       `;
 
-      db.query(getDefaultPagesQuery, (pagesErr, pages) => {
-        if (pagesErr) {
-          console.error('Error fetching pages:', pagesErr);
-          return res.status(500).json({ error: 'Failed to fetch pages' });
-        }
+        db.query(getDefaultPagesQuery, (pagesErr, pages) => {
+          if (pagesErr) {
+            console.error('Error fetching pages:', pagesErr);
+            return res.status(500).json({ error: 'Failed to fetch pages' });
+          }
 
-        if (pages.length === 0) {
-          return res.status(404).json({ error: 'No default pages found in database' });
-        }
+          if (pages.length === 0) {
+            return res
+              .status(404)
+              .json({ error: 'No default pages found in database' });
+          }
 
-        let processedCount = 0;
-        let errorCount = 0;
-        const totalOperations = adminUsers.length * pages.length;
+          let processedCount = 0;
+          let errorCount = 0;
+          const totalOperations = adminUsers.length * pages.length;
 
-        // Grant access to each administrator user for each default page
-        adminUsers.forEach((user) => {
-          pages.forEach((page) => {
-            const upsertAccessQuery = `
+          // Grant access to each administrator user for each default page
+          adminUsers.forEach((user) => {
+            pages.forEach((page) => {
+              const upsertAccessQuery = `
               INSERT INTO page_access (employeeNumber, page_id, page_privilege)
               VALUES (?, ?, '1')
               ON DUPLICATE KEY UPDATE page_privilege = '1'
             `;
 
-            db.query(upsertAccessQuery, [user.employeeNumber, page.id], (accessErr) => {
-              if (accessErr) {
-                console.error(`Error granting access to ${user.employeeNumber} for page ${page.id}:`, accessErr);
-                errorCount++;
-              } else {
-                processedCount++;
-              }
+              db.query(
+                upsertAccessQuery,
+                [user.employeeNumber, page.id],
+                (accessErr) => {
+                  if (accessErr) {
+                    console.error(
+                      `Error granting access to ${user.employeeNumber} for page ${page.id}:`,
+                      accessErr,
+                    );
+                    errorCount++;
+                  } else {
+                    processedCount++;
+                  }
 
-              // Check if all operations are complete
-              if (processedCount + errorCount === totalOperations) {
-                res.status(200).json({
-                  message: 'Default access granted to all administrator users (excluding User Management, Payroll Formulas, Admin Security)',
-                  usersProcessed: adminUsers.length,
-                  pagesGranted: pages.length,
-                  successfulOperations: processedCount,
-                  failedOperations: errorCount
-                });
-              }
+                  // Check if all operations are complete
+                  if (processedCount + errorCount === totalOperations) {
+                    res.status(200).json({
+                      message:
+                        'Default access granted to all administrator users (excluding User Management, Payroll Formulas, Admin Security)',
+                      usersProcessed: adminUsers.length,
+                      pagesGranted: pages.length,
+                      successfulOperations: processedCount,
+                      failedOperations: errorCount,
+                    });
+                  }
+                },
+              );
             });
           });
         });
       });
-    });
-  } catch (err) {
-    console.error('Error granting default access to administrators:', err);
-    res.status(500).json({ error: 'Failed to grant default access to administrators' });
-  }
-});
-
+    } catch (err) {
+      console.error('Error granting default access to administrators:', err);
+      res
+        .status(500)
+        .json({ error: 'Failed to grant default access to administrators' });
+    }
+  },
+);
 
 module.exports = router;

@@ -10,7 +10,7 @@ import {
   ArrowBack,
   ArrowForward,
   Close,
-  Circle, 
+  Circle,
 } from '@mui/icons-material';
 import PrintIcon from '@mui/icons-material/Print';
 import {
@@ -291,14 +291,12 @@ const DailyTimeRecordFaculty = () => {
       setOfficialTimes({});
     }
   };
-  
 
   useEffect(() => {
     if (personID) {
       fetchOfficialTimes(personID);
     }
   }, [personID]);
-
 
   // Fetch departments and employment categories for filters
   useEffect(() => {
@@ -307,27 +305,29 @@ const DailyTimeRecordFaculty = () => {
         // Fetch departments
         const deptResponse = await axios.get(
           `${API_BASE_URL}/api/department-table`,
-          getAuthHeaders()
+          getAuthHeaders(),
         );
-        setDepartments(Array.isArray(deptResponse.data) ? deptResponse.data : []);
+        setDepartments(
+          Array.isArray(deptResponse.data) ? deptResponse.data : [],
+        );
 
         // Fetch employment categories (unique categories from all users)
         const catResponse = await axios.get(
           `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
-          getAuthHeaders()
+          getAuthHeaders(),
         );
-        
+
         // Get unique employment category IDs
-        const uniqueCategories = Array.isArray(catResponse.data) 
-          ? [...new Set(catResponse.data.map(cat => cat.employmentCategory))]
+        const uniqueCategories = Array.isArray(catResponse.data)
+          ? [...new Set(catResponse.data.map((cat) => cat.employmentCategory))]
           : [];
-        
+
         setEmploymentCategories(uniqueCategories);
       } catch (error) {
         console.error('Error fetching filter options:', error);
       }
     };
-    
+
     fetchFilters();
   }, []);
 
@@ -496,28 +496,72 @@ const DailyTimeRecordFaculty = () => {
 
     setLoadingAllUsers(true);
     try {
-      const usersResponse = await axios.get(
-        `${API_BASE_URL}/users`,
-        getAuthHeaders(),
-      );
+      const [usersResponse, empCatsResponse] = await Promise.all([
+        axios.get(`${API_BASE_URL}/users`, getAuthHeaders()),
+        // Fetch Employment Category (including customCategory) from employment_category table
+        axios.get(
+          `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
+          getAuthHeaders(),
+        ),
+      ]);
 
-      const users = usersResponse.data || [];
+      const usersRaw = usersResponse.data || [];
+      const empCatsDataRaw = empCatsResponse?.data || [];
+
+      const users = Array.isArray(usersRaw)
+        ? usersRaw
+        : usersRaw.users || usersRaw.data || [];
+      const empCatsArray = Array.isArray(empCatsDataRaw)
+        ? empCatsDataRaw
+        : empCatsDataRaw.data || empCatsDataRaw.records || [];
+
+      // Map employment_category rows by employeeNumber for fast lookup
+      const empCatsMap = (empCatsArray || []).reduce((acc, row) => {
+        const key = String(row.employeeNumber ?? row.employee_number ?? '');
+        if (!key) return acc;
+        acc[key] = row;
+        return acc;
+      }, {});
+
+      // Merge employmentCategory + customCategory onto users list (same logic style as UsersList.jsx)
+      const mergedUsers = (users || []).map((u) => {
+        const empCatRow = empCatsMap[String(u.employeeNumber)] || null;
+        return {
+          ...u,
+          employmentCategory:
+            empCatRow?.employmentCategory !== undefined &&
+            empCatRow?.employmentCategory !== null
+              ? empCatRow.employmentCategory
+              : u.employmentCategory !== undefined &&
+                  u.employmentCategory !== null
+                ? u.employmentCategory
+                : null,
+          customCategory:
+            empCatRow?.customCategory ??
+            empCatRow?.custom_category ??
+            u.customCategory ??
+            u.custom_category ??
+            u.customEmploymentCategory ??
+            u.custom_employment_category ??
+            null,
+        };
+      });
 
       // No alert needed - data is already in database (auto-saved from device)
       // Process in batches for better performance
       const BATCH_SIZE = 30; // Increased batch size since we're reading from DB (faster)
       const allDTRData = [];
 
-      for (let i = 0; i < users.length; i += BATCH_SIZE) {
-        const batch = users.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < mergedUsers.length; i += BATCH_SIZE) {
+        const batch = mergedUsers.slice(i, i + BATCH_SIZE);
         const progress = Math.min(
           100,
-          Math.round(((i + batch.length) / users.length) * 100),
+          Math.round(((i + batch.length) / mergedUsers.length) * 100),
         );
 
         // Update status - clarify that data is from database
         setPrintingStatus(
-          `Loading DTR data from database: ${i + batch.length} of ${users.length} (${progress}%)`,
+          `Loading DTR data from database: ${i + batch.length} of ${mergedUsers.length} (${progress}%)`,
         );
 
         const batchPromises = batch.map(async (user) => {
@@ -667,7 +711,7 @@ const DailyTimeRecordFaculty = () => {
   };
 
   // New filter: free-text search that filters by name or employee number
-const getFilteredUsers = () => {
+  const getFilteredUsers = () => {
     let filtered = allUsersDTR.slice();
 
     // Apply record filter first
@@ -695,8 +739,20 @@ const getFilteredUsers = () => {
     // **NEW: Apply employment category filter**
     if (employmentCategoryFilter !== '') {
       filtered = filtered.filter((u) => {
-        const userCategory = u.rawUser?.employmentCategory ?? u.employmentCategory ?? null;
-        return userCategory !== null && userCategory === parseInt(employmentCategoryFilter);
+        const userCategoryRaw =
+          u.rawUser?.employmentCategory ?? u.employmentCategory ?? null;
+
+        // IMPORTANT: backend sometimes returns category as string (e.g. "2"),
+        // so we normalize both sides to integers before comparing.
+        const userCategory =
+          userCategoryRaw === null || userCategoryRaw === undefined
+            ? null
+            : parseInt(userCategoryRaw);
+
+        return (
+          userCategory !== null &&
+          userCategory === parseInt(employmentCategoryFilter)
+        );
       });
     }
 
@@ -724,7 +780,6 @@ const getFilteredUsers = () => {
     (currentPage - 1) * rowsPerPage + rowsPerPage,
   );
 
-
   // Helper to get employment category label
   const getCategoryLabel = (categoryId) => {
     const labels = {
@@ -741,13 +796,20 @@ const getFilteredUsers = () => {
   // Helper to get employment category color (Legend Logic)
   const getCategoryColor = (catId) => {
     switch (parseInt(catId)) {
-      case 0: return '#F57C00'; // JO Graduate
-      case 1: return '#E64A19'; // JO UnderGrad
-      case 2: return '#2E7D32'; // Regular Non-Teaching
-      case 3: return '#1565C0'; // Regular Teaching (30Hrs)
-      case 4: return '#7B1FA2'; // Regular Designated (40Hrs)
-      case 5: return '#00796B'; // Other (Custom)
-      default: return '#757575';
+      case 0:
+        return '#F57C00'; // JO Graduate
+      case 1:
+        return '#E64A19'; // JO UnderGrad
+      case 2:
+        return '#2E7D32'; // Regular Non-Teaching
+      case 3:
+        return '#1565C0'; // Regular Teaching (30Hrs)
+      case 4:
+        return '#7B1FA2'; // Regular Designated (40Hrs)
+      case 5:
+        return '#00796B'; // Other (Custom)
+      default:
+        return '#757575';
     }
   };
 
@@ -2723,6 +2785,7 @@ const getFilteredUsers = () => {
             overflow-y: scroll;
           }
 
+
           /* Frontend responsive styles (NOT for print) */
           .dtr-responsive-header,
           .dtr-responsive-cell,
@@ -2731,19 +2794,23 @@ const getFilteredUsers = () => {
             max-width: none !important;
           }
 
+
           .dtr-time-cell {
             white-space: nowrap !important;
             word-break: keep-all !important;
           }
 
+
           table {
             table-layout: auto !important;
           }
+
 
           @page {
             size: A4;
             margin: 0;
           }
+
 
           @media print {
             .no-print { display: none !important; }
@@ -3454,7 +3521,7 @@ const getFilteredUsers = () => {
 
                         {/* Footer Pagination Buttons moved here */}
                         <Box sx={{ display: 'flex', gap: 1, ml: 2 }}>
-                           <ProfessionalButton
+                          <ProfessionalButton
                             variant="outlined"
                             onClick={() => goToPage(1)}
                             disabled={currentPage === 1}
@@ -3624,21 +3691,45 @@ const getFilteredUsers = () => {
                                   textOverflow: 'ellipsis',
                                 }}
                               >
-                                {user.rawUser?.departmentCode || user.departmentCode || 'N/A'}
+                                {user.rawUser?.departmentCode ||
+                                  user.departmentCode ||
+                                  'N/A'}
                               </TableCell>
                               <TableCell sx={{ minWidth: 180 }}>
                                 <Chip
-                                  label={getCategoryLabel(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null)}
+                                  label={getCategoryLabel(
+                                    user.rawUser?.employmentCategory ??
+                                      user.employmentCategory ??
+                                      null,
+                                  )}
                                   size="small"
                                   sx={{
-                                    backgroundColor: alpha(getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null), 0.1),
-                                    color: getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null),
+                                    backgroundColor: alpha(
+                                      getCategoryColor(
+                                        user.rawUser?.employmentCategory ??
+                                          user.employmentCategory ??
+                                          null,
+                                      ),
+                                      0.1,
+                                    ),
+                                    color: getCategoryColor(
+                                      user.rawUser?.employmentCategory ??
+                                        user.employmentCategory ??
+                                        null,
+                                    ),
                                     border: `1px solid ${getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null)}`,
                                     fontWeight: '600',
                                     fontSize: '0.75rem',
                                     '&:hover': {
-                                      backgroundColor: alpha(getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null), 0.2)
-                                    }
+                                      backgroundColor: alpha(
+                                        getCategoryColor(
+                                          user.rawUser?.employmentCategory ??
+                                            user.employmentCategory ??
+                                            null,
+                                        ),
+                                        0.2,
+                                      ),
+                                    },
                                   }}
                                 />
                               </TableCell>
@@ -3689,12 +3780,23 @@ const getFilteredUsers = () => {
                         border: '1px solid rgba(0,0,0,0.1)',
                       }}
                     >
-                      <Typography variant="caption" sx={{ fontWeight: 700, mb: 1, display: 'block', color: textPrimaryColor }}>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          fontWeight: 700,
+                          mb: 1,
+                          display: 'block',
+                          color: textPrimaryColor,
+                        }}
+                      >
                         EMPLOYMENT CATEGORY LEGEND
                       </Typography>
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
                         {[0, 1, 2, 3, 4, 5].map((id) => (
-                          <Box key={id} sx={{ display: 'flex', alignItems: 'center' }}>
+                          <Box
+                            key={id}
+                            sx={{ display: 'flex', alignItems: 'center' }}
+                          >
                             <Circle
                               sx={{
                                 color: getCategoryColor(id),
@@ -3702,7 +3804,10 @@ const getFilteredUsers = () => {
                                 mr: 0.5,
                               }}
                             />
-                            <Typography variant="caption" sx={{ color: '#555' }}>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: '#555' }}
+                            >
                               {getCategoryLabel(id)}
                             </Typography>
                           </Box>
