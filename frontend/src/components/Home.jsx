@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { useSocket } from "../contexts/SocketContext";
@@ -115,35 +115,48 @@ const useSystemSettings = () => {
   return settings;
 };
 
-// Add the useCarousel hook from AdminHome.jsx
+// --- OPTIMIZED useCarousel Hook ---
+// FIXED: Added 'items.length' to dependencies to restart timer on data load
 const useCarousel = (items, autoPlay = true, interval = 5000) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isPlaying, setIsPlaying] = useState(autoPlay);
 
+  // Keep a ref to the latest items to prevent timer reset on component re-renders
+  const itemsRef = useRef(items);
+
+  // Update ref when items prop changes
   useEffect(() => {
-    if (!Array.isArray(items) || items.length === 0 || !isPlaying) return;
+    itemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    // Only restart timer if isPlaying changes or items.length changes.
+    // This prevents the timer from clearing every time the component re-renders.
+    if (!isPlaying || !itemsRef.current || itemsRef.current.length === 0) return;
+    
     const timer = setInterval(() => {
-      setCurrentSlide((s) => (s + 1) % items.length);
+      setCurrentSlide((s) => (s + 1) % itemsRef.current.length);
     }, interval);
+    
     return () => clearInterval(timer);
-  }, [items, isPlaying, interval]);
+  }, [isPlaying, interval, items.length]); // Added items.length
 
   const handlePrevSlide = useCallback(() => {
-    if (!Array.isArray(items)) return;
-    setCurrentSlide((s) => (s - 1 + items.length) % items.length);
-  }, [items]);
+    if (!itemsRef.current || itemsRef.current.length === 0) return;
+    setCurrentSlide((s) => (s - 1 + itemsRef.current.length) % itemsRef.current.length);
+  }, []);
 
   const handleNextSlide = useCallback(() => {
-    if (!Array.isArray(items)) return;
-    setCurrentSlide((s) => (s + 1) % items.length);
-  }, [items]);
+    if (!itemsRef.current || itemsRef.current.length === 0) return;
+    setCurrentSlide((s) => (s + 1) % itemsRef.current.length);
+  }, []);
 
   const handleSlideSelect = useCallback(
     (index) => {
-      if (!Array.isArray(items)) return;
+      if (!itemsRef.current || itemsRef.current.length === 0) return;
       setCurrentSlide(index);
     },
-    [items]
+    []
   );
 
   const togglePlayPause = useCallback(() => {
@@ -353,11 +366,13 @@ const Home = () => {
     image: s.image || null,
   }));
 
-  const carouselItems = [
+  // Use useMemo to prevent recalculating array on re-renders (e.g. clock updates)
+  const carouselItems = useMemo(() => [
     ...scheduledHolidaysForCarousel,
     ...suspensionsForCarousel,
     ...announcementsInRange,
-  ].sort((a, b) => new Date(b.date_start || b.date) - new Date(a.date_start || a.date));
+  ].sort((a, b) => new Date(b.date_start || b.date) - new Date(a.date_start || a.date)),
+  [scheduledHolidaysForCarousel, suspensionsForCarousel, announcementsInRange]);
 
   // Use the carousel hook with combined items
   const {
@@ -657,7 +672,7 @@ const Home = () => {
           }
         }
         if (!matchingAnnouncement && announcementList.length > 0) {
-          matchingAnnouncement = announcementList[0];
+          matchingAnnouncement = announcementList[0]; // Most recent
         }
         if (matchingAnnouncement) {
           setNotifModalOpen(false);
@@ -1308,287 +1323,299 @@ const Home = () => {
       {/* Main Content Grid */}
       <Grid container spacing={2} sx={{ flex: 1, minHeight: 0 }}>
         {/* Left Column - Carousel */}
-        <Grid item xs={12} md={7.5} sx={{ minHeight: 0 }}>
-          <Grow in timeout={400}>
-            <Card
-              sx={{
-                height: "100%",
-                background: settings.accentColor,
-                backdropFilter: "blur(15px)",
-                border: `1px solid ${settings.primaryColor}26`,
-                borderRadius: 4,
-                overflow: "hidden",
-                position: "relative",
-                display: "flex",
-                flexDirection: "column",
-              }}
+
+<Grid item xs={12} md={7.5} sx={{ minHeight: 0 }}>
+  <Fade in timeout={600}>
+    <Card
+      sx={{
+        height: "100%",
+        background: settings.accentColor,
+        backdropFilter: "blur(15px)",
+        border: `1px solid ${settings.primaryColor}26`,
+        borderRadius: 4,
+        overflow: "hidden",
+        boxShadow: `0 15px 40px ${settings.primaryColor}33`,
+        position: "relative",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <Box sx={{ position: "relative", height: "100%", flex: 1 }}>
+        {announcementsLoading ? (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100%",
+              flexDirection: "column",
+              gap: 2,
+              backgroundColor: `${settings.primaryColor}08`,
+            }}
+          >
+            <CircularProgress
+              size={48}
+              sx={{ color: settings.primaryColor }}
+            />
+            <Typography
+              variant="body2"
+              sx={{ color: settings.textPrimaryColor, fontWeight: 500 }}
             >
+              Loading announcements...
+            </Typography>
+          </Box>
+        ) : Array.isArray(carouselItems) && carouselItems.length > 0 ? (
+          <>
+            {/* ADDED Fade wrapper for smooth slideshow transition */}
+            <Fade in={true} key={currentSlide} timeout={{ enter: 800, exit: 400 }}>
               <Box sx={{ position: "relative", height: "100%", flex: 1 }}>
-                {announcementsLoading ? (
-                  <Box
+                <Box
+                  component="img"
+                  src={
+                    carouselItems[currentSlide]?.image
+                      ? `${API_BASE_URL}${carouselItems[currentSlide].image}`
+                      : "/api/placeholder/1200/600"
+                  }
+                  alt={
+                    carouselItems[currentSlide]?.title ||
+                    (carouselItems[currentSlide]?.id
+                      ?.toString()
+                      .startsWith("holiday-")
+                      ? "Holiday"
+                      : carouselItems[currentSlide]?.id
+                          ?.toString()
+                          .startsWith("suspension-")
+                      ? "Suspension"
+                      : "Announcement")
+                  }
+                  sx={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    transition: "transform 0.7s ease",
+                    transform: "scale(1)",
+                  }}
+                />
+                <Box
+                  sx={{
+                    position: "absolute",
+                    inset: 0,
+                    background:
+                      "linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0) 70%)",
+                  }}
+                />
+                <IconButton
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlePrevSlide();
+                  }}
+                  sx={{
+                    position: "absolute",
+                    left: { xs: 10, md: 24 },
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    bgcolor: `${settings.primaryColor}4D`,
+                    backdropFilter: "blur(10px)",
+                    border: `1px solid ${settings.primaryColor}26`,
+                    "&:hover": {
+                      bgcolor: `${settings.primaryColor}80`,
+                      transform: "translateY(-50%) scale(1.1)",
+                    },
+                    color: "#ffffff",
+                    boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
+                    transition: "all 0.3s",
+                    zIndex: 10,
+                  }}
+                >
+                  <ArrowBackIosNewIcon />
+                </IconButton>
+                <IconButton
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleNextSlide();
+                  }}
+                  sx={{
+                    position: "absolute",
+                    right: { xs: 10, md: 24 },
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    bgcolor: `${settings.primaryColor}4D`,
+                    backdropFilter: "blur(10px)",
+                    border: `1px solid ${settings.primaryColor}26`,
+                    "&:hover": {
+                      bgcolor: `${settings.primaryColor}80`,
+                      transform: "translateY(-50%) scale(1.1)",
+                    },
+                    color: "#ffffff",
+                    boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
+                    transition: "all 0.3s",
+                    zIndex: 10,
+                  }}
+                >
+                  <ArrowForwardIosIcon />
+                </IconButton>
+                <IconButton
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    togglePlayPause();
+                  }}
+                  sx={{
+                    position: "absolute",
+                    top: { xs: 10, md: 24 },
+                    right: { xs: 10, md: 24 },
+                    bgcolor: `${settings.primaryColor}4D`,
+                    backdropFilter: "blur(10px)",
+                    border: `1px solid ${settings.primaryColor}26`,
+                    "&:hover": {
+                      bgcolor: `${settings.primaryColor}80`,
+                      transform: "scale(1.1)",
+                    },
+                    color: "#ffffff",
+                    boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
+                    transition: "all 0.3s",
+                    zIndex: 10,
+                  }}
+                >
+                  {isPlaying ? <Pause /> : <PlayArrow />}
+                </IconButton>
+                <Box
+                  onClick={() => handleOpenModal(carouselItems[currentSlide])}
+                  sx={{
+                    position: "absolute",
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    p: { xs: 2, md: 4 },
+                    color: "#ffffff",
+                    cursor: "pointer",
+                    transition: "transform 0.3s",
+                    "&:hover": { transform: "translateY(-4px)" },
+                    zIndex: 10,
+                  }}
+                >
+                  <Chip
+                    label={
+                      carouselItems[currentSlide]?.id
+                        ?.toString()
+                        .startsWith("holiday-")
+                        ? "HOLIDAY"
+                        : carouselItems[currentSlide]?.id
+                            ?.toString()
+                            .startsWith("suspension-")
+                        ? "SUSPENSION"
+                        : "ANNOUNCEMENT"
+                    }
+                    size="small"
                     sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      height: "100%",
-                      flexDirection: "column",
-                      gap: 2,
-                      backgroundColor: `${settings.primaryColor}08`,
+                      mb: 2,
+                      bgcolor: `${settings.primaryColor}80`,
+                      backdropFilter: "blur(10px)",
+                      color: "#ffffff",
+                      fontWeight: 700,
+                      fontSize: "0.7rem",
+                      border: "1px solid rgba(254, 249, 225, 0.3)",
+                    }}
+                  />
+                  <Typography
+                    variant="h3"
+                    sx={{
+                      color: "#ffffff",
+                      fontWeight: 800,
+                      mb: 1,
+                      textShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                      lineHeight: 1.2,
+                      fontSize: { xs: "1.25rem", md: "2rem" },
                     }}
                   >
-                    <CircularProgress
-                      size={48}
-                      sx={{ color: settings.primaryColor }}
-                    />
-                    <Typography
-                      variant="body2"
-                      sx={{ color: settings.textPrimaryColor, fontWeight: 500 }}
-                    >
-                      Loading announcements...
-                    </Typography>
-                  </Box>
-                ) : carouselItems.length > 0 ? (
-                  <>
-                    <Box
-                      component="img"
-                      src={
-                        carouselItems[currentSlide]?.image
-                          ? `${API_BASE_URL}${carouselItems[currentSlide].image}`
-                          : "/api/placeholder/1200/600"
+                    {carouselItems[currentSlide]?.title}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      color: "rgba(255,255,255,0.9)",
+                      fontSize: { xs: "0.75rem", md: "1rem" },
+                      textShadow: "0 2px 8px rgba(0,0,0,0.5)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1,
+                    }}
+                  >
+                    <AccessTime sx={{ fontSize: 18 }} />
+                    {new Date(carouselItems[currentSlide]?.date).toLocaleDateString(
+                      "en-US",
+                      {
+                        month: "long",
+                        day: "numeric",
+                        year: "numeric",
                       }
-                      alt={carouselItems[currentSlide]?.title || (carouselItems[currentSlide]?.id?.toString().startsWith("holiday-") ? "Holiday" : carouselItems[currentSlide]?.id?.toString().startsWith("suspension-") ? "Suspension" : "Announcement")}
-                      sx={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                        transition: "transform 0.7s ease",
-                        transform: "scale(1)",
-                      }}
-                    />
+                    )}
+                  </Typography>
+                </Box>
+                <Box
+                  sx={{
+                    position: "absolute",
+                    bottom: 24,
+                    right: 24,
+                    display: "flex",
+                    gap: 1.5,
+                    alignItems: "center",
+                    zIndex: 10,
+                  }}
+                >
+                  {carouselItems.map((_, idx) => (
                     <Box
+                      key={idx}
                       sx={{
-                        position: "absolute",
-                        inset: 0,
-                        background:
-                          "linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0) 70%)",
-                      }}
-                    />
-                    <IconButton
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handlePrevSlide();
-                      }}
-                      sx={{
-                        position: "absolute",
-                        left: { xs: 10, md: 20 },
-                        top: "50%",
-                        transform: "translateY(-50%)",
-                        bgcolor: `${settings.primaryColor}4D`,
-                        backdropFilter: "blur(10px)",
-                        border: `1px solid ${settings.primaryColor}26`,
-                        "&:hover": {
-                          bgcolor: `${settings.primaryColor}80`,
-                          transform: "translateY(-50%) scale(1.1)",
-                        },
-                        color: "#ffffff",
-                        boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
-                        transition: "all 0.3s",
-                      }}
-                    >
-                      <ArrowBackIosNewIcon />
-                    </IconButton>
-                    <IconButton
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleNextSlide();
-                      }}
-                      sx={{
-                        position: "absolute",
-                        right: { xs: 10, md: 20 },
-                        top: "50%",
-                        transform: "translateY(-50%)",
-                        bgcolor: `${settings.primaryColor}4D`,
-                        backdropFilter: "blur(10px)",
-                        border: `1px solid ${settings.primaryColor}26`,
-                        "&:hover": {
-                          bgcolor: `${settings.primaryColor}80`,
-                          transform: "translateY(-50%) scale(1.1)",
-                        },
-                        color: "#ffffff",
-                        boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
-                        transition: "all 0.3s",
-                      }}
-                    >
-                      <ArrowForwardIosIcon />
-                    </IconButton>
-                    <IconButton
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        togglePlayPause();
-                      }}
-                      sx={{
-                        position: "absolute",
-                        top: { xs: 10, md: 20 },
-                        right: { xs: 10, md: 20 },
-                        bgcolor: `${settings.primaryColor}4D`,
-                        backdropFilter: "blur(10px)",
-                        border: `1px solid ${settings.primaryColor}26`,
-                        "&:hover": {
-                          bgcolor: `${settings.primaryColor}80`,
-                          transform: "scale(1.1)",
-                        },
-                        color: "#ffffff",
-                        boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
-                        transition: "all 0.3s",
-                      }}
-                    >
-                      {isPlaying ? <Pause /> : <PlayArrow />}
-                    </IconButton>
-                    <Box
-                      onClick={() =>
-                        handleOpenModal(carouselItems[currentSlide])
-                      }
-                      sx={{
-                        position: "absolute",
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        p: { xs: 2, md: 4 },
-                        color: "#ffffff",
+                        width: currentSlide === idx ? 32 : 10,
+                        height: 10,
+                        borderRadius: 5,
+                        bgcolor:
+                          currentSlide === idx
+                            ? "#ffffff"
+                            : "rgba(254,249,225,0.4)",
+                        transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
                         cursor: "pointer",
-                        transition: "transform 0.3s",
-                        "&:hover": { transform: "translateY(-4px)" },
+                        border: "1px solid rgba(254,249,225,0.3)",
+                        "&:hover": {
+                          bgcolor: "rgba(254,249,225,0.7)",
+                          transform: "scale(1.2)",
+                        },
                       }}
-                    >
-                      <Chip
-                        label={carouselItems[currentSlide]?.id?.toString().startsWith("holiday-") ? "HOLIDAY" : carouselItems[currentSlide]?.id?.toString().startsWith("suspension-") ? "SUSPENSION" : "ANNOUNCEMENT"}
-                        size="small"
-                        sx={{
-                          mb: 2,
-                          bgcolor: `${settings.primaryColor}80`,
-                          backdropFilter: "blur(10px)",
-                          color: "#ffffff",
-                          fontWeight: 700,
-                          fontSize: "0.7rem",
-                          border: "1px solid rgba(254, 249, 225, 0.3)",
-                        }}
-                      />
-                      <Typography
-                        variant="h3"
-                        sx={{
-                          color: "#ffffff",
-                          fontWeight: 800,
-                          mb: 1,
-                          textShadow: "0 4px 12px rgba(0,0,0,0.5)",
-                          lineHeight: 1.2,
-                          fontSize: { xs: "1.25rem", md: "2rem" },
-                        }}
-                      >
-                        {carouselItems[currentSlide]?.title}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          color: "rgba(255,255,255,0.9)",
-                          fontSize: { xs: "0.75rem", md: "1rem" },
-                          textShadow: "0 2px 8px rgba(0,0,0,0.5)",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 1,
-                        }}
-                      >
-                        <AccessTime sx={{ fontSize: 18 }} />
-                        {new Date(
-                          carouselItems[currentSlide]?.date
-                        ).toLocaleDateString("en-US", {
-                          month: "long",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                      </Typography>
-                    </Box>
-                    <Tooltip title="More options">
-                      <IconButton
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (carouselItems[currentSlide]) handleOpenModal(carouselItems[currentSlide]);
-                        }}
-                        sx={{
-                          position: "absolute",
-                          bottom: 16,
-                          right: 16,
-                          bgcolor: "rgba(0,0,0,0.4)",
-                          color: "#fff",
-                          "&:hover": { bgcolor: "rgba(0,0,0,0.6)" },
-                        }}
-                        size="small"
-                      >
-                        <MoreVert fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        bottom: 20,
-                        left: "50%",
-                        transform: "translateX(-50%)",
-                        display: "flex",
-                        gap: 1.5,
-                        alignItems: "center",
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSlideSelect(idx);
                       }}
-                    >
-                      {carouselItems.map((_, idx) => (
-                        <Box
-                          key={idx}
-                          sx={{
-                            width: currentSlide === idx ? 32 : 10,
-                            height: 10,
-                            borderRadius: 5,
-                            bgcolor:
-                              currentSlide === idx
-                                ? "#ffffff"
-                                : "rgba(254,249,225,0.4)",
-                            transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
-                            cursor: "pointer",
-                            border: "1px solid rgba(254,249,225,0.3)",
-                            "&:hover": {
-                              bgcolor: "rgba(254,249,225,0.7)",
-                              transform: "scale(1.2)",
-                            },
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSlideSelect(idx);
-                          }}
-                        />
-                      ))}
-                    </Box>
-                  </>
-                ) : (
-                  <Box
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      height: "100%",
-                      flexDirection: "column",
-                      gap: 2,
-                    }}
-                  >
-                    <Flag
-                      sx={{ fontSize: 80, color: `${settings.primaryColor}4D` }}
                     />
-                    <Typography
-                      variant="h5"
-                      sx={{ color: settings.textPrimaryColor }}
-                    >
-                      No announcements, suspensions, or holidays available
-                    </Typography>
-                  </Box>
-                )}
+                  ))}
+                </Box>
               </Box>
-            </Card>
-          </Grow>
-        </Grid>
+            </Fade>
+          </>
+        ) : (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100%",
+              flexDirection: "column",
+              gap: 2,
+            }}
+          >
+            <Flag
+              sx={{ fontSize: 80, color: `${settings.primaryColor}4D` }}
+            />
+            <Typography
+              variant="h5"
+              sx={{ color: settings.textPrimaryColor }}
+            >
+              No announcements, suspensions, or holidays available
+            </Typography>
+          </Box>
+        )}
+      </Box>
+    </Card>
+  </Fade>
+</Grid>
 
         {/* Right Column - Widgets Grid (Compact Layout) */}
         <Grid item xs={12} md={4.5} sx={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -2029,6 +2056,8 @@ const Home = () => {
                                         : "transparent",
                                       color: holidayData
                                         ? "#b71c1c"
+                                        : isToday
+                                        ? settings.textPrimaryColor
                                         : settings.textPrimaryColor,
                                       zIndex: 10,
                                     }
@@ -2629,6 +2658,8 @@ const Home = () => {
                       </Grow>
                     );
                   }
+
+                  // For other notifications (payslip, etc.), use the regular style
                   return (
                     <Grow in timeout={300 + idx * 50} key={`notif-${notif.id}`}>
                       <Box
@@ -2668,7 +2699,7 @@ const Home = () => {
                           "&:hover": {
                             background: `${settings.primaryColor}1A`,
                             transform: "translateX(8px)",
-                            boxShadow: `0 8px 24px ${settings.primaryColor}4D`,
+                            boxShadow: `0 8px 24px ${settings.primaryColor}33`,
                           },
                         }}
                         onClick={() => handleNotificationClick(notif)}

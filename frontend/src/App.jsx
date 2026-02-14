@@ -1307,7 +1307,7 @@ function App() {
               }
             />
 
-            <Route path="/leave-table" element={<UnderConstruction />} />
+            {/* <Route path="/leave-table" element={<UnderConstruction />} />
 
             <Route path="/leave-request" element={<UnderConstruction />} />
 
@@ -1317,7 +1317,74 @@ function App() {
 
             <Route path="/leave-date-picker" element={<UnderConstruction />} />
 
-            <Route path="/leave-credits" element={<UnderConstruction />} />
+            <Route path="/leave-credits" element={<UnderConstruction />} /> */}
+
+            <Route
+  path="/leave-table"
+  element={
+    <ProtectedRoute
+      allowedRoles={["administrator", "superadmin", "technical"]}
+    >
+      <LeaveTable />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/leave-request"
+  element={
+    <ProtectedRoute
+      allowedRoles={["administrator", "superadmin", "technical"]}
+    >
+      <LeaveRequest />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/leave-request-user"
+  element={
+    <ProtectedRoute
+      allowedRoles={["administrator", "superadmin", "technical"]}
+    >
+      <LeaveRequestUser />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/leave-assignment"
+  element={
+    <ProtectedRoute
+      allowedRoles={["administrator", "superadmin", "technical"]}
+    >
+      <LeaveAssignment />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/leave-date-picker"
+  element={
+    <ProtectedRoute
+      allowedRoles={["administrator", "superadmin", "technical"]}
+    >
+      <LeaveDatePickerModal />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/leave-credits"
+  element={
+    <ProtectedRoute
+      allowedRoles={["administrator", "superadmin", "technical"]}
+    >
+      <LeaveCredits />
+    </ProtectedRoute>
+  }
+/>
+
 
             <Route
               path="/users-list"
