@@ -8,6 +8,10 @@ export const routeToComponentMap = {
   '/profile': null, // Profile doesn't need access check
   '/attendance-user-state': 'attendance-user-state',
   '/daily_time_record': 'daily-time-record',
+  '/daily_time_record_honorarium': 'daily-time-record-honorarium',
+  '/daily_time_record_service_credits': 'daily-time-record-service-credits',
+  '/daily_time_record_overtime': 'daily-time-record-overtime',
+  '/daily_time_record_faculty': 'daily-time-record-faculty',
   '/payslip': 'payslip',
   '/pds1': 'pds1',
   '/pds2': 'pds2',
@@ -35,7 +39,6 @@ export const routeToComponentMap = {
   '/view_attendance': 'view-attendance',
   '/attendance_form': 'attendance-form',
   '/search_attendance': 'search-attendance',
-  '/daily_time_record_faculty': 'daily-time-record-faculty',
   '/attendance_module': 'attendance-module',
   '/attendance_module_faculty': 'attendance-module-faculty',
   '/attendance_module_faculty_40hrs': 'attendance-module-faculty-40hrs',

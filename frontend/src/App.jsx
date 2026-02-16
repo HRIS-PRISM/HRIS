@@ -69,7 +69,10 @@ import ViewAttendanceRecord from "./components/ATTENDANCE/AttendanceDevice";
 import AttendanceModification from "./components/ATTENDANCE/AttendanceModification";
 import AttendanceUserState from "./components/ATTENDANCE/AttendanceUserState";
 import DailyTimeRecord from "./components/ATTENDANCE/DailyTimeRecord";
-import DailyTimeRecordFaculty from "./components/ATTENDANCE/DailyTimeRecordOverall";
+import DailyTimeRecordHonorarium from "./components/ATTENDANCE/DailyTimeRecordHonorarium";
+import DailyTimeRecordServiceCredits from "./components/ATTENDANCE/DailyTimeRecordServiceCredits";
+
+import DailyTimeRecordOvertime from "./components/ATTENDANCE/DailyTimeRecordOvertime";
 import DailyTimeRecordEditor from "./components/ATTENDANCE/DailyTimeRecordEditor";
 import AttendanceForm from "./components/ATTENDANCE/AttendanceState";
 import AttendanceModule from "./components/ATTENDANCE/AttendanceModuleNonTeaching";
@@ -132,6 +135,7 @@ import Settings from "./components/Settings";
 import AdminSecurity from "./components/AdminManagement";
 import PayrollJO from "./components/PAYROLL/PayrollJO";
 import UnderConstruction from "./components/UnderConstruction";
+import DailyTimeRecordFaculty from "./components/ATTENDANCE/DailyTimeRecordOverall";
 
 function App() {
   const [open, setOpen] = useState(false);
@@ -711,12 +715,58 @@ function App() {
               }
             />
             <Route
+              path="/daily_time_record_honorarium"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "staff",
+                    "administrator",
+                    "superadmin",
+                    "technical",
+                  ]}
+                >
+                  <DailyTimeRecordHonorarium />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/daily_time_record_service_credits"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "staff",
+                    "administrator",
+                    "superadmin",
+                    "technical",
+                  ]}
+                >
+                  <DailyTimeRecordServiceCredits />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/daily_time_record_overtime"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "staff",
+                    "administrator",
+                    "superadmin",
+                    "technical",
+                  ]}
+                >
+                  <DailyTimeRecordOvertime />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/daily_time_record_faculty"
               element={
                 <ProtectedRoute
                   allowedRoles={["administrator", "superadmin", "technical"]}
+                  
                 >
-                  <DailyTimeRecordFaculty />
+                <DailyTimeRecordFaculty />
                 </ProtectedRoute>
               }
             />
