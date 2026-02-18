@@ -69,7 +69,10 @@ import ViewAttendanceRecord from "./components/ATTENDANCE/AttendanceDevice";
 import AttendanceModification from "./components/ATTENDANCE/AttendanceModification";
 import AttendanceUserState from "./components/ATTENDANCE/AttendanceUserState";
 import DailyTimeRecord from "./components/ATTENDANCE/DailyTimeRecord";
-import DailyTimeRecordFaculty from "./components/ATTENDANCE/DailyTimeRecordOverall";
+import DailyTimeRecordHonorarium from "./components/ATTENDANCE/DailyTimeRecordHonorarium";
+import DailyTimeRecordServiceCredits from "./components/ATTENDANCE/DailyTimeRecordServiceCredits";
+
+import DailyTimeRecordOvertime from "./components/ATTENDANCE/DailyTimeRecordOvertime";
 import DailyTimeRecordEditor from "./components/ATTENDANCE/DailyTimeRecordEditor";
 import AttendanceForm from "./components/ATTENDANCE/AttendanceState";
 import AttendanceModule from "./components/ATTENDANCE/AttendanceModuleNonTeaching";
@@ -132,6 +135,7 @@ import Settings from "./components/Settings";
 import AdminSecurity from "./components/AdminManagement";
 import PayrollJO from "./components/PAYROLL/PayrollJO";
 import UnderConstruction from "./components/UnderConstruction";
+import DailyTimeRecordFaculty from "./components/ATTENDANCE/DailyTimeRecordOverall";
 
 function App() {
   const [open, setOpen] = useState(false);
@@ -480,7 +484,7 @@ function App() {
           sx={{
             flexGrow: 1,
             bgcolor: "transparent",
-            p: { xs: 2, sm: 2, md: 3 },
+            p: { xs: 1, sm: 1, md: 5 },
             marginLeft: drawerOpen ? `${drawerWidth}px` : `${collapsedWidth}px`,
             transition: "margin-left 0.3s ease",
             fontFamily: "Poppins, sans-serif",
@@ -711,12 +715,58 @@ function App() {
               }
             />
             <Route
+              path="/daily_time_record_honorarium"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "staff",
+                    "administrator",
+                    "superadmin",
+                    "technical",
+                  ]}
+                >
+                  <DailyTimeRecordHonorarium />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/daily_time_record_service_credits"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "staff",
+                    "administrator",
+                    "superadmin",
+                    "technical",
+                  ]}
+                >
+                  <DailyTimeRecordServiceCredits />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/daily_time_record_overtime"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "staff",
+                    "administrator",
+                    "superadmin",
+                    "technical",
+                  ]}
+                >
+                  <DailyTimeRecordOvertime />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/daily_time_record_faculty"
               element={
                 <ProtectedRoute
                   allowedRoles={["administrator", "superadmin", "technical"]}
+                  
                 >
-                  <DailyTimeRecordFaculty />
+                <DailyTimeRecordFaculty />
                 </ProtectedRoute>
               }
             />
@@ -1307,7 +1357,7 @@ function App() {
               }
             />
 
-            <Route path="/leave-table" element={<UnderConstruction />} />
+            {/* <Route path="/leave-table" element={<UnderConstruction />} />
 
             <Route path="/leave-request" element={<UnderConstruction />} />
 
@@ -1317,7 +1367,74 @@ function App() {
 
             <Route path="/leave-date-picker" element={<UnderConstruction />} />
 
-            <Route path="/leave-credits" element={<UnderConstruction />} />
+            <Route path="/leave-credits" element={<UnderConstruction />} /> */}
+
+            <Route
+  path="/leave-table"
+  element={
+    <ProtectedRoute
+      allowedRoles={["administrator", "superadmin", "technical"]}
+    >
+      <LeaveTable />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/leave-request"
+  element={
+    <ProtectedRoute
+      allowedRoles={["administrator", "superadmin", "technical"]}
+    >
+      <LeaveRequest />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/leave-request-user"
+  element={
+    <ProtectedRoute
+      allowedRoles={["administrator", "superadmin", "technical"]}
+    >
+      <LeaveRequestUser />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/leave-assignment"
+  element={
+    <ProtectedRoute
+      allowedRoles={["administrator", "superadmin", "technical"]}
+    >
+      <LeaveAssignment />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/leave-date-picker"
+  element={
+    <ProtectedRoute
+      allowedRoles={["administrator", "superadmin", "technical"]}
+    >
+      <LeaveDatePickerModal />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/leave-credits"
+  element={
+    <ProtectedRoute
+      allowedRoles={["administrator", "superadmin", "technical"]}
+    >
+      <LeaveCredits />
+    </ProtectedRoute>
+  }
+/>
+
 
             <Route
               path="/users-list"

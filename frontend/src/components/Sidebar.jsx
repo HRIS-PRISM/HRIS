@@ -174,6 +174,12 @@ const Sidebar = ({
   // Add internal state for System Administration dropdown
   const [internalOpenSystemAdmin, setInternalOpenSystemAdmin] = useState(false);
 
+    // Add internal state for DTR dropdown
+  const [openDTR, setOpenDTR] = useState(false);
+  const handleClickDTR = () => {
+    setOpenDTR(!openDTR);
+  };
+
   // Use prop value if provided, otherwise use internal state
   const openSystemAdmin =
     propOpenSystemAdmin !== undefined
@@ -272,7 +278,7 @@ const Sidebar = ({
     }
   }, [employeeNumber, location.pathname]);
 
-  // Check page access for Users List
+ // Check page access for Users List
   useEffect(() => {
     const checkUsersListAccess = async () => {
       if (!employeeNumber) {
@@ -400,6 +406,12 @@ const Sidebar = ({
       setSelectedItem("search_attendance");
     } else if (currentPath === "/daily_time_record_faculty") {
       setSelectedItem("daily_time_record_faculty");
+      } else if (currentPath === "/daily_time_record_honorarium") {
+      setSelectedItem("daily_time_record_honorarium");
+    } else if (currentPath === "/daily_time_record_service_credits") {
+      setSelectedItem("daily_time_record_service_credits");
+    } else if (currentPath === "/daily_time_record_overtime") {
+      setSelectedItem("daily_time_record_overtime");
     } else if (currentPath === "/attendance_module") {
       setSelectedItem("attendance_module");
     } else if (currentPath === "/attendance_module_faculty") {
@@ -995,8 +1007,7 @@ const Sidebar = ({
               </ListItemIcon>
               <ListItemText primary="Home" sx={{ marginLeft: "-10px" }} />
             </ListItem>
-
-            {/* ATTENDANCE */}
+     {/* ATTENDANCE */}
             {shouldShowMenuItem("/attendance-user-state") && (
             <ListItem
               button
@@ -1050,61 +1061,258 @@ const Sidebar = ({
             </ListItem>
             )}
 
-            {/* DAILY TIME RECORD */}
-            {shouldShowMenuItem("/daily_time_record") && (
-            <ListItem
-              button
-              component={Link}
-              to="/daily_time_record"
-              onClick={() => handleItemClick("daily_time_record")}
-              sx={{
-                bgcolor:
-                  selectedItem === "daily_time_record"
-                    ? settings.accentColor || "#FEF9E1"
-                    : "inherit",
-                color:
-                  selectedItem === "daily_time_record"
-                    ? settings.textPrimaryColor
-                    : settings.textSecondaryColor,
-
-                "& .MuiListItemIcon-root": {
-                  color:
-                    selectedItem === "daily_time_record"
-                      ? settings.textPrimaryColor
-                      : settings.textSecondaryColor,
-                },
-                "& .MuiListItemText-primary": {
-                  color:
-                    selectedItem === "daily_time_record"
-                      ? settings.textPrimaryColor
-                      : settings.textSecondaryColor,
-                },
-
-                "&:hover": {
-                  bgcolor: settings.hoverColor || "#6D2323",
+            {/* DAILY TIME RECORD DROPDOWN */}
+            {(shouldShowMenuItem("/daily_time_record") || 
+              shouldShowMenuItem("/daily_time_record_faculty") || 
+              shouldShowMenuItem("/daily_time_record_honorarium") || 
+              shouldShowMenuItem("/daily_time_record_service_credits") || 
+              shouldShowMenuItem("/daily_time_record_overtime")) && (
+            <>
+              <ListItem
+                button
+                onClick={handleClickDTR}
+                sx={{
                   color: settings.textSecondaryColor,
-                  "& .MuiListItemIcon-root": {
-                    color: settings.textSecondaryColor,
+                  cursor: "pointer",
+                  "&:hover": {
+                    bgcolor: settings.hoverColor || "#6D2323",
                   },
-                  "& .MuiListItemText-primary": {
-                    color: settings.textSecondaryColor,
-                  },
-                },
+                }}
+              >
+                <ListItemIcon >
+                  <CalendarToday sx={{ color: settings.textSecondaryColor }} />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Daily Time Record"
+                  sx={{ marginLeft: "-10px", whiteSpace: 'noW rap' }}
+                />
+                <ListItemIcon sx={{ marginLeft: "10rem", color: settings.textSecondaryColor }}>
+                  {openDTR ? <ExpandLess /> : <ExpandMore />}
+                </ListItemIcon>
+              </ListItem>
 
-                borderTopRightRadius:
-                  selectedItem === "daily_time_record" ? "15px" : 0,
-                borderBottomRightRadius:
-                  selectedItem === "daily_time_record" ? "15px" : 0,
-              }}
-            >
-              <ListItemIcon>
-                <CalendarToday />
-              </ListItemIcon>
-              <ListItemText
-                primary="Daily Time Record"
-                sx={{ marginLeft: "-10px" }}
-              />
-            </ListItem>
+              <Collapse in={openDTR} timeout="auto" unmountOnExit>
+                <List component="div" disablePadding sx={{ pl: 5.4 }}>
+                  {/* Regular Work Days */}
+                  {shouldShowMenuItem("/daily_time_record") && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/daily_time_record"
+                    onClick={() => handleItemClick("daily_time_record")}
+                    sx={{
+                      bgcolor:
+                        selectedItem === "daily_time_record"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "daily_time_record"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "daily_time_record"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "daily_time_record"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "daily_time_record" ? "15px" : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "daily_time_record" ? "15px" : 0,
+                    }}
+                  >
+                    <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                      <CalendarToday />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Regular"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                  )}
+                  {/* Overtime */}
+
+                  {/* 
+                  {/* Honorarium */}
+                  {shouldShowMenuItem("/daily_time_record_honorarium") && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/daily_time_record_honorarium"
+                    onClick={() => handleItemClick("daily_time_record_honorarium")}
+                    sx={{
+                      bgcolor:
+                        selectedItem === "daily_time_record_honorarium"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "daily_time_record_honorarium"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "daily_time_record_honorarium"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "daily_time_record_honorarium"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "daily_time_record_honorarium" ? "15px" : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "daily_time_record_honorarium" ? "15px" : 0,
+                    }}
+                  >
+                    <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                      <CalendarToday />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Honorarium"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                  )}
+
+                  {/* Service Credits */}
+                  {shouldShowMenuItem("/daily_time_record_service_credits") && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/daily_time_record_service_credits"
+                    onClick={() => handleItemClick("daily_time_record_service_credits")}
+                    sx={{
+                      bgcolor:
+                        selectedItem === "daily_time_record_service_credits"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "daily_time_record_service_credits"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "daily_time_record_service_credits"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "daily_time_record_service_credits"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "daily_time_record_service_credits" ? "15px" : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "daily_time_record_service_credits" ? "15px" : 0,
+                    }}
+                  >
+                    <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                      <CalendarToday />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Service Credits"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                  )}
+
+                  {/* Overtime */}
+                  {shouldShowMenuItem("/daily_time_record_overtime") && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/daily_time_record_overtime"
+                    onClick={() => handleItemClick("daily_time_record_overtime")}
+                    sx={{
+                      bgcolor:
+                        selectedItem === "daily_time_record_overtime"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "daily_time_record_overtime"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "daily_time_record_overtime"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "daily_time_record_overtime"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "daily_time_record_overtime" ? "15px" : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "daily_time_record_overtime" ? "15px" : 0,
+                    }}
+                  >
+                    <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                      <CalendarToday />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Overtime"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                  )}
+                </List>
+              </Collapse>
+            </>
             )}
 
             {/* PAYSLIP */}
@@ -1908,7 +2116,7 @@ const Sidebar = ({
                         <AdminPanelSettings />
                       </ListItemIcon>
                       <ListItemText
-                        primary="Admin Management"
+                        primary="System Configuration"
                         sx={{ marginLeft: "-10px" }}
                       />
                     </ListItem>
@@ -3108,7 +3316,7 @@ const Sidebar = ({
               </>
             )}
 
-            {userRole !== "staff" && (
+           {userRole !== "staff" && (
               <>
                 <ListItem
                   button
@@ -3139,477 +3347,323 @@ const Sidebar = ({
 
                 <Collapse in={open3} timeout="auto" unmountOnExit>
                   <List component="div" disablePadding sx={{ pl: 5.4 }}>
+                    {/* Regular Payroll Dropdown */}
+                    <ListSubheader
+                      component="div"
+                      sx={{
+                        bgcolor: "transparent",
+                        fontWeight: "bold",
+                        fontSize: "0.7rem",
+                        color: settings.textSecondaryColor,
+                        fontFamily: "Poppins, sans-serif",
+                        textTransform: "uppercase",
+                        mb: -1,
+                        pl: 0,
+                      }}
+                    >
+                      Regular Payroll
+                    </ListSubheader>
                     <ListItem
                       button
                       component={Link}
                       to="/payroll-table"
-                      sx={{
-                        color:
-                          selectedItem === "payroll-table"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "payroll-table"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "payroll-table" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "payroll-table" ? "15px" : 0,
-                      }}
+                      selected={selectedItem === "payroll-table"}
                       onClick={() => handleItemClick("payroll-table")}
-                    >
-                      <ListItemIcon
-                        sx={{
-                          marginRight: "-1rem",
-                          color:
-                            selectedItem === "payroll-table"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
-                        <EditNoteIcon />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Payroll REG | Processing"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/payroll-jo"
                       sx={{
-                        color:
-                          selectedItem === "payroll-jo"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "payroll-jo"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
+                        color: selectedItem === "payroll-table" ? settings.textPrimaryColor : settings.textSecondaryColor,
+                        bgcolor: selectedItem === "payroll-table" ? settings.accentColor || "#FEF9E1" : "inherit",
+                        '&:hover': {
                           bgcolor: settings.hoverColor || "#6D2323",
                           color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
+                          borderTopRightRadius: '15px',
+                          borderBottomRightRadius: '15px',
+                          '& .MuiListItemIcon-root': {
                             color: settings.textSecondaryColor,
                           },
                         },
-                        borderTopRightRadius:
-                          selectedItem === "payroll-jo" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "payroll-jo" ? "15px" : 0,
+                        borderTopRightRadius: selectedItem === "payroll-table" ? '15px' : 0,
+                        borderBottomRightRadius: selectedItem === "payroll-table" ? '15px' : 0,
                       }}
-                      onClick={() => handleItemClick("payroll-jo")}
                     >
-                      <ListItemIcon
-                        sx={{
-                          marginRight: "-1rem",
-                          color:
-                            selectedItem === "payroll-jo"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
+                      <ListItemIcon sx={{ color: selectedItem === "payroll-table" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
                         <EditNoteIcon />
                       </ListItemIcon>
-                      <ListItemText
-                        primary="Payroll JO | Processing"
-                        sx={{ marginLeft: "-10px" }}
-                      />
+                      <ListItemText primary="Payroll REG | Processing" sx={{ marginLeft: "-10px" }} />
                     </ListItem>
-
                     <ListItem
                       button
                       component={Link}
                       to="/payroll-processed"
+                      selected={selectedItem === "payroll-processed"}
+                      onClick={() => handleItemClick("payroll-processed")}
                       sx={{
-                        color:
-                          selectedItem === "payroll-processed"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "payroll-processed"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
+                        color: selectedItem === "payroll-processed" ? settings.textPrimaryColor : settings.textSecondaryColor,
+                        bgcolor: selectedItem === "payroll-processed" ? settings.accentColor || "#FEF9E1" : "inherit",
+                        '&:hover': {
                           bgcolor: settings.hoverColor || "#6D2323",
                           color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
+                          borderTopRightRadius: '15px',
+                          borderBottomRightRadius: '15px',
+                          '& .MuiListItemIcon-root': {
                             color: settings.textSecondaryColor,
                           },
                         },
-                        borderTopRightRadius:
-                          selectedItem === "payroll-processed" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "payroll-processed" ? "15px" : 0,
+                        borderTopRightRadius: selectedItem === "payroll-processed" ? '15px' : 0,
+                        borderBottomRightRadius: selectedItem === "payroll-processed" ? '15px' : 0,
                       }}
-                      onClick={() => handleItemClick("payroll-processed")}
                     >
-                      <ListItemIcon
-                        sx={{
-                          marginRight: "-1rem",
-                          color:
-                            selectedItem === "payroll-processed"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
+                      <ListItemIcon sx={{ color: selectedItem === "payroll-processed" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
                         <PaymentsIcon />
                       </ListItemIcon>
-                      <ListItemText
-                        primary="Payroll Processed | Regular"
-                        sx={{ marginLeft: "-10px" }}
-                      />
+                      <ListItemText primary="Payroll Processed | Regular" sx={{ marginLeft: "-10px" }} />
                     </ListItem>
 
+                    {/* JO Payroll Dropdown */}
+                    <ListSubheader
+                      component="div"
+                      sx={{
+                        bgcolor: "transparent",
+                        fontWeight: "bold",
+                        fontSize: "0.7rem",
+                        color: settings.textSecondaryColor,
+                        fontFamily: "Poppins, sans-serif",
+                        textTransform: "uppercase",
+                        mb: -1,
+                        pl: 0,
+                      }}
+                    >
+                      JO Payroll
+                    </ListSubheader>
+                    <ListItem
+                      button
+                      component={Link}
+                      to="/payroll-jo"
+                      selected={selectedItem === "payroll-jo"}
+                      onClick={() => handleItemClick("payroll-jo")}
+                      sx={{
+                        color: selectedItem === "payroll-jo" ? settings.textPrimaryColor : settings.textSecondaryColor,
+                        bgcolor: selectedItem === "payroll-jo" ? settings.accentColor || "#FEF9E1" : "inherit",
+                        '&:hover': {
+                          bgcolor: settings.hoverColor || "#6D2323",
+                          color: settings.textSecondaryColor,
+                          borderTopRightRadius: '15px',
+                          borderBottomRightRadius: '15px',
+                          '& .MuiListItemIcon-root': {
+                            color: settings.textSecondaryColor,
+                          },
+                        },
+                        borderTopRightRadius: selectedItem === "payroll-jo" ? '15px' : 0,
+                        borderBottomRightRadius: selectedItem === "payroll-jo" ? '15px' : 0,
+                      }}
+                    >
+                      <ListItemIcon sx={{ color: selectedItem === "payroll-jo" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
+                        <EditNoteIcon />
+                      </ListItemIcon>
+                      <ListItemText primary="Payroll JO | Processing" sx={{ marginLeft: "-10px" }} />
+                    </ListItem>
                     <ListItem
                       button
                       component={Link}
                       to="/payroll-processed-jo"
+                      selected={selectedItem === "payroll-processed-jo"}
+                      onClick={() => handleItemClick("payroll-processed-jo")}
                       sx={{
-                        color:
-                          selectedItem === "payroll-processed-jo"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "payroll-processed-jo"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
+                        color: selectedItem === "payroll-processed-jo" ? settings.textPrimaryColor : settings.textSecondaryColor,
+                        bgcolor: selectedItem === "payroll-processed-jo" ? settings.accentColor || "#FEF9E1" : "inherit",
+                        '&:hover': {
                           bgcolor: settings.hoverColor || "#6D2323",
                           color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
+                          borderTopRightRadius: '15px',
+                          borderBottomRightRadius: '15px',
+                          '& .MuiListItemIcon-root': {
                             color: settings.textSecondaryColor,
                           },
                         },
-                        borderTopRightRadius:
-                          selectedItem === "payroll-processed-jo" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "payroll-processed-jo" ? "15px" : 0,
+                        borderTopRightRadius: selectedItem === "payroll-processed-jo" ? '15px' : 0,
+                        borderBottomRightRadius: selectedItem === "payroll-processed-jo" ? '15px' : 0,
                       }}
-                      onClick={() => handleItemClick("payroll-processed-jo")}
                     >
-                      <ListItemIcon
-                        sx={{
-                          marginRight: "-1rem",
-                          color:
-                            selectedItem === "payroll-processed-jo"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
+                      <ListItemIcon sx={{ color: selectedItem === "payroll-processed-jo" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
                         <PaymentsIcon />
                       </ListItemIcon>
-                      <ListItemText
-                        primary="Payroll Processed | JO"
-                        sx={{ marginLeft: "-10px" }}
-                      />
+                      <ListItemText primary="Payroll Processed | JO" sx={{ marginLeft: "-10px" }} />
                     </ListItem>
 
+                    {/* Payroll Administration Dropdown */}
+                    <ListSubheader
+                      component="div"
+                      sx={{
+                        bgcolor: "transparent",
+                        fontWeight: "bold",
+                        fontSize: "0.7rem",
+                        color: settings.textSecondaryColor,
+                        fontFamily: "Poppins, sans-serif",
+                        textTransform: "uppercase",
+                        mb: -1,
+                        pl: 0,
+                      }}
+                    >
+                      Payslips
+                    </ListSubheader>
                     <ListItem
                       button
                       component={Link}
                       to="/payroll-released"
+                      selected={selectedItem === "payroll-released"}
+                      onClick={() => handleItemClick("payroll-released")}
                       sx={{
-                        color:
-                          selectedItem === "payroll-released"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "payroll-released"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
+                        color: selectedItem === "payroll-released" ? settings.textPrimaryColor : settings.textSecondaryColor,
+                        bgcolor: selectedItem === "payroll-released" ? settings.accentColor || "#FEF9E1" : "inherit",
+                        '&:hover': {
                           bgcolor: settings.hoverColor || "#6D2323",
                           color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
+                          borderTopRightRadius: '15px',
+                          borderBottomRightRadius: '15px',
+                          '& .MuiListItemIcon-root': {
                             color: settings.textSecondaryColor,
                           },
                         },
-                        borderTopRightRadius:
-                          selectedItem === "payroll-released" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "payroll-released" ? "15px" : 0,
+                        borderTopRightRadius: selectedItem === "payroll-released" ? '15px' : 0,
+                        borderBottomRightRadius: selectedItem === "payroll-released" ? '15px' : 0,
                       }}
-                      onClick={() => handleItemClick("payroll-released")}
                     >
-                      <ListItemIcon
-                        sx={{
-                          marginRight: "-1rem",
-                          color:
-                            selectedItem === "payroll-released"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
+                      <ListItemIcon sx={{ color: selectedItem === "payroll-released" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
                         <NewReleases />
                       </ListItemIcon>
-                      <ListItemText
-                        primary="Payroll | Release"
-                        sx={{ marginLeft: "-10px" }}
-                      />
+                      <ListItemText primary="Payroll | Release" sx={{ marginLeft: "-10px" }} />
                     </ListItem>
-
-                    <ListItem
+                      <ListItem
                       button
                       component={Link}
                       to="/distribution-payslip"
+                      selected={selectedItem === "distribution-payslip"}
+                      onClick={() => handleItemClick("distribution-payslip")}
                       sx={{
-                        color:
-                          selectedItem === "distribution-payslip"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "distribution-payslip"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
+                        color: selectedItem === "distribution-payslip" ? settings.textPrimaryColor : settings.textSecondaryColor,
+                        bgcolor: selectedItem === "distribution-payslip" ? settings.accentColor || "#FEF9E1" : "inherit",
+                        '&:hover': {
                           bgcolor: settings.hoverColor || "#6D2323",
                           color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
+                          borderTopRightRadius: '15px',
+                          borderBottomRightRadius: '15px',
+                          '& .MuiListItemIcon-root': {
                             color: settings.textSecondaryColor,
                           },
                         },
-                        borderTopRightRadius:
-                          selectedItem === "distribution-payslip" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "distribution-payslip" ? "15px" : 0,
+                        borderTopRightRadius: selectedItem === "distribution-payslip" ? '15px' : 0,
+                        borderBottomRightRadius: selectedItem === "distribution-payslip" ? '15px' : 0,
                       }}
-                      onClick={() => handleItemClick("distribution-payslip")}
                     >
-                      <ListItemIcon
-                        sx={{
-                          marginRight: "-1rem",
-                          color:
-                            selectedItem === "distribution-payslip"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
+                      <ListItemIcon sx={{ color: selectedItem === "distribution-payslip" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
                         <ReceiptLong />
                       </ListItemIcon>
-                      <ListItemText
-                        primary="Payslip Distribution"
-                        sx={{ marginLeft: "-10px" }}
-                      />
+                      <ListItemText primary="Payslip Distribution" sx={{ marginLeft: "-10px" }} />
                     </ListItem>
 
                     <ListItem
                       button
                       component={Link}
                       to="/overall-payslip"
+                      selected={selectedItem === "overall-payslip"}
+                      onClick={() => handleItemClick("overall-payslip")}
                       sx={{
-                        color:
-                          selectedItem === "overall-payslip"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "overall-payslip"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
+                        color: selectedItem === "overall-payslip" ? settings.textPrimaryColor : settings.textSecondaryColor,
+                        bgcolor: selectedItem === "overall-payslip" ? settings.accentColor || "#FEF9E1" : "inherit",
+                        '&:hover': {
                           bgcolor: settings.hoverColor || "#6D2323",
                           color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
+                          borderTopRightRadius: '15px',
+                          borderBottomRightRadius: '15px',
+                          '& .MuiListItemIcon-root': {
                             color: settings.textSecondaryColor,
                           },
                         },
-                        borderTopRightRadius:
-                          selectedItem === "overall-payslip" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "overall-payslip" ? "15px" : 0,
+                        borderTopRightRadius: selectedItem === "overall-payslip" ? '15px' : 0,
+                        borderBottomRightRadius: selectedItem === "overall-payslip" ? '15px' : 0,
                       }}
-                      onClick={() => handleItemClick("overall-payslip")}
                     >
-                      <ListItemIcon
-                        sx={{
-                          marginRight: "-1rem",
-                          color:
-                            selectedItem === "overall-payslip"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
+                      <ListItemIcon sx={{ color: selectedItem === "overall-payslip" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
                         <RequestQuote />
                       </ListItemIcon>
-                      <ListItemText
-                        primary="Payslip Records"
-                        sx={{ marginLeft: "-10px" }}
-                      />
+                      <ListItemText primary="Payslip Records" sx={{ marginLeft: "-10px" }} />
                     </ListItem>
 
+                    
+
+
+                    <ListSubheader
+                      component="div"
+                      sx={{
+                        bgcolor: "transparent",
+                        fontWeight: "bold",
+                        fontSize: "0.7rem",
+                        color: settings.textSecondaryColor,
+                        fontFamily: "Poppins, sans-serif",
+                        textTransform: "uppercase",
+                        mb: -1,
+                        pl: 0,
+                      }}
+                    >
+                      Payroll Administration
+                    </ListSubheader>
+                  
                     <ListItem
                       button
                       component={Link}
                       to="/remittance-table"
+                      selected={selectedItem === "remittance-table"}
+                      onClick={() => handleItemClick("remittance-table")}
                       sx={{
-                        color:
-                          selectedItem === "remittance-table"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "remittance-table"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
+                        color: selectedItem === "remittance-table" ? settings.textPrimaryColor : settings.textSecondaryColor,
+                        bgcolor: selectedItem === "remittance-table" ? settings.accentColor || "#FEF9E1" : "inherit",
+                        '&:hover': {
                           bgcolor: settings.hoverColor || "#6D2323",
                           color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
+                          borderTopRightRadius: '15px',
+                          borderBottomRightRadius: '15px',
+                          '& .MuiListItemIcon-root': {
                             color: settings.textSecondaryColor,
                           },
                         },
-                        borderTopRightRadius:
-                          selectedItem === "remittance-table" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "remittance-table" ? "15px" : 0,
+                        borderTopRightRadius: selectedItem === "remittance-table" ? '15px' : 0,
+                        borderBottomRightRadius: selectedItem === "remittance-table" ? '15px' : 0,
                       }}
-                      onClick={() => handleItemClick("remittance-table")}
                     >
-                      <ListItemIcon
-                        sx={{
-                          marginRight: "-1rem",
-                          color:
-                            selectedItem === "remittance-table"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
+                      <ListItemIcon sx={{ color: selectedItem === "remittance-table" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
                         <AccountBalanceIcon />
                       </ListItemIcon>
-                      <ListItemText
-                        primary="Remittances"
-                        sx={{ marginLeft: "-10px" }}
-                      />
+                      <ListItemText primary="Remittances" sx={{ marginLeft: "-10px" }} />
                     </ListItem>
-
+                    
                     <ListItem
                       button
                       component={Link}
                       to="/item-table"
+                      selected={selectedItem === "item-table"}
+                      onClick={() => handleItemClick("item-table")}
                       sx={{
-                        color:
-                          selectedItem === "item-table"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "item-table"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
+                        color: selectedItem === "item-table" ? settings.textPrimaryColor : settings.textSecondaryColor,
+                        bgcolor: selectedItem === "item-table" ? settings.accentColor || "#FEF9E1" : "inherit",
+                        '&:hover': {
                           bgcolor: settings.hoverColor || "#6D2323",
                           color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
+                          borderTopRightRadius: '15px',
+                          borderBottomRightRadius: '15px',
+                          '& .MuiListItemIcon-root': {
                             color: settings.textSecondaryColor,
                           },
                         },
-                        borderTopRightRadius:
-                          selectedItem === "item-table" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "item-table" ? "15px" : 0,
+                        borderTopRightRadius: selectedItem === "item-table" ? '15px' : 0,
+                        borderBottomRightRadius: selectedItem === "item-table" ? '15px' : 0,
                       }}
-                      onClick={() => handleItemClick("item-table")}
                     >
-                      <ListItemIcon
-                        sx={{
-                          marginRight: "-1rem",
-                          color:
-                            selectedItem === "item-table"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
+                      <ListItemIcon sx={{ color: selectedItem === "item-table" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
                         <CategoryIcon />
                       </ListItemIcon>
-                      <ListItemText
-                        primary="Item Table"
-                        sx={{ marginLeft: "-10px" }}
-                      />
+                      <ListItemText primary="Item Table" sx={{ marginLeft: "-10px" }} />
                     </ListItem>
 
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/salary-grade"
-                      sx={{
-                        color:
-                          selectedItem === "salary-grade"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "salary-grade"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "salary-grade" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "salary-grade" ? "15px" : 0,
-                      }}
-                      onClick={() => handleItemClick("salary-grade")}
-                    >
-                      <ListItemIcon
-                        sx={{
-                          marginRight: "-1rem",
-                          color:
-                            selectedItem === "salary-grade"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
-                        <MonetizationOnIcon />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Salary Grade | Tranche"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-
-                    <ListItem
+                     <ListItem
                       button
                       component={Link}
                       to="/department-table"
@@ -3640,7 +3694,6 @@ const Sidebar = ({
                     >
                       <ListItemIcon
                         sx={{
-                          marginRight: "-1rem",
                           color:
                             selectedItem === "department-table"
                               ? settings.textPrimaryColor
@@ -3687,7 +3740,6 @@ const Sidebar = ({
                     >
                       <ListItemIcon
                         sx={{
-                          marginRight: "-1rem",
                           color:
                             selectedItem === "department-assignment"
                               ? settings.textPrimaryColor
@@ -3702,11 +3754,38 @@ const Sidebar = ({
                         sx={{ marginLeft: "-10px" }}
                       />
                     </ListItem>
+
+                    <ListItem
+                      button
+                      component={Link}
+                      to="/salary-grade"
+                      selected={selectedItem === "salary-grade"}
+                      onClick={() => handleItemClick("salary-grade")}
+                      sx={{
+                        color: selectedItem === "salary-grade" ? settings.textPrimaryColor : settings.textSecondaryColor,
+                        bgcolor: selectedItem === "salary-grade" ? settings.accentColor || "#FEF9E1" : "inherit",
+                        '&:hover': {
+                          bgcolor: settings.hoverColor || "#6D2323",
+                          color: settings.textSecondaryColor,
+                          borderTopRightRadius: '15px',
+                          borderBottomRightRadius: '15px',
+                          '& .MuiListItemIcon-root': {
+                            color: settings.textSecondaryColor,
+                          },
+                        },
+                        borderTopRightRadius: selectedItem === "salary-grade" ? '15px' : 0,
+                        borderBottomRightRadius: selectedItem === "salary-grade" ? '15px' : 0,
+                      }}
+                    >
+                      <ListItemIcon sx={{ color: selectedItem === "salary-grade" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
+                        <MonetizationOnIcon />
+                      </ListItemIcon>
+                      <ListItemText primary="Salary Grade | Tranche" sx={{ marginLeft: "-10px" }} />
+                    </ListItem>
                   </List>
                 </Collapse>
               </>
             )}
-
             {userRole !== "staff" && (
               <>
                 <ListItem

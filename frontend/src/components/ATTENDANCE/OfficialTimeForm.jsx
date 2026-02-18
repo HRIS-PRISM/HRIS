@@ -1,6 +1,6 @@
 // (full file contents)
 import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import SaveIcon from '@mui/icons-material/Save';
@@ -44,6 +44,7 @@ import {
   Checkbox,
   Autocomplete,
 } from '@mui/material';
+import {TablePagination} from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import {
   Close,
@@ -400,6 +401,8 @@ const OfficialTimeForm = () => {
   const [allUsers, setAllUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [allUsersPage, setAllUsersPage] = useState(0);
+  const [allUsersRowsPerPage, setAllUsersRowsPerPage] = useState(10);
   const [selectedUsers, setSelectedUsers] = useState(new Set());
   const [settingDefault, setSettingDefault] = useState(false);
 
@@ -1047,6 +1050,13 @@ const OfficialTimeForm = () => {
 
     return filtered;
   };
+
+  const filteredAllUsers = useMemo(() => getFilteredUsers(), [allUsers, searchQuery]);
+
+  const paginatedAllUsers = useMemo(() => {
+    const start = allUsersPage * allUsersRowsPerPage;
+    return filteredAllUsers.slice(start, start + allUsersRowsPerPage);
+  }, [filteredAllUsers, allUsersPage, allUsersRowsPerPage]);
 
   useEffect(() => {
     if (showAllUsers) {
@@ -4026,7 +4036,10 @@ const OfficialTimeForm = () => {
                       fullWidth
                       placeholder="Search by name or employee number..."
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setAllUsersPage(0);
+                      }}
                       InputProps={{
                         startAdornment: (
                           <InputAdornment position="start">
@@ -4077,6 +4090,7 @@ const OfficialTimeForm = () => {
                       <CircularProgress sx={{ color: accentColor }} />
                     </Box>
                   ) : (
+                    < >
                     <PremiumTableContainer>
                       <Table stickyHeader>
                         <TableHead sx={{ bgcolor: alpha(primaryColor, 0.7) }}>
@@ -4084,23 +4098,31 @@ const OfficialTimeForm = () => {
                             <PremiumTableCell>
                               <Checkbox
                                 checked={
-                                  getFilteredUsers().length > 0 &&
-                                  getFilteredUsers().every((u) =>
+                                  filteredAllUsers.length > 0 &&
+                                  filteredAllUsers.every((u) =>
                                     selectedUsers.has(u.employeeNumber),
                                   )
                                 }
                                 indeterminate={
-                                  getFilteredUsers().some((u) =>
+                                  filteredAllUsers.some((u) =>
                                     selectedUsers.has(u.employeeNumber),
                                   ) &&
-                                  !getFilteredUsers().every((u) =>
+                                  !filteredAllUsers.every((u) =>
                                     selectedUsers.has(u.employeeNumber),
                                   )
                                 }
                                 onChange={(e) =>
                                   handleSelectAll(e.target.checked)
                                 }
-                                sx={{ color: accentColor }}
+                                sx={{ 
+    color: 'white',
+    '&.Mui-checked': {
+      color: 'white',
+    },
+    '&.MuiCheckbox-indeterminate': {
+      color: 'white',
+    }
+  }}
                               />
                             </PremiumTableCell>
 
@@ -4151,7 +4173,7 @@ const OfficialTimeForm = () => {
 
                         {/* ... inside TableBody (replace current row rendering) ... */}
                         <TableBody>
-                          {getFilteredUsers().map((user) => (
+                          {paginatedAllUsers.map((user) => (
                             <TableRow
                               key={user.employeeNumber}
                               sx={{
@@ -4247,6 +4269,38 @@ const OfficialTimeForm = () => {
                         </TableBody>
                       </Table>
                     </PremiumTableContainer>
+                    <Box
+                      sx={{
+                        position: 'sticky',
+                        bottom: 0,
+                        zIndex: 15,
+                        bgcolor: 'background.paper',
+                        borderTop: `1px solid ${alpha(primaryColor, 0.2)}`,
+                      }}
+                    >
+                      <TablePagination
+                        component="div"
+                        count={filteredAllUsers.length}
+                        page={allUsersPage}
+                        onPageChange={(event, newPage) => setAllUsersPage(newPage)}
+                        rowsPerPage={allUsersRowsPerPage}
+                        onRowsPerPageChange={(event) => {
+                          setAllUsersRowsPerPage(parseInt(event.target.value, 10));
+                          setAllUsersPage(0);
+                        }}
+                        rowsPerPageOptions={[10, 20, 30, 50]}
+                        labelRowsPerPage="Rows per page:"
+                        labelDisplayedRows={({ from, to, count }) =>
+                          `${from}-${to} of ${count} (Total: ${count})`
+                        }
+                        sx={{
+                          '& .MuiTablePagination-toolbar': {
+                            minHeight: 56,
+                          },
+                        }}
+                      />
+                    </Box>
+                    </>
                   )}
                 </CardContent>
               </GlassCard>

@@ -1978,5 +1978,3 @@ const EmploymentCategoryManagement = () => {
 };
 
 export default EmploymentCategoryManagement;
-
-

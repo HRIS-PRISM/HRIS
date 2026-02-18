@@ -1,8 +1,88 @@
-// LeaveDatePickerModal.jsx
-import React, { useState } from "react";
-import { Modal, Box, Typography, Button } from "@mui/material";
+import React, { useState, useMemo } from "react";
+import {
+  Modal,
+  Box,
+  Typography,
+  Button,
+  IconButton,
+  Fade,
+  Paper,
+  Divider,
+  Chip,
+  alpha,
+  styled,
+} from "@mui/material";
+import {
+  Close,
+  ChevronLeft,
+  ChevronRight,
+  CalendarMonth,
+  Check,
+  Today,
+  EventAvailable,
+  Clear,
+  Info,
+} from "@mui/icons-material";
 
-const LeaveDatePickerModal = ({ open, onClose, selectedDates, setSelectedDates }) => {
+// Styled components
+const GlassPaper = styled(Paper)(({ theme }) => ({
+  background: 'rgba(255, 255, 255, 0.98)',
+  backdropFilter: 'blur(20px)',
+  borderRadius: 24,
+  boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+  overflow: 'hidden',
+}));
+
+const DayButton = styled(Box)(({ theme, selected, disabled, isToday, accentColor }) => ({
+  width: 44,
+  height: 44,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  borderRadius: selected ? 14 : '50%',
+  fontWeight: 600,
+  fontSize: '0.9rem',
+  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+  position: 'relative',
+  color: disabled ? '#ccc' : selected ? '#fff' : '#333',
+  backgroundColor: selected ? accentColor : 'transparent',
+  border: isToday && !selected ? `2px solid ${accentColor}` : 'none',
+  opacity: disabled ? 0.4 : 1,
+  transform: selected ? 'scale(1.05)' : 'scale(1)',
+  boxShadow: selected ? `0 4px 12px ${alpha(accentColor, 0.4)}` : 'none',
+  '&:hover': disabled ? {} : {
+    transform: selected ? 'scale(1.08)' : 'scale(1.1)',
+    backgroundColor: selected ? accentColor : alpha(accentColor, 0.1),
+    boxShadow: selected ? `0 6px 16px ${alpha(accentColor, 0.5)}` : 'none',
+  },
+}));
+
+const NavigationButton = styled(IconButton)(({ theme, accentColor }) => ({
+  width: 44,
+  height: 44,
+  borderRadius: 12,
+  backgroundColor: alpha(accentColor, 0.08),
+  color: accentColor,
+  transition: 'all 0.2s ease',
+  '&:hover': {
+    backgroundColor: alpha(accentColor, 0.15),
+    transform: 'scale(1.05)',
+  },
+}));
+
+const LeaveDatePickerModal = ({ 
+  open, 
+  onClose, 
+  selectedDates, 
+  setSelectedDates,
+  accentColor = '#6d2323',
+  accentDark = '#8B3333',
+  primaryColor = '#FEF9E1',
+  secondaryColor = '#FFF8E7',
+  allowPastDates = false, // NEW: Set to true for sick leave
+  leaveType = '', // NEW: Pass leave type to show info
+}) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
   const formatDate = (dateObj) => {
@@ -18,87 +98,303 @@ const LeaveDatePickerModal = ({ open, onClose, selectedDates, setSelectedDates }
     );
   };
 
+  const clearAllDates = () => {
+    setSelectedDates([]);
+  };
+
+  const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const calendarData = useMemo(() => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const blanks = Array.from({ length: firstDay }, (_, i) => ({
+      type: 'blank',
+      key: `blank-${i}`,
+    }));
+
+    const days = Array.from({ length: daysInMonth }, (_, i) => {
+      const dayNum = i + 1;
+      const dateObj = new Date(year, month, dayNum);
+      const dateStr = formatDate(dateObj);
+      const isSelected = selectedDates.includes(dateStr);
+      const isToday = dateObj.getTime() === today.getTime();
+      
+      // Only disable past dates if allowPastDates is false
+      const isPast = !allowPastDates && dateObj < today;
+
+      return {
+        type: 'day',
+        key: dateStr,
+        dayNum,
+        dateStr,
+        isSelected,
+        isToday,
+        isPast,
+      };
+    });
+
+    return [...blanks, ...days];
+  }, [currentMonth, selectedDates, allowPastDates]);
+
+  const goToPreviousMonth = () => {
+    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const goToNextMonth = () => {
+    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const goToToday = () => {
+    setCurrentMonth(new Date());
+  };
+
+  const formatSelectedDate = (dateStr) => {
+    const [year, month, day] = dateStr.split('-');
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  const sortedSelectedDates = [...selectedDates].sort();
+
   return (
-    <Modal open={open} onClose={onClose}>
-      <Box
-        sx={{
-          backgroundColor: "#fff",
-          border: "1px solid #6d2323",
-          borderRadius: 2,
-          width: "80%",
-          maxWidth: "500px",
-          p: 3,
-          mx: "auto",
-          mt: "10%",
-        }}
-      >
-        <Typography variant="h6" sx={{ mb: 2, textAlign: "center" }}>
-          Select Leave Dates
-        </Typography>
+    <Modal
+      open={open}
+      onClose={onClose}
+      closeAfterTransition
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        p: 2,
+      }}
+    >
+      <Fade in={open}>
+        <GlassPaper sx={{ width: '100%', maxWidth: 520, maxHeight: '90vh' }}>
+          {/* Header */}
+          <Box
+            sx={{
+              background: `linear-gradient(135deg, ${accentColor} 0%, ${accentDark} 100%)`,
+              p: 3,
+              color: primaryColor,
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+          >
+            <Box sx={{ position: 'absolute', top: -30, right: -30, width: 100, height: 100, borderRadius: '50%', background: alpha(primaryColor, 0.1) }} />
+            <Box sx={{ position: 'absolute', bottom: -20, left: -20, width: 60, height: 60, borderRadius: '50%', background: alpha(primaryColor, 0.08) }} />
 
-        {/* Calendar navigation */}
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-          <Button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}>
-            ◀
-          </Button>
-          <Typography>
-            {currentMonth.toLocaleString("default", { month: "long" })} {currentMonth.getFullYear()}
-          </Typography>
-          <Button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}>
-            ▶
-          </Button>
-        </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', zIndex: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Box sx={{ width: 48, height: 48, borderRadius: 3, background: alpha(primaryColor, 0.15), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <CalendarMonth sx={{ fontSize: 26, color: primaryColor }} />
+                </Box>
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                    Select Leave Dates
+                  </Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.85 }}>
+                    Click dates to select or deselect
+                  </Typography>
+                </Box>
+              </Box>
+              <IconButton onClick={onClose} sx={{ color: primaryColor, backgroundColor: alpha(primaryColor, 0.15), '&:hover': { backgroundColor: alpha(primaryColor, 0.25) } }}>
+                <Close />
+              </IconButton>
+            </Box>
+          </Box>
 
-        {/* Days grid */}
-        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 1 }}>
-          {(() => {
-            const year = currentMonth.getFullYear();
-            const month = currentMonth.getMonth();
-            const firstDay = new Date(year, month, 1).getDay();
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
+          {/* Info Banner for Sick Leave */}
+          {allowPastDates && (
+            <Box
+              sx={{
+                px: 3,
+                py: 2,
+                backgroundColor: alpha('#1565C0', 0.08),
+                borderBottom: `1px solid ${alpha('#1565C0', 0.15)}`,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.5,
+              }}
+            >
+              <Info sx={{ color: '#1565C0', fontSize: 20 }} />
+              <Typography variant="body2" sx={{ color: '#1565C0', fontWeight: 500 }}>
+                Past dates are enabled for sick leave filing
+              </Typography>
+            </Box>
+          )}
 
-            const blanks = Array.from({ length: firstDay }, (_, i) => <Box key={`b${i}`} />);
-            const days = Array.from({ length: daysInMonth }, (_, i) => {
-              const dateObj = new Date(year, month, i + 1);
-              const dateStr = formatDate(dateObj);
-              const isSelected = selectedDates.includes(dateStr);
+          {/* Month Navigation */}
+          <Box
+            sx={{
+              px: 3,
+              py: 2.5,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: `1px solid ${alpha(accentColor, 0.1)}`,
+              backgroundColor: alpha(primaryColor, 0.3),
+            }}
+          >
+            <NavigationButton onClick={goToPreviousMonth} accentColor={accentColor}>
+              <ChevronLeft />
+            </NavigationButton>
 
-              return (
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h6" sx={{ fontWeight: 700, color: accentColor, textTransform: 'capitalize' }}>
+                {currentMonth.toLocaleString("default", { month: "long" })} {currentMonth.getFullYear()}
+              </Typography>
+              <Button size="small" onClick={goToToday} startIcon={<Today sx={{ fontSize: 16 }} />} sx={{ mt: 0.5, color: accentColor, fontSize: '0.75rem', fontWeight: 600, textTransform: 'none' }}>
+                Today
+              </Button>
+            </Box>
+
+            <NavigationButton onClick={goToNextMonth} accentColor={accentColor}>
+              <ChevronRight />
+            </NavigationButton>
+          </Box>
+
+          {/* Calendar Grid */}
+          <Box sx={{ p: 3 }}>
+            {/* Day headers */}
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.5, mb: 1.5 }}>
+              {daysOfWeek.map((day, index) => (
                 <Box
-                  key={dateStr}
-                  onClick={() => toggleDate(dateStr)}
+                  key={day}
                   sx={{
-                    width: 40,
-                    height: 40,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    borderRadius: "50%",
-                    border: "1px solid #6d2323",
-                    backgroundColor: isSelected ? "#6d2323" : "#fff",
-                    color: isSelected ? "#fff" : "#000",
-                    "&:hover": { backgroundColor: isSelected ? "#5a1d1d" : "#f5f5f5" },
+                    height: 36,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 700,
+                    fontSize: '0.75rem',
+                    color: index === 0 || index === 6 ? alpha(accentColor, 0.5) : accentColor,
+                    textTransform: 'uppercase',
                   }}
                 >
-                  {i + 1}
+                  {day}
                 </Box>
-              );
-            });
+              ))}
+            </Box>
 
-            return [...blanks, ...days];
-          })()}
-        </Box>
+            {/* Days grid */}
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.5 }}>
+              {calendarData.map((item) => {
+                if (item.type === 'blank') {
+                  return <Box key={item.key} sx={{ width: 44, height: 44 }} />;
+                }
 
-        <Button
-          onClick={onClose}
-          fullWidth
-          variant="contained"
-          sx={{ mt: 3, backgroundColor: "#6d2323", color: "#fff" }}
-        >
-          Done
-        </Button>
-      </Box>
+                return (
+                  <DayButton
+                    key={item.key}
+                    selected={item.isSelected}
+                    disabled={item.isPast}
+                    isToday={item.isToday}
+                    accentColor={accentColor}
+                    onClick={() => !item.isPast && toggleDate(item.dateStr)}
+                  >
+                    {item.dayNum}
+                    {item.isSelected && (
+                      <Box sx={{ position: 'absolute', top: 2, right: 2, width: 8, height: 8, borderRadius: '50%', backgroundColor: primaryColor }} />
+                    )}
+                  </DayButton>
+                );
+              })}
+            </Box>
+          </Box>
+
+          {/* Selected Dates Display */}
+          {selectedDates.length > 0 && (
+            <Box sx={{ px: 3, pb: 2, maxHeight: 120, overflowY: 'auto' }}>
+              <Typography variant="caption" sx={{ color: accentColor, fontWeight: 700, display: 'block', mb: 1.5, textTransform: 'uppercase' }}>
+                Selected Dates ({selectedDates.length})
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {sortedSelectedDates.map((dateStr) => (
+                  <Chip
+                    key={dateStr}
+                    label={formatSelectedDate(dateStr)}
+                    size="small"
+                    onDelete={() => toggleDate(dateStr)}
+                    deleteIcon={<Clear sx={{ fontSize: 16 }} />}
+                    sx={{
+                      backgroundColor: alpha(accentColor, 0.1),
+                      color: accentColor,
+                      fontWeight: 600,
+                      fontSize: '0.75rem',
+                      height: 28,
+                      borderRadius: 2,
+                      border: `1px solid ${alpha(accentColor, 0.2)}`,
+                      '& .MuiChip-deleteIcon': { color: accentColor, '&:hover': { color: accentDark } },
+                    }}
+                  />
+                ))}
+              </Box>
+            </Box>
+          )}
+
+          {/* Footer Actions */}
+          <Box
+            sx={{
+              px: 3,
+              py: 2.5,
+              borderTop: `1px solid ${alpha(accentColor, 0.1)}`,
+              backgroundColor: alpha(primaryColor, 0.3),
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 2,
+            }}
+          >
+            <Button
+              onClick={clearAllDates}
+              disabled={selectedDates.length === 0}
+              startIcon={<Clear />}
+              sx={{
+                color: accentColor,
+                fontWeight: 600,
+                textTransform: 'none',
+                '&:hover': { backgroundColor: alpha(accentColor, 0.08) },
+                '&:disabled': { color: '#ccc' },
+              }}
+            >
+              Clear All
+            </Button>
+
+            <Button
+              onClick={onClose}
+              variant="contained"
+              startIcon={<Check />}
+              sx={{
+                backgroundColor: accentColor,
+                color: primaryColor,
+                fontWeight: 700,
+                textTransform: 'none',
+                px: 4,
+                py: 1.2,
+                borderRadius: 3,
+                boxShadow: `0 4px 14px ${alpha(accentColor, 0.4)}`,
+                '&:hover': {
+                  backgroundColor: accentDark,
+                  boxShadow: `0 6px 20px ${alpha(accentColor, 0.5)}`,
+                  transform: 'translateY(-1px)',
+                },
+                transition: 'all 0.2s ease',
+              }}
+            >
+              Confirm ({selectedDates.length} selected)
+            </Button>
+          </Box>
+        </GlassPaper>
+      </Fade>
     </Modal>
   );
 };

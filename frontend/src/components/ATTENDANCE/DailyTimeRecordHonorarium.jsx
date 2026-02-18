@@ -32,7 +32,6 @@ import html2canvas from 'html2canvas';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 
-// Helper function to convert hex to rgb
 const hexToRgb = (hex) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return result
@@ -42,8 +41,6 @@ const hexToRgb = (hex) => {
       )}`
     : '109, 35, 35';
 };
-
-// --- FIXED STYLED COMPONENTS (Removed Transforms to stop movement) ---
 
 const GlassCard = styled(Card)(({ theme }) => ({
   borderRadius: 20,
@@ -94,7 +91,7 @@ const ModernTextField = styled(TextField)(({ theme }) => ({
   },
 }));
 
-const DailyTimeRecord = () => {
+const DailyTimeRecordHonorarium = () => {
   const { settings } = useSystemSettings();
   const [personID, setPersonID] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -107,15 +104,12 @@ const DailyTimeRecord = () => {
   const [holidays, setHolidays] = useState([]);
   const [suspensions, setSuspensions] = useState([]);
 
-  // Year selector (mirrors DailyTimeRecordOverall / AttendanceState)
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
-  // Use a single constant width (in) for DTR rendering/capture (same as Overall)
   const DTR_WIDTH_IN = '8.7in';
 
-  // Get colors from system settings
   const primaryColor = settings.accentColor || '#FEF9E1';
   const secondaryColor = settings.backgroundColor || '#FFF8E7';
   const accentColor = settings.primaryColor || '#6d2323';
@@ -124,12 +118,11 @@ const DailyTimeRecord = () => {
   const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
   const hoverColor = settings.hoverColor || '#6D2323';
 
-  // ACCESS: page access control
   const {
     hasAccess,
     loading: accessLoading,
     error: accessError,
-  } = usePageAccess('daily-time-record');
+  } = usePageAccess('daily-time-record-honorarium');
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
@@ -161,18 +154,20 @@ const DailyTimeRecord = () => {
           personID,
           startDate,
           endDate,
+          type: 'HONORARIUM',
         },
         getAuthHeaders(),
       );
 
       const data = response.data;
 
-      // Filter to show records that have regular times (timeIN or timeOUT)
-      // Records can have both regular times AND special times on the same day
-      const regularRecords = data.filter(record => record.timeIN || record.timeOUT);
+      // Filter to show only records with HONORARIUM special times
+      const honorariumRecords = data.filter(record => 
+        record.specialType === 'HONORARIUM' && (record.specialTimeIN || record.specialTimeOUT)
+      );
 
       if (data.length > 0) {
-        setRecords(regularRecords);
+        setRecords(honorariumRecords);
         const { firstName, lastName, middleName } = data[0];
         const full = `${firstName || ''} ${middleName ? middleName + ' ' : ''}${
           lastName || ''
@@ -204,6 +199,12 @@ const DailyTimeRecord = () => {
           officialTimeOUT: record.officialTimeOUT,
           officialBreaktimeIN: record.officialBreaktimeIN,
           officialBreaktimeOUT: record.officialBreaktimeOUT,
+          officialHonorariumTimeIN: record.officialHonorariumTimeIN,
+          officialHonorariumTimeOUT: record.officialHonorariumTimeOUT,
+          officialServiceCreditTimeIN: record.officialServiceCreditTimeIN,
+          officialServiceCreditTimeOUT: record.officialServiceCreditTimeOUT,
+          officialOverTimeIN: record.officialOverTimeIN,
+          officialOverTimeOUT: record.officialOverTimeOUT,
         };
         return acc;
       }, {});
@@ -215,13 +216,29 @@ const DailyTimeRecord = () => {
     }
   };
 
+  const getOfficialTimesForDate = (fullDate) => {
+    if (!fullDate) return {};
+    const date = new Date(fullDate);
+    const dayIndex = date.getDay();
+    const dayMap = {
+      0: 'Sunday',
+      1: 'Monday',
+      2: 'Tuesday',
+      3: 'Wednesday',
+      4: 'Thursday',
+      5: 'Friday',
+      6: 'Saturday',
+    };
+    const dayName = dayMap[dayIndex];
+    return officialTimes[dayName] || {};
+  };
+
   useEffect(() => {
     if (personID) {
       fetchOfficialTimes(personID);
     }
   }, [personID]);
 
-  // Fetch holidays and suspensions
   useEffect(() => {
     const fetchHolidaysAndSuspensions = async () => {
       try {
@@ -242,15 +259,12 @@ const DailyTimeRecord = () => {
     fetchHolidaysAndSuspensions();
   }, []);
 
-  // Automatically refetch records when personID + date range changes so DTR times update "realtime"
   useEffect(() => {
     if (personID && startDate && endDate) {
       fetchRecords();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personID, startDate, endDate]);
 
-  // Capture helpers (mirror Overall behavior)
   const ensureCaptureStyles = (el) => {
     if (!el) return {};
     const orig = {
@@ -300,10 +314,8 @@ const DailyTimeRecord = () => {
         format: 'a4',
       });
 
-      // Ensure capture-friendly styles
       const orig = ensureCaptureStyles(dtrRef.current);
 
-      // Wait for styles to apply
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const canvas = await html2canvas(dtrRef.current, {
@@ -345,7 +357,6 @@ const DailyTimeRecord = () => {
 
       const orig = ensureCaptureStyles(dtrRef.current);
 
-      // Wait for styles to apply
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const canvas = await html2canvas(dtrRef.current, {
@@ -367,7 +378,7 @@ const DailyTimeRecord = () => {
       const yOffset = (pageHeight - dtrHeight) / 2;
 
       pdf.addImage(imgData, 'PNG', xOffset, yOffset, dtrWidth, dtrHeight);
-      pdf.save(`DTR-${employeeName}-${formatMonth(startDate)}.pdf`);
+      pdf.save(`DTR-Honorarium-${employeeName}-${formatMonth(startDate)}.pdf`);
     } catch (error) {
       console.error('Error generating PDF:', error);
     }
@@ -426,7 +437,6 @@ const DailyTimeRecord = () => {
     setSelectedMonth(monthIndex);
   };
 
-  // ACCESSING UI states (loading / denied)
   if (accessLoading) {
     return (
       <Container maxWidth="md" sx={{ py: 8 }}>
@@ -450,15 +460,13 @@ const DailyTimeRecord = () => {
     return (
       <AccessDenied
         title="Access Denied"
-        message="You do not have permission to access Daily Time Record. Contact your administrator to request access."
+        message="You do not have permission to access Daily Time Record - Honorarium. Contact your administrator to request access."
         returnPath="/admin-home"
         returnButtonText="Return to Home"
       />
     );
   }
 
-  // Render header used inside the single-user table (mirrors DailyTimeRecordOverall),
-  // but the employee name has its own full-width row (prevents truncation).
   const renderHeader = () => {
     const dataFontSize = '10px';
     return (
@@ -570,12 +578,11 @@ const DailyTimeRecord = () => {
                 fontSize: '16px',
               }}
             >
-              DAILY TIME RECORD
+              DAILY TIME RECORD - HONORARIUM
             </h4>
           </td>
         </tr>
 
-        {/* Employee name section matching DailyTimeRecordOverall.jsx layout */}
         <tr>
           <td
             colSpan="7"
@@ -603,7 +610,6 @@ const DailyTimeRecord = () => {
                   margin: '2px 0 3px 0',
                 }}
               />
-              {/* Employee Name */}
               <div
                 style={{
                   fontSize: '12px',
@@ -619,7 +625,6 @@ const DailyTimeRecord = () => {
                 {employeeName || ''}
               </div>
 
-              {/* Underline */}
               <div
                 style={{
                   borderBottom: '2px solid black',
@@ -628,7 +633,6 @@ const DailyTimeRecord = () => {
                 }}
               />
 
-              {/* Label */}
               <div
                 style={{
                   fontSize: '9px',
@@ -702,11 +706,10 @@ const DailyTimeRecord = () => {
               lineHeight: '1.2',
             }}
           >
-            Official hours for arrival (regular day) and departure
+            Official hours for honorarium (arrival and departure)
           </td>
         </tr>
 
-        {/* Stable "Regular Days" row */}
         <tr>
           <td colSpan="7" style={{ padding: '2px 5px' }}>
             <div
@@ -734,14 +737,12 @@ const DailyTimeRecord = () => {
           </td>
         </tr>
 
-        {/* small spacers */}
         {Array.from({ length: 2 }, (_, i) => (
           <tr key={`empty2-${i}`}>
             <td colSpan="7"></td>
           </tr>
         ))}
 
-        {/* Stable "Saturdays" row */}
         <tr>
           <td colSpan="7" style={{ padding: '2px 5px' }}>
             <div
@@ -901,7 +902,6 @@ const DailyTimeRecord = () => {
     whiteSpace: 'nowrap',
   };
 
-  // Helper function to check if a date falls within a date range
   const isDateInRange = (date, startDate, endDate) => {
     if (!date) return false;
     const checkDate = new Date(date);
@@ -923,13 +923,11 @@ const DailyTimeRecord = () => {
     return false;
   };
 
-  // Check if a date is a holiday or suspension and has attendance record
   const getDateIndicator = (dateString, record) => {
     if (!dateString) return null;
 
-    const date = dateString.split('T')[0]; // Get YYYY-MM-DD format
+    const date = dateString.split('T')[0];
 
-    // Check suspensions first (higher priority)
     const suspension = suspensions.find((s) => {
       const start = s.date_start || s.date;
       const end = s.date_end || s.date;
@@ -940,14 +938,12 @@ const DailyTimeRecord = () => {
       return {
         type: 'suspension',
         label: 'SUSPENSION',
-        bgColor: 'rgba(211, 47, 47, 0.2)', // red tint
+        bgColor: 'rgba(211, 47, 47, 0.2)',
         textColor: '#000000',
         borderColor: '#d32f2f',
       };
     }
 
-    // Check holidays
-    // NOTE: highlight based on the holiday's original date range regardless of its current 'status' (ended or active)
     const holiday = holidays.find((h) => {
       const start = h.date_start || h.date;
       const end = h.date_end || h.date;
@@ -958,7 +954,7 @@ const DailyTimeRecord = () => {
       return {
         type: 'holiday',
         label: 'HOLIDAY',
-        bgColor: 'rgba(237, 108, 2, 0.25)', // orange tint
+        bgColor: 'rgba(237, 108, 2, 0.25)',
         textColor: '#000000',
         borderColor: '#ed6c02',
       };
@@ -970,7 +966,6 @@ const DailyTimeRecord = () => {
   return (
     <Container maxWidth="xl" sx={{ py: 4, mt: -5 }}>
       <style>{`
-        /* Force vertical scrollbar to prevent center-jump when data loads */
         html { overflow-y: scroll; }
 
         .dtr-responsive-header, .dtr-responsive-cell, .dtr-time-cell {
@@ -1074,7 +1069,7 @@ const DailyTimeRecord = () => {
                           color: textPrimaryColor,
                         }}
                       >
-                        Daily Time Record
+                        Daily Time Record - Honorarium
                       </Typography>
                       <Typography
                         variant="body1"
@@ -1084,13 +1079,13 @@ const DailyTimeRecord = () => {
                           color: textPrimaryColor,
                         }}
                       >
-                        Filter your DTR records by date
+                        Filter your honorarium DTR records by date
                       </Typography>
                     </Box>
                   </Box>
                   <Box display="flex" alignItems="center" gap={2}>
                     <Chip
-                      label="Faculty Records"
+                      label="Honorarium"
                       size="small"
                       sx={{
                         bgcolor: alpha(accentColor, 0.15),
@@ -1149,7 +1144,6 @@ const DailyTimeRecord = () => {
             </Box>
 
             <Box sx={{ p: 4 }}>
-              {/* Year & Month Selector (align with Overall view) */}
               <Box sx={{ mb: 3 }}>
                 <Box
                   sx={{
@@ -1345,7 +1339,6 @@ const DailyTimeRecord = () => {
                     className="table-side-by-side"
                   >
                     <>
-                      {/* Table 1 */}
                       <table
                         style={{
                           border: '1px solid black',
@@ -1361,16 +1354,24 @@ const DailyTimeRecord = () => {
                             const record = records.find(
                               (r) => r.date && r.date.endsWith(`-${day}`),
                             );
-                            // Construct full date: use record.date if available, otherwise build from startDate or selectedYear/selectedMonth
                             let fullDate = null;
                             if (record?.date) {
                               fullDate = record.date;
                             } else if (startDate) {
                               const [year, month] = startDate.split('-');
                               fullDate = `${year}-${month}-${day}`;
+                            } else if (selectedMonth !== null) {
+                              const monthNum = String(
+                                selectedMonth + 1,
+                              ).padStart(2, '0');
+                              fullDate = `${selectedYear}-${monthNum}-${day}`;
                             }
-                            const indicator = getDateIndicator(fullDate, record);
-                            
+                            const officialTmsForDate = getOfficialTimesForDate(fullDate);
+                            const indicator = getDateIndicator(
+                              fullDate,
+                              record,
+                            );
+
                             return (
                               <tr key={i}>
                                 <td
@@ -1409,7 +1410,9 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.timeIN || '')}
+                                    {formatTime(
+                                      record?.specialTimeIN || '',
+                                    )}
                                   </span>
                                 </td>
                                 <td
@@ -1438,7 +1441,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.breaktimeIN || '')}
+                                    {''}
                                   </span>
                                 </td>
                                 <td
@@ -1467,7 +1470,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.breaktimeOUT || '')}
+                                    {''}
                                   </span>
                                 </td>
                                 <td
@@ -1496,7 +1499,9 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.timeOUT || '')}
+                                    {formatTime(
+                                      record?.specialTimeOUT || '',
+                                    )}
                                   </span>
                                 </td>
                                 <td
@@ -1525,7 +1530,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {record?.minutes || ''}
+                                    {''}
                                   </span>
                                 </td>
                                 <td
@@ -1577,7 +1582,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 2 }}
                                   >
-                                    {record?.minutes || ''}
+                                    {''}
                                   </span>
                                 </td>
                               </tr>
@@ -1697,7 +1702,6 @@ const DailyTimeRecord = () => {
                         </tbody>
                       </table>
 
-                      {/* Table 2 */}
                       <table
                         style={{
                           border: '1px solid black',
@@ -1713,14 +1717,19 @@ const DailyTimeRecord = () => {
                             const record = records.find(
                               (r) => r.date && r.date.endsWith(`-${day}`),
                             );
-                            // Construct full date: use record.date if available, otherwise build from startDate or selectedYear/selectedMonth
                             let fullDate = null;
                             if (record?.date) {
                               fullDate = record.date;
                             } else if (startDate) {
                               const [year, month] = startDate.split('-');
                               fullDate = `${year}-${month}-${day}`;
+                            } else if (selectedMonth !== null) {
+                              const monthNum = String(
+                                selectedMonth + 1,
+                              ).padStart(2, '0');
+                              fullDate = `${selectedYear}-${monthNum}-${day}`;
                             }
+                            const officialTmsForDate = getOfficialTimesForDate(fullDate);
                             const indicator = getDateIndicator(
                               fullDate,
                               record,
@@ -1764,7 +1773,9 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.timeIN || '')}
+                                    {formatTime(
+                                      record?.specialTimeIN || '',
+                                    )}
                                   </span>
                                 </td>
                                 <td
@@ -1793,7 +1804,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.breaktimeIN || '')}
+                                    {''}
                                   </span>
                                 </td>
                                 <td
@@ -1822,7 +1833,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.breaktimeOUT || '')}
+                                    {''}
                                   </span>
                                 </td>
                                 <td
@@ -1851,7 +1862,9 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.timeOUT || '')}
+                                    {formatTime(
+                                      record?.specialTimeOUT || '',
+                                    )}
                                   </span>
                                 </td>
                                 <td
@@ -1880,7 +1893,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {record?.hours || ''}
+                                    {''}
                                   </span>
                                 </td>
                                 <td
@@ -1932,7 +1945,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 2 }}
                                   >
-                                    {record?.minutes || ''}
+                                    {''}
                                   </span>
                                 </td>
                               </tr>
@@ -2104,6 +2117,4 @@ const DailyTimeRecord = () => {
   );
 };
 
-
-export default DailyTimeRecord;
-
+export default DailyTimeRecordHonorarium;

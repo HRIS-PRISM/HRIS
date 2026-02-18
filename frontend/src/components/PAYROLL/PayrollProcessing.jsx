@@ -308,6 +308,11 @@ const PayrollProcess = () => {
   const [searchInExcel, setSearchInExcel] = useState('');
   const excelTableRef = useRef(null);
 
+  // New state for bulk save
+  const [isBulkSaving, setIsBulkSaving] = useState(false);
+  const [bulkSaveProgress, setBulkSaveProgress] = useState({ current: 0, total: 0 });
+  const [bulkSaveOpen, setBulkSaveOpen] = useState(false);
+
   // [All existing functions remain the same]
   const handleView = (rowId) => {
     const row = computedRows.find((item) => item.id === rowId);
@@ -501,15 +506,16 @@ const PayrollProcess = () => {
       const res = await axios.get(url, getAuthHeaders());
       console.log(res.data);
 
-      // Track duplicates
-      const seen = new Set();
+      // Track duplicates by composite key: Name, EmployeeNumber, Start Date, End Date
+      const seen = new Map();
       const duplicates = new Set();
 
       res.data.forEach((item) => {
-        if (seen.has(item.employeeNumber)) {
-          duplicates.add(item.employeeNumber);
+        const compositeKey = `${item.name}|${item.employeeNumber}|${item.startDate}|${item.endDate}`;
+        if (seen.has(compositeKey)) {
+          duplicates.add(compositeKey);
         } else {
-          seen.add(item.employeeNumber);
+          seen.set(compositeKey, item);
         }
       });
 
@@ -713,20 +719,20 @@ const PayrollProcess = () => {
         // Format values for database storage (use .toFixed for precision)
         return {
           ...calculatedItem,
-          totalGsisDeds: (calculatedItem.totalGsisDeds || 0).toFixed(2),
-          totalPagibigDeds: (calculatedItem.totalPagibigDeds || 0).toFixed(2),
-          totalOtherDeds: (calculatedItem.totalOtherDeds || 0).toFixed(2),
-          grossSalary: (calculatedItem.grossSalary || 0).toFixed(2),
-          abs: (calculatedItem.abs || 0).toFixed(2),
-          netSalary: (calculatedItem.netSalary || 0).toFixed(2),
-          totalDeductions: (calculatedItem.totalDeductions || 0).toFixed(2),
-          PhilHealthContribution: (calculatedItem.PhilHealthContribution || 0).toFixed(2),
-          personalLifeRetIns: (calculatedItem.personalLifeRetIns || 0).toFixed(2),
-          pay1stCompute: (calculatedItem.pay1stCompute || 0).toFixed(2),
-          pay2ndCompute: (calculatedItem.pay2ndCompute || 0).toFixed(2),
-          pay1st: (calculatedItem.pay1st || 0).toFixed(0),
-          pay2nd: (calculatedItem.pay2nd || 0).toFixed(2),
-          rtIns: (calculatedItem.rtIns || 0).toFixed(2),
+          totalGsisDeds: (parseFloat(calculatedItem.totalGsisDeds) || 0).toFixed(2),
+          totalPagibigDeds: (parseFloat(calculatedItem.totalPagibigDeds) || 0).toFixed(2),
+          totalOtherDeds: (parseFloat(calculatedItem.totalOtherDeds) || 0).toFixed(2),
+          grossSalary: (parseFloat(calculatedItem.grossSalary) || 0).toFixed(2),
+          abs: (parseFloat(calculatedItem.abs) || 0).toFixed(2),
+          netSalary: (parseFloat(calculatedItem.netSalary) || 0).toFixed(2),
+          totalDeductions: (parseFloat(calculatedItem.totalDeductions) || 0).toFixed(2),
+          PhilHealthContribution: (parseFloat(calculatedItem.PhilHealthContribution) || 0).toFixed(2),
+          personalLifeRetIns: (parseFloat(calculatedItem.personalLifeRetIns) || 0).toFixed(2),
+          pay1stCompute: (parseFloat(calculatedItem.pay1stCompute) || 0).toFixed(2),
+          pay2ndCompute: (parseFloat(calculatedItem.pay2ndCompute) || 0).toFixed(2),
+          pay1st: (parseFloat(calculatedItem.pay1st) || 0).toFixed(0),
+          pay2nd: (parseFloat(calculatedItem.pay2nd) || 0).toFixed(2),
+          rtIns: (parseFloat(calculatedItem.rtIns) || 0).toFixed(2),
           status: 'Processed',
         };
       });
@@ -881,15 +887,16 @@ const PayrollProcess = () => {
       const newData = filteredData.filter((item) => item.id !== rowId);
       setFilteredData(newData);
 
-      // Recalculate duplicates
-      const seen = {};
+      // Recalculate duplicates by composite key: Name, EmployeeNumber, Start Date, End Date
+      const seen = new Map();
       const updatedDuplicates = new Set();
 
       newData.forEach((item) => {
-        if (seen[item.employeeNumber]) {
-          updatedDuplicates.add(item.employeeNumber);
+        const compositeKey = `${item.name}|${item.employeeNumber}|${item.startDate}|${item.endDate}`;
+        if (seen.has(compositeKey)) {
+          updatedDuplicates.add(compositeKey);
         } else {
-          seen[item.employeeNumber] = true;
+          seen.set(compositeKey, item);
         }
       });
 
@@ -955,6 +962,7 @@ const PayrollProcess = () => {
 
       const updatedRow = {
         ...calculatedRow,
+        id: editRow.id, // Include the unique ID
         // Ensure all values are numbers (not formatted strings)
         h: parseInt(calculatedRow.h) || 0,
         m: parseInt(calculatedRow.m) || 0,
@@ -988,7 +996,7 @@ const PayrollProcess = () => {
 
       setFilteredData((prevData) =>
         prevData.map((item) =>
-          item.employeeNumber === updatedRow.employeeNumber
+          item.id === updatedRow.id
             ? { ...item, ...recalculatedRow }
             : item
         )
@@ -997,7 +1005,7 @@ const PayrollProcess = () => {
       // Also update the main data array
       setData((prevData) =>
         prevData.map((item) =>
-          item.employeeNumber === updatedRow.employeeNumber
+          item.id === updatedRow.id
             ? { ...item, ...recalculatedRow }
             : item
         )
@@ -1075,58 +1083,58 @@ const PayrollProcess = () => {
       ...calculatedItem,
       h: calculatedItem.h || 0,
       m: calculatedItem.m || 0,
-      totalGsisDeds: (calculatedItem.totalGsisDeds || 0).toLocaleString('en-US', {
+      totalGsisDeds: (parseFloat(calculatedItem.totalGsisDeds) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      totalPagibigDeds: (calculatedItem.totalPagibigDeds || 0).toLocaleString('en-US', {
+      totalPagibigDeds: (parseFloat(calculatedItem.totalPagibigDeds) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      totalOtherDeds: (calculatedItem.totalOtherDeds || 0).toLocaleString('en-US', {
+      totalOtherDeds: (parseFloat(calculatedItem.totalOtherDeds) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      grossSalary: (calculatedItem.grossSalary || 0).toLocaleString('en-US', {
+      grossSalary: (parseFloat(calculatedItem.grossSalary) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      abs: (calculatedItem.abs || 0).toLocaleString('en-US', {
+      abs: (parseFloat(calculatedItem.abs) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      netSalary: (calculatedItem.netSalary || 0).toLocaleString('en-US', {
+      netSalary: (parseFloat(calculatedItem.netSalary) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      totalDeductions: (calculatedItem.totalDeductions || 0).toLocaleString('en-US', {
+      totalDeductions: (parseFloat(calculatedItem.totalDeductions) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      PhilHealthContribution: (calculatedItem.PhilHealthContribution || 0).toLocaleString('en-US', {
+      PhilHealthContribution: (parseFloat(calculatedItem.PhilHealthContribution) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      personalLifeRetIns: (calculatedItem.personalLifeRetIns || 0).toLocaleString('en-US', {
+      personalLifeRetIns: (parseFloat(calculatedItem.personalLifeRetIns) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      pay1stCompute: (calculatedItem.pay1stCompute || 0).toLocaleString('en-US', {
+      pay1stCompute: (parseFloat(calculatedItem.pay1stCompute) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      pay2ndCompute: (calculatedItem.pay2ndCompute || 0).toLocaleString('en-US', {
+      pay2ndCompute: (parseFloat(calculatedItem.pay2ndCompute) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      pay1st: (calculatedItem.pay1st || 0).toLocaleString('en-US', {
+      pay1st: (parseFloat(calculatedItem.pay1st) || 0).toLocaleString('en-US', {
         maximumFractionDigits: 0,
       }),
-      pay2nd: (calculatedItem.pay2nd || 0).toLocaleString('en-US', {
+      pay2nd: (parseFloat(calculatedItem.pay2nd) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      rtIns: (calculatedItem.rtIns || 0).toLocaleString('en-US', {
+      rtIns: (parseFloat(calculatedItem.rtIns) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
@@ -1263,6 +1271,113 @@ const PayrollProcess = () => {
 
   const isCellSelected = (rowIndex, colIndex) => {
     return selectedCell.row === rowIndex && selectedCell.col === colIndex;
+  };
+
+  // Bulk Recalculate and Save All function
+  const handleRecalculateAndSaveAll = async () => {
+    if (filteredData.length === 0) {
+      return;
+    }
+
+    setIsBulkSaving(true);
+    setBulkSaveProgress({ current: 0, total: filteredData.length });
+    setBulkSaveOpen(true);
+
+    const successCount = { count: 0 };
+    const errorCount = { count: 0 };
+    const errors = [];
+
+    try {
+      // Process all filtered data
+      for (let i = 0; i < filteredData.length; i++) {
+        const item = filteredData[i];
+        
+        try {
+          // Normalize data
+          const normalizedItem = {
+            ...item,
+            h: item.h ?? 0,
+            m: item.m ?? 0,
+            increment: item.increment ?? 0,
+            gsisSalaryLoan: item.gsisSalaryLoan ?? 0,
+            gsisPolicyLoan: item.gsisPolicyLoan ?? 0,
+            gsisArrears: item.gsisArrears ?? 0,
+            cpl: item.cpl ?? 0,
+            mpl: item.mpl ?? 0,
+            eal: item.eal ?? 0,
+            mplLite: item.mplLite ?? 0,
+            emergencyLoan: item.emergencyLoan ?? 0,
+            pagibigFundCont: item.pagibigFundCont ?? 0,
+            pagibig2: item.pagibig2 ?? 0,
+            multiPurpLoan: item.multiPurpLoan ?? 0,
+            liquidatingCash: item.liquidatingCash ?? 0,
+            landbankSalaryLoan: item.landbankSalaryLoan ?? 0,
+            earistCreditCoop: item.earistCreditCoop ?? 0,
+            feu: item.feu ?? 0,
+            withholdingTax: item.withholdingTax ?? 0,
+            rateNbc594: item.rateNbc594 ?? 0,
+            nbcDiffl597: item.nbcDiffl597 ?? 0,
+            ec: item.ec ?? 0,
+          };
+
+          // Calculate all fields using formulas
+          const calculatedItem = calculatePayroll(normalizedItem) || normalizedItem;
+
+          // Prepare data for database
+          const updatedRow = {
+            ...calculatedItem,
+            id: item.id, // Include the unique ID
+            h: parseInt(calculatedItem.h) || 0,
+            m: parseInt(calculatedItem.m) || 0,
+            grossSalary: parseFloat(calculatedItem.grossSalary) || 0,
+            abs: parseFloat(calculatedItem.abs) || 0,
+            PhilHealthContribution: parseFloat(calculatedItem.PhilHealthContribution) || 0,
+            personalLifeRetIns: parseFloat(calculatedItem.personalLifeRetIns) || 0,
+            netSalary: parseFloat(calculatedItem.netSalary) || 0,
+            totalGsisDeds: parseFloat(calculatedItem.totalGsisDeds) || 0,
+            totalPagibigDeds: parseFloat(calculatedItem.totalPagibigDeds) || 0,
+            totalOtherDeds: parseFloat(calculatedItem.totalOtherDeds) || 0,
+            totalDeductions: parseFloat(calculatedItem.totalDeductions) || 0,
+            pay1st: parseFloat(calculatedItem.pay1st) || 0,
+            pay2nd: parseFloat(calculatedItem.pay2nd) || 0,
+            pay1stCompute: parseFloat(calculatedItem.pay1stCompute) || 0,
+            pay2ndCompute: parseFloat(calculatedItem.pay2ndCompute) || 0,
+            rtIns: parseFloat(calculatedItem.rtIns) || 0,
+            withholdingTax: parseFloat(calculatedItem.withholdingTax) || 0,
+            ec: parseFloat(calculatedItem.ec) || 0,
+            rateNbc594: parseFloat(calculatedItem.rateNbc594) || 0,
+            nbcDiffl597: parseFloat(calculatedItem.nbcDiffl597) || 0,
+            increment: parseFloat(calculatedItem.increment) || 0,
+          };
+
+          // Update database
+          await axios.put(
+            `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${item.employeeNumber}`,
+            updatedRow,
+            getAuthHeaders()
+          );
+
+          successCount.count++;
+          setBulkSaveProgress({ current: i + 1, total: filteredData.length });
+        } catch (error) {
+          console.error(`Error saving ${item.employeeNumber}:`, error);
+          errorCount.count++;
+          errors.push(`${item.name} (${item.employeeNumber}): ${error.response?.data?.error || error.message}`);
+        }
+      }
+
+      // Refresh data from database
+      await fetchPayrollData();
+      
+      setSuccessAction('bulkSave');
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2500);
+    } catch (error) {
+      console.error('Bulk save error:', error);
+    } finally {
+      setIsBulkSaving(false);
+      setTimeout(() => setBulkSaveOpen(false), 1000);
+    }
   };
 
   // ACCESSING 2
@@ -1866,8 +1981,11 @@ const PayrollProcess = () => {
               }}
               icon={<Warning />}
             >
-              Duplicate employee number(s) found:{' '}
-              {duplicateEmployeeNumbers.join(', ')}
+              Duplicate record(s) found:{' '}
+              {duplicateEmployeeNumbers.map(key => {
+                const [name, empNum, startDate, endDate] = key.split('|');
+                return `${name} (${empNum}) [${startDate} - ${endDate}]`;
+              }).join(', ')}
             </Alert>
           </Fade>
         )}
@@ -2445,7 +2563,7 @@ const PayrollProcess = () => {
                                   },
                                   backgroundColor:
                                     duplicateEmployeeNumbers.includes(
-                                      row.employeeNumber
+                                      `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`
                                     )
                                       ? 'rgba(255, 0, 0, 0.1)'
                                       : 'inherit',
@@ -2904,7 +3022,7 @@ const PayrollProcess = () => {
                                 },
                                 backgroundColor:
                                   duplicateEmployeeNumbers.includes(
-                                    row.employeeNumber
+                                    `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`
                                   )
                                     ? 'rgba(255, 0, 0, 0.1)'
                                     : 'inherit',
@@ -3030,7 +3148,7 @@ const PayrollProcess = () => {
                                 },
                                 backgroundColor:
                                   duplicateEmployeeNumbers.includes(
-                                    row.employeeNumber
+                                    `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`
                                   )
                                     ? 'rgba(255, 0, 0, 0.1)'
                                     : 'inherit',
@@ -3179,42 +3297,65 @@ const PayrollProcess = () => {
         </Fade>
 
         {/* Action Buttons */}
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 3 }}>
-          <ProfessionalButton
-            variant="contained"
-            onClick={() => setShowConfirmation(true)}
-            disabled={!canSubmit}
-            size="large"
-            sx={{
-              backgroundColor: accentColor,
-              color: textSecondaryColor,
-              '&:hover': { backgroundColor: accentDark },
-              '&:disabled': {
-                backgroundColor: alpha(accentColor, 0.3),
-                color: alpha(textSecondaryColor, 0.5),
-              },
-            }}
-            startIcon={<ExitToApp />}
-          >
-            Export Payroll Records ({selectedRows.length})
-          </ProfessionalButton>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, mt: 3 }}>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <ProfessionalButton
+              variant="contained"
+              onClick={handleRecalculateAndSaveAll}
+              disabled={filteredData.length === 0 || isBulkSaving}
+              size="large"
+              sx={{
+                backgroundColor: '#2e7d32',
+                color: '#fff',
+                '&:hover': { backgroundColor: '#1b5e20' },
+                '&:disabled': {
+                  backgroundColor: alpha('#2e7d32', 0.3),
+                  color: alpha('#fff', 0.5),
+                },
+              }}
+              startIcon={isBulkSaving ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
+            >
+              {isBulkSaving ? 'Saving...' : `Recalculate & Save All (${filteredData.length})`}
+            </ProfessionalButton>
+          </Box>
 
-          <ProfessionalButton
-            variant="outlined"
-            onClick={() => (window.location.href = '/payroll-processed')}
-            size="large"
-            sx={{
-              borderColor: accentColor,
-              color: textPrimaryColor,
-              '&:hover': {
-                borderColor: accentDark,
-                backgroundColor: alpha(accentColor, 0.1),
-              },
-            }}
-            startIcon={<CreditCard />}
-          >
-            View Processed Payroll
-          </ProfessionalButton>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <ProfessionalButton
+              variant="contained"
+              onClick={() => setShowConfirmation(true)}
+              disabled={!canSubmit}
+              size="large"
+              sx={{
+                backgroundColor: accentColor,
+                color: textSecondaryColor,
+                '&:hover': { backgroundColor: accentDark },
+                '&:disabled': {
+                  backgroundColor: alpha(accentColor, 0.3),
+                  color: alpha(textSecondaryColor, 0.5),
+                },
+              }}
+              startIcon={<ExitToApp />}
+            >
+              Export Payroll Records ({selectedRows.length})
+            </ProfessionalButton>
+
+            <ProfessionalButton
+              variant="outlined"
+              onClick={() => (window.location.href = '/payroll-processed')}
+              size="large"
+              sx={{
+                borderColor: accentColor,
+                color: textPrimaryColor,
+                '&:hover': {
+                  borderColor: accentDark,
+                  backgroundColor: alpha(accentColor, 0.1),
+                },
+              }}
+              startIcon={<CreditCard />}
+            >
+              View Processed Payroll
+            </ProfessionalButton>
+          </Box>
         </Box>
 
         {/* [All existing modals remain the same - Edit Modal, View Modal, Confirmation Modal] */}
@@ -5951,6 +6092,58 @@ const PayrollProcess = () => {
                 </Table>
               </Box>
             </Box>
+          </Box>
+        </Modal>
+
+        {/* Bulk Save Progress Dialog */}
+        <Modal open={bulkSaveOpen} onClose={() => {}}>
+          <Box
+            sx={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: 400,
+              bgcolor: 'background.paper',
+              borderRadius: 3,
+              boxShadow: 24,
+              p: 4,
+              textAlign: 'center',
+              border: `3px solid ${accentColor}`,
+            }}
+          >
+            <Typography variant="h5" sx={{ mb: 3, fontWeight: 'bold', color: accentColor }}>
+              Saving Records to Database
+            </Typography>
+            <Box sx={{ mb: 3 }}>
+              <CircularProgress size={60} thickness={4} sx={{ color: accentColor }} />
+            </Box>
+            <Typography variant="h6" sx={{ mb: 2, color: textPrimaryColor }}>
+              {bulkSaveProgress.current} / {bulkSaveProgress.total}
+            </Typography>
+            <Box sx={{ width: '100%', mb: 2 }}>
+              <Box
+                sx={{
+                  width: '100%',
+                  height: 20,
+                  bgcolor: alpha(accentColor, 0.2),
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                }}
+              >
+                <Box
+                  sx={{
+                    width: `${(bulkSaveProgress.current / bulkSaveProgress.total) * 100}%`,
+                    height: '100%',
+                    bgcolor: accentColor,
+                    transition: 'width 0.3s ease',
+                  }}
+                />
+              </Box>
+            </Box>
+            <Typography variant="body2" sx={{ color: grayColor }}>
+              Please wait while we save all calculated values to the database...
+            </Typography>
           </Box>
         </Modal>
 
