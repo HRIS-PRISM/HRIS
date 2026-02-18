@@ -1760,7 +1760,7 @@ const PayrollReleased = () => {
               },
             }}
           >
-            Send Payslips {selectedRows.length > 0 ? `(${selectedRows.length})` : ''}
+            Distribute Payslips {selectedRows.length > 0 ? `(${selectedRows.length})` : ''}
           </ProfessionalButton>
         </Box>
 
