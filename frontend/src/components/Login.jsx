@@ -964,7 +964,7 @@ const Login = () => {
                     icon={<AccessTimeIcon />}
                     sx={{ mb: 2 }}
                   >
-                    Attempt locked. Try again in {formatTime(loginLockTimer)}
+                    Too many attempts. Try again in {formatTime(loginLockTimer)}
                   </Alert>
                 )}
                 
