@@ -14,8 +14,14 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel,
-  Alert
+  Alert,
+  InputAdornment,
+  Card,
+  CardContent,
+  Avatar,
+  Divider,
+  LinearProgress,
+  Autocomplete,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -27,15 +33,80 @@ import {
   EventNote,
   Search as SearchIcon,
   EventAvailable as ReorderIcon,
+  Person as PersonIcon,
+  Work as WorkIcon,
+  AccessTime as TimeIcon,
+  Warning as WarningIcon,
+  CheckCircle as CheckCircleIcon,
 } from "@mui/icons-material";
 
-// Import your loading and success overlays if they exist
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
+
+// Styled components for professional look
+const GlassCard = ({ children, sx = {} }) => (
+  <Card
+    sx={{
+      background: 'linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%)',
+      backdropFilter: 'blur(10px)',
+      borderRadius: 3,
+      border: '1px solid rgba(109, 35, 35, 0.1)',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
+      transition: 'all 0.3s ease',
+      '&:hover': {
+        boxShadow: '0 12px 40px rgba(109, 35, 35, 0.12)',
+        transform: 'translateY(-2px)',
+      },
+      ...sx,
+    }}
+  >
+    {children}
+  </Card>
+);
+
+const GradientHeader = ({ icon: Icon, title, subtitle, gradient = 'linear-gradient(135deg, #6D2323 0%, #8B4545 100%)' }) => (
+  <Box
+    sx={{
+      background: gradient,
+      color: '#fff',
+      p: 2.5,
+      borderRadius: '12px 12px 0 0',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 2,
+      position: 'relative',
+      overflow: 'hidden',
+      '&::before': {
+        content: '""',
+        position: 'absolute',
+        top: -30,
+        right: -30,
+        width: 100,
+        height: 100,
+        background: 'radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%)',
+        borderRadius: '50%',
+      },
+    }}
+  >
+    <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 50, height: 50 }}>
+      <Icon sx={{ fontSize: 28 }} />
+    </Avatar>
+    <Box>
+      <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.3 }}>
+        {title}
+      </Typography>
+      <Typography variant="body2" sx={{ opacity: 0.9 }}>
+        {subtitle}
+      </Typography>
+    </Box>
+  </Box>
+);
 
 const LeaveAssignment = () => {
   const [assignments, setAssignments] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [newAssignment, setNewAssignment] = useState({
     leave_code: '',
     employeeNumber: ''
@@ -50,36 +121,19 @@ const LeaveAssignment = () => {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    console.log('Component mounted, fetching data...');
     fetchAssignments();
     fetchLeaveTypes();
+    fetchEmployees();
   }, []);
 
   const fetchAssignments = async () => {
     try {
-      console.log('Fetching assignments from:', `${API_BASE_URL}/leaveRoute/leave_assignment`);
       const res = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`);
-      console.log('Raw assignments response:', res);
-      console.log('Assignments data:', res.data);
-      console.log('Number of assignments:', res.data?.length || 0);
-      
-      // Ensure we have an array and handle the data properly
       const assignmentsData = Array.isArray(res.data) ? res.data : [];
-      
-      // Calculate remaining hours for each assignment
-      const assignmentsWithRemaining = assignmentsData.map(assignment => ({
-        ...assignment,
-        remaining_hours: assignment.remaining_hours !== undefined 
-          ? assignment.remaining_hours 
-          : (assignment.leave_hours || 0) - (assignment.used_hours || 0)
-      }));
-      
-      setAssignments(assignmentsWithRemaining);
+      setAssignments(assignmentsData);
       setError('');
     } catch (error) {
-      console.error('Error fetching assignments - Full error:', error);
-      console.error('Error response:', error.response);
-      console.error('Error message:', error.message);
+      console.error('Error fetching assignments:', error);
       setAssignments([]);
       setError('Failed to fetch assignments');
     }
@@ -87,21 +141,58 @@ const LeaveAssignment = () => {
 
   const fetchLeaveTypes = async () => {
     try {
-      console.log('Fetching leave types from:', `${API_BASE_URL}/leaveRoute/leave_table`);
       const res = await axios.get(`${API_BASE_URL}/leaveRoute/leave_table`);
-      console.log('Raw leave types response:', res);
-      console.log('Leave types data:', res.data);
-      console.log('Number of leave types:', res.data?.length || 0);
-      
       const leaveTypesData = Array.isArray(res.data) ? res.data : [];
       setLeaveTypes(leaveTypesData);
-      setError('');
     } catch (error) {
-      console.error('Error fetching leave types - Full error:', error);
-      console.error('Error response:', error.response);
-      console.error('Error message:', error.message);
+      console.error('Error fetching leave types:', error);
       setLeaveTypes([]);
-      setError('Failed to fetch leave types');
+    }
+  };
+
+  const fetchEmployees = async () => {
+    try {
+      // Get auth token from localStorage
+      const token = localStorage.getItem('token');
+      
+      if (!token) {
+        console.error('No auth token found');
+        setEmployees([]);
+        return;
+      }
+      
+      // Use existing /users endpoint with auth token
+      console.log('Fetching users from /users endpoint...');
+      const res = await axios.get(`${API_BASE_URL}/users`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      console.log('Full Users response:', res.data);
+      let usersData = [];
+      if (Array.isArray(res.data)) {
+        usersData = res.data;
+      } else if (res.data && Array.isArray(res.data.users)) {
+        usersData = res.data.users;
+      } else if (res.data && Array.isArray(res.data.data)) {
+        usersData = res.data.data;
+      }
+      
+      // Log all users to see their roles
+      console.log('All users with roles:', usersData.map(u => ({ 
+        employeeNumber: u.employeeNumber, 
+        name: u.fullName || `${u.firstName} ${u.lastName}`,
+        role: u.role 
+      })));
+      
+      // Don't filter - show ALL users including admins
+      // Users can be found by employeeNumber or name
+      setEmployees(usersData);
+      console.log(`Loaded ${usersData.length} employees`);
+    } catch (error) {
+      console.error('Error fetching users:', error.response?.data || error.message);
+      setEmployees([]);
     }
   };
 
@@ -113,31 +204,17 @@ const LeaveAssignment = () => {
     );
   };
 
-  const validateForm = (employeeNumber, leaveCode) => {
-    if (!employeeNumber || !leaveCode) {
-      setError('Please fill in all required fields');
-      return false;
-    }
-
-    if (!employeeNumber.trim()) {
-      setError('Employee Number cannot be empty');
-      return false;
-    }
-
-    if (isDuplicateAssignment(employeeNumber.trim(), leaveCode)) {
-      setError('This employee already has an assignment for this leave type');
-      return false;
-    }
-
-    setError('');
-    return true;
-  };
-
   const handleAdd = async () => {
-    const employeeNumber = newAssignment.employeeNumber?.toString().trim();
+    const employeeNumber = selectedEmployee?.employeeNumber?.toString().trim();
     const leaveCode = newAssignment.leave_code;
 
-    if (!validateForm(employeeNumber, leaveCode)) {
+    if (!employeeNumber || !leaveCode) {
+      setError('Please select an employee and leave type');
+      return;
+    }
+
+    if (isDuplicateAssignment(employeeNumber, leaveCode)) {
+      setError('This employee already has an assignment for this leave type');
       return;
     }
 
@@ -148,11 +225,9 @@ const LeaveAssignment = () => {
         employeeNumber: employeeNumber
       };
       
-      console.log('Adding assignment with payload:', payload);
+      await axios.post(`${API_BASE_URL}/leaveRoute/leave_assignment`, payload);
       
-      const response = await axios.post(`${API_BASE_URL}/leaveRoute/leave_assignment`, payload);
-      console.log('Add response:', response.data);
-      
+      setSelectedEmployee(null);
       setNewAssignment({
         leave_code: '',
         employeeNumber: ''
@@ -182,7 +257,6 @@ const LeaveAssignment = () => {
       return;
     }
 
-    // Check for duplicate (excluding current assignment)
     if (isDuplicateAssignment(employeeNumber, leaveCode, editAssignment.id)) {
       setError('This employee already has an assignment for this leave type');
       return;
@@ -194,11 +268,8 @@ const LeaveAssignment = () => {
         employeeNumber: employeeNumber,
         remaining_hours: parseFloat(editAssignment.remaining_hours) || 0
       };
-
-      console.log('Updating assignment with payload:', payload);
       
-      const response = await axios.put(`${API_BASE_URL}/leaveRoute/leave_assignment/${editAssignment.id}`, payload);
-      console.log('Update response:', response.data);
+      await axios.put(`${API_BASE_URL}/leaveRoute/leave_assignment/${editAssignment.id}`, payload);
       
       setEditAssignment(null);
       setOriginalAssignment(null);
@@ -222,9 +293,7 @@ const LeaveAssignment = () => {
     }
     
     try {
-      console.log('Deleting assignment with id:', id);
-      const response = await axios.delete(`${API_BASE_URL}/leaveRoute/leave_assignment/${id}`);
-      console.log('Delete response:', response.data);
+      await axios.delete(`${API_BASE_URL}/leaveRoute/leave_assignment/${id}`);
       
       setEditAssignment(null);
       setOriginalAssignment(null);
@@ -242,349 +311,417 @@ const LeaveAssignment = () => {
     }
   };
 
-  const handleChange = (field, value) => {
-    console.log(`Changing ${field} to:`, value);
-    setNewAssignment({ ...newAssignment, [field]: value });
-    setError(''); // Clear error when user starts typing
-  };
-
   const handleOpenModal = (assignment) => {
-    console.log('Opening modal for assignment:', assignment);
     setEditAssignment({ ...assignment });
     setOriginalAssignment({ ...assignment });
     setIsEditing(false);
-    setError(''); // Clear any previous errors
+    setError('');
   };
 
   const handleStartEdit = () => {
     setIsEditing(true);
-    setError(''); // Clear any previous errors
+    setError('');
   };
 
   const handleCancelEdit = () => {
     setEditAssignment({ ...originalAssignment });
     setIsEditing(false);
-    setError(''); // Clear any errors
+    setError('');
   };
 
   const handleCloseModal = () => {
     setEditAssignment(null);
     setOriginalAssignment(null);
     setIsEditing(false);
-    setError(''); // Clear any errors
+    setError('');
   };
 
   const getLeaveTypeInfo = (leaveCode) => {
     const leaveType = leaveTypes.find(type => type.leave_code === leaveCode);
-    console.log(`Finding leave type for code ${leaveCode}:`, leaveType);
     return leaveType || { 
       leave_description: leaveCode || 'Unknown', 
       leave_hours: 'N/A' 
     };
   };
 
-  const inputStyle = { marginRight: 10, marginBottom: 10, width: 300.25 };
+  const getEmployeeInfo = (empNum) => {
+    const emp = employees.find(e => e.employeeNumber?.toString() === empNum?.toString());
+    return emp || { fullName: empNum || 'Unknown' };
+  };
 
   // Filter assignments for display
   const filteredAssignments = assignments.filter((assignment) => {
+    const employeeName = assignment.fullName?.toLowerCase() || "";
     const employeeNumber = assignment.employeeNumber?.toString().toLowerCase() || "";
     const leaveCode = assignment.leave_code?.toString().toLowerCase() || "";
     const search = searchTerm.toLowerCase();
-    return employeeNumber.includes(search) || leaveCode.includes(search);
+    return employeeName.includes(search) || employeeNumber.includes(search) || leaveCode.includes(search);
   });
 
-  console.log('Render - assignments:', assignments);
-  console.log('Render - leaveTypes:', leaveTypes);
-  console.log('Render - filteredAssignments:', filteredAssignments);
+  // Calculate progress percentage
+  const getProgressPercent = (remaining, total) => {
+    if (!total || total === 0) return 0;
+    return Math.max(0, Math.min(100, (remaining / total) * 100));
+  };
+
+  // Get status color based on remaining balance
+  const getStatusColor = (remaining, total) => {
+    if (!total || total === 0) return '#9e9e9e';
+    const percent = (remaining / total) * 100;
+    if (percent > 50) return '#2e7d32';
+    if (percent > 20) return '#ed6c02';
+    return '#d32f2f';
+  };
 
   return (
-    <Container sx={{ mt: 0 }}>
+    <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
       {/* Loading Overlay */}
-      <LoadingOverlay open={loading} message="Adding leave assignment record..." />
+      <LoadingOverlay open={loading} message="Processing leave assignment..." />
       
       {/* Success Overlay */}
       <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
 
-      <Box
-        sx={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          mb: 4,
-        }}
-      >
-        {/* Outer wrapper for header + content */}
-        <Box sx={{ width: "100%", maxWidth: "100%" }}>
-          {/* Header */}
-          <Box
-            sx={{
-              backgroundColor: "#6D2323",
-              color: "#ffffff",
-              p: 2,
-              borderRadius: "8px 8px 0 0",
-              display: "flex",
-              alignItems: "center",
-              pb: '15px'
-            }}
-          >
-            <EventNote
-              sx={{ fontSize: "3rem", mr: 2, mt: "5px", ml: "5px" }}
-            />
-            <Box>
-              <Typography variant="h5" sx={{ mb: 0.5 }}>
-                Employee Leave Assignment
+      {/* Add Assignment Section */}
+      <GlassCard sx={{ mb: 4 }}>
+        <GradientHeader 
+          icon={EventNote} 
+          title="Employee Leave Assignment" 
+          subtitle="Assign leave types and manage employee leave credits"
+        />
+        <CardContent sx={{ p: 3 }}>
+          {error && (
+            <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
+              {error}
+            </Alert>
+          )}
+
+          <Grid container spacing={3} alignItems="center">
+            <Grid item xs={12} md={5}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>
+                Select Employee *
               </Typography>
-              <Typography variant="body2">
-                Manage Leave Assignment Records
-              </Typography>
-            </Box>
-          </Box>
-
-          {/* Content/Form */}
-          <Container
-            sx={{
-              backgroundColor: "#fff",
-              p: 3,
-              borderBottomLeftRadius: 2,
-              borderBottomRightRadius: 2,
-              boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.1)",
-              border: "1px solid #6d2323",
-              width: "100%",
-            }}
-          >
-            {/* Error Alert */}
-            {error && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {error}
-              </Alert>
-            )}
-
-            <Grid container spacing={3}>
-              <Grid item xs={12} sm={6}>
-                <Typography variant="subtitle2" sx={{ fontWeight: "bold", mb: 1 }}>
-                  Employee Number *
-                </Typography>
-                <TextField
-                  value={newAssignment.employeeNumber || ''}
-                  onChange={(e) => handleChange('employeeNumber', e.target.value)}
-                  fullWidth
-                  required
-                  placeholder="Enter employee number"
-                  style={inputStyle}
-                  error={!!error && !newAssignment.employeeNumber}
-                />
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <Typography variant="subtitle2" sx={{ fontWeight: "bold", mb: 1 }}>
-                  Leave Type *
-                </Typography>
-                <FormControl fullWidth required style={inputStyle} error={!!error && !newAssignment.leave_code}>
-                  <Select
-                    value={newAssignment.leave_code || ''}
-                    onChange={(e) => handleChange('leave_code', e.target.value)}
-                    displayEmpty
-                  >
-                    <MenuItem value="">
-                      <em>Select Leave Type</em>
-                    </MenuItem>
-                    {leaveTypes.map((type) => (
-                      <MenuItem key={type.id || type.leave_code} value={type.leave_code}>
-                        ({type.leave_code}) - {type.leave_description} - {type.leave_hours} hours
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
+              <Autocomplete
+                value={selectedEmployee}
+                onChange={(event, newValue) => {
+                  setSelectedEmployee(newValue);
+                  setError('');
+                }}
+                options={employees}
+                getOptionLabel={(option) => {
+                  const empName = option.fullName || `${option.firstName || ''} ${option.lastName || ''}`.trim();
+                  return `${empName} (${option.employeeNumber})`;
+                }}
+                filterOptions={(options, { inputValue }) => {
+                  const search = inputValue.toLowerCase().trim();
+                  return options.filter((option) => {
+                    const empName = (option.fullName || `${option.firstName || ''} ${option.lastName || ''}`).toLowerCase();
+                    const empNum = (option.employeeNumber || '').toString().toLowerCase();
+                    return empName.includes(search) || empNum.includes(search);
+                  });
+                }}
+                isOptionEqualToValue={(option, value) => option.employeeNumber === value.employeeNumber}
+                noOptionsText="No employees found"
+                renderOption={(props, option) => {
+                  const { key, ...otherProps } = props;
+                  const empName = option.fullName || `${option.firstName || ''} ${option.lastName || ''}`.trim();
+                  const initials = `${option.firstName?.[0] || ''}${option.lastName?.[0] || ''}`.toUpperCase() || '?';
+                  return (
+                    <li key={key} {...otherProps}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Avatar sx={{ width: 32, height: 32, bgcolor: '#6d2323', fontSize: '0.8rem' }}>
+                          {initials}
+                        </Avatar>
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            {empName}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#888' }}>
+                            {option.employeeNumber}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </li>
+                  );
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    placeholder="Type employee name or number..."
+                    size="medium"
+                    InputProps={{
+                      ...params.InputProps,
+                      startAdornment: (
+                        <>
+                          <InputAdornment position="start">
+                            <PersonIcon sx={{ color: '#6d2323' }} />
+                          </InputAdornment>
+                          {params.InputProps.startAdornment}
+                        </>
+                      ),
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        '& fieldset': { borderColor: 'rgba(109, 35, 35, 0.2)' },
+                        '&:hover fieldset': { borderColor: '#6d2323' },
+                        '&.Mui-focused fieldset': { borderColor: '#6d2323', borderWidth: 2 },
+                      },
+                    }}
+                  />
+                )}
+                sx={{ width: '100%' }}
+              />
             </Grid>
 
-            {/* Add Button */}
-            <Button
-              onClick={handleAdd}
-              variant="contained"
-              startIcon={<AddIcon />}
-              disabled={loading}
-              sx={{
-                mt: 3,
-                width: "100%",
-                backgroundColor: "#6D2323",
-                color: "#FEF9E1",
-                "&:hover": { backgroundColor: "#5a1d1d" },
-                "&:disabled": { backgroundColor: "#ccc" }
-              }}
-            >
-              {loading ? 'Adding...' : 'Add Assignment'}
-            </Button>
-          </Container>
-        </Box>
-      </Box>
+            <Grid item xs={12} md={5}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>
+                Leave Type *
+              </Typography>
+              <FormControl fullWidth>
+                <Select
+                  value={newAssignment.leave_code || ''}
+                  onChange={(e) => {
+                    setNewAssignment({ ...newAssignment, leave_code: e.target.value });
+                    setError('');
+                  }}
+                  displayEmpty
+                  size="medium"
+                  startAdornment={
+                    <InputAdornment position="start" sx={{ ml: 1 }}>
+                      <WorkIcon sx={{ color: '#6d2323' }} />
+                    </InputAdornment>
+                  }
+                  sx={{
+                    borderRadius: 2,
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      borderColor: 'rgba(109, 35, 35, 0.2)',
+                    },
+                    '&:hover .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#6d2323',
+                    },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#6d2323',
+                      borderWidth: 2,
+                    },
+                  }}
+                >
+                  <MenuItem value="">
+                    <em>Choose a leave type...</em>
+                  </MenuItem>
+                  {leaveTypes.map((type) => (
+                    <MenuItem key={type.id || type.leave_code} value={type.leave_code}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            {type.leave_code} - {type.leave_description}
+                          </Typography>
+                        </Box>
+                        <Chip 
+                          label={`${(type.leave_hours || 0) / 8} days`}
+                          size="small"
+                          sx={{ 
+                            bgcolor: 'rgba(109, 35, 35, 0.1)', 
+                            color: '#6d2323',
+                            fontWeight: 600,
+                            ml: 1
+                          }}
+                        />
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
 
-      {/* Outer wrapper for header + content */}
-      <Box sx={{ width: "100%", maxWidth: "100%", margin: "20px auto" }}>
-        {/* Header */}
+            <Grid item xs={12} md={2}>
+              <Button
+                onClick={handleAdd}
+                variant="contained"
+                fullWidth
+                size="large"
+                startIcon={<AddIcon />}
+                disabled={loading || !selectedEmployee || !newAssignment.leave_code}
+                sx={{
+                  mt: 3,
+                  height: 50,
+                  borderRadius: 2,
+                  backgroundColor: '#6D2323',
+                  color: '#FEF9E1',
+                  fontWeight: 600,
+                  boxShadow: '0 4px 12px rgba(109, 35, 35, 0.3)',
+                  '&:hover': { 
+                    backgroundColor: '#5a1d1d',
+                    boxShadow: '0 6px 16px rgba(109, 35, 35, 0.4)',
+                  },
+                  '&:disabled': { 
+                    backgroundColor: '#ccc',
+                    boxShadow: 'none'
+                  }
+                }}
+              >
+                {loading ? 'Adding...' : 'Assign'}
+              </Button>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </GlassCard>
+
+      {/* Records Section */}
+      <GlassCard>
         <Box
           sx={{
-            backgroundColor: "#ffffff",
-            color: "#6d2323",
-            p: 2,
-            borderRadius: "8px 8px 0 0",
-            display: "flex",
-            alignItems: "center",
-            pb: "15px",
-            border: '1px solid #6d2323',
-            borderBottom: 'none'
+            p: 2.5,
+            borderRadius: '12px 12px 0 0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderBottom: '2px solid rgba(109, 35, 35, 0.1)',
           }}
         >
-          <ReorderIcon sx={{ fontSize: "3rem", mr: 2, mt: "5px", ml: "5px" }} />
-          <Box>
-            <Typography variant="h5" sx={{ mb: 0.5 }}>
-              Leave Assignment Records
-            </Typography>
-            <Typography variant="body2">
-              View and manage leave assignment information ({filteredAssignments.length} records)
-            </Typography>
-          </Box>
-        </Box>
-
-        {/* Content */}
-        <Container
-          sx={{
-            backgroundColor: "#fff",
-            p: 3,
-            borderBottomLeftRadius: 2,
-            borderBottomRightRadius: 2,
-            boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.1)",
-            border: "1px solid #6d2323",
-            width: "100%",
-          }}
-        >
-          {/* Search Section */}
-          <Box sx={{ mb: 3, width: "100%" }}>
-            <Typography
-              variant="subtitle2"
-              sx={{ color: "#6D2323", mb: 1 }}
-            >
-              Search Records using Employee Number or Leave Code
-            </Typography>
-
-            <Box display="flex" justifyContent="flex-start" alignItems="center" width="100%">
-              <TextField
-                size="small"
-                variant="outlined"
-                placeholder="Search by Employee Number or Leave Code"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                sx={{
-                  backgroundColor: "white",
-                  borderRadius: 1,
-                  width: "100%",
-                  maxWidth: "800px",
-                  "& .MuiOutlinedInput-root": {
-                    "& fieldset": {
-                      borderColor: "#6D2323",
-                    },
-                    "&:hover fieldset": {
-                      borderColor: "#6D2323",
-                    },
-                    "&.Mui-focused fieldset": {
-                      borderColor: "#6D2323",
-                    },
-                  },
-                }}
-                InputProps={{
-                  startAdornment: (
-                    <SearchIcon sx={{ color: "#6D2323", marginRight: 1 }} />
-                  ),
-                }}
-              />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Avatar sx={{ bgcolor: 'rgba(109, 35, 35, 0.1)', width: 50, height: 50 }}>
+              <ReorderIcon sx={{ fontSize: 28, color: '#6d2323' }} />
+            </Avatar>
+            <Box>
+              <Typography variant="h5" sx={{ fontWeight: 700, color: '#6d2323' }}>
+                Leave Assignment Records
+              </Typography>
+              <Typography variant="body2" sx={{ color: '#666' }}>
+                {filteredAssignments.length} employee leave assignments
+              </Typography>
             </Box>
           </Box>
 
-          {/* Records as Boxes */}
+          {/* Search Box */}
+          <TextField
+            size="small"
+            variant="outlined"
+            placeholder="Search by name or employee number..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            sx={{
+              width: 300,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 2,
+                '& fieldset': { borderColor: 'rgba(109, 35, 35, 0.2)' },
+                '&:hover fieldset': { borderColor: '#6d2323' },
+                '&.Mui-focused fieldset': { borderColor: '#6d2323' },
+              },
+            }}
+            InputProps={{
+              startAdornment: <SearchIcon sx={{ color: '#6d2323', mr: 1 }} />,
+            }}
+          />
+        </Box>
+
+        <CardContent sx={{ p: 3 }}>
           <Grid container spacing={2}>
             {filteredAssignments.map((assignment) => {
               const leaveTypeInfo = getLeaveTypeInfo(assignment.leave_code);
+              const progressPercent = getProgressPercent(assignment.remaining_hours, assignment.total_hours);
+              const statusColor = getStatusColor(assignment.remaining_hours, assignment.total_hours);
               
               return (
-                <Grid item xs={12} sm={6} md={4} key={assignment.id || `${assignment.employeeNumber}-${assignment.leave_code}`}>
+                <Grid item xs={12} sm={6} lg={4} key={assignment.id}>
                   <Box
                     onClick={() => handleOpenModal(assignment)}
                     sx={{
-                      border: "1px solid #6d2323",
-                      borderRadius: 2,
-                      p: 2,
-                      cursor: "pointer",
-                      transition: "0.2s",
-                      "&:hover": { boxShadow: "0px 4px 10px rgba(0,0,0,0.2)" },
-                      height: "160px",
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "space-between"
+                      border: '1px solid rgba(109, 35, 35, 0.1)',
+                      borderRadius: 3,
+                      p: 2.5,
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease',
+                      background: 'linear-gradient(135deg, #fff 0%, #fafafa 100%)',
+                      height: '100%',
+                      minHeight: 180,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      '&:hover': { 
+                        boxShadow: '0 8px 24px rgba(109, 35, 35, 0.15)',
+                        borderColor: '#6d2323',
+                        transform: 'translateY(-2px)',
+                      },
                     }}
                   >
-                    {/* Top Row */}
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Box>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: "bold", color: "black", mb: 1 }}
-                        >
-                          Employee Number:
-                        </Typography>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: "bold", color: "#6d2323" }}
-                        >
-                          {assignment.employeeNumber || 'N/A'}
-                        </Typography>
+                    {/* Header Row */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Avatar sx={{ bgcolor: '#6d2323', width: 40, height: 40 }}>
+                          {assignment.firstName?.[0]}{assignment.lastName?.[0]}
+                        </Avatar>
+                        <Box>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#333' }}>
+                            {assignment.fullName || assignment.employeeNumber}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#888' }}>
+                            {assignment.employeeNumber}
+                          </Typography>
+                        </Box>
                       </Box>
-
-                      {/* Leave Code Chip on the right side */}
                       <Chip
-                        label={assignment.leave_code || 'N/A'}
+                        label={assignment.leave_code}
+                        size="small"
                         sx={{
-                          backgroundColor: "transparent",
-                          color: "#6d2323",
-                          px: 2,
-                          fontWeight: "bold",
-                          fontSize: '16px',
-                          mb: 2,
-                          mr: -3
+                          bgcolor: 'rgba(109, 35, 35, 0.1)',
+                          color: '#6d2323',
+                          fontWeight: 700,
+                          fontSize: '0.75rem',
                         }}
                       />
                     </Box>
 
-                    {/* Bottom Section */}
-                    <Box>
-                      <Typography
-                        variant="caption"
-                        sx={{ color: "#000000", display: "block", mb: 1 }}
-                      >
-                        Leave Type: {leaveTypeInfo.leave_description}
-                      </Typography>
-                      <Typography
-                        variant="caption"
-                        sx={{ color: "#000000", display: "block", mb: 1 }}
-                      >
-                        Total Days: {leaveTypeInfo.leave_hours ? (leaveTypeInfo.leave_hours / 8).toString().replace(/\.0+$/, "") : 0}
-                      </Typography>
+                    {/* Leave Type Info */}
+                    <Typography variant="body2" sx={{ color: '#666', mb: 1.5 }}>
+                      {leaveTypeInfo.leave_description}
+                    </Typography>
 
-                      <Typography
-                        variant="caption"
-                        sx={{ color: "#000000", display: "block", mb: 1 }}
-                      >
-                        Used Days: {assignment.used_hours ? (assignment.used_hours / 8).toString().replace(/\.0+$/, "") : 0}
-                      </Typography>
-                      <Typography
-                        variant="caption"
-                        sx={{ 
-                          color: (assignment.remaining_hours || 0) < 8 ? "#d32f2f" : "#2e7d32", 
-                          display: "block", 
-                          fontWeight: "bold" 
+                    <Divider sx={{ my: 1.5 }} />
+
+                    {/* Progress Bar */}
+                    <Box sx={{ mb: 1 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                        <Typography variant="caption" sx={{ color: '#666' }}>
+                          Balance Progress
+                        </Typography>
+                        <Typography variant="caption" sx={{ fontWeight: 600, color: statusColor }}>
+                          {progressPercent.toFixed(0)}%
+                        </Typography>
+                      </Box>
+                      <LinearProgress
+                        variant="determinate"
+                        value={progressPercent}
+                        sx={{
+                          height: 6,
+                          borderRadius: 3,
+                          bgcolor: 'rgba(0,0,0,0.05)',
+                          '& .MuiLinearProgress-bar': {
+                            borderRadius: 3,
+                            bgcolor: statusColor,
+                          },
                         }}
-                      >
-                        Remaining: {assignment.remaining_hours ? (assignment.remaining_hours / 8).toString().replace(/\.0+$/, "") : 0} hours
-                      </Typography>
+                      />
+                    </Box>
+
+                    {/* Stats Row */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 'auto', pt: 1 }}>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="h6" sx={{ fontWeight: 700, color: '#6d2323' }}>
+                          {(assignment.total_hours || 0) / 8}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#888' }}>Total</Typography>
+                      </Box>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="h6" sx={{ fontWeight: 700, color: '#ed6c02' }}>
+                          {(assignment.used_hours || 0) / 8}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#888' }}>Used</Typography>
+                      </Box>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="h6" sx={{ fontWeight: 700, color: statusColor }}>
+                          {(assignment.remaining_hours || 0) / 8}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#888' }}>Remaining</Typography>
+                      </Box>
                     </Box>
                   </Box>
                 </Grid>
@@ -593,230 +730,317 @@ const LeaveAssignment = () => {
             
             {filteredAssignments.length === 0 && (
               <Grid item xs={12}>
-                <Typography
-                  variant="body1"
-                  sx={{ textAlign: "center", color: "#6D2323", fontWeight: "bold", mt: 2 }}
-                >
-                  {assignments.length === 0 ? 'No assignments found. Create one above!' : 'No records match your search criteria.'}
-                </Typography>
+                <Box sx={{ textAlign: 'center', py: 6 }}>
+                  <EventNote sx={{ fontSize: 60, color: 'rgba(109, 35, 35, 0.2)', mb: 2 }} />
+                  <Typography variant="h6" sx={{ color: '#6D2323', fontWeight: 600 }}>
+                    {assignments.length === 0 ? 'No assignments found' : 'No matching records'}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: '#888' }}>
+                    {assignments.length === 0 ? 'Create your first assignment above!' : 'Try adjusting your search criteria'}
+                  </Typography>
+                </Box>
               </Grid>
             )}
           </Grid>
-        </Container>
+        </CardContent>
+      </GlassCard>
 
-        {/* Modal */}
-        <Modal
-          open={!!editAssignment}
-          onClose={handleCloseModal}
+      {/* Modal */}
+      <Modal
+        open={!!editAssignment}
+        onClose={handleCloseModal}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Box
           sx={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            backgroundColor: '#fff',
+            borderRadius: 4,
+            width: '90%',
+            maxWidth: '600px',
+            maxHeight: '85vh',
+            overflowY: 'auto',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
           }}
         >
-          <Box
-            sx={{
-              backgroundColor: "#fff",
-              border: "1px solid #6d2323",
-              borderRadius: 2,
-              width: "75%",
-              maxWidth: "700px",
-              maxHeight: "85vh",
-              overflowY: "auto",
-              position: "relative",
-            }}
-          >
-            {editAssignment && (
-              <>
-                {/* Modal Header */}
-                <Box
-                  sx={{
-                    backgroundColor: "#6D2323",
-                    color: "#ffffff",
-                    p: 2,
-                    borderRadius: "8px 8px 0 0",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Typography variant="h6">
-                    {isEditing ? "Edit Leave Assignment Information" : "Leave Assignment Information"}
-                  </Typography>
-                  <IconButton onClick={handleCloseModal} sx={{ color: "#fff" }}>
-                    <Close />
-                  </IconButton>
-                </Box>
-
-                {/* Modal Content */}
-                <Box sx={{ p: 3 }}>
-                  {/* Error Alert in Modal */}
-                  {error && (
-                    <Alert severity="error" sx={{ mb: 2 }}>
-                      {error}
-                    </Alert>
-                  )}
-
-                  <Grid container spacing={3}>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: "bold", mb: 1 }}>
-                        Employee Number
-                      </Typography>
-                      <TextField
-                        value={editAssignment.employeeNumber || ''}
-                        onChange={(e) =>
-                          setEditAssignment({ ...editAssignment, employeeNumber: e.target.value })
-                        }
-                        fullWidth
-                        disabled={!isEditing}
-                        error={isEditing && !!error && !editAssignment.employeeNumber}
-                        sx={{
-                          "& .MuiInputBase-input.Mui-disabled": {
-                            WebkitTextFillColor: "#000000",
-                            color: "#000000"
-                          }
-                        }}
-                      />
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: "bold", mb: 1 }}>
-                        Leave Type
-                      </Typography>
-                      <FormControl 
-                        fullWidth 
-                        disabled={!isEditing}
-                        error={isEditing && !!error && !editAssignment.leave_code}
-                      >
-                        <Select
-                          value={editAssignment.leave_code || ''}
-                          onChange={(e) =>
-                            setEditAssignment({ ...editAssignment, leave_code: e.target.value })
-                          }
-                          displayEmpty
-                          sx={{
-                            "& .MuiSelect-select.Mui-disabled": {
-                              WebkitTextFillColor: "#000000",
-                              color: "#000000"
-                            }
-                          }}
-                        >
-                          <MenuItem value="">
-                            <em>Select Leave Type</em>
-                          </MenuItem>
-                          {leaveTypes.map((type) => (
-                            <MenuItem key={type.id || type.leave_code} value={type.leave_code}>
-                              ({type.leave_code}) - {type.leave_description} - {type.leave_hours} hours
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: "bold", mb: 1 }}>
-                        Used Hours
-                      </Typography>
-                      <TextField
-                        type="number"
-                        value={editAssignment.used_hours || 0}
-                        disabled
-                        fullWidth
-                        sx={{
-                          "& .MuiInputBase-input.Mui-disabled": {
-                            WebkitTextFillColor: "#000000",
-                            color: "#000000"
-                          }
-                        }}
-                      />
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: "bold", mb: 1 }}>
-                        Remaining Hours
-                      </Typography>
-                      <TextField
-                        type="number"
-                        value={editAssignment.remaining_hours || ''}
-                        onChange={(e) =>
-                          setEditAssignment({ ...editAssignment, remaining_hours: parseFloat(e.target.value) || 0 })
-                        }
-                        fullWidth
-                        disabled={!isEditing}
-                        inputProps={{ min: 0, step: 0.5 }}
-                        sx={{
-                          "& .MuiInputBase-input.Mui-disabled": {
-                            WebkitTextFillColor: "#000000",
-                            color: "#000000"
-                          }
-                        }}
-                      />
-                    </Grid>
-                  </Grid>
-
-                  {/* Action Buttons */}
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "flex-end",
-                      mt: 3,
-                      gap: 2,
-                    }}
-                  >
-                    {!isEditing ? (
-                      <>
-                        <Button
-                          onClick={() => handleDelete(editAssignment.id)}
-                          variant="outlined"
-                          startIcon={<DeleteIcon />}
-                          sx={{
-                            color: "#ffffff",
-                            backgroundColor: 'black',
-                            "&:hover": { backgroundColor: '#333' }
-                          }}
-                        >
-                          Delete
-                        </Button>
-                        <Button
-                          onClick={handleStartEdit}
-                          variant="contained"
-                          startIcon={<EditIcon />}
-                          sx={{ backgroundColor: "#6D2323", color: "#FEF9E1" }}
-                        >
-                          Edit
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          onClick={handleCancelEdit}
-                          variant="outlined"
-                          startIcon={<CancelIcon />}
-                          sx={{
-                            color: "#ffffff",
-                            backgroundColor: 'black',
-                            "&:hover": { backgroundColor: '#333' }
-                          }}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          onClick={handleUpdate}
-                          variant="contained"
-                          startIcon={<SaveIcon />}
-                          sx={{ backgroundColor: "#6D2323", color: "#FEF9E1" }}
-                        >
-                          Save
-                        </Button>
-                      </>
-                    )}
+          {editAssignment && (
+            <>
+              {/* Modal Header */}
+              <Box
+                sx={{
+                  background: 'linear-gradient(135deg, #6D2323 0%, #8B4545 100%)',
+                  color: '#ffffff',
+                  p: 3,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 48, height: 48 }}>
+                    <EditIcon sx={{ fontSize: 24 }} />
+                  </Avatar>
+                  <Box>
+                    <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                      {isEditing ? 'Edit Leave Assignment' : 'Assignment Details'}
+                    </Typography>
+                    <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                      {editAssignment.fullName || editAssignment.employeeNumber}
+                    </Typography>
                   </Box>
                 </Box>
-              </>
-            )}
-          </Box>
-        </Modal>
-      </Box>
+                <IconButton onClick={handleCloseModal} sx={{ color: '#fff' }}>
+                  <Close />
+                </IconButton>
+              </Box>
+
+              {/* Modal Content */}
+              <Box sx={{ p: 3 }}>
+                {error && (
+                  <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
+                    {error}
+                  </Alert>
+                )}
+
+                <Grid container spacing={3}>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>
+                      Employee Number
+                    </Typography>
+                    <TextField
+                      value={editAssignment.employeeNumber || ''}
+                      onChange={(e) =>
+                        setEditAssignment({ ...editAssignment, employeeNumber: e.target.value })
+                      }
+                      fullWidth
+                      disabled={!isEditing}
+                      size="medium"
+                      sx={{
+                        '& .MuiOutlinedInput-root': { borderRadius: 2 },
+                        '& .MuiInputBase-input.Mui-disabled': {
+                          WebkitTextFillColor: '#000',
+                        }
+                      }}
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>
+                      Leave Type
+                    </Typography>
+                    <FormControl fullWidth disabled={!isEditing}>
+                      <Select
+                        value={editAssignment.leave_code || ''}
+                        onChange={(e) =>
+                          setEditAssignment({ ...editAssignment, leave_code: e.target.value })
+                        }
+                        displayEmpty
+                        sx={{
+                          borderRadius: 2,
+                          '& .MuiSelect-select.Mui-disabled': {
+                            WebkitTextFillColor: '#000',
+                          }
+                        }}
+                      >
+                        <MenuItem value="">
+                          <em>Select Leave Type</em>
+                        </MenuItem>
+                        {leaveTypes.map((type) => (
+                          <MenuItem key={type.id || type.leave_code} value={type.leave_code}>
+                            {type.leave_code} - {type.leave_description}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+
+                  <Grid item xs={12} sm={4}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>
+                      Total Hours
+                    </Typography>
+                    <TextField
+                      type="number"
+                      value={editAssignment.total_hours || 0}
+                      disabled
+                      fullWidth
+                      InputProps={{
+                        endAdornment: <InputAdornment position="end">hrs</InputAdornment>,
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': { borderRadius: 2 },
+                        '& .MuiInputBase-input.Mui-disabled': {
+                          WebkitTextFillColor: '#000',
+                        }
+                      }}
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} sm={4}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>
+                      Used Hours
+                    </Typography>
+                    <TextField
+                      type="number"
+                      value={editAssignment.used_hours || 0}
+                      disabled
+                      fullWidth
+                      InputProps={{
+                        endAdornment: <InputAdornment position="end">hrs</InputAdornment>,
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': { borderRadius: 2 },
+                        '& .MuiInputBase-input.Mui-disabled': {
+                          WebkitTextFillColor: '#000',
+                        }
+                      }}
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} sm={4}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>
+                      Remaining Hours
+                    </Typography>
+                    <TextField
+                      type="number"
+                      value={editAssignment.remaining_hours || ''}
+                      onChange={(e) =>
+                        setEditAssignment({ ...editAssignment, remaining_hours: parseFloat(e.target.value) || 0 })
+                      }
+                      fullWidth
+                      disabled={!isEditing}
+                      inputProps={{ min: 0, step: 1 }}
+                      InputProps={{
+                        endAdornment: <InputAdornment position="end">hrs</InputAdornment>,
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': { borderRadius: 2 },
+                        '& .MuiInputBase-input.Mui-disabled': {
+                          WebkitTextFillColor: '#000',
+                        }
+                      }}
+                    />
+                  </Grid>
+
+                  {/* Days Summary */}
+                  <Grid item xs={12}>
+                    <Box 
+                      sx={{ 
+                        p: 2, 
+                        borderRadius: 2, 
+                        bgcolor: 'rgba(109, 35, 35, 0.05)',
+                        border: '1px solid rgba(109, 35, 35, 0.1)'
+                      }}
+                    >
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5, color: '#6d2323' }}>
+                        Days Summary (8 hours = 1 day)
+                      </Typography>
+                      <Grid container spacing={2}>
+                        <Grid item xs={4}>
+                          <Typography variant="h5" sx={{ fontWeight: 700, color: '#6d2323' }}>
+                            {((editAssignment.total_hours || 0) / 8).toFixed(1)}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#666' }}>Total Days</Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography variant="h5" sx={{ fontWeight: 700, color: '#ed6c02' }}>
+                            {((editAssignment.used_hours || 0) / 8).toFixed(1)}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#666' }}>Used Days</Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography 
+                            variant="h5" 
+                            sx={{ 
+                              fontWeight: 700, 
+                              color: getStatusColor(editAssignment.remaining_hours, editAssignment.total_hours)
+                            }}
+                          >
+                            {((editAssignment.remaining_hours || 0) / 8).toFixed(1)}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#666' }}>Remaining Days</Typography>
+                        </Grid>
+                      </Grid>
+                    </Box>
+                  </Grid>
+                </Grid>
+
+                {/* Action Buttons */}
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 4, gap: 2 }}>
+                  {!isEditing ? (
+                    <>
+                      <Button
+                        onClick={() => handleDelete(editAssignment.id)}
+                        variant="contained"
+                        startIcon={<DeleteIcon />}
+                        sx={{
+                          bgcolor: '#333',
+                          color: '#fff',
+                          borderRadius: 2,
+                          px: 3,
+                          '&:hover': { bgcolor: '#111' }
+                        }}
+                      >
+                        Delete
+                      </Button>
+                      <Button
+                        onClick={handleStartEdit}
+                        variant="contained"
+                        startIcon={<EditIcon />}
+                        sx={{ 
+                          bgcolor: '#6D2323', 
+                          color: '#FEF9E1',
+                          borderRadius: 2,
+                          px: 3,
+                          '&:hover': { bgcolor: '#5a1d1d' }
+                        }}
+                      >
+                        Edit
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        onClick={handleCancelEdit}
+                        variant="outlined"
+                        startIcon={<CancelIcon />}
+                        sx={{
+                          color: '#6d2323',
+                          borderColor: '#6d2323',
+                          borderRadius: 2,
+                          px: 3,
+                          '&:hover': { 
+                            borderColor: '#6d2323',
+                            bgcolor: 'rgba(109, 35, 35, 0.05)'
+                          }
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={handleUpdate}
+                        variant="contained"
+                        startIcon={<SaveIcon />}
+                        sx={{ 
+                          bgcolor: '#6D2323', 
+                          color: '#FEF9E1',
+                          borderRadius: 2,
+                          px: 3,
+                          '&:hover': { bgcolor: '#5a1d1d' }
+                        }}
+                      >
+                        Save Changes
+                      </Button>
+                    </>
+                  )}
+                </Box>
+              </Box>
+            </>
+          )}
+        </Box>
+      </Modal>
     </Container>
   );
 };
