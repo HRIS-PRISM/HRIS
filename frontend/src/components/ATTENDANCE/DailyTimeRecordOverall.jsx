@@ -1491,39 +1491,46 @@ const DailyTimeRecordFaculty = () => {
               lineHeight: '1.2',
             }}
           >
-            <h4
-              style={{
-                fontFamily: 'Times New Roman, serif',
-                textAlign: 'center',
-                margin: '2px 0',
-                fontWeight: 'bold',
-                fontSize: '16px',
-              }}
-            >
-              DAILY TIME RECORD
-            </h4>
-          </td>
-        </tr>
-        {/* DTR Type Categorization */}
-        <tr>
-          <td colSpan="9" style={{ textAlign: 'center', padding: '2px 5px' }}>
-            <p
-              style={{
-                fontSize: '8px',
-                fontWeight: 'bold',
-                margin: '0',
-                fontFamily: 'Arial, serif',
-                textTransform: 'uppercase',
-              }}
-            >
-              {type === 'honorarium'
-                ? 'HONORARIUM'
-                : type === 'service-credit'
-                  ? 'SERVICE CREDITS'
+            {type === 'service-credit' ? (
+              <div style={{ textAlign: 'center' }}>
+                <h4
+                  style={{
+                    fontFamily: 'Times New Roman, serif',
+                    margin: '2px 0',
+                    fontWeight: 'bold',
+                    fontSize: '16px',
+                  }}
+                >
+                  DAILY TIME RECORD
+                </h4>
+                <div
+                  style={{
+                    fontFamily: 'Times New Roman, serif',
+                    fontSize: '16px',
+                    marginTop: '-2px',
+                    fontWeight: 'bold',
+                  }}
+                >
+                  SERVICE CREDITS
+                </div>
+              </div>
+            ) : (
+              <h4
+                style={{
+                  fontFamily: 'Times New Roman, serif',
+                  textAlign: 'center',
+                  margin: '2px 0',
+                  fontWeight: 'bold',
+                  fontSize: '16px',
+                }}
+              >
+                {type === 'honorarium'
+                  ? 'DAILY TIME RECORD - HONORARIUM'
                   : type === 'overtime'
-                    ? 'OVERTIME'
-                    : 'REGULAR'}
-            </p>
+                    ? 'DAILY TIME RECORD - OVERTIME'
+                    : 'DAILY TIME RECORD'}
+              </h4>
+            )}
           </td>
         </tr>
         <tr>
@@ -1961,7 +1968,7 @@ const DailyTimeRecordFaculty = () => {
                     r.date.endsWith(`-${day}`),
                   );
 
-                  // Construct full date: use record.date if available, otherwise build from startDate or selectedYear/selectedMonth
+                  // Construct full date: use record.date if available, otherwise build from startDate or selectedYear/selectedMonth 
                   let fullDate = null;
                   if (record?.date) {
                     fullDate = record.date;
@@ -4963,45 +4970,46 @@ const DailyTimeRecordFaculty = () => {
                                   lineHeight: '1.2',
                                 }}
                               >
-                                <h4
-                                  style={{
-                                    fontFamily: 'Times New Roman, serif',
-                                    textAlign: 'center',
-                                    margin: '2px 0',
-                                    fontWeight: 'bold',
-                                    fontSize: '16px',
-                                  }}
-                                >
-                                  DAILY TIME RECORD
-                                </h4>
-                              </td>
-                            </tr>
-                            {/* DTR Type Categorization */}
-                            <tr>
-                              <td
-                                colSpan="9"
-                                style={{
-                                  textAlign: 'center',
-                                  padding: '2px 5px',
-                                }}
-                              >
-                                <p
-                                  style={{
-                                    fontSize: '8px',
-                                    fontWeight: 'bold',
-                                    margin: '0',
-                                    fontFamily: 'Arial, serif',
-                                    textTransform: 'uppercase',
-                                  }}
-                                >
-                                  {dtrType === 'honorarium'
-                                    ? 'HONORARIUM'
-                                    : dtrType === 'service-credit'
-                                      ? 'SERVICE CREDITS'
+                                {dtrType === 'service-credit' ? (
+                                  <div style={{ textAlign: 'center' }}>
+                                    <h4
+                                      style={{
+                                        fontFamily: 'Times New Roman, serif',
+                                        margin: '2px 0',
+                                        fontWeight: 'bold',
+                                        fontSize: '16px',
+                                      }}
+                                    >
+                                      DAILY TIME RECORD
+                                    </h4>
+                                    <div
+                                      style={{
+                                        fontFamily: 'Times New Roman, serif',
+                                        fontSize: '16px',
+                                        marginTop: '-2px',
+                                        fontWeight: 'bold',
+                                      }}
+                                    >
+                                      SERVICE CREDITS
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <h4
+                                    style={{
+                                      fontFamily: 'Times New Roman, serif',
+                                      textAlign: 'center',
+                                      margin: '2px 0',
+                                      fontWeight: 'bold',
+                                      fontSize: '16px',
+                                    }}
+                                  >
+                                    {dtrType === 'honorarium'
+                                      ? 'DAILY TIME RECORD - HONORARIUM'
                                       : dtrType === 'overtime'
-                                        ? 'OVERTIME'
-                                        : 'REGULAR'}
-                                </p>
+                                        ? 'DAILY TIME RECORD - OVERTIME'
+                                        : 'DAILY TIME RECORD'}
+                                  </h4>
+                                )}
                               </td>
                             </tr>
                             <tr>
