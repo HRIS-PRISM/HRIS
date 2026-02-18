@@ -389,7 +389,9 @@ const useAuth = () => {
           const fullNameFromPerson = `${match.firstName || ""} ${
             match.middleName || ""
           } ${match.lastName || ""} ${match.nameExtension || ""}`.trim();
-          if (fullNameFromPerson) setFullName(fullNameFromPerson);
+          if (fullNameFromPerson) {
+            setFullName(fullNameFromPerson);
+          }
         }
       } catch (err) {
         console.error("Error loading profile picture:", err);
@@ -829,34 +831,47 @@ const useDashboardData = (settings) => {
   };
 };
 
+// --- FIXED useCarousel Hook ---
+// Fixed to restart timer when items.length changes (data loads)
 const useCarousel = (items, autoPlay = true, interval = 5000) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isPlaying, setIsPlaying] = useState(autoPlay);
 
+  const itemsRef = useRef(items);
+
+  // Update ref when items prop changes
   useEffect(() => {
-    if (!Array.isArray(items) || items.length === 0 || !isPlaying) return;
+    itemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    // Only restart timer if isPlaying changes or items.length changes.
+    // We added 'items.length' to dependencies to handle the initial data load from empty to populated.
+    if (!isPlaying || !itemsRef.current || itemsRef.current.length === 0) return;
+    
     const timer = setInterval(() => {
-      setCurrentSlide((s) => (s + 1) % items.length);
+      setCurrentSlide((s) => (s + 1) % itemsRef.current.length);
     }, interval);
+    
     return () => clearInterval(timer);
-  }, [items, isPlaying, interval]);
+  }, [isPlaying, interval, items.length]); 
 
   const handlePrevSlide = useCallback(() => {
-    if (!Array.isArray(items)) return;
-    setCurrentSlide((s) => (s - 1 + items.length) % items.length);
-  }, [items]);
+    if (!itemsRef.current || itemsRef.current.length === 0) return;
+    setCurrentSlide((s) => (s - 1 + itemsRef.current.length) % itemsRef.current.length);
+  }, []);
 
   const handleNextSlide = useCallback(() => {
-    if (!Array.isArray(items)) return;
-    setCurrentSlide((s) => (s + 1) % items.length);
-  }, [items]);
+    if (!itemsRef.current || itemsRef.current.length === 0) return;
+    setCurrentSlide((s) => (s + 1) % itemsRef.current.length);
+  }, []);
 
   const handleSlideSelect = useCallback(
     (index) => {
-      if (!Array.isArray(items)) return;
+      if (!itemsRef.current || itemsRef.current.length === 0) return;
       setCurrentSlide(index);
     },
-    [items]
+    []
   );
 
   const togglePlayPause = useCallback(() => {
@@ -1193,6 +1208,7 @@ const CompactStatCard = ({
   </Grow>
 );
 
+// FIXED AnnouncementCarousel with Fade transition
 const AnnouncementCarousel = ({
   announcements,
   currentSlide,
@@ -1217,193 +1233,207 @@ const AnnouncementCarousel = ({
         position: "relative",
       }}
     >
-      <Box sx={{ position: "relative", height: 550 }}>
+      <Box sx={{ position: "relative", height: 550, width: '100%' }}>
         {Array.isArray(announcements) && announcements.length > 0 ? (
-          <>
-                  <Box
-                    component="img"
-                    src={
-                      announcements[currentSlide]?.image
-                        ? buildImageUrl(announcements[currentSlide].image)
-                        : "/api/placeholder/800/400"
-                    }
-              alt={announcements[currentSlide]?.title || (announcements[currentSlide]?.id?.toString().startsWith("holiday-") ? "Holiday" : announcements[currentSlide]?.id?.toString().startsWith("suspension-") ? "Suspension" : "Announcement")}
+          // ADDED Fade wrapper here for smooth slideshow transition
+          <Fade in={true} key={currentSlide} timeout={{ enter: 800, exit: 400 }}>
+            <Box
               sx={{
-                width: "100%",
+                position: "relative",
                 height: "100%",
-                objectFit: "cover",
-                transition: "transform 0.7s ease",
-                transform: "scale(1)",
-              }}
-            />
-            <Box
-              sx={{
-                position: "absolute",
-                inset: 0,
-                background:
-                  "linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0) 70%)",
-              }}
-            />
-            <IconButton
-              onClick={(e) => {
-                e.stopPropagation();
-                handlePrevSlide();
-              }}
-              sx={{
-                position: "absolute",
-                left: 24,
-                top: "50%",
-                transform: "translateY(-50%)",
-                bgcolor: `${settings.primaryColor}4D`,
-                backdropFilter: "blur(10px)",
-                border: `1px solid ${settings.primaryColor}26`,
-                "&:hover": {
-                  bgcolor: `${settings.primaryColor}80`,
-                  transform: "translateY(-50%) scale(1.1)",
-                },
-                color: "#ffffff",
-                boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
-                transition: "all 0.3s",
+                width: "100%"
               }}
             >
-              <ArrowBackIosNewIcon />
-            </IconButton>
-            <IconButton
-              onClick={(e) => {
-                e.stopPropagation();
-                handleNextSlide();
-              }}
-              sx={{
-                position: "absolute",
-                right: 24,
-                top: "50%",
-                transform: "translateY(-50%)",
-                bgcolor: `${settings.primaryColor}4D`,
-                backdropFilter: "blur(10px)",
-                border: `1px solid ${settings.primaryColor}26`,
-                "&:hover": {
-                  bgcolor: `${settings.primaryColor}80`,
-                  transform: "translateY(-50%) scale(1.1)",
-                },
-                color: "#ffffff",
-                boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
-                transition: "all 0.3s",
-              }}
-            >
-              <ArrowForwardIosIcon />
-            </IconButton>
-            <IconButton
-              onClick={(e) => {
-                e.stopPropagation();
-                togglePlayPause();
-              }}
-              sx={{
-                position: "absolute",
-                top: 24,
-                right: 24,
-                bgcolor: `${settings.primaryColor}4D`,
-                backdropFilter: "blur(10px)",
-                border: `1px solid ${settings.primaryColor}26`,
-                "&:hover": {
-                  bgcolor: `${settings.primaryColor}80`,
-                  transform: "scale(1.1)",
-                },
-                color: "#ffffff",
-                boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
-                transition: "all 0.3s",
-              }}
-            >
-              {isPlaying ? <Pause /> : <PlayArrow />}
-            </IconButton>
-            <Box
-              onClick={() => handleOpenModal(announcements[currentSlide])}
-              sx={{
-                position: "absolute",
-                bottom: 0,
-                left: 0,
-                right: 0,
-                p: 4,
-                color: "#ffffff",
-                cursor: "pointer",
-                transition: "transform 0.3s",
-                "&:hover": { transform: "translateY(-4px)" },
-              }}
-            >
-              <Chip
-                label={announcements[currentSlide]?.id?.toString().startsWith("holiday-") ? "HOLIDAY" : announcements[currentSlide]?.id?.toString().startsWith("suspension-") ? "SUSPENSION" : "ANNOUNCEMENT"}
-                size="small"
+              <Box
+                component="img"
+                src={
+                  announcements[currentSlide]?.image
+                    ? buildImageUrl(announcements[currentSlide].image)
+                    : "/api/placeholder/800/400"
+                }
+                alt={announcements[currentSlide]?.title || (announcements[currentSlide]?.id?.toString().startsWith("holiday-") ? "Holiday" : announcements[currentSlide]?.id?.toString().startsWith("suspension-") ? "Suspension" : "Announcement")}
                 sx={{
-                  mb: 2,
-                  bgcolor: `${settings.primaryColor}80`,
-                  backdropFilter: "blur(10px)",
-                  color: "#ffffff",
-                  fontWeight: 700,
-                  fontSize: "0.7rem",
-                  border: "1px solid rgba(254, 249, 225, 0.3)",
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  transition: "transform 0.7s ease",
+                  transform: "scale(1)",
                 }}
               />
-              <Typography
-                variant="h3"
+              <Box
                 sx={{
-                  fontWeight: 800,
-                  mb: 1,
-                  textShadow: "0 4px 12px rgba(0,0,0,0.5)",
-                  lineHeight: 1.2,
+                  position: "absolute",
+                  inset: 0,
+                  background:
+                    "linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0) 70%)",
+                }}
+              />
+              <IconButton
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePrevSlide();
+                }}
+                sx={{
+                  position: "absolute",
+                  left: 24,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  bgcolor: `${settings.primaryColor}4D`,
+                  backdropFilter: "blur(10px)",
+                  border: `1px solid ${settings.primaryColor}26`,
+                  "&:hover": {
+                    bgcolor: `${settings.primaryColor}80`,
+                    transform: "translateY(-50%) scale(1.1)",
+                  },
+                  color: "#ffffff",
+                  boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
+                  transition: "all 0.3s",
+                  zIndex: 10,
                 }}
               >
-                {announcements[currentSlide]?.title}
-              </Typography>
-              <Typography
+                <ArrowBackIosNewIcon />
+              </IconButton>
+              <IconButton
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleNextSlide();
+                }}
                 sx={{
-                  opacity: 0.95,
-                  fontSize: "1rem",
-                  textShadow: "0 2px 8px rgba(0,0,0,0.5)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1,
+                  position: "absolute",
+                  right: 24,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  bgcolor: `${settings.primaryColor}4D`,
+                  backdropFilter: "blur(10px)",
+                  border: `1px solid ${settings.primaryColor}26`,
+                  "&:hover": {
+                    bgcolor: `${settings.primaryColor}80`,
+                    transform: "translateY(-50%) scale(1.1)",
+                  },
+                  color: "#ffffff",
+                  boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
+                  transition: "all 0.3s",
+                  zIndex: 10,
                 }}
               >
-                <AccessTimeIcon sx={{ fontSize: 18 }} />
-                {new Date(announcements[currentSlide]?.date).toDateString()}
-              </Typography>
-            </Box>
-            <Box
-              sx={{
-                position: "absolute",
-                bottom: 24,
-                right: 24,
-                display: "flex",
-                gap: 1.5,
-                alignItems: "center",
-              }}
-            >
-              {announcements.map((_, idx) => (
-                <Box
-                  key={idx}
+                <ArrowForwardIosIcon />
+              </IconButton>
+              <IconButton
+                onClick={(e) => {
+                  e.stopPropagation();
+                  togglePlayPause();
+                }}
+                sx={{
+                  position: "absolute",
+                  top: 24,
+                  right: 24,
+                  bgcolor: `${settings.primaryColor}4D`,
+                  backdropFilter: "blur(10px)",
+                  border: `1px solid ${settings.primaryColor}26`,
+                  "&:hover": {
+                    bgcolor: `${settings.primaryColor}80`,
+                    transform: "scale(1.1)",
+                  },
+                  color: "#ffffff",
+                  boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
+                  transition: "all 0.3s",
+                  zIndex: 10,
+                }}
+              >
+                {isPlaying ? <Pause /> : <PlayArrow />}
+              </IconButton>
+              <Box
+                onClick={() => handleOpenModal(announcements[currentSlide])}
+                sx={{
+                  position: "absolute",
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  p: 4,
+                  color: "#ffffff",
+                  cursor: "pointer",
+                  transition: "transform 0.3s",
+                  "&:hover": { transform: "translateY(-4px)" },
+                  zIndex: 10,
+                }}
+              >
+                <Chip
+                  label={announcements[currentSlide]?.id?.toString().startsWith("holiday-") ? "HOLIDAY" : announcements[currentSlide]?.id?.toString().startsWith("suspension-") ? "SUSPENSION" : "ANNOUNCEMENT"}
+                  size="small"
                   sx={{
-                    width: currentSlide === idx ? 32 : 10,
-                    height: 10,
-                    borderRadius: 5,
-                    bgcolor:
-                      currentSlide === idx
-                        ? "#ffffff"
-                        : "rgba(254,249,225,0.4)",
-                    transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
-                    cursor: "pointer",
-                    border: "1px solid rgba(254,249,225,0.3)",
-                    "&:hover": {
-                      bgcolor: "rgba(254,249,225,0.7)",
-                      transform: "scale(1.2)",
-                    },
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleSlideSelect(idx);
+                    mb: 2,
+                    bgcolor: `${settings.primaryColor}80`,
+                    backdropFilter: "blur(10px)",
+                    color: "#ffffff",
+                    fontWeight: 700,
+                    fontSize: "0.7rem",
+                    border: "1px solid rgba(254, 249, 225, 0.3)",
                   }}
                 />
-              ))}
+                <Typography
+                  variant="h3"
+                  sx={{
+                    fontWeight: 800,
+                    mb: 1,
+                    textShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {announcements[currentSlide]?.title}
+                </Typography>
+                <Typography
+                  sx={{
+                    opacity: 0.95,
+                    fontSize: "1rem",
+                    textShadow: "0 2px 8px rgba(0,0,0,0.5)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                  }}
+                >
+                  <AccessTimeIcon sx={{ fontSize: 18 }} />
+                  {new Date(announcements[currentSlide]?.date).toDateString()}
+                </Typography>
+              </Box>
+              <Box
+                sx={{
+                  position: "absolute",
+                  bottom: 24,
+                  right: 24,
+                  display: "flex",
+                  gap: 1.5,
+                  alignItems: "center",
+                  zIndex: 10,
+                }}
+              >
+                {announcements.map((_, idx) => (
+                  <Box
+                    key={idx}
+                    sx={{
+                      width: currentSlide === idx ? 32 : 10,
+                      height: 10,
+                      borderRadius: 5,
+                      bgcolor:
+                        currentSlide === idx
+                          ? "#ffffff"
+                          : "rgba(254,249,225,0.4)",
+                      transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+                      cursor: "pointer",
+                      border: "1px solid rgba(254,249,225,0.3)",
+                      "&:hover": {
+                        bgcolor: "rgba(254,249,225,0.7)",
+                        transform: "scale(1.2)",
+                      },
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSlideSelect(idx);
+                    }}
+                  />
+                ))}
+              </Box>
             </Box>
-          </>
+          </Fade>
         ) : (
           <Box
             sx={{
@@ -2679,7 +2709,9 @@ const EventsList = ({ settings, employeeNumber }) => {
             fullWidth
             variant="outlined"
             value={newEvent.date}
-            onChange={(e) => setNewEvent({ ...newEvent, date: e.target.value })}
+            onChange={(e) =>
+              setNewEvent({ ...newEvent, date: e.target.value })
+            }
             InputLabelProps={{
               shrink: true,
             }}
@@ -2938,7 +2970,7 @@ const LogoutDialog = ({ open, settings }) => (
             height: 120,
             borderRadius: "50%",
             background: `radial-gradient(circle at 30% 30%, ${settings.secondaryColor}, ${settings.primaryColor})`,
-            boxShadow: `0 0 40px ${settings.primaryColor}, 0 0 80px ${settings.primaryColor}`,
+            boxShadow: `0 0 40px ${settings.primaryColor}, 0 0 80px ${settings.accentColor}`,
             position: "absolute",
             top: "50%",
             left: "50%",
@@ -3124,11 +3156,14 @@ const AdminHome = () => {
     date_end: s.date_end || s.date,
     image: s.image || null,
   }));
-  const carouselItems = [
+
+  // FIXED: Wrap in useMemo to prevent carousel resetting on every re-render (e.g. clock updates)
+  const carouselItems = useMemo(() => [
     ...scheduledHolidaysForCarousel,
     ...suspensionsForCarousel,
     ...announcementsInRange,
-  ].sort((a, b) => new Date(b.date_start || b.date) - new Date(a.date_start || a.date));
+  ].sort((a, b) => new Date(b.date_start || b.date) - new Date(a.date_start || a.date)),
+  [scheduledHolidaysForCarousel, suspensionsForCarousel, announcementsInRange]);
 
   const {
     currentSlide,
@@ -3335,7 +3370,7 @@ const AdminHome = () => {
           }
         }
 
-        // If still not found, get the most recent announcement
+        // If still not found, get to most recent announcement
         if (!matchingAnnouncement && announcementList.length > 0) {
           matchingAnnouncement = announcementList[0]; // Most recent
         }
@@ -3440,7 +3475,7 @@ const AdminHome = () => {
         position: "relative",
         left: "50%",
         transform: "translateX(-50%)",
-        mt: 1.2
+        mt: -1
       }}
     >
       <Box sx={{ pt: 4, px: 4, mx: "auto", maxWidth: "1600px" }}>
@@ -3544,7 +3579,8 @@ const AdminHome = () => {
                         )
                           ? notifRes.data.filter(
                               (notif) =>
-                                String(notif.employeeNumber).trim() === empNum
+                                String(notif.employeeNumber).trim() ===
+                                empNum
                             )
                           : [];
 
@@ -3748,9 +3784,9 @@ const AdminHome = () => {
                   calendarDate={calendarDate}
                   setCalendarDate={setCalendarDate}
                   holidays={holidays}
-                  announcements={announcements} // Pass announcements to the calendar
+                  announcements={announcements} // Pass announcements to calendar
                   settings={settings}
-                  setSelectedDate={setSelectedDate} // Pass setSelectedDate to the calendar
+                  setSelectedDate={setSelectedDate} // Pass setSelectedDate to calendar
                 />
               </Grid>
               <Grid item xs={6}>
@@ -3770,7 +3806,6 @@ const AdminHome = () => {
             </Grid>
           </Grid>
         </Grid>
-      </Box>
 
       <Modal open={openModal} onClose={handleCloseModal}>
         <Fade in={openModal}>
@@ -3916,7 +3951,7 @@ const AdminHome = () => {
                 sx={{
                   color: settings.textPrimaryColor,
                   "&:hover": {
-                    bgcolor: `${settings.primaryColor}1A`,
+                    backgroundColor: `${settings.primaryColor}1A`,
                     transform: "rotate(90deg)",
                   },
                   transition: "all 0.3s",
@@ -4225,6 +4260,7 @@ const AdminHome = () => {
       </Modal>
 
       <LogoutDialog open={logoutOpen} settings={settings} />
+    </Box>
     </Box>
   );
 };

@@ -24,7 +24,7 @@ function logAudit(
   action,
   tableName,
   recordId,
-  targetEmployeeNumber = null
+  targetEmployeeNumber = null,
 ) {
   const auditQuery = `
     INSERT INTO audit_log (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
@@ -43,7 +43,7 @@ function logAudit(
       if (err) {
         console.error('Error inserting audit log:', err);
       }
-    }
+    },
   );
 }
 
@@ -68,19 +68,103 @@ const getDayOfWeek = (dateString) => {
   return date.toLocaleDateString('en-US', { weekday: 'long' });
 };
 
+// Helper function to parse time string to minutes for comparison
+const parseTimeToMinutes = (timeStr) => {
+  if (!timeStr || typeof timeStr !== 'string') return null;
+
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!match) return null;
+
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const ampm = match[4]?.toUpperCase();
+
+  if (ampm === 'PM' && hours !== 12) hours += 12;
+  if (ampm === 'AM' && hours === 12) hours = 0;
+
+  return hours * 60 + minutes;
+};
+
+// Helper function to check if time falls within a range
+const timeIsInRange = (attendanceTime, startTime, endTime) => {
+  const attMinutes = parseTimeToMinutes(attendanceTime);
+  const startMinutes = parseTimeToMinutes(startTime);
+  const endMinutes = parseTimeToMinutes(endTime);
+
+  if (attMinutes === null || startMinutes === null || endMinutes === null) {
+    return false;
+  }
+
+  // Handle overnight ranges (e.g., 11:00 PM to 2:00 AM)
+  if (endMinutes < startMinutes) {
+    return attMinutes >= startMinutes || attMinutes <= endMinutes;
+  }
+
+  return attMinutes >= startMinutes && attMinutes <= endMinutes;
+};
+
+// Helper function to determine special type based on time and officialtime data
+const determineSpecialType = (attendanceTime, officialTimeData) => {
+  if (!attendanceTime || !officialTimeData) {
+    return { type: 'UNCATEGORIZED', isSpecial: true };
+  }
+
+  // Check Honorarium range
+  if (
+    officialTimeData.officialHonorariumTimeIN &&
+    officialTimeData.officialHonorariumTimeOUT &&
+    timeIsInRange(
+      attendanceTime,
+      officialTimeData.officialHonorariumTimeIN,
+      officialTimeData.officialHonorariumTimeOUT,
+    )
+  ) {
+    return { type: 'HONORARIUM', isSpecial: true };
+  }
+
+  // Check Service Credits range
+  if (
+    officialTimeData.officialServiceCreditTimeIN &&
+    officialTimeData.officialServiceCreditTimeOUT &&
+    timeIsInRange(
+      attendanceTime,
+      officialTimeData.officialServiceCreditTimeIN,
+      officialTimeData.officialServiceCreditTimeOUT,
+    )
+  ) {
+    return { type: 'SERVICE', isSpecial: true };
+  }
+
+  // Check Overtime range
+  if (
+    officialTimeData.officialOverTimeIN &&
+    officialTimeData.officialOverTimeOUT &&
+    timeIsInRange(
+      attendanceTime,
+      officialTimeData.officialOverTimeIN,
+      officialTimeData.officialOverTimeOUT,
+    )
+  ) {
+    return { type: 'OVERTIME', isSpecial: true };
+  }
+
+  // If AttendanceState is 5 or 6 but doesn't match any range
+  return { type: 'UNCATEGORIZED', isSpecial: true };
+};
+
 // Endpoint to fetch attendance records
 router.get('/api/attendance', authenticateToken, (req, res) => {
   const { personId, startDate, endDate } = req.query;
   const sql = `
-    SELECT DISTINCT attendanceRecord.*, users.employeeNumber, users.username,
+    SELECT DISTINCT attendancerecord.*, users.employeeNumber, users.username,
     users.employmentCategory, officialtime.*
-    FROM attendanceRecord
-    JOIN users ON attendanceRecord.personID = users.employeeNumber
-    JOIN officialtime ON attendanceRecord.Day = officialtime.day
-      AND attendanceRecord.personID = officialtime.employeeID
-      AND attendanceRecord.date BETWEEN officialtime.startDate AND officialtime.endDate
-    WHERE attendanceRecord.personID = ?
-    AND attendanceRecord.date BETWEEN ? AND ?
+    FROM attendancerecord
+    JOIN users ON attendancerecord.personID = users.employeeNumber
+    JOIN officialtime ON attendancerecord.Day = officialtime.day
+      AND attendancerecord.personID = officialtime.employeeID
+      AND attendancerecord.date BETWEEN officialtime.startDate AND officialtime.endDate
+    WHERE attendancerecord.personID = ?
+    AND attendancerecord.date BETWEEN ? AND ?
   `;
   db.query(sql, [personId, startDate, endDate], (err, results) => {
     if (err) {
@@ -93,7 +177,7 @@ router.get('/api/attendance', authenticateToken, (req, res) => {
       'view',
       'Attendance Module',
       `${startDate} && ${endDate}`,
-      personId
+      personId,
     );
     res.json(results);
   });
@@ -102,7 +186,7 @@ router.get('/api/attendance', authenticateToken, (req, res) => {
 // Endpoint to check if attendance record exists
 router.get('/api/check-attendance', authenticateToken, (req, res) => {
   const { personID, date } = req.query;
-  const sql = `SELECT EXISTS(SELECT * FROM attendanceRecord WHERE personID = ? AND date = ?) AS exists`;
+  const sql = `SELECT EXISTS(SELECT * FROM attendancerecord WHERE personID = ? AND date = ?) AS exists`;
   db.query(sql, [personID, date], (err, results) => {
     if (err) throw err;
     logAudit(req.user, 'search', 'attendance', date, personID);
@@ -115,7 +199,7 @@ router.post('/api/update-attendance', authenticateToken, (req, res) => {
   const { records } = req.body;
 
   const promises = records.map((record) => {
-    const sql = `UPDATE attendanceRecord SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ? WHERE id = ?`;
+    const sql = `UPDATE attendancerecord SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ? WHERE id = ?`;
     return new Promise((resolve, reject) => {
       db.query(
         sql,
@@ -133,10 +217,10 @@ router.post('/api/update-attendance', authenticateToken, (req, res) => {
             'update',
             'Attendance Module',
             record.id,
-            record.personID
+            record.personID,
           );
           resolve();
-        }
+        },
       );
     });
   });
@@ -151,7 +235,7 @@ router.post('/api/update-attendance', authenticateToken, (req, res) => {
         : [];
 
       notifyAttendanceChanged('updated', {
-        scope: 'attendanceRecord',
+        scope: 'attendancerecord',
         personIDs,
         recordIds,
       });
@@ -184,7 +268,7 @@ router.post('/api/attendance', authenticateToken, (req, res) => {
       'search',
       'Device Attendance Records',
       `${startDate} && ${endDate}`,
-      personID
+      personID,
     );
 
     const records = results.map((record) => {
@@ -217,10 +301,10 @@ router.post('/api/send-to-dtr', authenticateToken, async (req, res) => {
   const { personID, startDate, endDate } = req.body;
 
   try {
-    // Check if records exist in attendanceRecord table
+    // Check if records exist in attendancerecord table
     const checkQuery = `
       SELECT COUNT(*) as count
-      FROM attendanceRecord
+      FROM attendancerecord
       WHERE personID = ? AND date BETWEEN ? AND ?
     `;
 
@@ -243,7 +327,7 @@ router.post('/api/send-to-dtr', authenticateToken, async (req, res) => {
       'send-to-dtr',
       'Device Attendance Records',
       `${startDate} && ${endDate}`,
-      personID
+      personID,
     );
 
     res.json({
@@ -273,7 +357,7 @@ router.post('/api/bulk-send-to-dtr', authenticateToken, async (req, res) => {
     for (const personID of userIDs) {
       const checkQuery = `
         SELECT COUNT(*) as count
-        FROM attendanceRecord
+        FROM attendancerecord
         WHERE personID = ? AND date BETWEEN ? AND ?
       `;
 
@@ -296,7 +380,7 @@ router.post('/api/bulk-send-to-dtr', authenticateToken, async (req, res) => {
           'bulk-send-to-dtr',
           'Device Attendance Records',
           `${startDate} && ${endDate}`,
-          personID
+          personID,
         );
       }
     }
@@ -321,7 +405,7 @@ router.post('/api/save-attendance', authenticateToken, (req, res) => {
 
   const promises = records.map((record) => {
     return new Promise((resolve, reject) => {
-      const checkSql = `SELECT EXISTS(SELECT * FROM attendanceRecord WHERE personID = ? AND date = ?) AS recordExists`;
+      const checkSql = `SELECT EXISTS(SELECT * FROM attendancerecord WHERE personID = ? AND date = ?) AS recordExists`;
       db.query(checkSql, [record.personID, record.date], (err, checkResult) => {
         if (err) return reject(err);
 
@@ -333,7 +417,7 @@ router.post('/api/save-attendance', authenticateToken, (req, res) => {
             date: record.date,
           });
         } else {
-          const insertSql = `INSERT INTO attendanceRecord (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+          const insertSql = `INSERT INTO attendancerecord (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT) VALUES (?, ?, ?, ?, ?, ?, ?)`;
           db.query(
             insertSql,
             [
@@ -352,14 +436,14 @@ router.post('/api/save-attendance', authenticateToken, (req, res) => {
                 'create',
                 'Attendance Management',
                 record.date,
-                record.personID
+                record.personID,
               );
               resolve({
                 status: 'saved',
                 personID: record.personID,
                 date: record.date,
               });
-            }
+            },
           );
         }
       });
@@ -374,7 +458,7 @@ router.post('/api/save-attendance', authenticateToken, (req, res) => {
 
       if (saved.length > 0) {
         notifyAttendanceChanged('created', {
-          scope: 'attendanceRecord',
+          scope: 'attendancerecord',
           personIDs: [...new Set(saved.map((r) => r.personID).filter(Boolean))],
           dates: [...new Set(saved.map((r) => r.date).filter(Boolean))],
         });
@@ -395,15 +479,23 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
       ar.date,
       DAYNAME(ar.date) AS Day,
       ar.timeIN, ar.breaktimeIN, ar.breaktimeOUT, ar.timeOUT,
+      ar.specialType, ar.specialTimeIN, ar.specialTimeOUT,
       p.*,
-      ot.officialTimeIN, ot.officialTimeOUT
-    FROM attendanceRecord ar
+      ot.officialTimeIN,
+      ot.officialTimeOUT,
+      ot.officialBreaktimeIN,
+      ot.officialBreaktimeOUT,
+      ot.officialHonorariumTimeIN,
+      ot.officialHonorariumTimeOUT,
+      ot.officialServiceCreditTimeIN,
+      ot.officialServiceCreditTimeOUT,
+      ot.officialOverTimeIN,
+      ot.officialOverTimeOUT
+    FROM attendancerecord ar
     INNER JOIN person_table p ON ar.personID = p.agencyEmployeeNum
-    INNER JOIN (
-      SELECT day, MIN(officialTimeIN) AS officialTimeIN, MIN(officialTimeOUT) AS officialTimeOUT
-      FROM officialtime
-      GROUP BY day
-    ) ot ON DAYNAME(ar.date) = ot.day
+    LEFT JOIN officialtime ot ON DAYNAME(ar.date) = ot.day
+      AND ar.personID = ot.employeeID
+      AND ar.date BETWEEN ot.startDate AND ot.endDate
     WHERE ar.personID = ? AND ar.date BETWEEN ? AND ?
     ORDER BY ar.date ASC;
   `;
@@ -415,8 +507,78 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
       'view',
       'Overall DTR',
       `${startDate} && ${endDate}`,
-      personID
+      personID,
     );
+    res.send(results);
+  });
+});
+
+// New endpoint: Get all attendance records for date range (only users with records)
+router.post('/api/view-attendance-all-users', authenticateToken, (req, res) => {
+  const { startDate, endDate } = req.body;
+
+  if (!startDate || !endDate) {
+    return res
+      .status(400)
+      .json({ error: 'Start date and end date are required' });
+  }
+
+  const query = `
+    SELECT
+      ar.personID,
+      ar.date,
+      DAYNAME(ar.date) AS Day,
+      ar.timeIN, ar.breaktimeIN, ar.breaktimeOUT, ar.timeOUT,
+      ar.specialType, ar.specialTimeIN, ar.specialTimeOUT,
+      p.*,
+      ot.officialTimeIN,
+      ot.officialTimeOUT,
+      ot.officialBreaktimeIN,
+      ot.officialBreaktimeOUT,
+      ot.officialHonorariumTimeIN,
+      ot.officialHonorariumTimeOUT,
+      ot.officialServiceCreditTimeIN,
+      ot.officialServiceCreditTimeOUT,
+      ot.officialOverTimeIN,
+      ot.officialOverTimeOUT,
+      CASE 
+        WHEN p.agencyEmployeeNum IS NOT NULL THEN 'Registered'
+        ELSE 'Not Registered'
+      END AS registrationStatus,
+      ari_names.PersonName as devicePersonName
+    FROM attendancerecord ar
+    LEFT JOIN person_table p ON ar.personID = p.agencyEmployeeNum
+    LEFT JOIN officialtime ot ON DAYNAME(ar.date) = ot.day
+      AND ar.personID = ot.employeeID
+      AND ar.date BETWEEN ot.startDate AND ot.endDate
+    LEFT JOIN (
+      SELECT PersonID, MAX(PersonName) as PersonName
+      FROM attendancerecordinfo
+      GROUP BY PersonID
+    ) ari_names ON ar.personID = ari_names.PersonID
+    WHERE ar.date BETWEEN ? AND ?
+    ORDER BY 
+      CASE WHEN p.lastName IS NULL THEN 1 ELSE 0 END,
+      p.lastName ASC, 
+      p.firstName ASC, 
+      ar.personID ASC,
+      ar.date ASC;
+  `;
+
+  db.query(query, [startDate, endDate], (err, results) => {
+    if (err) {
+      console.error('Error fetching attendance records for all users:', err);
+      return res.status(500).send(err);
+    }
+
+    logAudit(
+      req.user,
+      'view',
+      'Overall DTR - All Users',
+      `${startDate} && ${endDate}`,
+      'all-users',
+    );
+
     res.send(results);
   });
 });
@@ -427,7 +589,7 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
 
   const updatePromises = records.map((record) => {
     const query = `
-      UPDATE attendanceRecord
+      UPDATE attendancerecord
       SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?
       WHERE personID = ? AND date = ?
     `;
@@ -450,7 +612,7 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
             'update',
             'Overall DTR',
             record.date,
-            record.personID
+            record.personID,
           );
           resolve(result);
         }
@@ -492,7 +654,7 @@ router.get('/api/dtr', authenticateToken, (req, res) => {
       'view',
       'attendancerecord',
       `${startDate} && ${endDate}`,
-      personID
+      personID,
     );
     res.json(results);
   });
@@ -559,7 +721,7 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
         'create',
         'Overall Attendance Record',
         `${startDate} && ${endDate}`,
-        personID
+        personID,
       );
       notifyAttendanceChanged('overall-created', {
         scope: 'overall_attendance_record',
@@ -567,13 +729,11 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
         startDate,
         endDate,
       });
-      res
-        .status(201)
-        .json({
-          message: 'Attendance record saved successfully',
-          data: results,
-        });
-    }
+      res.status(201).json({
+        message: 'Attendance record saved successfully',
+        data: results,
+      });
+    },
   );
 });
 
@@ -607,14 +767,12 @@ router.get('/api/overall_attendance_record', authenticateToken, (req, res) => {
       'search',
       'Overall Attendance Record',
       `${startDate} && ${endDate}`,
-      personID
+      personID,
     );
-    res
-      .status(200)
-      .json({
-        message: 'Overall attendance record fetched successfully',
-        data: results,
-      });
+    res.status(200).json({
+      message: 'Overall attendance record fetched successfully',
+      data: results,
+    });
   });
 });
 
@@ -650,21 +808,17 @@ router.put(
       [personID, startDate, endDate, id],
       (checkError, checkResults) => {
         if (checkError) {
-          return res
-            .status(500)
-            .json({
-              message: 'Database error while checking for duplicates',
-              error: checkError,
-            });
+          return res.status(500).json({
+            message: 'Database error while checking for duplicates',
+            error: checkError,
+          });
         }
 
         if (checkResults.length > 0) {
-          return res
-            .status(400)
-            .json({
-              message:
-                'Duplicate record found with the same personID, startDate, and endDate',
-            });
+          return res.status(400).json({
+            message:
+              'Duplicate record found with the same personID, startDate, and endDate',
+          });
         }
 
         const query = `
@@ -709,7 +863,7 @@ router.put(
               'update',
               'Overall Attendance Record',
               id,
-              personID
+              personID,
             );
             notifyAttendanceChanged('overall-updated', {
               scope: 'overall_attendance_record',
@@ -721,11 +875,11 @@ router.put(
             res
               .status(200)
               .json({ message: 'Record updated successfully', data: results });
-          }
+          },
         );
-      }
+      },
     );
-  }
+  },
 );
 
 // Delete overall attendance record
@@ -744,11 +898,9 @@ router.delete(
       }
 
       if (result.affectedRows === 0) {
-        return res
-          .status(404)
-          .send({
-            message: 'Attendance record not found or personID mismatch',
-          });
+        return res.status(404).send({
+          message: 'Attendance record not found or personID mismatch',
+        });
       }
 
       logAudit(req.user, 'delete', 'overall_attendance_record', id, personID);
@@ -759,7 +911,7 @@ router.delete(
       });
       res.status(200).send({ message: 'Attendance entry deleted' });
     });
-  }
+  },
 );
 
 // fetch audit logs
@@ -877,7 +1029,9 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
       MIN(CASE WHEN AttendanceState = 1 THEN AttendanceDateTime END) AS Time1,
       MIN(CASE WHEN AttendanceState = 2 THEN AttendanceDateTime END) AS Time2,
       MIN(CASE WHEN AttendanceState = 3 THEN AttendanceDateTime END) AS Time3,
-      MAX(CASE WHEN AttendanceState = 4 THEN AttendanceDateTime END) AS Time4
+      MAX(CASE WHEN AttendanceState = 4 THEN AttendanceDateTime END) AS Time4,
+      MIN(CASE WHEN AttendanceState = 5 THEN AttendanceDateTime END) AS Time5,
+      MAX(CASE WHEN AttendanceState = 6 THEN AttendanceDateTime END) AS Time6
     FROM AttendanceRecordInfo
     WHERE PersonID = ? AND AttendanceDateTime BETWEEN ? AND ?
     GROUP BY Date, PersonID, PersonName
@@ -898,7 +1052,7 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
         'search',
         'Device Attendance Records',
         `${startDate} && ${endDate}`,
-        personID
+        personID,
       );
 
       const convertToManilaTime = (timestamp) => {
@@ -921,16 +1075,43 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
         Time2: convertToManilaTime(record.Time2),
         Time3: convertToManilaTime(record.Time3),
         Time4: convertToManilaTime(record.Time4),
+        Time5: convertToManilaTime(record.Time5),
+        Time6: convertToManilaTime(record.Time6),
       }));
 
-      // AUTO-SAVE: Save records to attendanceRecord table
-      try {
-        let savedCount = 0;
-        let updatedCount = 0;
+      // AUTO-SAVE: Save records to attendancerecord table
+      let savedCount = 0;
+      let updatedCount = 0;
 
+      try {
         for (const record of records) {
+          // Fetch officialtime data for this employee and date
+          const officialTimeQuery = `
+            SELECT 
+              officialTimeIN, officialTimeOUT,
+              officialBreaktimeIN, officialBreaktimeOUT,
+              officialHonorariumTimeIN, officialHonorariumTimeOUT,
+              officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
+              officialOverTimeIN, officialOverTimeOUT
+            FROM officialtime
+            WHERE employeeID = ? 
+              AND DAYNAME(?) = day
+              AND ? BETWEEN startDate AND endDate
+          `;
+
+          const officialTimeData = await new Promise((resolve, reject) => {
+            db.query(
+              officialTimeQuery,
+              [record.PersonID, record.Date, record.Date],
+              (err, result) => {
+                if (err) reject(err);
+                else resolve(result[0] || null);
+              },
+            );
+          });
+
           // Get existing record with all fields to compare
-          const checkSql = `SELECT id, timeIN, breaktimeIN, breaktimeOUT, timeOUT, day FROM attendanceRecord WHERE personID = ? AND date = ?`;
+          const checkSql = `SELECT id, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT, day FROM attendancerecord WHERE personID = ? AND date = ?`;
           const existingRecord = await new Promise((resolve, reject) => {
             db.query(
               checkSql,
@@ -938,22 +1119,40 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
               (err, result) => {
                 if (err) reject(err);
                 else resolve(result);
-              }
+              },
             );
           });
 
+          // Format regular times
           const newTimeIN = formatTime(record.Time1);
           const newBreaktimeIN = formatTime(record.Time3);
           const newBreaktimeOUT = formatTime(record.Time2);
           const newTimeOUT = formatTime(record.Time4);
           const newDay = getDayOfWeek(record.Date);
 
+          // Handle special attendance (State 5 & 6)
+          let specialType = null;
+          let specialTimeIN = null;
+          let specialTimeOUT = null;
+
+          if (record.Time5 || record.Time6) {
+            const specialTime = record.Time5 || record.Time6;
+            const specialResult = determineSpecialType(
+              specialTime,
+              officialTimeData,
+            );
+            specialType = specialResult.type;
+            specialTimeIN = record.Time5 ? formatTime(record.Time5) : null;
+            specialTimeOUT = record.Time6 ? formatTime(record.Time6) : null;
+          }
+
           if (existingRecord.length === 0) {
             // Insert new record if it doesn't exist
             const insertSql = `
-            INSERT INTO attendanceRecord (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `;
+              INSERT INTO attendancerecord 
+              (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `;
             await new Promise((resolve, reject) => {
               db.query(
                 insertSql,
@@ -965,6 +1164,9 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
                   newBreaktimeIN,
                   newBreaktimeOUT,
                   newTimeOUT,
+                  specialType,
+                  specialTimeIN,
+                  specialTimeOUT,
                 ],
                 (err) => {
                   if (err) {
@@ -976,12 +1178,12 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
                       'auto-create',
                       'Device Attendance Auto-Save',
                       record.Date,
-                      record.PersonID
+                      record.PersonID,
                     );
                     savedCount++;
                     resolve();
                   }
-                }
+                },
               );
             });
           } else {
@@ -992,14 +1194,18 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
               (existing.breaktimeIN || 'N/A') !== (newBreaktimeIN || 'N/A') ||
               (existing.breaktimeOUT || 'N/A') !== (newBreaktimeOUT || 'N/A') ||
               (existing.timeOUT || 'N/A') !== (newTimeOUT || 'N/A') ||
+              (existing.specialType || null) !== (specialType || null) ||
+              (existing.specialTimeIN || null) !== (specialTimeIN || null) ||
+              (existing.specialTimeOUT || null) !== (specialTimeOUT || null) ||
               (existing.day || '') !== newDay;
 
             if (hasChanges) {
               const updateSql = `
-              UPDATE attendanceRecord
-              SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?, day = ?
-              WHERE personID = ? AND date = ?
-            `;
+                UPDATE attendancerecord
+                SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?, 
+                    specialType = ?, specialTimeIN = ?, specialTimeOUT = ?, day = ?
+                WHERE personID = ? AND date = ?
+              `;
               await new Promise((resolve, reject) => {
                 db.query(
                   updateSql,
@@ -1008,6 +1214,9 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
                     newBreaktimeIN,
                     newBreaktimeOUT,
                     newTimeOUT,
+                    specialType,
+                    specialTimeIN,
+                    specialTimeOUT,
                     newDay,
                     record.PersonID,
                     record.Date,
@@ -1022,12 +1231,12 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
                         'auto-update',
                         'Device Attendance Auto-Save',
                         record.Date,
-                        record.PersonID
+                        record.PersonID,
                       );
                       updatedCount++;
                       resolve();
                     }
-                  }
+                  },
                 );
               });
             }
@@ -1050,8 +1259,36 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
         // Continue even if save fails
       }
 
-      res.json(records);
-    }
+      // Fetch specialType from attendancerecord for each record and merge
+      const enrichedRecords = await Promise.all(
+        records.map(async (record) => {
+          const specialTypeQuery = `
+            SELECT specialType, specialTimeIN, specialTimeOUT 
+            FROM attendancerecord 
+            WHERE personID = ? AND date = ?
+          `;
+          const specialData = await new Promise((resolve, reject) => {
+            db.query(
+              specialTypeQuery,
+              [record.PersonID, record.Date],
+              (err, result) => {
+                if (err) reject(err);
+                else resolve(result[0] || null);
+              },
+            );
+          });
+
+          return {
+            ...record,
+            specialType: specialData?.specialType || null,
+            savedSpecialTimeIN: specialData?.specialTimeIN || null,
+            savedSpecialTimeOUT: specialData?.specialTimeOUT || null,
+          };
+        }),
+      );
+
+      res.json(enrichedRecords);
+    },
   );
 });
 
@@ -1096,7 +1333,9 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
             MIN(CASE WHEN AttendanceState = 1 THEN AttendanceDateTime END) AS Time1,
             MIN(CASE WHEN AttendanceState = 2 THEN AttendanceDateTime END) AS Time2,
             MIN(CASE WHEN AttendanceState = 3 THEN AttendanceDateTime END) AS Time3,
-            MAX(CASE WHEN AttendanceState = 4 THEN AttendanceDateTime END) AS Time4
+            MAX(CASE WHEN AttendanceState = 4 THEN AttendanceDateTime END) AS Time4,
+            MIN(CASE WHEN AttendanceState = 5 THEN AttendanceDateTime END) AS Time5,
+            MAX(CASE WHEN AttendanceState = 6 THEN AttendanceDateTime END) AS Time6
           FROM AttendanceRecordInfo
           WHERE PersonID = ? AND AttendanceDateTime BETWEEN ? AND ?
           GROUP BY Date, PersonID, PersonName
@@ -1109,7 +1348,7 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
             (err, result) => {
               if (err) reject(err);
               else resolve(result);
-            }
+            },
           );
         });
 
@@ -1126,8 +1365,33 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
         };
 
         for (const record of records) {
+          // Fetch officialtime data for this employee and date
+          const officialTimeQuery = `
+            SELECT 
+              officialTimeIN, officialTimeOUT,
+              officialBreaktimeIN, officialBreaktimeOUT,
+              officialHonorariumTimeIN, officialHonorariumTimeOUT,
+              officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
+              officialOverTimeIN, officialOverTimeOUT
+            FROM officialtime
+            WHERE employeeID = ? 
+              AND DAYNAME(?) = day
+              AND ? BETWEEN startDate AND endDate
+          `;
+
+          const officialTimeData = await new Promise((resolve, reject) => {
+            db.query(
+              officialTimeQuery,
+              [record.PersonID, record.Date, record.Date],
+              (err, result) => {
+                if (err) reject(err);
+                else resolve(result[0] || null);
+              },
+            );
+          });
+
           // Get existing record with all fields to compare
-          const checkSql = `SELECT id, timeIN, breaktimeIN, breaktimeOUT, timeOUT, day FROM attendanceRecord WHERE personID = ? AND date = ?`;
+          const checkSql = `SELECT id, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT, day FROM attendancerecord WHERE personID = ? AND date = ?`;
           const existingRecord = await new Promise((resolve, reject) => {
             db.query(
               checkSql,
@@ -1135,7 +1399,7 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
               (err, result) => {
                 if (err) reject(err);
                 else resolve(result);
-              }
+              },
             );
           });
 
@@ -1145,11 +1409,33 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
           const newTimeOUT = formatTime(convertToManilaTime(record.Time4));
           const newDay = getDayOfWeek(record.Date);
 
+          // Handle special attendance (State 5 & 6)
+          let specialType = null;
+          let specialTimeIN = null;
+          let specialTimeOUT = null;
+
+          if (record.Time5 || record.Time6) {
+            const specialTime = convertToManilaTime(
+              record.Time5 || record.Time6,
+            );
+            const specialResult = determineSpecialType(
+              specialTime,
+              officialTimeData,
+            );
+            specialType = specialResult.type;
+            specialTimeIN = record.Time5
+              ? formatTime(convertToManilaTime(record.Time5))
+              : null;
+            specialTimeOUT = record.Time6
+              ? formatTime(convertToManilaTime(record.Time6))
+              : null;
+          }
+
           if (existingRecord.length === 0) {
             // Insert new record if it doesn't exist
             const insertSql = `
-              INSERT INTO attendanceRecord (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
+              INSERT INTO attendancerecord (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
             await new Promise((resolve, reject) => {
               db.query(
@@ -1162,6 +1448,9 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
                   newBreaktimeIN,
                   newBreaktimeOUT,
                   newTimeOUT,
+                  specialType,
+                  specialTimeIN,
+                  specialTimeOUT,
                 ],
                 (err) => {
                   if (err) reject(err);
@@ -1169,7 +1458,7 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
                     savedCount++;
                     resolve();
                   }
-                }
+                },
               );
             });
           } else {
@@ -1180,12 +1469,16 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
               (existing.breaktimeIN || 'N/A') !== (newBreaktimeIN || 'N/A') ||
               (existing.breaktimeOUT || 'N/A') !== (newBreaktimeOUT || 'N/A') ||
               (existing.timeOUT || 'N/A') !== (newTimeOUT || 'N/A') ||
+              (existing.specialType || null) !== (specialType || null) ||
+              (existing.specialTimeIN || null) !== (specialTimeIN || null) ||
+              (existing.specialTimeOUT || null) !== (specialTimeOUT || null) ||
               (existing.day || '') !== newDay;
 
             if (hasChanges) {
               const updateSql = `
-                UPDATE attendanceRecord
-                SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?, day = ?
+                UPDATE attendancerecord
+                SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?, 
+                    specialType = ?, specialTimeIN = ?, specialTimeOUT = ?, day = ?
                 WHERE personID = ? AND date = ?
               `;
               await new Promise((resolve, reject) => {
@@ -1196,6 +1489,9 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
                     newBreaktimeIN,
                     newBreaktimeOUT,
                     newTimeOUT,
+                    specialType,
+                    specialTimeIN,
+                    specialTimeOUT,
                     newDay,
                     record.PersonID,
                     record.Date,
@@ -1206,7 +1502,7 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
                       updatedCount++;
                       resolve();
                     }
-                  }
+                  },
                 );
               });
             }
@@ -1224,7 +1520,7 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
       'bulk-auto-save',
       'Device Attendance Records',
       `${startDate} && ${endDate}`,
-      null
+      null,
     );
 
     if (savedCount > 0 || updatedCount > 0) {
@@ -1259,21 +1555,25 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
 // Get print status for multiple employees
 router.post('/api/dtr-print-status', authenticateToken, async (req, res) => {
   const { employeeNumbers, year, month } = req.body;
-  
-  if (!employeeNumbers || !Array.isArray(employeeNumbers) || employeeNumbers.length === 0) {
+
+  if (
+    !employeeNumbers ||
+    !Array.isArray(employeeNumbers) ||
+    employeeNumbers.length === 0
+  ) {
     return res.status(400).json({ error: 'employeeNumbers array is required' });
   }
-  
+
   if (!year || !month) {
     return res.status(400).json({ error: 'year and month are required' });
   }
-  
+
   const query = `
     SELECT employee_number, year, month, printed_at, printed_by
     FROM dtr_print_history
     WHERE employee_number IN (?) AND year = ? AND month = ?
   `;
-  
+
   db.query(query, [employeeNumbers, year, month], (err, results) => {
     if (err) {
       console.error('Error fetching print status:', err);
@@ -1286,21 +1586,32 @@ router.post('/api/dtr-print-status', authenticateToken, async (req, res) => {
 // Mark DTRs as printed
 router.post('/api/mark-dtr-printed', authenticateToken, async (req, res) => {
   const { employeeNumbers, year, month, startDate, endDate } = req.body;
-  
-  if (!employeeNumbers || !Array.isArray(employeeNumbers) || employeeNumbers.length === 0) {
+
+  if (
+    !employeeNumbers ||
+    !Array.isArray(employeeNumbers) ||
+    employeeNumbers.length === 0
+  ) {
     return res.status(400).json({ error: 'employeeNumbers array is required' });
   }
-  
+
   if (!year || !month || !startDate || !endDate) {
-    return res.status(400).json({ error: 'year, month, startDate, and endDate are required' });
+    return res
+      .status(400)
+      .json({ error: 'year, month, startDate, and endDate are required' });
   }
-  
+
   const printedBy = req.user.employeeNumber || req.user.username;
-  
-  const values = employeeNumbers.map(empNum => [
-    empNum, year, month, startDate, endDate, printedBy
+
+  const values = employeeNumbers.map((empNum) => [
+    empNum,
+    year,
+    month,
+    startDate,
+    endDate,
+    printedBy,
   ]);
-  
+
   const query = `
     INSERT INTO dtr_print_history 
     (employee_number, year, month, start_date, end_date, printed_by)
@@ -1311,20 +1622,20 @@ router.post('/api/mark-dtr-printed', authenticateToken, async (req, res) => {
       start_date = VALUES(start_date),
       end_date = VALUES(end_date)
   `;
-  
+
   db.query(query, [values], (err, result) => {
     if (err) {
       console.error('Error marking DTRs as printed:', err);
       return res.status(500).json({ error: err.message });
     }
-    
+
     // Log audit trail
     logAudit(
       req.user,
       'print',
       'DTR',
       `${employeeNumbers.length} records for ${year}-${month}`,
-      employeeNumbers.join(', ')
+      employeeNumbers.join(', '),
     );
 
     notifyAttendanceChanged('dtr-printed', {
@@ -1336,11 +1647,11 @@ router.post('/api/mark-dtr-printed', authenticateToken, async (req, res) => {
       endDate,
       printedBy,
     });
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       count: result.affectedRows,
-      message: `Successfully marked ${employeeNumbers.length} DTR(s) as printed`
+      message: `Successfully marked ${employeeNumbers.length} DTR(s) as printed`,
     });
   });
 });

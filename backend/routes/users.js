@@ -659,10 +659,17 @@ router.post('/register', async (req, res) => {
                                       <div class="credential-value highlight">${password}</div>
                                     </div>
                                   </div>
+<<<<<<< HEAD
                                 </div>
                                 <div class="credential-row">
                                   <div class="credential-label">Employment Type</div>
                                   <div class="credential-value">${categoryLabel}</div>
+=======
+
+                                  <p class="intro-text">
+                                    Please change your password after logging in.
+                                  </p>
+>>>>>>> 3dc75ae7938388e2db808a80a23cefa6412b2fa8
                                 </div>
                               </div>
                               <!-- Security Note -->

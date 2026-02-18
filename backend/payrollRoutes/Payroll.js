@@ -537,7 +537,7 @@ router.put(
       p.pay2ndCompute = ?,
       p.rtIns = ?,
       p.ec = ?
-    WHERE p.employeeNumber = ?
+    WHERE p.id = ? AND p.employeeNumber = ?
   `;
 
 
@@ -568,6 +568,7 @@ router.put(
       pay2ndCompute,
       rtIns,
       ec,
+      id,
       employeeNumber,
     ];
 

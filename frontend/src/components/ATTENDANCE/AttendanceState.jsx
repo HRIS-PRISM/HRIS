@@ -167,33 +167,45 @@ const PremiumTableCell = styled(TableCell)(({ theme, isHeader = false }) => ({
 const parseTimeToMinutes = (timeStr) => {
   if (!timeStr || typeof timeStr !== 'string') return null;
 
-  const match = timeStr.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
-  if (!match) return null;
+  console.log('🕐 Parsing time:', timeStr);
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]\.?M\.?)?$/i);
+  if (!match) {
+    console.log('❌ No regex match for:', timeStr);
+    return null;
+  }
 
   let hours = parseInt(match[1], 10);
   const minutes = parseInt(match[2], 10);
-  const ampm = match[4]?.toUpperCase();
+  const ampm = match[4]?.toUpperCase().replace(/\./g, ''); // Remove periods
+  
+  console.log('  Hours:', hours, 'Minutes:', minutes, 'AMPM:', ampm, 'Original:', match[4]);
 
   if (ampm === 'PM' && hours !== 12) hours += 12;
   if (ampm === 'AM' && hours === 12) hours = 0;
+  
+  const totalMinutes = hours * 60 + minutes;
+  console.log('  Total minutes:', totalMinutes, '(', hours, ':', minutes, ')');
 
-  return hours * 60 + minutes;
+  return totalMinutes;
 };
 
 // Helper function to check if time falls within a range
 const timeIsInRange = (attendanceTime, startTime, endTime) => {
+  console.log('🔍 Checking range:', attendanceTime, 'between', startTime, 'and', endTime);
   const attMinutes = parseTimeToMinutes(attendanceTime);
   const startMinutes = parseTimeToMinutes(startTime);
   const endMinutes = parseTimeToMinutes(endTime);
 
   if (attMinutes === null || startMinutes === null || endMinutes === null) {
+    console.log('  ❌ Null values detected');
     return false;
   }
 
-  return attMinutes >= startMinutes && attMinutes <= endMinutes;
+  const inRange = attMinutes >= startMinutes && attMinutes <= endMinutes;
+  console.log('  Result:', inRange, '(att:', attMinutes, 'start:', startMinutes, 'end:', endMinutes, ')');
+  return inRange;
 };
 
-// Helper function to determine attendance state and get the type
 // Helper function to determine attendance state and get the type
 const determineAttendanceStateWithType = (
   attendanceRecord,
@@ -204,118 +216,80 @@ const determineAttendanceStateWithType = (
     return { state: null, type: null };
   }
 
-  // If no official time data, return the original state as-is
-  if (!officialTimeRecord) {
-    console.log(
-      '⚠️ NO OFFICIAL TIME DATA - Returning original state:',
-      attendanceRecord.AttendanceState,
-    );
-    return { state: attendanceRecord.AttendanceState, type: null };
-  }
-
+  const originalState = attendanceRecord.AttendanceState;
   const attendanceTime = attendanceRecord.Time;
 
-  console.log('✅ CHECKING attendance time:', attendanceTime);
-  console.log(
-    '✅ OFFICIAL TIME DATA:',
-    JSON.stringify(officialTimeRecord, null, 2),
-  );
+  console.log('📍 Processing record - State:', originalState, 'Time:', attendanceTime);
 
-  // Check if honorarium fields exist and have values
-  console.log('Honorarium IN:', officialTimeRecord.officialHonorariumTimeIN);
-  console.log('Honorarium OUT:', officialTimeRecord.officialHonorariumTimeOUT);
-
-  // State 5 & 6: Check if attendance time falls within any official time range
-
-  // Honorarium range
-  if (
-    officialTimeRecord.officialHonorariumTimeIN &&
-    officialTimeRecord.officialHonorariumTimeOUT &&
-    timeIsInRange(
-      attendanceTime,
-      officialTimeRecord.officialHonorariumTimeIN,
-      officialTimeRecord.officialHonorariumTimeOUT,
-    )
-  ) {
-    console.log('✅✅✅ MATCHED: Honorarium (IN or OUT)');
-    const attMinutes = parseTimeToMinutes(attendanceTime);
-    const inMinutes = parseTimeToMinutes(
-      officialTimeRecord.officialHonorariumTimeIN,
-    );
-    const outMinutes = parseTimeToMinutes(
-      officialTimeRecord.officialHonorariumTimeOUT,
-    );
-    const midpoint = (inMinutes + outMinutes) / 2;
-
-    console.log(`Attendance: ${attMinutes} minutes, Midpoint: ${midpoint}`);
-
-    if (attMinutes <= midpoint) {
-      console.log('Returning State 5 (Honorarium IN)');
-      return { state: 5, type: 'honorarium' };
-    } else {
-      console.log('Returning State 6 (Honorarium OUT)');
-      return { state: 6, type: 'honorarium' };
-    }
+  // States 1-4 are regular time (Time IN, Break OUT, Break IN, Time OUT)
+  if (originalState >= 1 && originalState <= 4) {
+    console.log('✅ Regular state (1-4), returning as-is');
+    return { state: originalState, type: 'Regular' };
   }
 
-  // Service Credits range
-  if (
-    officialTimeRecord.officialServiceCreditTimeIN &&
-    officialTimeRecord.officialServiceCreditTimeOUT &&
-    timeIsInRange(
-      attendanceTime,
-      officialTimeRecord.officialServiceCreditTimeIN,
-      officialTimeRecord.officialServiceCreditTimeOUT,
-    )
-  ) {
-    console.log('✅✅✅ MATCHED: Service Credits (IN or OUT)');
-    const attMinutes = parseTimeToMinutes(attendanceTime);
-    const inMinutes = parseTimeToMinutes(
-      officialTimeRecord.officialServiceCreditTimeIN,
-    );
-    const outMinutes = parseTimeToMinutes(
-      officialTimeRecord.officialServiceCreditTimeOUT,
-    );
-    const midpoint = (inMinutes + outMinutes) / 2;
-
-    if (attMinutes <= midpoint) {
-      return { state: 5, type: 'serviceCredits' };
-    } else {
-      return { state: 6, type: 'serviceCredits' };
+  // States 5-6 need type determination from official time ranges
+  if (originalState === 5 || originalState === 6) {
+    console.log('🔍 State 5/6 detected - checking official time ranges');
+    
+    if (!officialTimeRecord) {
+      console.log('⚠️ NO OFFICIAL TIME DATA for state 5/6');
+      return { state: originalState, type: null };
     }
+
+    console.log('🕐 Overtime:', officialTimeRecord.officialOverTimeIN, '-', officialTimeRecord.officialOverTimeOUT);
+    console.log('🕐 Honorarium:', officialTimeRecord.officialHonorariumTimeIN, '-', officialTimeRecord.officialHonorariumTimeOUT);
+    console.log('🕐 Service Credits:', officialTimeRecord.officialServiceCreditTimeIN, '-', officialTimeRecord.officialServiceCreditTimeOUT);
+
+    // Check Overtime range FIRST
+    if (
+      officialTimeRecord.officialOverTimeIN &&
+      officialTimeRecord.officialOverTimeOUT &&
+      timeIsInRange(
+        attendanceTime,
+        officialTimeRecord.officialOverTimeIN,
+        officialTimeRecord.officialOverTimeOUT,
+      )
+    ) {
+      console.log('✅✅✅ MATCHED: Overtime');
+      return { state: originalState, type: 'overtime' };
+    }
+
+    // Check Honorarium range
+    if (
+      officialTimeRecord.officialHonorariumTimeIN &&
+      officialTimeRecord.officialHonorariumTimeOUT &&
+      timeIsInRange(
+        attendanceTime,
+        officialTimeRecord.officialHonorariumTimeIN,
+        officialTimeRecord.officialHonorariumTimeOUT,
+      )
+    ) {
+      console.log('✅✅✅ MATCHED: Honorarium');
+      return { state: originalState, type: 'honorarium' };
+    }
+
+    // Check Service Credits range
+    if (
+      officialTimeRecord.officialServiceCreditTimeIN &&
+      officialTimeRecord.officialServiceCreditTimeOUT &&
+      timeIsInRange(
+        attendanceTime,
+        officialTimeRecord.officialServiceCreditTimeIN,
+        officialTimeRecord.officialServiceCreditTimeOUT,
+      )
+    ) {
+      console.log('✅✅✅ MATCHED: Service Credits');
+      return { state: originalState, type: 'serviceCredits' };
+    }
+
+    // State 5/6 but no matching range = Uncategorized
+    console.log('❌ State 5/6 but NO RANGE MATCH - Uncategorized');
+    return { state: originalState, type: null };
   }
 
-  // Overtime range
-  if (
-    officialTimeRecord.officialOverTimeIN &&
-    officialTimeRecord.officialOverTimeOUT &&
-    timeIsInRange(
-      attendanceTime,
-      officialTimeRecord.officialOverTimeIN,
-      officialTimeRecord.officialOverTimeOUT,
-    )
-  ) {
-    console.log('✅✅✅ MATCHED: Overtime (IN or OUT)');
-    const attMinutes = parseTimeToMinutes(attendanceTime);
-    const inMinutes = parseTimeToMinutes(officialTimeRecord.officialOverTimeIN);
-    const outMinutes = parseTimeToMinutes(
-      officialTimeRecord.officialOverTimeOUT,
-    );
-    const midpoint = (inMinutes + outMinutes) / 2;
-
-    if (attMinutes <= midpoint) {
-      return { state: 5, type: 'overtime' };
-    } else {
-      return { state: 6, type: 'overtime' };
-    }
-  }
-
-  console.log(
-    '❌ NO MATCH - Returning original state:',
-    attendanceRecord.AttendanceState,
-  );
-  // Return the original state (1, 2, 3, or 4) if no special time match
-  return { state: attendanceRecord.AttendanceState, type: null };
+  // Unknown state
+  console.log('⚠️ Unknown state:', originalState);
+  return { state: originalState, type: null };
 };
 
 const AllAttendanceRecord = () => {
@@ -378,18 +352,35 @@ const AllAttendanceRecord = () => {
   // Fetch official time data for the employee
   const fetchOfficialTimeData = async (empID) => {
     try {
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
       const response = await axios.get(
-        `${API_BASE_URL}/officialtimetable/${empID}`,
+        `${API_BASE_URL}/officialtimetable/${empID}?date=${today}`,
         getAuthHeaders(),
       );
       if (response.data && response.data.length > 0) {
-        setOfficialTimeData(response.data[0]);
-        console.log('Official time data fetched:', response.data[0]);
+        // Get today's day name (Monday, Tuesday, etc.)
+        const todayDayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+        console.log('📅 Today is:', todayDayName);
+        
+        // Find the record matching today's day
+        const todayRecord = response.data.find(record => 
+          record.day && record.day.toLowerCase() === todayDayName.toLowerCase()
+        );
+        
+        if (todayRecord) {
+          setOfficialTimeData(todayRecord);
+          console.log('✅ Official time data for', todayDayName, ':', todayRecord);
+        } else {
+          // Fallback to first record if no day match
+          setOfficialTimeData(response.data[0]);
+          console.log('⚠️ No day match, using first record:', response.data[0]);
+        }
       } else {
         setOfficialTimeData(null);
+        console.log('⚠️ No official time data found for', today);
       }
     } catch (err) {
-      console.error('Error fetching official time data:', err);
+      console.error('❌ Error fetching official time data:', err);
       setOfficialTimeData(null);
     }
   };
@@ -647,10 +638,21 @@ const AllAttendanceRecord = () => {
 
   const filteredRecords = records
     .map((record) => {
+      console.log('\n========================================');
+      console.log('🔍 PROCESSING RECORD:', record.Time, 'State:', record.AttendanceState);
+      console.log('Official Time Data exists?', !!officialTimeData);
+      if (officialTimeData) {
+        console.log('📋 Official Time Ranges:');
+        console.log('  Overtime:', officialTimeData.officialOverTimeIN, 'to', officialTimeData.officialOverTimeOUT);
+        console.log('  Honorarium:', officialTimeData.officialHonorariumTimeIN, 'to', officialTimeData.officialHonorariumTimeOUT);
+        console.log('  Service Credits:', officialTimeData.officialServiceCreditTimeIN, 'to', officialTimeData.officialServiceCreditTimeOUT);
+      }
       const stateInfo = determineAttendanceStateWithType(
         record,
         officialTimeData,
       );
+      console.log('✅ RESULT → State:', stateInfo.state, 'Type:', stateInfo.type);
+      console.log('========================================\n');
       return {
         ...record,
         displayState: stateInfo.state,
