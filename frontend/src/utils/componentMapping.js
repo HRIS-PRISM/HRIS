@@ -193,16 +193,30 @@ export const componentMapping = {
   },
   'daily-time-record': {
     componentPath: 'components/ATTENDANCE/DailyTimeRecord.jsx',
-    routePath: '/daily-time-record',
+    routePath: '/daily_time_record',
     componentName: 'DailyTimeRecord',
-    description: 'Daily Time Record',
+    description: 'Daily Time Record - Regular Work Days',
     icon: CalendarMonth,
   },
-  'daily-time-record-faculty': {
-    componentPath: 'components/ATTENDANCE/DailyTimeRecordOverall.jsx',
-    routePath: '/daily_time_record_faculty',
-    componentName: 'DailyTimeRecordOverall',
-    description: 'Daily Time Record for Faculty',
+  'daily-time-record-honorarium': {
+    componentPath: 'components/ATTENDANCE/DailyTimeRecordHonorarium.jsx',
+    routePath: '/daily_time_record_honorarium',
+    componentName: 'DailyTimeRecordHonorarium',
+    description: 'Daily Time Record - Honorarium',
+    icon: CalendarMonth,
+  },
+  'daily-time-record-service-credits': {
+    componentPath: 'components/ATTENDANCE/DailyTimeRecordServiceCredits.jsx',
+    routePath: '/daily_time_record_service_credits',
+    componentName: 'DailyTimeRecordServiceCredits',
+    description: 'Daily Time Record - Service Credits',
+    icon: CalendarMonth,
+  },
+  'daily-time-record-overtime': {
+    componentPath: 'components/ATTENDANCE/DailyTimeRecordOvertime.jsx',
+    routePath: '/daily_time_record_overtime',
+    componentName: 'DailyTimeRecordOvertime',
+    description: 'Daily Time Record - Overtime',
     icon: CalendarMonth,
   },
   'attendance-form': {

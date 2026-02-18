@@ -173,6 +173,12 @@ const Sidebar = ({
 }) => {
   // Add internal state for System Administration dropdown
   const [internalOpenSystemAdmin, setInternalOpenSystemAdmin] = useState(false);
+  
+  // Add internal state for DTR dropdown
+  const [openDTR, setOpenDTR] = useState(false);
+  const handleClickDTR = () => {
+    setOpenDTR(!openDTR);
+  };
 
   // Use prop value if provided, otherwise use internal state
   const openSystemAdmin =
@@ -353,6 +359,14 @@ const Sidebar = ({
       setSelectedItem("attendance-user-state");
     } else if (currentPath === "/daily_time_record") {
       setSelectedItem("daily_time_record");
+    } else if (currentPath === "/daily_time_record_faculty") {
+      setSelectedItem("daily_time_record_faculty");
+    } else if (currentPath === "/daily_time_record_honorarium") {
+      setSelectedItem("daily_time_record_honorarium");
+    } else if (currentPath === "/daily_time_record_service_credits") {
+      setSelectedItem("daily_time_record_service_credits");
+    } else if (currentPath === "/daily_time_record_overtime") {
+      setSelectedItem("daily_time_record_overtime");
     } else if (currentPath === "/payslip") {
       setSelectedItem("payslip");
     } else if (currentPath === "/pds1") {
@@ -398,8 +412,6 @@ const Sidebar = ({
       setSelectedItem("attendance_form");
     } else if (currentPath === "/search_attendance") {
       setSelectedItem("search_attendance");
-    } else if (currentPath === "/daily_time_record_faculty") {
-      setSelectedItem("daily_time_record_faculty");
     } else if (currentPath === "/attendance_module") {
       setSelectedItem("attendance_module");
     } else if (currentPath === "/attendance_module_faculty") {
@@ -408,6 +420,8 @@ const Sidebar = ({
       setSelectedItem("attendance_module_faculty_40hrs");
     } else if (currentPath === "/attendance_summary") {
       setSelectedItem("attendance_summary");
+    } else if (currentPath === "/daily_time_record_faculty") {
+      setSelectedItem("daily_time_record_faculty");
     } else if (currentPath === "/official_time") {
       setSelectedItem("official_time");
     } else if (currentPath === "/payroll-table") {
@@ -553,11 +567,11 @@ const Sidebar = ({
       "view_attendance",
       "attendance_form",
       "search_attendance",
-      "daily_time_record_faculty",
       "attendance_module",
       "attendance_module_faculty",
       "attendance_module_faculty_40hrs",
       "attendance_summary",
+      "daily_time_record_faculty",
       "official_time",
     ];
 
@@ -1050,61 +1064,258 @@ const Sidebar = ({
             </ListItem>
             )}
 
-            {/* DAILY TIME RECORD */}
-            {shouldShowMenuItem("/daily_time_record") && (
-            <ListItem
-              button
-              component={Link}
-              to="/daily_time_record"
-              onClick={() => handleItemClick("daily_time_record")}
-              sx={{
-                bgcolor:
-                  selectedItem === "daily_time_record"
-                    ? settings.accentColor || "#FEF9E1"
-                    : "inherit",
-                color:
-                  selectedItem === "daily_time_record"
-                    ? settings.textPrimaryColor
-                    : settings.textSecondaryColor,
-
-                "& .MuiListItemIcon-root": {
-                  color:
-                    selectedItem === "daily_time_record"
-                      ? settings.textPrimaryColor
-                      : settings.textSecondaryColor,
-                },
-                "& .MuiListItemText-primary": {
-                  color:
-                    selectedItem === "daily_time_record"
-                      ? settings.textPrimaryColor
-                      : settings.textSecondaryColor,
-                },
-
-                "&:hover": {
-                  bgcolor: settings.hoverColor || "#6D2323",
+            {/* DAILY TIME RECORD DROPDOWN */}
+            {(shouldShowMenuItem("/daily_time_record") || 
+              shouldShowMenuItem("/daily_time_record_faculty") || 
+              shouldShowMenuItem("/daily_time_record_honorarium") || 
+              shouldShowMenuItem("/daily_time_record_service_credits") || 
+              shouldShowMenuItem("/daily_time_record_overtime")) && (
+            <>
+              <ListItem
+                button
+                onClick={handleClickDTR}
+                sx={{
                   color: settings.textSecondaryColor,
-                  "& .MuiListItemIcon-root": {
-                    color: settings.textSecondaryColor,
+                  cursor: "pointer",
+                  "&:hover": {
+                    bgcolor: settings.hoverColor || "#6D2323",
                   },
-                  "& .MuiListItemText-primary": {
-                    color: settings.textSecondaryColor,
-                  },
-                },
+                }}
+              >
+                <ListItemIcon>
+                  <CalendarToday sx={{ color: settings.textSecondaryColor }} />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Daily Time Record"
+                  sx={{ marginLeft: "-10px" }}
+                />
+                <ListItemIcon sx={{ marginLeft: "auto", color: settings.textSecondaryColor }}>
+                  {openDTR ? <ExpandLess /> : <ExpandMore />}
+                </ListItemIcon>
+              </ListItem>
 
-                borderTopRightRadius:
-                  selectedItem === "daily_time_record" ? "15px" : 0,
-                borderBottomRightRadius:
-                  selectedItem === "daily_time_record" ? "15px" : 0,
-              }}
-            >
-              <ListItemIcon>
-                <CalendarToday />
-              </ListItemIcon>
-              <ListItemText
-                primary="Daily Time Record"
-                sx={{ marginLeft: "-10px" }}
-              />
-            </ListItem>
+              <Collapse in={openDTR} timeout="auto" unmountOnExit>
+                <List component="div" disablePadding sx={{ pl: 5.4 }}>
+                  {/* Regular Work Days */}
+                  {shouldShowMenuItem("/daily_time_record") && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/daily_time_record"
+                    onClick={() => handleItemClick("daily_time_record")}
+                    sx={{
+                      bgcolor:
+                        selectedItem === "daily_time_record"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "daily_time_record"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "daily_time_record"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "daily_time_record"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "daily_time_record" ? "15px" : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "daily_time_record" ? "15px" : 0,
+                    }}
+                  >
+                    <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                      <CalendarToday />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Regular Work Days"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                  )}
+                  {/* Overtime */}
+
+                  {/* 
+                  {/* Honorarium */}
+                  {shouldShowMenuItem("/daily_time_record_honorarium") && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/daily_time_record_honorarium"
+                    onClick={() => handleItemClick("daily_time_record_honorarium")}
+                    sx={{
+                      bgcolor:
+                        selectedItem === "daily_time_record_honorarium"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "daily_time_record_honorarium"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "daily_time_record_honorarium"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "daily_time_record_honorarium"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "daily_time_record_honorarium" ? "15px" : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "daily_time_record_honorarium" ? "15px" : 0,
+                    }}
+                  >
+                    <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                      <CalendarToday />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Honorarium"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                  )}
+
+                  {/* Service Credits */}
+                  {shouldShowMenuItem("/daily_time_record_service_credits") && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/daily_time_record_service_credits"
+                    onClick={() => handleItemClick("daily_time_record_service_credits")}
+                    sx={{
+                      bgcolor:
+                        selectedItem === "daily_time_record_service_credits"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "daily_time_record_service_credits"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "daily_time_record_service_credits"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "daily_time_record_service_credits"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "daily_time_record_service_credits" ? "15px" : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "daily_time_record_service_credits" ? "15px" : 0,
+                    }}
+                  >
+                    <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                      <CalendarToday />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Service Credits"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                  )}
+
+                  {/* Overtime */}
+                  {shouldShowMenuItem("/daily_time_record_overtime") && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/daily_time_record_overtime"
+                    onClick={() => handleItemClick("daily_time_record_overtime")}
+                    sx={{
+                      bgcolor:
+                        selectedItem === "daily_time_record_overtime"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "daily_time_record_overtime"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "daily_time_record_overtime"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "daily_time_record_overtime"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "daily_time_record_overtime" ? "15px" : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "daily_time_record_overtime" ? "15px" : 0,
+                    }}
+                  >
+                    <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                      <CalendarToday />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Overtime"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                  )}
+                </List>
+              </Collapse>
+            </>
             )}
 
             {/* PAYSLIP */}
@@ -2791,66 +3002,7 @@ const Sidebar = ({
                       />
                     </ListItem>
 
-                    {/* OVERALL DAILY TIME RECORD */}
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/daily_time_record_faculty"
-                      onClick={() =>
-                        handleItemClick("daily_time_record_faculty")
-                      }
-                      sx={{
-                        bgcolor:
-                          selectedItem === "daily_time_record_faculty"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        color:
-                          selectedItem === "daily_time_record_faculty"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
 
-                        "& .MuiListItemIcon-root": {
-                          color:
-                            selectedItem === "daily_time_record_faculty"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                        },
-                        "& .MuiListItemText-primary": {
-                          color:
-                            selectedItem === "daily_time_record_faculty"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                        },
-
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                          "& .MuiListItemText-primary": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-
-                        borderTopRightRadius:
-                          selectedItem === "daily_time_record_faculty"
-                            ? "15px"
-                            : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "daily_time_record_faculty"
-                            ? "15px"
-                            : 0,
-                      }}
-                    >
-                      <ListItemIcon sx={{ marginRight: "-1rem" }}>
-                        <BadgeRounded />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Overall Daily Time Record"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
 
                     {/* Attendance Module (Non-teaching) */}
                     <ListItem
@@ -3052,6 +3204,54 @@ const Sidebar = ({
                       </ListItemIcon>
                       <ListItemText
                         primary="Attendance Overall Summary"
+                        sx={{ marginLeft: "-10px" }}
+                      />
+                    </ListItem>
+
+                    {/* Daily Time Record (Faculty) */}
+                    <ListItem
+                      button
+                      component={Link}
+                      to="/daily_time_record_faculty"
+                      sx={{
+                        color:
+                          selectedItem === "daily_time_record_faculty"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                        bgcolor:
+                          selectedItem === "daily_time_record_faculty"
+                            ? settings.accentColor || "#FEF9E1"
+                            : "inherit",
+                        "&:hover": {
+                          bgcolor: settings.hoverColor || "#6D2323",
+                          color: settings.textSecondaryColor,
+                          borderTopRightRadius: "15px",
+                          borderBottomRightRadius: "15px",
+                          "& .MuiListItemIcon-root": {
+                            color: settings.textSecondaryColor,
+                          },
+                        },
+                        borderTopRightRadius:
+                          selectedItem === "daily_time_record_faculty" ? "15px" : 0,
+                        borderBottomRightRadius:
+                          selectedItem === "daily_time_record_faculty" ? "15px" : 0,
+                      }}
+                      onClick={() => handleItemClick("daily_time_record_faculty")}
+                    >
+                      <ListItemIcon
+                        sx={{
+                          marginRight: "-1rem",
+                          color:
+                            selectedItem === "daily_time_record_faculty"
+                              ? settings.textPrimaryColor
+                              : settings.textSecondaryColor,
+                          "&:hover": { color: settings.textSecondaryColor },
+                        }}
+                      >
+                        <CalendarToday />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary="Daily Time Record (Faculty)"
                         sx={{ marginLeft: "-10px" }}
                       />
                     </ListItem>

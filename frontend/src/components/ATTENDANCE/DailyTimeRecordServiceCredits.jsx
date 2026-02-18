@@ -94,7 +94,7 @@ const ModernTextField = styled(TextField)(({ theme }) => ({
   },
 }));
 
-const DailyTimeRecord = () => {
+const DailyTimeRecordServiceCredits = () => {
   const { settings } = useSystemSettings();
   const [personID, setPersonID] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -129,7 +129,7 @@ const DailyTimeRecord = () => {
     hasAccess,
     loading: accessLoading,
     error: accessError,
-  } = usePageAccess('daily-time-record');
+  } = usePageAccess('daily-time-record-service-credits');
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
@@ -161,18 +161,20 @@ const DailyTimeRecord = () => {
           personID,
           startDate,
           endDate,
+          type: 'SERVICE_CREDIT',
         },
         getAuthHeaders(),
       );
 
       const data = response.data;
 
-      // Filter to show records that have regular times (timeIN or timeOUT)
-      // Records can have both regular times AND special times on the same day
-      const regularRecords = data.filter(record => record.timeIN || record.timeOUT);
+      // Filter to show only records with SERVICE special times
+      const serviceRecords = data.filter(record => 
+        record.specialType === 'SERVICE' && (record.specialTimeIN || record.specialTimeOUT)
+      );
 
       if (data.length > 0) {
-        setRecords(regularRecords);
+        setRecords(serviceRecords);
         const { firstName, lastName, middleName } = data[0];
         const full = `${firstName || ''} ${middleName ? middleName + ' ' : ''}${
           lastName || ''
@@ -204,6 +206,12 @@ const DailyTimeRecord = () => {
           officialTimeOUT: record.officialTimeOUT,
           officialBreaktimeIN: record.officialBreaktimeIN,
           officialBreaktimeOUT: record.officialBreaktimeOUT,
+          officialHonorariumTimeIN: record.officialHonorariumTimeIN,
+          officialHonorariumTimeOUT: record.officialHonorariumTimeOUT,
+          officialServiceCreditTimeIN: record.officialServiceCreditTimeIN,
+          officialServiceCreditTimeOUT: record.officialServiceCreditTimeOUT,
+          officialOverTimeIN: record.officialOverTimeIN,
+          officialOverTimeOUT: record.officialOverTimeOUT,
         };
         return acc;
       }, {});
@@ -367,7 +375,7 @@ const DailyTimeRecord = () => {
       const yOffset = (pageHeight - dtrHeight) / 2;
 
       pdf.addImage(imgData, 'PNG', xOffset, yOffset, dtrWidth, dtrHeight);
-      pdf.save(`DTR-${employeeName}-${formatMonth(startDate)}.pdf`);
+      pdf.save(`DTR-ServiceCredits-${employeeName}-${formatMonth(startDate)}.pdf`);
     } catch (error) {
       console.error('Error generating PDF:', error);
     }
@@ -383,6 +391,24 @@ const DailyTimeRecord = () => {
   const formatTime = (timeString) => {
     if (!timeString) return '';
     return timeString.replace(/\s+/g, ' ').trim();
+  };
+
+  // Helper function to get official times for a specific date
+  const getOfficialTimesForDate = (fullDate) => {
+    if (!fullDate) return {};
+    const date = new Date(fullDate);
+    const dayIndex = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const dayMap = {
+      0: 'Sunday',
+      1: 'Monday',
+      2: 'Tuesday',
+      3: 'Wednesday',
+      4: 'Thursday',
+      5: 'Friday',
+      6: 'Saturday',
+    };
+    const dayName = dayMap[dayIndex];
+    return officialTimes[dayName] || {};
   };
 
   const formatStartDate = (dateString) => {
@@ -450,7 +476,7 @@ const DailyTimeRecord = () => {
     return (
       <AccessDenied
         title="Access Denied"
-        message="You do not have permission to access Daily Time Record. Contact your administrator to request access."
+        message="You do not have permission to access Daily Time Record - Service Credits. Contact your administrator to request access."
         returnPath="/admin-home"
         returnButtonText="Return to Home"
       />
@@ -561,17 +587,28 @@ const DailyTimeRecord = () => {
               lineHeight: '1.2',
             }}
           >
-            <h4
-              style={{
-                fontFamily: 'Times New Roman, serif',
-                textAlign: 'center',
-                margin: '2px 0',
-                fontWeight: 'bold',
-                fontSize: '16px',
-              }}
-            >
-              DAILY TIME RECORD
-            </h4>
+            <div style={{ textAlign: 'center' }}>
+              <h4
+                style={{
+                  fontFamily: 'Times New Roman, serif',
+                  margin: '2px 0',
+                  fontWeight: 'bold',
+                  fontSize: '16px',
+                }}
+              >
+                DAILY TIME RECORD
+              </h4>
+              <div
+                style={{
+                  fontFamily: 'Times New Roman, serif',
+                  fontSize: '16px',
+                  marginTop: '-2px',
+                  fontWeight: 'bold',
+                }}
+              >
+                SERVICE CREDITS
+              </div>
+            </div>
           </td>
         </tr>
 
@@ -702,11 +739,10 @@ const DailyTimeRecord = () => {
               lineHeight: '1.2',
             }}
           >
-            Official hours for arrival (regular day) and departure
+            Official hours for service credits (arrival and departure)
           </td>
         </tr>
 
-        {/* Stable "Regular Days" row */}
         <tr>
           <td colSpan="7" style={{ padding: '2px 5px' }}>
             <div
@@ -734,43 +770,8 @@ const DailyTimeRecord = () => {
           </td>
         </tr>
 
-        {/* small spacers */}
         {Array.from({ length: 2 }, (_, i) => (
           <tr key={`empty2-${i}`}>
-            <td colSpan="7"></td>
-          </tr>
-        ))}
-
-        {/* Stable "Saturdays" row */}
-        <tr>
-          <td colSpan="7" style={{ padding: '2px 5px' }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'flex-end',
-                paddingLeft: '5%',
-                height: '20px',
-                fontFamily: 'Arial, serif',
-                fontSize: '10px',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              <span style={{ marginRight: '5px' }}>Saturdays:</span>
-              <span
-                style={{
-                  display: 'inline-block',
-                  borderBottom: '1.5px solid black',
-                  flexGrow: 1,
-                  minWidth: '318px',
-                  marginBottom: '2px',
-                }}
-              ></span>
-            </div>
-          </td>
-        </tr>
-
-        {Array.from({ length: 2 }, (_, i) => (
-          <tr key={`empty3-${i}`}>
             <td colSpan="7"></td>
           </tr>
         ))}
@@ -1084,13 +1085,13 @@ const DailyTimeRecord = () => {
                           color: textPrimaryColor,
                         }}
                       >
-                        Filter your DTR records by date
+                        Filter your service credits DTR records by date
                       </Typography>
                     </Box>
                   </Box>
                   <Box display="flex" alignItems="center" gap={2}>
                     <Chip
-                      label="Faculty Records"
+                      label="Service Credits"
                       size="small"
                       sx={{
                         bgcolor: alpha(accentColor, 0.15),
@@ -1361,7 +1362,7 @@ const DailyTimeRecord = () => {
                             const record = records.find(
                               (r) => r.date && r.date.endsWith(`-${day}`),
                             );
-                            // Construct full date: use record.date if available, otherwise build from startDate or selectedYear/selectedMonth
+                            // Construct full date
                             let fullDate = null;
                             if (record?.date) {
                               fullDate = record.date;
@@ -1369,7 +1370,6 @@ const DailyTimeRecord = () => {
                               const [year, month] = startDate.split('-');
                               fullDate = `${year}-${month}-${day}`;
                             } else if (selectedMonth !== null) {
-                              // fallback to selected month/year
                               const monthNum = String(
                                 selectedMonth + 1,
                               ).padStart(2, '0');
@@ -1379,6 +1379,7 @@ const DailyTimeRecord = () => {
                               fullDate,
                               record,
                             );
+                            const officialTmsForDate = getOfficialTimesForDate(fullDate);
 
                             return (
                               <tr key={i}>
@@ -1418,7 +1419,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.timeIN || '')}
+                                    {formatTime(record?.specialTimeIN || '')}
                                   </span>
                                 </td>
                                 <td
@@ -1447,7 +1448,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.breaktimeIN || '')}
+                                    {''}
                                   </span>
                                 </td>
                                 <td
@@ -1476,7 +1477,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.breaktimeOUT || '')}
+                                    {''}
                                   </span>
                                 </td>
                                 <td
@@ -1505,7 +1506,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.timeOUT || '')}
+                                    {formatTime(record?.specialTimeOUT || '')}
                                   </span>
                                 </td>
                                 <td
@@ -1534,7 +1535,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {record?.minutes || ''}
+                                    {''}
                                   </span>
                                 </td>
                                 <td
@@ -1586,7 +1587,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 2 }}
                                   >
-                                    {record?.minutes || ''}
+                                    {''}
                                   </span>
                                 </td>
                               </tr>
@@ -1706,7 +1707,6 @@ const DailyTimeRecord = () => {
                         </tbody>
                       </table>
 
-                      {/* Table 2 */}
                       <table
                         style={{
                           border: '1px solid black',
@@ -1722,7 +1722,6 @@ const DailyTimeRecord = () => {
                             const record = records.find(
                               (r) => r.date && r.date.endsWith(`-${day}`),
                             );
-                            // Construct full date: use record.date if available, otherwise build from startDate or selectedYear/selectedMonth
                             let fullDate = null;
                             if (record?.date) {
                               fullDate = record.date;
@@ -1739,6 +1738,7 @@ const DailyTimeRecord = () => {
                               fullDate,
                               record,
                             );
+                            const officialTmsForDate = getOfficialTimesForDate(fullDate);
 
                             return (
                               <tr key={i}>
@@ -1778,7 +1778,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.timeIN || '')}
+                                    {formatTime(record?.specialTimeIN || '')}
                                   </span>
                                 </td>
                                 <td
@@ -1807,7 +1807,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.breaktimeIN || '')}
+                                    {''}
                                   </span>
                                 </td>
                                 <td
@@ -1836,7 +1836,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.breaktimeOUT || '')}
+                                    {''}
                                   </span>
                                 </td>
                                 <td
@@ -1865,7 +1865,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {formatTime(record?.timeOUT || '')}
+                                    {formatTime(record?.specialTimeOUT || '')}
                                   </span>
                                 </td>
                                 <td
@@ -1894,7 +1894,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 1 }}
                                   >
-                                    {record?.hours || ''}
+                                    {''}
                                   </span>
                                 </td>
                                 <td
@@ -1946,7 +1946,7 @@ const DailyTimeRecord = () => {
                                   <span
                                     style={{ position: 'relative', zIndex: 2 }}
                                   >
-                                    {record?.minutes || ''}
+                                    {''}
                                   </span>
                                 </td>
                               </tr>
@@ -2118,4 +2118,4 @@ const DailyTimeRecord = () => {
   );
 };
 
-export default DailyTimeRecord;
+export default DailyTimeRecordServiceCredits;

@@ -37,6 +37,7 @@ import {
   MenuItem,
   Checkbox,
   Snackbar,
+  Dialog,
 } from '@mui/material';
 import {
   Search,
@@ -151,6 +152,9 @@ const ViewAttendanceRecord = () => {
     message: '',
     severity: 'success',
   });
+  const [snackbarCountdown, setSnackbarCountdown] = useState(6);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
 
   // New states for users list
   const [allUsersDTR, setAllUsersDTR] = useState([]);
@@ -314,11 +318,23 @@ const ViewAttendanceRecord = () => {
 
   const showSnackbar = (message, severity = 'success') => {
     setSnackbar({ open: true, message, severity });
+    setSnackbarCountdown(6);
   };
 
   const handleCloseSnackbar = () => {
     setSnackbar({ ...snackbar, open: false });
   };
+
+  // Countdown timer for snackbar
+  useEffect(() => {
+    let timer;
+    if (snackbar.open && snackbarCountdown > 0) {
+      timer = setInterval(() => {
+        setSnackbarCountdown((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [snackbar.open, snackbarCountdown]);
 
   // Load departments + assignments when switching to All Users mode
   useEffect(() => {
@@ -338,11 +354,16 @@ const ViewAttendanceRecord = () => {
         { personID, startDate, endDate },
         getAuthHeaders(),
       );
-      setRecords(response.data);
-      if (response.data.length > 0) {
-        setPersonName(response.data[0].PersonName);
+
+      const responseData = response.data;
+
+      const records = Array.isArray(responseData) ? responseData : [];
+      setRecords(records);
+
+      if (records.length > 0) {
+        setPersonName(records[0].PersonName);
         showSnackbar(
-          `Loaded ${response.data.length} records and auto-saved to database`,
+          `Loaded ${records.length} records and auto-saved to database`,
           'success',
         );
       } else {
@@ -407,7 +428,7 @@ const ViewAttendanceRecord = () => {
             getAuthHeaders(),
           );
 
-          const dtrData = dtrResponse.data || [];
+          const dtrData = Array.isArray(dtrResponse.data) ? dtrResponse.data : [];
 
           return {
             employeeNumber: user.PersonID,
@@ -451,10 +472,19 @@ const ViewAttendanceRecord = () => {
       );
       const usersWithRecords = allDTRData.filter((u) => u.hasRecords).length;
 
+      // Show success message
       showSnackbar(
-        `Loaded ${users.length} device users (${usersWithRecords} with records, ${totalRecords} total records auto-saved)`,
+        `Loaded ${allDTRData.length} employees (${usersWithRecords} with records, ${totalRecords} total records auto-saved)`,
         'success',
       );
+
+      // Show success modal if records were saved
+      if (totalRecords > 0) {
+        setModalMessage(
+          `Successfully auto-saved ${totalRecords} attendance records for ${usersWithRecords} employees to the database. You can now view or print their DTR.`
+        );
+        setShowSuccessModal(true);
+      }
     } catch (error) {
       console.error('Error fetching all users DTR:', error);
       showSnackbar(
@@ -746,16 +776,117 @@ const ViewAttendanceRecord = () => {
           open={snackbar.open}
           autoHideDuration={6000}
           onClose={handleCloseSnackbar}
-          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         >
           <Alert
             onClose={handleCloseSnackbar}
             severity={snackbar.severity}
-            sx={{ width: '100%' }}
+            sx={{
+              width: '100%',
+              backgroundColor:
+                snackbar.severity === 'success' ? '#4caf50' : undefined,
+              color: snackbar.severity === 'success' ? '#ffffff' : undefined,
+              fontWeight: 600,
+              '& .MuiAlert-icon': {
+                color: snackbar.severity === 'success' ? '#ffffff' : undefined,
+              },
+            }}
           >
-            {snackbar.message}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <span>{snackbar.message}</span>
+              {snackbar.open && snackbarCountdown > 0 && (
+                <Chip
+                  label={`${snackbarCountdown}s`}
+                  size="small"
+                  sx={{
+                    backgroundColor:
+                      snackbar.severity === 'success'
+                        ? 'rgba(255, 255, 255, 0.3)'
+                        : undefined,
+                    color:
+                      snackbar.severity === 'success' ? '#ffffff' : undefined,
+                    fontWeight: 700,
+                  }}
+                />
+              )}
+            </Box>
           </Alert>
         </Snackbar>
+
+        {/* Success Modal */}
+        <Dialog
+          open={showSuccessModal}
+          onClose={() => setShowSuccessModal(false)}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: 4,
+              boxShadow: `0 8px 40px ${alpha(accentColor, 0.2)}`,
+            },
+          }}
+        >
+          <Box
+            sx={{
+              p: 4,
+              textAlign: 'center',
+              background: `linear-gradient(135deg, ${alpha(
+                primaryColor,
+                0.3
+              )} 0%, ${alpha(secondaryColor, 0.5)} 100%)`,
+            }}
+          >
+            <Avatar
+              sx={{
+                width: 80,
+                height: 80,
+                margin: '0 auto 20px',
+                backgroundColor: '#4caf50',
+              }}
+            >
+              <CheckCircle sx={{ fontSize: 48, color: '#ffffff' }} />
+            </Avatar>
+            <Typography
+              variant="h5"
+              sx={{
+                fontWeight: 700,
+                color: textPrimaryColor,
+                mb: 2,
+              }}
+            >
+              Records Auto-Saved Successfully!
+            </Typography>
+            <Typography
+              variant="body1"
+              sx={{
+                color: alpha(textPrimaryColor, 0.8),
+                mb: 4,
+                lineHeight: 1.6,
+              }}
+            >
+              {modalMessage}
+            </Typography>
+            <ProfessionalButton
+              variant="contained"
+              onClick={() => setShowSuccessModal(false)}
+              sx={{
+                backgroundColor: accentColor,
+                color: textSecondaryColor,
+                px: 6,
+                py: 1.5,
+                fontSize: '1rem',
+                fontWeight: 700,
+                '&:hover': {
+                  backgroundColor: accentDark,
+                  transform: 'scale(1.05)',
+                },
+                transition: 'all 0.3s ease',
+              }}
+            >
+              OK
+            </ProfessionalButton>
+          </Box>
+        </Dialog>
 
         {/* Header */}
         <Fade in timeout={500}>
@@ -1876,12 +2007,30 @@ const ViewAttendanceRecord = () => {
                       >
                         Time OUT
                       </PremiumTableCell>
+                      <PremiumTableCell
+                        isHeader
+                        sx={{ color: textPrimaryColor }}
+                      >
+                        Special Type
+                      </PremiumTableCell>
+                      <PremiumTableCell
+                        isHeader
+                        sx={{ color: textPrimaryColor }}
+                      >
+                        Special Time IN
+                      </PremiumTableCell>
+                      <PremiumTableCell
+                        isHeader
+                        sx={{ color: textPrimaryColor }}
+                      >
+                        Special Time OUT
+                      </PremiumTableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {records.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} align="center" sx={{ py: 8 }}>
+                        <TableCell colSpan={10} align="center" sx={{ py: 8 }}>
                           <Box sx={{ textAlign: 'center' }}>
                             <Info
                               sx={{
@@ -1909,36 +2058,83 @@ const ViewAttendanceRecord = () => {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      records.map((record, index) => (
-                        <TableRow
-                          key={index}
-                          sx={{
-                            '&:nth-of-type(even)': {
-                              bgcolor: alpha(primaryColor, 0.3),
-                            },
-                            '&:hover': { bgcolor: alpha(accentColor, 0.05) },
-                            transition: 'all 0.2s ease',
-                          }}
-                        >
-                          <PremiumTableCell>{record.PersonID}</PremiumTableCell>
-                          <PremiumTableCell>{record.Date}</PremiumTableCell>
-                          <PremiumTableCell>
-                            {getDayOfWeek(record.Date)}
-                          </PremiumTableCell>
-                          <PremiumTableCell>
-                            {formatTime(record.Time1)}
-                          </PremiumTableCell>
-                          <PremiumTableCell>
-                            {formatTime(record.Time3)}
-                          </PremiumTableCell>
-                          <PremiumTableCell>
-                            {formatTime(record.Time2)}
-                          </PremiumTableCell>
-                          <PremiumTableCell>
-                            {formatTime(record.Time4)}
-                          </PremiumTableCell>
-                        </TableRow>
-                      ))
+                      records.map((record, index) => {
+                        // Determine special type based on Time5/Time6
+                        let specialTypeBadge = null;
+                        const hasSpecialTime = record.Time5 || record.Time6;
+
+                        if (hasSpecialTime) {
+                          // If we have specialType from backend, use it
+                          const type = record.specialType || 'UNCATEGORIZED';
+                          const typeLabels = {
+                            HONORARIUM: 'Honorarium',
+                            SERVICE: 'Service Credit',
+                            OVERTIME: 'Overtime',
+                            UNCATEGORIZED: 'Uncategorized',
+                          };
+                          const colors = {
+                            HONORARIUM: { bg: '#4CAF50', text: '#fff' },
+                            SERVICE: { bg: '#2196F3', text: '#fff' },
+                            OVERTIME: { bg: '#FF9800', text: '#fff' },
+                            UNCATEGORIZED: { bg: '#9E9E9E', text: '#fff' },
+                          };
+                          const label = typeLabels[type] || 'Uncategorized';
+                          const badgeColor = colors[type] || colors.UNCATEGORIZED;
+
+                          specialTypeBadge = (
+                            <Chip
+                              label={label}
+                              size="small"
+                              sx={{
+                                bgcolor: badgeColor.bg,
+                                color: badgeColor.text,
+                                fontWeight: 600,
+                                fontSize: '0.75rem',
+                              }}
+                            />
+                          );
+                        }
+
+                        return (
+                          <TableRow
+                            key={index}
+                            sx={{
+                              '&:nth-of-type(even)': {
+                                bgcolor: alpha(primaryColor, 0.3),
+                              },
+                              '&:hover': { bgcolor: alpha(accentColor, 0.05) },
+                              transition: 'all 0.2s ease',
+                            }}
+                          >
+                            <PremiumTableCell>{record.PersonID}</PremiumTableCell>
+                            <PremiumTableCell>{record.Date}</PremiumTableCell>
+                            <PremiumTableCell>
+                              {getDayOfWeek(record.Date)}
+                            </PremiumTableCell>
+                            <PremiumTableCell>
+                              {formatTime(record.Time1)}
+                            </PremiumTableCell>
+                            <PremiumTableCell>
+                              {formatTime(record.Time3)}
+                            </PremiumTableCell>
+                            <PremiumTableCell>
+                              {formatTime(record.Time2)}
+                            </PremiumTableCell>
+                            <PremiumTableCell>
+                              {formatTime(record.Time4)}
+                            </PremiumTableCell>
+                            <PremiumTableCell>
+                              {specialTypeBadge || '-'}
+                            </PremiumTableCell>
+                            <PremiumTableCell>
+                              {record.Time5 ? formatTime(record.Time5) : '-'}
+                            </PremiumTableCell>
+                            <PremiumTableCell>
+                              {record.Time6 ? formatTime(record.Time6) : '-'}
+                            </PremiumTableCell>
+                          </TableRow>
+                        );
+                      })
                     )}
                   </TableBody>
                 </Table>
