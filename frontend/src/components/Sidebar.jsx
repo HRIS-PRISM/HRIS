@@ -1084,7 +1084,7 @@ const Sidebar = ({
                 </ListItemIcon>
                 <ListItemText
                   primary="Daily Time Record"
-                  sx={{ marginLeft: "-10px", whiteSpace: 'noW rap' }}
+                  sx={{ marginLeft: "-10px", whiteSpace: 'noWrap' }}
                 />
                 <ListItemIcon sx={{ marginLeft: "10rem", color: settings.textSecondaryColor }}>
                   {openDTR ? <ExpandLess /> : <ExpandMore />}
