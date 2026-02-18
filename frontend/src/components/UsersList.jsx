@@ -2828,9 +2828,6 @@ const UsersList = () => {
                                   <MenuItem value="administrator">
                                     Administrator
                                   </MenuItem>
-                                  <MenuItem value="technical">
-                                    Technical
-                                  </MenuItem>
                                   <MenuItem value="staff">Staff</MenuItem>
                                 </ModernTextField>
                               )}
