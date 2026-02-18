@@ -1112,18 +1112,18 @@ const Home = () => {
   }, []);
 
   return (
-    <Box
-      sx={{
-        width: "100%",
-        height: "86%",
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-        boxSizing: "border-box",
-        p: 1,
-        mt: -2
-      }}
-    >
+   <Box
+       sx={{
+         borderRadius: "1px",
+         width: "100vw",
+         maxWidth: "100%",
+         position: "relative",
+         left: "50%",
+         transform: "translateX(-50%)",
+         mt: -5,
+       }}
+     >
+       <Box sx={{ pt: 4, px: 4, mx: "auto", maxWidth: "1600px" }}>
       {/* Header */}
       <Grow in timeout={300}>
         <Box
@@ -1320,6 +1320,7 @@ const Home = () => {
         </Box>
       </Grow>
 
+
       {/* Main Content Grid */}
       <Grid container spacing={2} sx={{ flex: 1, minHeight: 0 }}>
         {/* Left Column - Carousel */}
@@ -1340,7 +1341,7 @@ const Home = () => {
         flexDirection: "column",
       }}
     >
-      <Box sx={{ position: "relative", height: "100%", flex: 1 }}>
+      <Box sx={{ position: "relative", height: "90%", flex: 1 }}>
         {announcementsLoading ? (
           <Box
             sx={{
@@ -2229,7 +2230,7 @@ const Home = () => {
                 boxShadow: `0 15px 40px ${settings.primaryColor}33`,
               }}
             >
-              <CardContent sx={{ p: 1.5, display: "flex", flexDirection: "column", height: "100%" }}>
+              <CardContent sx={{ p: 1.5, display: "flex", flexDirection: "column", height: "90%" }}>
                 <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
                   <Typography
                     variant="subtitle1"
@@ -3255,6 +3256,7 @@ const Home = () => {
           </Button>
         </DialogActions>
       </Dialog>
+    </Box>
     </Box>
   );
 };

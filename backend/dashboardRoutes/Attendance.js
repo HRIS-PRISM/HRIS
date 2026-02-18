@@ -159,7 +159,7 @@ router.get('/api/attendance', authenticateToken, (req, res) => {
     SELECT DISTINCT attendancerecord.*, users.employeeNumber, users.username,
     users.employmentCategory, officialtime.*
     FROM attendancerecord
-    JOIN users ON attendancerecord.personID COLLATE utf8mb4_general_ci = users.employeeNumber
+    JOIN users ON attendancerecord.personID = users.employeeNumber
     JOIN officialtime ON attendancerecord.Day = officialtime.day
       AND attendancerecord.personID = officialtime.employeeID
       AND attendancerecord.date BETWEEN officialtime.startDate AND officialtime.endDate
@@ -750,7 +750,7 @@ router.get('/api/overall_attendance_record', authenticateToken, (req, res) => {
     LEFT JOIN
       department_assignment
     ON
-      department_assignment.employeeNumber COLLATE utf8mb4_general_ci = overall_attendance_record.personID
+      department_assignment.employeeNumber = overall_attendance_record.personID
     WHERE
       overall_attendance_record.personID = ?
       AND overall_attendance_record.startDate >= ?

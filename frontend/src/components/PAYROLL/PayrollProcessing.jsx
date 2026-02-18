@@ -501,15 +501,16 @@ const PayrollProcess = () => {
       const res = await axios.get(url, getAuthHeaders());
       console.log(res.data);
 
-      // Track duplicates
-      const seen = new Set();
+      // Track duplicates by composite key: Name, EmployeeNumber, Start Date, End Date
+      const seen = new Map();
       const duplicates = new Set();
 
       res.data.forEach((item) => {
-        if (seen.has(item.employeeNumber)) {
-          duplicates.add(item.employeeNumber);
+        const compositeKey = `${item.name}|${item.employeeNumber}|${item.startDate}|${item.endDate}`;
+        if (seen.has(compositeKey)) {
+          duplicates.add(compositeKey);
         } else {
-          seen.add(item.employeeNumber);
+          seen.set(compositeKey, item);
         }
       });
 
@@ -881,15 +882,16 @@ const PayrollProcess = () => {
       const newData = filteredData.filter((item) => item.id !== rowId);
       setFilteredData(newData);
 
-      // Recalculate duplicates
-      const seen = {};
+      // Recalculate duplicates by composite key: Name, EmployeeNumber, Start Date, End Date
+      const seen = new Map();
       const updatedDuplicates = new Set();
 
       newData.forEach((item) => {
-        if (seen[item.employeeNumber]) {
-          updatedDuplicates.add(item.employeeNumber);
+        const compositeKey = `${item.name}|${item.employeeNumber}|${item.startDate}|${item.endDate}`;
+        if (seen.has(compositeKey)) {
+          updatedDuplicates.add(compositeKey);
         } else {
-          seen[item.employeeNumber] = true;
+          seen.set(compositeKey, item);
         }
       });
 
@@ -1866,8 +1868,11 @@ const PayrollProcess = () => {
               }}
               icon={<Warning />}
             >
-              Duplicate employee number(s) found:{' '}
-              {duplicateEmployeeNumbers.join(', ')}
+              Duplicate record(s) found:{' '}
+              {duplicateEmployeeNumbers.map(key => {
+                const [name, empNum, startDate, endDate] = key.split('|');
+                return `${name} (${empNum}) [${startDate} - ${endDate}]`;
+              }).join(', ')}
             </Alert>
           </Fade>
         )}
@@ -2445,7 +2450,7 @@ const PayrollProcess = () => {
                                   },
                                   backgroundColor:
                                     duplicateEmployeeNumbers.includes(
-                                      row.employeeNumber
+                                      `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`
                                     )
                                       ? 'rgba(255, 0, 0, 0.1)'
                                       : 'inherit',
@@ -2904,7 +2909,7 @@ const PayrollProcess = () => {
                                 },
                                 backgroundColor:
                                   duplicateEmployeeNumbers.includes(
-                                    row.employeeNumber
+                                    `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`
                                   )
                                     ? 'rgba(255, 0, 0, 0.1)'
                                     : 'inherit',
@@ -3030,7 +3035,7 @@ const PayrollProcess = () => {
                                 },
                                 backgroundColor:
                                   duplicateEmployeeNumbers.includes(
-                                    row.employeeNumber
+                                    `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`
                                   )
                                     ? 'rgba(255, 0, 0, 0.1)'
                                     : 'inherit',

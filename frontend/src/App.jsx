@@ -484,7 +484,7 @@ function App() {
           sx={{
             flexGrow: 1,
             bgcolor: "transparent",
-            p: { xs: 2, sm: 2, md: 3 },
+            p: { xs: 1, sm: 1, md: 5 },
             marginLeft: drawerOpen ? `${drawerWidth}px` : `${collapsedWidth}px`,
             transition: "margin-left 0.3s ease",
             fontFamily: "Poppins, sans-serif",
