@@ -797,7 +797,7 @@ const Login = () => {
                       alt={ann.title || "Announcement"}
                       sx={{
                         width: "100%",
-                        height: 500,
+                        height: 560,
                         objectFit: "cover",
                         borderRadius: 2,
                         filter: "brightness(0.65)",
