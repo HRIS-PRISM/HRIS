@@ -1085,11 +1085,20 @@ const Sidebar = ({
                 <ListItemIcon>
                   <CalendarToday sx={{ color: settings.textSecondaryColor }} />
                 </ListItemIcon>
-                <ListItemText
-                  primary="Daily Time Record"
-                  sx={{ marginLeft: "-10px" }}
-                />
-                <ListItemIcon sx={{ marginLeft: "auto", color: settings.textSecondaryColor }}>
+               <ListItemText
+  primary="Daily Time Record"
+  sx={{
+    marginLeft: "-10px",
+    whiteSpace: "nowrap",
+  }}
+/>
+
+<ListItemIcon
+  sx={{
+    marginLeft: "10rem",
+    color: settings.textSecondaryColor,
+  }}
+>
                   {openDTR ? <ExpandLess /> : <ExpandMore />}
                 </ListItemIcon>
               </ListItem>
@@ -1144,7 +1153,7 @@ const Sidebar = ({
                       <CalendarToday />
                     </ListItemIcon>
                     <ListItemText
-                      primary="Regular Work Days"
+                      primary="Regular"
                       sx={{ marginLeft: "-10px" }}
                     />
                   </ListItem>
