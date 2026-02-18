@@ -2019,11 +2019,11 @@ router.post(
         }
 
         // Get default pages for staff
-        const getDefaultPagesQuery = `
-        SELECT id FROM pages 
-        WHERE page_url IN ('home', 'admin-home', 'attendance-user-state', 'daily-time-record', 'payslip', 'pds1', 'pds2', 'pds3', 'pds4', 'settings') 
-        OR component_identifier IN ('HomeEmployee', 'HomeAdmin', 'AttendanceUserState', 'DailyTimeRecord', 'Payslip', 'PDS1', 'PDS2', 'PDS3', 'PDS4', 'Settings', 'attendance-user-state', 'daily-time-record')
-      `;
+const getDefaultPagesQuery = `
+  SELECT id FROM pages 
+  WHERE page_url IN ('home', 'admin-home', 'attendance-user-state', 'daily-time-record', 'payslip', 'pds1', 'pds2', 'pds3', 'pds4', 'settings') 
+  OR component_identifier IN ('HomeEmployee', 'HomeAdmin', 'AttendanceUserState', 'DailyTimeRecord', 'Payslip', 'PDS1', 'PDS2', 'PDS3', 'PDS4', 'Settings', 'attendance-user-state', 'daily-time-record', 'daily-time-record-honorarium', 'daily-time-record-service-credits', 'daily-time-record-overtime')
+`;
 
         db.query(getDefaultPagesQuery, (pagesErr, pages) => {
           if (pagesErr) {
