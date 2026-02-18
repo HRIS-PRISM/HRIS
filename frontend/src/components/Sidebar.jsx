@@ -21,6 +21,9 @@ import {
   CircularProgress,
 } from "@mui/material";
 import {
+  Badge,
+  AccountTree,
+  Dvr,
   House,
   ChevronLeft,
   ChevronRight,
@@ -3358,7 +3361,7 @@ const Sidebar = ({
                         fontFamily: "Poppins, sans-serif",
                         textTransform: "uppercase",
                         mb: -1,
-                        pl: 0,
+                        pl: 2,
                       }}
                     >
                       Regular Payroll
@@ -3386,9 +3389,9 @@ const Sidebar = ({
                       }}
                     >
                       <ListItemIcon sx={{ color: selectedItem === "payroll-table" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
-                        <EditNoteIcon />
+                        <Assessment />
                       </ListItemIcon>
-                      <ListItemText primary="Payroll REG | Processing" sx={{ marginLeft: "-10px" }} />
+                      <ListItemText primary="Payroll Processing | Regular" sx={{ marginLeft: "-10px" }} />
                     </ListItem>
                     <ListItem
                       button
@@ -3429,7 +3432,7 @@ const Sidebar = ({
                         fontFamily: "Poppins, sans-serif",
                         textTransform: "uppercase",
                         mb: -1,
-                        pl: 0,
+                        pl: 2,
                       }}
                     >
                       JO Payroll
@@ -3457,9 +3460,9 @@ const Sidebar = ({
                       }}
                     >
                       <ListItemIcon sx={{ color: selectedItem === "payroll-jo" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
-                        <EditNoteIcon />
+                        <Assessment />
                       </ListItemIcon>
-                      <ListItemText primary="Payroll JO | Processing" sx={{ marginLeft: "-10px" }} />
+                      <ListItemText primary="Payroll Processing | JO" sx={{ marginLeft: "-10px" }} />
                     </ListItem>
                     <ListItem
                       button
@@ -3500,7 +3503,7 @@ const Sidebar = ({
                         fontFamily: "Poppins, sans-serif",
                         textTransform: "uppercase",
                         mb: -1,
-                        pl: 0,
+                        pl: 2,
                       }}
                     >
                       Payslips
@@ -3530,7 +3533,7 @@ const Sidebar = ({
                       <ListItemIcon sx={{ color: selectedItem === "payroll-released" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
                         <NewReleases />
                       </ListItemIcon>
-                      <ListItemText primary="Payroll | Release" sx={{ marginLeft: "-10px" }} />
+                      <ListItemText primary="Payroll | Released" sx={{ marginLeft: "-10px" }} />
                     </ListItem>
                       <ListItem
                       button
@@ -3583,7 +3586,7 @@ const Sidebar = ({
                       }}
                     >
                       <ListItemIcon sx={{ color: selectedItem === "overall-payslip" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
-                        <RequestQuote />
+                        <Dvr/>
                       </ListItemIcon>
                       <ListItemText primary="Payslip Records" sx={{ marginLeft: "-10px" }} />
                     </ListItem>
@@ -3601,7 +3604,7 @@ const Sidebar = ({
                         fontFamily: "Poppins, sans-serif",
                         textTransform: "uppercase",
                         mb: -1,
-                        pl: 0,
+                        pl: 2,
                       }}
                     >
                       Payroll Administration
@@ -3658,7 +3661,7 @@ const Sidebar = ({
                       }}
                     >
                       <ListItemIcon sx={{ color: selectedItem === "item-table" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
-                        <CategoryIcon />
+                        <Badge />
                       </ListItemIcon>
                       <ListItemText primary="Item Table" sx={{ marginLeft: "-10px" }} />
                     </ListItem>
@@ -3778,7 +3781,7 @@ const Sidebar = ({
                       }}
                     >
                       <ListItemIcon sx={{ color: selectedItem === "salary-grade" ? settings.textPrimaryColor : settings.textSecondaryColor }}>
-                        <MonetizationOnIcon />
+                        <AccountTree />
                       </ListItemIcon>
                       <ListItemText primary="Salary Grade | Tranche" sx={{ marginLeft: "-10px" }} />
                     </ListItem>
