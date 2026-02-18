@@ -198,6 +198,13 @@ export const componentMapping = {
     description: 'Daily Time Record - Regular Work Days',
     icon: CalendarMonth,
   },
+    'daily-time-record-faculty': {
+    componentPath: 'components/ATTENDANCE/DailyTimeRecordOverall.jsx',
+    routePath: '/daily_time_record_faculty',
+    componentName: 'DailyTimeRecordOverall',
+    description: 'Daily Time Record Overall',
+    icon: CalendarMonth,
+  },
   'daily-time-record-honorarium': {
     componentPath: 'components/ATTENDANCE/DailyTimeRecordHonorarium.jsx',
     routePath: '/daily_time_record_honorarium',

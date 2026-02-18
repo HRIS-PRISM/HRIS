@@ -1368,18 +1368,9 @@ const DailyTimeRecord = () => {
                             } else if (startDate) {
                               const [year, month] = startDate.split('-');
                               fullDate = `${year}-${month}-${day}`;
-                            } else if (selectedMonth !== null) {
-                              // fallback to selected month/year
-                              const monthNum = String(
-                                selectedMonth + 1,
-                              ).padStart(2, '0');
-                              fullDate = `${selectedYear}-${monthNum}-${day}`;
                             }
-                            const indicator = getDateIndicator(
-                              fullDate,
-                              record,
-                            );
-
+                            const indicator = getDateIndicator(fullDate, record);
+                            
                             return (
                               <tr key={i}>
                                 <td
@@ -1729,11 +1720,6 @@ const DailyTimeRecord = () => {
                             } else if (startDate) {
                               const [year, month] = startDate.split('-');
                               fullDate = `${year}-${month}-${day}`;
-                            } else if (selectedMonth !== null) {
-                              const monthNum = String(
-                                selectedMonth + 1,
-                              ).padStart(2, '0');
-                              fullDate = `${selectedYear}-${monthNum}-${day}`;
                             }
                             const indicator = getDateIndicator(
                               fullDate,
@@ -2118,4 +2104,6 @@ const DailyTimeRecord = () => {
   );
 };
 
+
 export default DailyTimeRecord;
+

@@ -659,16 +659,50 @@ router.post('/register', async (req, res) => {
                                       <div class="credential-value highlight">${password}</div>
                                     </div>
                                   </div>
+<<<<<<< HEAD
+                                </div>
+                                <div class="credential-row">
+                                  <div class="credential-label">Employment Type</div>
+                                  <div class="credential-value">${categoryLabel}</div>
+=======
 
                                   <p class="intro-text">
                                     Please change your password after logging in.
                                   </p>
+>>>>>>> 3dc75ae7938388e2db808a80a23cefa6412b2fa8
                                 </div>
                               </div>
+                              <!-- Security Note -->
+                              <div class="note-box">
+                                <p>
+                                  <strong>Important:</strong> Change your password after signing in. 
+                                  Never share your login details with anyone.
+                                </p>
+                              </div>
+                              <!-- Login Button -->
+                              <div class="action-section">
+                                <a href="${
+                                  process.env.API_BASE_URL ||
+                                  'http://localhost:5137'
+                                }" class="action-button">
+                                  LOGIN NOW
+                                </a>
+                              </div>
+                              <!-- Support -->
+                              <p class="support-text">
+                                Need help? Contact HR Department during office hours or send a message to earisthrmstesting@gmail.com
+                              </p>
                             </div>
-                          </body>
-                          </html>
-                        `,
+                            <!-- Footer -->
+                            <div class="email-footer">
+                              <p class="footer-text">Human Resources Information System</p>
+                              <p class="footer-text">© ${new Date().getFullYear()} Eulogio "Amang" Rodriguez Institute of Science and Technology. All rights reserved.</p>
+                            </div>
+                          </div>
+                        </div>
+                      </body>
+                      </html>
+                    `,
                       });
                     } catch (mailErr) {
                       console.error(
