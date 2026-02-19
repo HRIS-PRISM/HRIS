@@ -431,7 +431,7 @@ const AttendanceModuleFaculty = () => {
 
         //end rendered time
 
-        //  max rendered time//
+        //  max rendered time
 
         // Calculate difference in milliseconds MAX RENDERED TIME
         const diffMsFacultySC = endOfficialTimeFacultySC - startOfficialTimeFacultySC;
