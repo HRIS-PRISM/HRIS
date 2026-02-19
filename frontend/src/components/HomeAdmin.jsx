@@ -3474,8 +3474,7 @@ const AdminHome = () => {
         maxWidth: "100%",
         position: "relative",
         left: "50%",
-        transform: "translateX(-50%)",
-        mt: -1
+        transform: "translateX(-50%)"
       }}
     >
       <Box sx={{ pt: 4, px: 4, mx: "auto", maxWidth: "1600px" }}>

@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import { getAuthHeaders } from '../../utils/auth';
 
 // Helper function to convert hex to rgb
 const hexToRgb = (hex) => {
@@ -113,24 +114,6 @@ const AttendanceModuleNonTeachingStaff = () => {
     error: accessError,
   } = usePageAccess('attendance-module');
   // ACCESSING END
-
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
-    console.log(
-      'Token from localStorage:',
-      token ? 'Token exists' : 'No token found'
-    );
-    if (token) {
-      console.log('Token length:', token.length);
-      console.log('Token starts with:', token.substring(0, 20) + '...');
-    }
-    return {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    };
-  };
 
   useEffect(() => {
           const storedEmployeeNumber = localStorage.getItem('employeeNumber');

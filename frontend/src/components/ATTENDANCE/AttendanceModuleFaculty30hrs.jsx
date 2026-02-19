@@ -71,6 +71,7 @@ import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import { getAuthHeaders } from '../../utils/auth';
 
 // Helper function to convert hex to rgb
 const hexToRgb = (hex) => {
@@ -187,24 +188,6 @@ const AttendanceModuleFaculty = () => {
     error: accessError,
   } = usePageAccess('attendance-module-faculty');
   // ACCESSING END
-
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
-    console.log(
-      'Token from localStorage:',
-      token ? 'Token exists' : 'No token found'
-    );
-    if (token) {
-      console.log('Token length:', token.length);
-      console.log('Token starts with:', token.substring(0, 20) + '...');
-    }
-    return {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    };
-  };
 
   useEffect(() => {
     const storedEmployeeNumber = localStorage.getItem('employeeNumber');
@@ -665,7 +648,9 @@ const AttendanceModuleFaculty = () => {
 
       overallRenderedOfficialTime: calculateTotalRenderedTime(),
       overallRenderedOfficialTimeTardiness: calculateTotalRenderedTimeTardiness(),
-      calculateOverallFurloughRenderedTime
+      calculateOverallFurloughRenderedTime,
+      overallTotalOfficialSchedule: calculateTotalFullOfficialSchedule(), // ADD THIS
+
     };
 
     try {
@@ -869,6 +854,24 @@ const AttendanceModuleFaculty = () => {
     return `${String(totalHours).padStart(2, "0")}:${String(totalMinutes).padStart(2, "0")}:${String(totalSecs).padStart(2, "0")}`;
   };
   // TIME IN AND TIME OUT END OverTime
+
+  //TOTAL OFFICIAL TIME
+ const calculateTotalFullOfficialSchedule = () => {
+  let totalSeconds = 0;
+  attendanceData.forEach((row) => {
+    const t = !row.formattedFacultyMaxRenderedTime || row.formattedFacultyMaxRenderedTime === "NaN:NaN:NaN"
+      ? "00:00:00"
+      : row.formattedFacultyMaxRenderedTime;
+    const [h, m, s] = t.split(":").map(Number);
+    totalSeconds += h * 3600 + m * 60 + s;
+  });
+  const hh = Math.floor(totalSeconds / 3600);
+  const mm = Math.floor((totalSeconds % 3600) / 60);
+  if (hh === 0 && mm === 0) return "0 Hours";
+  if (mm === 0) return `${hh} Hours`;
+  return `${hh} Hours ${mm} Mins`;
+};
+//TOTAL OFFICIAL TIME END
 
   const currentYear = new Date().getFullYear();
   const months = [
@@ -1348,6 +1351,7 @@ const AttendanceModuleFaculty = () => {
                         <PremiumTableCell isHeader bgColor={alpha(primaryColor, 0.5)} sx={{ color: accentColor, minWidth: "180px" }}>OFFICIAL Overtime Time OUT</PremiumTableCell>
                         <PremiumTableCell isHeader bgColor={alpha(accentColor, 0.2)} sx={{ color: accentColor, minWidth: "150px" }}>Overtime Rendered Time</PremiumTableCell>
                         <PremiumTableCell isHeader bgColor={alpha(accentColor, 0.3)} sx={{ color: accentColor, minWidth: "150px" }}>TARDINESS (OVERTIME)</PremiumTableCell>
+                        <PremiumTableCell isHeader bgColor={alpha(accentColor, 0.15)} sx={{ color: accentColor, minWidth: "180px" }}>Total Official Schedule</PremiumTableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -1462,6 +1466,16 @@ const AttendanceModuleFaculty = () => {
                             <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
                               {!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyOT === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTimeOT : row.formattedfinalcalcFacultyOT}
                             </PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(accentColor, 0.15)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+  {(() => {
+    const t = row.formattedFacultyMaxRenderedTime;
+    if (!t || t === "NaN:NaN:NaN") return "0 Hours";
+    const [h, m] = t.split(":").map(Number);
+    if (h === 0 && m === 0) return "0 Hours";
+    if (m === 0) return `${h} Hours`;
+    return `${h} Hours ${m} Mins`;
+  })()}
+</PremiumTableCell>
                           </TableRow>
                         )
                       })}
@@ -1515,6 +1529,14 @@ const AttendanceModuleFaculty = () => {
                         </PremiumTableCell>
                         <PremiumTableCell colSpan={1} bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
                           {calculateTotalRenderedTimeTardiness()}
+                        </PremiumTableCell>
+                        <PremiumTableCell colSpan={17} sx={{ fontWeight: "bold", textAlign: "right" }}>                        
+                        </PremiumTableCell>
+                        <PremiumTableCell sx={{ fontWeight: "bold", textAlign: "left" }}>
+                          Overall Total Official Schedule:
+                        </PremiumTableCell>
+                        <PremiumTableCell bgColor={alpha(accentColor, 0.15)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                          {calculateTotalFullOfficialSchedule()}
                         </PremiumTableCell>
                       </TableRow>
                     </TableBody>

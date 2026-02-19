@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import { getAuthHeaders } from '../../utils/auth';
 
 // Helper function to convert hex to rgb
 const hexToRgb = (hex) => {
@@ -113,24 +114,6 @@ const AttendanceModuleFaculty = () => {
     error: accessError,
   } = usePageAccess('attendance-module-faculty-40hrs');
   // ACCESSING END
-
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
-    console.log(
-      'Token from localStorage:',
-      token ? 'Token exists' : 'No token found'
-    );
-    if (token) {
-      console.log('Token length:', token.length);
-      console.log('Token starts with:', token.substring(0, 20) + '...');
-    }
-    return {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    };
-  };
 
   useEffect(() => {
     const storedEmployeeNumber = localStorage.getItem('employeeNumber');
@@ -1498,7 +1481,7 @@ const handleMonthClick = (monthIndex) => {
           </Fade>
         )}
 
-        {/* No Official Time Modal */}
+        {/* No Official Time Warning Modal */}
         <Dialog
           open={showNoOfficialTimeModal}
           onClose={() => setShowNoOfficialTimeModal(false)}
@@ -1506,85 +1489,89 @@ const handleMonthClick = (monthIndex) => {
           fullWidth
           PaperProps={{
             sx: {
-              background: `linear-gradient(135deg, ${settings.accentColor || '#FEF9E1'} 0%, ${settings.secondaryAccent || '#FEC887'} 100%)`,
-              borderRadius: '16px',
-              border: `2px solid ${settings.accentDark || '#FAC25E'}`,
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+              borderRadius: 4,
+              boxShadow: '0 8px 32px rgba(109, 35, 35, 0.2)',
             }
           }}
         >
           <DialogTitle
             sx={{
+              bgcolor: alpha(accentColor, 0.1),
+              color: accentColor,
+              fontWeight: 600,
               display: 'flex',
               alignItems: 'center',
               gap: 2,
-              pb: 1,
-              color: settings.textColor || '#333',
-              fontWeight: 600,
             }}
           >
-            <Avatar
-              sx={{
-                bgcolor: '#ff9800',
-                width: 56,
-                height: 56,
-              }}
-            >
-              <WorkHistory sx={{ fontSize: 32 }} />
+            <Avatar sx={{ bgcolor: '#ff9800', width: 56, height: 56 }}>
+              <WorkHistory sx={{ fontSize: 32, color: whiteColor }} />
             </Avatar>
-            <Typography variant="h6" component="div" sx={{ fontWeight: 600 }}>
-              No Official Time Schedule Found
-            </Typography>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                No Official Time Schedule
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.8, mt: 0.5 }}>
+                Employee #{employeeNumber}
+              </Typography>
+            </Box>
           </DialogTitle>
-          <DialogContent sx={{ pt: 2, pb: 2 }}>
+          <DialogContent sx={{ mt: 3, px: 4 }}>
             <Alert 
-              severity="warning"
-              sx={{
+              severity="warning" 
+              sx={{ 
                 mb: 2,
-                '& .MuiAlert-icon': {
-                  color: '#ff9800',
-                },
+                borderRadius: 2,
               }}
             >
-              The selected employee does not have an official time schedule set up for the specified date range.
+              <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                Cannot generate attendance records. This employee needs an official time schedule set up first.
+              </Typography>
             </Alert>
-            <Typography variant="body2" sx={{ color: settings.textColor || '#333', mb: 1 }}>
-              Please ensure that an official time schedule has been configured in the Official Time Setup module before generating attendance records.
-            </Typography>
+            <Box 
+              sx={{ 
+                bgcolor: alpha(primaryColor, 0.3), 
+                p: 2.5, 
+                borderRadius: 2,
+                border: `1px solid ${alpha(accentColor, 0.2)}`
+              }}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 500, color: accentColor }}>
+                Please set up the official time schedule in the Official Time Management module.
+              </Typography>
+            </Box>
           </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
-            <Button
-              onClick={() => setShowNoOfficialTimeModal(false)}
+          <DialogActions sx={{ px: 4, pb: 3, gap: 2 }}>
+            <ProfessionalButton
               variant="outlined"
+              onClick={() => setShowNoOfficialTimeModal(false)}
               sx={{
-                borderColor: settings.accentDark || '#FAC25E',
-                color: settings.textColor || '#333',
+                borderColor: accentColor,
+                color: accentColor,
                 '&:hover': {
-                  borderColor: settings.accentDark || '#FAC25E',
-                  bgcolor: 'rgba(250, 194, 94, 0.1)',
-                },
+                  borderColor: accentDark,
+                  bgcolor: alpha(accentColor, 0.05),
+                }
               }}
             >
               Close
-            </Button>
-            <Button
+            </ProfessionalButton>
+            <ProfessionalButton
+              variant="contained"
               onClick={() => {
                 setShowNoOfficialTimeModal(false);
                 navigate('/official_time');
               }}
-              variant="contained"
-              startIcon={<WorkHistory />}
               sx={{
-                bgcolor: settings.accentDark || '#FAC25E',
-                color: '#fff',
+                bgcolor: accentColor,
+                color: primaryColor,
                 '&:hover': {
-                  bgcolor: settings.accentColor || '#FEF9E1',
-                  color: settings.textColor || '#333',
-                },
+                  bgcolor: accentDark,
+                }
               }}
             >
               Go to Official Time Setup
-            </Button>
+            </ProfessionalButton>
           </DialogActions>
         </Dialog>
       </Container>
