@@ -678,6 +678,7 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
     totalRenderedOvertimeTardiness,
     overallRenderedOfficialTime,
     overallRenderedOfficialTimeTardiness,
+    overallTotalOfficialSchedule,
   } = req.body;
 
   const query = `
@@ -688,8 +689,9 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
       totalRenderedHonorarium, totalRenderedHonorariumTardiness,
       totalRenderedServiceCredit, totalRenderedServiceCreditTardiness,
       totalRenderedOvertime, totalRenderedOvertimeTardiness,
-      overallRenderedOfficialTime, overallRenderedOfficialTimeTardiness
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      overallRenderedOfficialTime, overallRenderedOfficialTimeTardiness,
+      overallTotalOfficialSchedule
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   db.query(
@@ -710,6 +712,7 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
       totalRenderedOvertimeTardiness,
       overallRenderedOfficialTime,
       overallRenderedOfficialTimeTardiness,
+      overallTotalOfficialSchedule,
     ],
     (error, results) => {
       if (error) {
@@ -797,6 +800,7 @@ router.put(
       totalRenderedOvertimeTardiness,
       overallRenderedOfficialTime,
       overallRenderedOfficialTimeTardiness,
+      overallTotalOfficialSchedule,
     } = req.body;
 
     const { id } = req.params;
@@ -829,7 +833,8 @@ router.put(
       totalRenderedHonorarium = ?, totalRenderedHonorariumTardiness = ?,
       totalRenderedServiceCredit = ?, totalRenderedServiceCreditTardiness = ?,
       totalRenderedOvertime = ?, totalRenderedOvertimeTardiness = ?,
-      overallRenderedOfficialTime = ?, overallRenderedOfficialTimeTardiness = ?
+      overallRenderedOfficialTime = ?, overallRenderedOfficialTimeTardiness = ?,
+      overallTotalOfficialSchedule = ?
       WHERE id = ?
     `;
 
@@ -851,6 +856,7 @@ router.put(
             totalRenderedOvertimeTardiness,
             overallRenderedOfficialTime,
             overallRenderedOfficialTimeTardiness,
+            overallTotalOfficialSchedule,
             id,
           ],
           (error, results) => {
@@ -1655,6 +1661,267 @@ router.post('/api/mark-dtr-printed', authenticateToken, async (req, res) => {
     });
   });
 });
+
+// Get suspensions within date range (for DTR labels: WORK SUSPENDED)
+router.get('/api/suspensions', authenticateToken, (req, res) => {
+  const { startDate, endDate } = req.query;
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: 'startDate and endDate are required' });
+  }
+
+  const query = `
+    SELECT id, title, reason, date, date_start, date_end, image
+    FROM suspensions
+    WHERE
+      (date IS NOT NULL AND date BETWEEN ? AND ?)
+      OR
+      (date_start IS NOT NULL AND date_end IS NOT NULL AND date_start <= ? AND date_end >= ?)
+  `;
+
+  // NOTE: order is important
+  const params = [startDate, endDate, endDate, startDate];
+
+  db.query(query, params, (err, rows) => {
+    if (err) {
+      console.error('Error fetching holidays:', err);
+      return res.status(500).json({ error: err.message });
+    }
+
+    // Build map: { "YYYY-MM-DD": { label, title, reason, id } }
+    const byDate = {};
+
+    const toISO = (d) => {
+      if (!d) return null;
+      const dt = new Date(d);
+      const yyyy = dt.getFullYear();
+      const mm = String(dt.getMonth() + 1).padStart(2, '0');
+      const dd = String(dt.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    const classify = (title = '', reason = '') => {
+      const t = `${title} ${reason}`.toLowerCase();
+      if (t.includes('work') && t.includes('susp')) return 'WORK SUSPENDED';
+      if (t.includes('susp')) return 'WORK SUSPENDED';
+      return 'ON LEAVE';
+    };
+
+    (rows || []).forEach((r) => {
+      const single = toISO(r.date);
+      const start = toISO(r.date_start);
+      const end = toISO(r.date_end);
+
+      const label = classify(r.title, r.reason);
+
+      // expand ranges: start_date..end_date
+      if (start && end) {
+        let cur = new Date(start);
+        const last = new Date(end);
+
+        while (cur <= last) {
+          const key = cur.toISOString().slice(0, 10);
+
+          // If multiple records overlap, first one wins (or replace it—your choice)
+          if (!byDate[key]) {
+            byDate[key] = { label, title: r.title, reason: r.reason, id: r.id };
+          }
+
+          cur.setDate(cur.getDate() + 1);
+        }
+      } else if (single) {
+        if (!byDate[single]) {
+          byDate[single] = { label, title: r.title, reason: r.reason, id: r.id };
+        }
+      }
+    });
+
+    // Log audit trail
+    const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';
+    logAudit(
+      req.user,
+      'view',
+      'SUSPENSIONS',
+      `range ${startDate} to ${endDate}`,
+      requestedBy
+    );
+
+    notifyAttendanceChanged('suspensions-fetched', {
+      scope: 'suspensions',
+      startDate,
+      endDate,
+      requestedBy,
+    });
+
+    return res.json({
+      success: true,
+      count: Object.keys(byDate).length,
+      byDate,
+    });
+  });
+});
+
+// Get approved leaves within date range (for DTR labels: ON LEAVE)
+router.get('/api/leaves', authenticateToken, (req, res) => {
+  const { startDate, endDate } = req.query;
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: 'startDate and endDate are required' });
+  }
+
+  const leaveQuery = `
+    SELECT lr.id, lr.leave_date, lt.leave_description
+    FROM leave_request lr
+    JOIN leave_table lt ON lr.leave_code = lt.leave_code
+    WHERE lr.status = 2
+    AND lr.leave_date BETWEEN ? AND ?
+  `;
+
+  db.query(leaveQuery, [startDate, endDate], (err, rows) => {
+    if (err) {
+      console.error('Error fetching leaves:', err);
+      return res.status(500).json({ error: err.message });
+    }
+
+    const toISO = (d) => {
+      if (!d) return null;
+      const dt = new Date(d);
+      const yyyy = dt.getFullYear();
+      const mm = String(dt.getMonth() + 1).padStart(2, '0');
+      const dd = String(dt.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    const byDate = {};
+    (rows || []).forEach((leave) => {
+      const leaveDate = toISO(leave.leave_date);
+      if (!leaveDate || byDate[leaveDate]) return;
+
+      byDate[leaveDate] = {
+        label: 'ON LEAVE',
+        title: leave.leave_description,
+        reason: 'Approved Leave',
+        id: leave.id,
+      };
+    });
+
+    const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';
+    logAudit(
+      req.user,
+      'view',
+      'LEAVES',
+      `range ${startDate} to ${endDate}`,
+      requestedBy
+    );
+
+    notifyAttendanceChanged('leaves-fetched', {
+      scope: 'leaves',
+      startDate,
+      endDate,
+      requestedBy,
+    });
+
+    return res.json({
+      success: true,
+      count: Object.keys(byDate).length,
+      byDate,
+    });
+  });
+});
+
+// Get holidays within date range (for DTR labels: HOLIDAY)
+router.get('/api/holiday', authenticateToken, (req, res) => {
+  const { startDate, endDate } = req.query;
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: 'startDate and endDate are required' });
+  }
+
+  const query = `
+    SELECT id, title, about, description, date, date_start, date_end, image
+    FROM holiday
+    WHERE
+      (date IS NOT NULL AND date BETWEEN ? AND ?)
+      OR
+      (date_start IS NOT NULL AND date_end IS NOT NULL AND date_start <= ? AND date_end >= ?)
+  `
+
+  // NOTE: order is important
+  const params = [startDate, endDate, endDate, startDate];
+
+  db.query(query, params, (err, rows) => {
+    if (err) {
+      console.error('Error fetching suspensions:', err);
+      return res.status(500).json({ error: err.message });
+    }
+
+    // Build map: { "YYYY-MM-DD": { label, title, reason, id } }
+    const byDate = {};
+
+    const toISO = (d) => {
+      if (!d) return null;
+      const dt = new Date(d);
+      const yyyy = dt.getFullYear();
+      const mm = String(dt.getMonth() + 1).padStart(2, '0');
+      const dd = String(dt.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    (rows || []).forEach((r) => {
+      const single = toISO(r.date);
+      const start = toISO(r.date_start);
+      const end = toISO(r.date_end);
+
+      const label = 'HOLIDAY';
+      const reason = r.about || r.description || 'Holiday';
+
+      // expand ranges: start_date..end_date
+      if (start && end) {
+        let cur = new Date(start);
+        const last = new Date(end);
+
+        while (cur <= last) {
+          const key = cur.toISOString().slice(0, 10);
+
+          // If multiple records overlap, first one wins (or replace it—your choice)
+          if (!byDate[key]) {
+            byDate[key] = { label, title: r.title, reason, id: r.id };
+          }
+
+          cur.setDate(cur.getDate() + 1);
+        }
+      } else if (single) {
+        if (!byDate[single]) {
+          byDate[single] = { label, title: r.title, reason, id: r.id };
+        }
+      }
+    });
+
+    // Log audit trail
+    const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';
+    logAudit(
+      req.user,
+      'view',
+      'HOLIDAYS',
+      `range ${startDate} to ${endDate}`,
+      requestedBy
+    );
+
+    notifyAttendanceChanged('holidays-fetched', {
+      scope: 'holiday',
+      startDate,
+      endDate,
+      requestedBy,
+    });
+
+    return res.json({
+      success: true,
+      count: Object.keys(byDate).length,
+      byDate,
+    });
+  });
+});
+
 
 module.exports = router;
 //  

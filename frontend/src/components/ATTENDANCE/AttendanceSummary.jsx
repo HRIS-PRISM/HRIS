@@ -1378,6 +1378,7 @@ const OverallAttendance = () => {
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Overtime Tardiness</PremiumTableCell>
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Overall Official Rendered Time</PremiumTableCell>
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Overall Official Tardiness Time</PremiumTableCell>
+                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Overall Total Official Schedule</PremiumTableCell>
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Action</PremiumTableCell>
                     </TableRow>
                   </TableHead>
@@ -1560,6 +1561,17 @@ const OverallAttendance = () => {
                             record.overallRenderedOfficialTimeTardiness
                           )}
                         </PremiumTableCell>
+                        <PremiumTableCell>
+  {editRecord && editRecord.id === record.id ? (
+    <ModernTextField
+      value={editRecord.overallTotalOfficialSchedule}
+      onChange={(e) => setEditRecord({ ...editRecord, overallTotalOfficialSchedule: e.target.value })}
+      size="small"
+    />
+  ) : (
+    record.overallTotalOfficialSchedule || '—'
+  )}
+</PremiumTableCell>
                         <PremiumTableCell>
                           {editRecord && editRecord.id === record.id ? (
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
