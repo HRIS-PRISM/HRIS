@@ -41,6 +41,11 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  DialogContentText,
 } from "@mui/material";
 import {
   WorkHistory,
@@ -148,6 +153,7 @@ const AttendanceModuleFaculty = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [showNoOfficialTimeModal, setShowNoOfficialTimeModal] = useState(false);
   const navigate = useNavigate();
   const theme = useTheme();
 
@@ -243,6 +249,19 @@ const AttendanceModuleFaculty = () => {
         seen.add(d);
         return true;
       });
+
+      // Check if any official time records exist
+      const hasOfficialTime = onePerDate.some(row => {
+        return row.officialTimeIN && row.officialTimeOUT && 
+               row.officialTimeIN !== '00:00:00 AM' && 
+               row.officialTimeOUT !== '00:00:00 AM';
+      });
+
+      if (!hasOfficialTime || onePerDate.length === 0) {
+        setShowNoOfficialTimeModal(true);
+        setLoading(false);
+        return;
+      }
 
       const processedData = onePerDate.map((row) => {
         const { timeIN, timeOUT, breaktimeIN, breaktimeOUT, officialBreaktimeIN, officialBreaktimeOUT, officialTimeIN, officialTimeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT, officialOverTimeIN, officialOverTimeOUT } = row;
@@ -431,7 +450,7 @@ const AttendanceModuleFaculty = () => {
 
         //end rendered time
 
-        //  max rendered time
+        //  max rendered time//
 
         // Calculate difference in milliseconds MAX RENDERED TIME
         const diffMsFacultySC = endOfficialTimeFacultySC - startOfficialTimeFacultySC;
@@ -1420,6 +1439,100 @@ const AttendanceModuleFaculty = () => {
             </GlassCard>
           </Fade>
         )}
+
+        {/* No Official Time Warning Modal */}
+        <Dialog
+          open={showNoOfficialTimeModal}
+          onClose={() => setShowNoOfficialTimeModal(false)}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: 4,
+              boxShadow: '0 8px 32px rgba(109, 35, 35, 0.2)',
+            }
+          }}
+        >
+          <DialogTitle
+            sx={{
+              bgcolor: alpha(accentColor, 0.1),
+              color: accentColor,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+            }}
+          >
+            <Avatar sx={{ bgcolor: '#ff9800', width: 56, height: 56 }}>
+              <WorkHistory sx={{ fontSize: 32, color: whiteColor }} />
+            </Avatar>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                No Official Time Schedule
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.8, mt: 0.5 }}>
+                Employee #{employeeNumber}
+              </Typography>
+            </Box>
+          </DialogTitle>
+          <DialogContent sx={{ mt: 3, px: 4 }}>
+            <Alert 
+              severity="warning" 
+              sx={{ 
+                mb: 2,
+                borderRadius: 2,
+              }}
+            >
+              <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                Cannot generate attendance records. This employee needs an official time schedule set up first.
+              </Typography>
+            </Alert>
+            <Box 
+              sx={{ 
+                bgcolor: alpha(primaryColor, 0.3), 
+                p: 2.5, 
+                borderRadius: 2,
+                border: `1px solid ${alpha(accentColor, 0.2)}`
+              }}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 500, color: accentColor }}>
+                Please set up the official time schedule in the Official Time Management module.
+              </Typography>
+            </Box>
+          </DialogContent>
+          <DialogActions sx={{ px: 4, pb: 3, gap: 2 }}>
+            <ProfessionalButton
+              variant="outlined"
+              onClick={() => setShowNoOfficialTimeModal(false)}
+              sx={{
+                borderColor: accentColor,
+                color: accentColor,
+                '&:hover': {
+                  borderColor: accentDark,
+                  bgcolor: alpha(accentColor, 0.05),
+                }
+              }}
+            >
+              Close
+            </ProfessionalButton>
+            <ProfessionalButton
+              variant="contained"
+              onClick={() => {
+                setShowNoOfficialTimeModal(false);
+                navigate('/official_time');
+              }}
+              sx={{
+                bgcolor: accentColor,
+                color: primaryColor,
+                '&:hover': {
+                  bgcolor: accentDark,
+                }
+              }}
+            >
+              Go to Official Time Setup
+            </ProfessionalButton>
+          </DialogActions>
+        </Dialog>
       </Container>
     </Box>
   );

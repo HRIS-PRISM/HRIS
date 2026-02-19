@@ -1,7 +1,7 @@
 import API_BASE_URL from "../../apiConfig";
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { Box, Button, Container, TextField, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Card, CardContent, CardHeader, Grid, InputAdornment, Divider, Avatar, IconButton, Tooltip, Badge, Fade, Alert, LinearProgress, alpha, Stack, Chip, useTheme, styled, Breadcrumbs, Link, Skeleton, Backdrop, CircularProgress, FormControl, InputLabel, Select, MenuItem } from "@mui/material";
+import { Box, Button, Container, TextField, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Card, CardContent, CardHeader, Grid, InputAdornment, Divider, Avatar, IconButton, Tooltip, Badge, Fade, Alert, LinearProgress, alpha, Stack, Chip, useTheme, styled, Breadcrumbs, Link, Skeleton, Backdrop, CircularProgress, FormControl, InputLabel, Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
 import { WorkHistory, Person, CalendarToday, Today, ArrowBackIos, ArrowForwardIos, Clear, SaveAs, Refresh, Home, Assessment, DateRange, FilterList, DateRange as DateRangeIcon, Download, FileDownload } from "@mui/icons-material";
 import dayjs from "dayjs";
 import * as XLSX from "xlsx";
@@ -88,6 +88,7 @@ const AttendanceModuleFaculty = () => {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [attendanceData, setAttendanceData] = useState([]);
+  const [showNoOfficialTimeModal, setShowNoOfficialTimeModal] = useState(false);
   const navigate = useNavigate();
   const theme = useTheme();
 
@@ -174,6 +175,18 @@ const AttendanceModuleFaculty = () => {
         seen.add(d);
         return true;
       });
+
+      // Check if there are valid official time records
+      const hasOfficialTime = onePerDate.some(row => {
+        return row.officialTimeIN && row.officialTimeOUT && 
+               row.officialTimeIN !== '00:00:00 AM' && 
+               row.officialTimeOUT !== '00:00:00 AM';
+      });
+
+      if (!hasOfficialTime || onePerDate.length === 0) {
+        setShowNoOfficialTimeModal(true);
+        return;
+      }
 
       const processedData = onePerDate.map((row) => {
         const { timeIN, timeOUT, breaktimeIN, breaktimeOUT, officialBreaktimeIN, officialBreaktimeOUT, officialTimeIN, officialTimeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT, officialOverTimeIN, officialOverTimeOUT } = row;
@@ -1484,6 +1497,96 @@ const handleMonthClick = (monthIndex) => {
             </GlassCard>
           </Fade>
         )}
+
+        {/* No Official Time Modal */}
+        <Dialog
+          open={showNoOfficialTimeModal}
+          onClose={() => setShowNoOfficialTimeModal(false)}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{
+            sx: {
+              background: `linear-gradient(135deg, ${settings.accentColor || '#FEF9E1'} 0%, ${settings.secondaryAccent || '#FEC887'} 100%)`,
+              borderRadius: '16px',
+              border: `2px solid ${settings.accentDark || '#FAC25E'}`,
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+            }
+          }}
+        >
+          <DialogTitle
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              pb: 1,
+              color: settings.textColor || '#333',
+              fontWeight: 600,
+            }}
+          >
+            <Avatar
+              sx={{
+                bgcolor: '#ff9800',
+                width: 56,
+                height: 56,
+              }}
+            >
+              <WorkHistory sx={{ fontSize: 32 }} />
+            </Avatar>
+            <Typography variant="h6" component="div" sx={{ fontWeight: 600 }}>
+              No Official Time Schedule Found
+            </Typography>
+          </DialogTitle>
+          <DialogContent sx={{ pt: 2, pb: 2 }}>
+            <Alert 
+              severity="warning"
+              sx={{
+                mb: 2,
+                '& .MuiAlert-icon': {
+                  color: '#ff9800',
+                },
+              }}
+            >
+              The selected employee does not have an official time schedule set up for the specified date range.
+            </Alert>
+            <Typography variant="body2" sx={{ color: settings.textColor || '#333', mb: 1 }}>
+              Please ensure that an official time schedule has been configured in the Official Time Setup module before generating attendance records.
+            </Typography>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+            <Button
+              onClick={() => setShowNoOfficialTimeModal(false)}
+              variant="outlined"
+              sx={{
+                borderColor: settings.accentDark || '#FAC25E',
+                color: settings.textColor || '#333',
+                '&:hover': {
+                  borderColor: settings.accentDark || '#FAC25E',
+                  bgcolor: 'rgba(250, 194, 94, 0.1)',
+                },
+              }}
+            >
+              Close
+            </Button>
+            <Button
+              onClick={() => {
+                setShowNoOfficialTimeModal(false);
+                navigate('/official_time');
+              }}
+              variant="contained"
+              startIcon={<WorkHistory />}
+              sx={{
+                bgcolor: settings.accentDark || '#FAC25E',
+                color: '#fff',
+                '&:hover': {
+                  bgcolor: settings.accentColor || '#FEF9E1',
+                  color: settings.textColor || '#333',
+                },
+              }}
+            >
+              Go to Official Time Setup
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Container>
     </Box>
   );
