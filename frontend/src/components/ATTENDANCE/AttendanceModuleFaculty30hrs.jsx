@@ -145,6 +145,9 @@ const PremiumTableCell = styled(TableCell)(({ theme, isHeader = false, bgColor =
 }));
 
 const AttendanceModuleFaculty = () => {
+  const [suspensionByDate, setSuspensionByDate] = useState({});
+  const [leaveByDate, setLeaveByDate] = useState({});
+  const [holidayByDate, setHolidayByDate] = useState({});
   const { settings } = useSystemSettings();
   const [employeeNumber, setEmployeeNumber] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -231,6 +234,7 @@ const AttendanceModuleFaculty = () => {
         },
         ...getAuthHeaders(),
       });
+      
 
       // One row per attendance date: use only the official time whose startDate/endDate range contains the date
       const dateOnly = (val) => (val ? String(val).split("T")[0] : "");
@@ -450,7 +454,7 @@ const AttendanceModuleFaculty = () => {
 
         //end rendered time
 
-        //  max rendered time//
+        //  max rendered time
 
         // Calculate difference in milliseconds MAX RENDERED TIME
         const diffMsFacultySC = endOfficialTimeFacultySC - startOfficialTimeFacultySC;
@@ -590,6 +594,25 @@ const AttendanceModuleFaculty = () => {
         };
       });
 
+        // ✅ ADD THIS BLOCK (this is the only new part)
+      const [suspRes, leaveRes, holidayRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/attendance/api/suspensions`, {
+          params: { startDate, endDate },
+          ...getAuthHeaders(),
+        }),
+        axios.get(`${API_BASE_URL}/attendance/api/leaves`, {
+          params: { startDate, endDate },
+          ...getAuthHeaders(),
+        }),
+        axios.get(`${API_BASE_URL}/attendance/api/holiday`, {
+          params: { startDate, endDate },
+          ...getAuthHeaders(),
+        }),
+      ]);
+
+      setSuspensionByDate(suspRes.data?.byDate || {});
+      setLeaveByDate(leaveRes.data?.byDate || {});
+      setHolidayByDate(holidayRes.data?.byDate || {});
       setAttendanceData(processedData);
     } catch (error) {
       console.error("Error fetching attendance data:", error);
@@ -642,6 +665,7 @@ const AttendanceModuleFaculty = () => {
 
       overallRenderedOfficialTime: calculateTotalRenderedTime(),
       overallRenderedOfficialTimeTardiness: calculateTotalRenderedTimeTardiness(),
+      calculateOverallFurloughRenderedTime
     };
 
     try {
@@ -656,6 +680,44 @@ const AttendanceModuleFaculty = () => {
       console.error("Error saving overall attendance:", error);
       alert("Failed to save attendance record.");
     }
+  };
+
+  const getStatusLabelForDate = (date) => {
+    if (suspensionByDate?.[date]) return "WORK SUSPENDED";
+    if (holidayByDate?.[date]) return "HOLIDAY";
+    if (leaveByDate?.[date]) return "ON LEAVE";
+    return "";
+  };
+
+  const getFurloughRowsWithRenderedTime = () => {
+    return (attendanceData || [])
+      .filter((row) => Boolean(getStatusLabelForDate(row.date)))
+      .map((row) => {
+        const furloughRenderedTime = !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTime === "NaN:NaN:NaN"
+          ? "00:00:00"
+          : row.formattedFacultyRenderedTime;
+
+        return {
+          ...row,
+          furloughRenderedTime,
+        };
+      });
+  };
+
+  const calculateOverallFurloughRenderedTime = () => {
+    const furloughRows = getFurloughRowsWithRenderedTime();
+
+    let totalSeconds = 0;
+    furloughRows.forEach((row) => {
+      const [hours, minutes, seconds] = row.furloughRenderedTime.split(":").map(Number);
+      totalSeconds += hours * 3600 + minutes * 60 + seconds;
+    });
+
+    const totalHours = Math.floor(totalSeconds / 3600);
+    const totalMinutes = Math.floor((totalSeconds % 3600) / 60);
+    const totalSecs = totalSeconds % 60;
+
+    return `${String(totalHours).padStart(2, "0")}:${String(totalMinutes).padStart(2, "0")}:${String(totalSecs).padStart(2, "0")}`;
   };
 
   // TIME IN AND TIME OUT
@@ -839,6 +901,8 @@ const AttendanceModuleFaculty = () => {
     XLSX.utils.book_append_sheet(wb, ws, "Attendance");
     XLSX.writeFile(wb, `Attendance_${employeeNumber}_${startDate}_${endDate}.xlsx`);
   };
+
+  
 
   // ACCESSING 2
   // Loading state
@@ -1057,78 +1121,78 @@ const AttendanceModuleFaculty = () => {
 
                 <Divider sx={{ my: 4, borderColor: 'rgba(109,35,35,0.1)' }} />
 
-             {/* Month Selection */}
-<Box sx={{ mb: 4 }}>
-  <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: accentColor, display: 'flex', alignItems: 'center', mb: 3 }}>
-    <DateRange sx={{ mr: 2, fontSize: 24 }} />
-    FILTERS:
-  </Typography>
-  <Box sx={{ 
-    display: 'grid', 
-    gridTemplateColumns: { xs: 'repeat(3, 1fr)', sm: 'repeat(6, 1fr)', md: 'repeat(13, 1fr)' },
-    gap: 1.5 
-  }}>
-    {months.map((month, index) => (
-      <ProfessionalButton
-        key={month}
-        variant={selectedMonth === index ? "contained" : "outlined"}
-        size="small"
-        onClick={() => handleMonthClick(index)}
-        sx={{
-          borderColor: accentColor,
-          color: selectedMonth === index ? '#FFFFFF' : accentColor,
-          backgroundColor: selectedMonth === index ? accentColor : 'transparent',
-          minWidth: 'auto',
-          fontSize: '0.875rem',
-          fontWeight: selectedMonth === index ? 700 : 500,
-          py: 1,
-          transition: 'all 0.3s ease',
-          '&:hover': {
-            backgroundColor: selectedMonth === index 
-              ? alpha(accentColor, 0.8) 
-              : alpha(accentColor, 0.1),
-            transform: 'translateY(-2px)',
-            boxShadow: selectedMonth === index 
-              ? `0 4px 12px ${alpha(accentColor, 0.4)}` 
-              : 'none',
-          }
-        }}
-      >
-        {month}
-      </ProfessionalButton>
-    ))}
-    <FormControl size="small" sx={{ minWidth: 100 }}>
-      <InputLabel sx={{ fontWeight: 600, color: accentColor }}>Year</InputLabel>
-      <Select
-        value={selectedYear}
-        onChange={(e) => setSelectedYear(e.target.value)}
-        label="Year"
-        sx={{
-          backgroundColor: 'white',
-          '& .MuiOutlinedInput-notchedOutline': {
-            borderColor: accentColor,
-          },
-          borderRadius: 2,
-          fontWeight: 600,
-          color: accentColor,
-          '&:hover .MuiOutlinedInput-notchedOutline': {
-            borderColor: accentDark,
-          },
-          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-            borderColor: accentColor,
-            borderWidth: 2,
-          },
-        }}
-      >
-        {yearOptions.map((year) => (
-          <MenuItem key={year} value={year}>
-            {year}
-          </MenuItem>
-        ))}
-      </Select>
-    </FormControl>
-  </Box>
-</Box>
+                {/* Month Selection */}
+                <Box sx={{ mb: 4 }}>
+                  <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: accentColor, display: 'flex', alignItems: 'center', mb: 3 }}>
+                    <DateRange sx={{ mr: 2, fontSize: 24 }} />
+                    FILTERS:
+                  </Typography>
+                  <Box sx={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: { xs: 'repeat(3, 1fr)', sm: 'repeat(6, 1fr)', md: 'repeat(13, 1fr)' },
+                    gap: 1.5 
+                  }}>
+                    {months.map((month, index) => (
+                      <ProfessionalButton
+                        key={month}
+                        variant={selectedMonth === index ? "contained" : "outlined"}
+                        size="small"
+                        onClick={() => handleMonthClick(index)}
+                        sx={{
+                          borderColor: accentColor,
+                          color: selectedMonth === index ? '#FFFFFF' : accentColor,
+                          backgroundColor: selectedMonth === index ? accentColor : 'transparent',
+                          minWidth: 'auto',
+                          fontSize: '0.875rem',
+                          fontWeight: selectedMonth === index ? 700 : 500,
+                          py: 1,
+                          transition: 'all 0.3s ease',
+                          '&:hover': {
+                            backgroundColor: selectedMonth === index 
+                              ? alpha(accentColor, 0.8) 
+                              : alpha(accentColor, 0.1),
+                            transform: 'translateY(-2px)',
+                            boxShadow: selectedMonth === index 
+                              ? `0 4px 12px ${alpha(accentColor, 0.4)}` 
+                              : 'none',
+                          }
+                        }}
+                      >
+                        {month}
+                      </ProfessionalButton>
+                    ))}
+                    <FormControl size="small" sx={{ minWidth: 100 }}>
+                      <InputLabel sx={{ fontWeight: 600, color: accentColor }}>Year</InputLabel>
+                      <Select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(e.target.value)}
+                        label="Year"
+                        sx={{
+                          backgroundColor: 'white',
+                          '& .MuiOutlinedInput-notchedOutline': {
+                            borderColor: accentColor,
+                          },
+                          borderRadius: 2,
+                          fontWeight: 600,
+                          color: accentColor,
+                          '&:hover .MuiOutlinedInput-notchedOutline': {
+                            borderColor: accentDark,
+                          },
+                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                            borderColor: accentColor,
+                            borderWidth: 2,
+                          },
+                        }}
+                      >
+                        {yearOptions.map((year) => (
+                          <MenuItem key={year} value={year}>
+                            {year}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Box>
+                </Box>
 
                 {/* Generate Button */}
                 <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
@@ -1287,71 +1351,120 @@ const AttendanceModuleFaculty = () => {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {attendanceData.map((row, index) => (
-                        <TableRow 
-                          key={index}
-                          sx={{ 
-                            '&:nth-of-type(even)': { bgcolor: alpha(primaryColor, 0.3) },
-                            '&:hover': { bgcolor: alpha(accentColor, 0.05) },
-                            transition: 'all 0.2s ease'
-                          }}
-                        >
-                          <PremiumTableCell sx={{ fontWeight: "bold", textAlign: "center" }}>{row.date}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.day}</PremiumTableCell>
-                          <PremiumTableCell>{row.timeIN}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.officialTimeIN}</PremiumTableCell>
-                          <PremiumTableCell>{row.timeOUT}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.officialTimeOUT}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTime === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTime}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFaculty === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTime : row.formattedfinalcalcFaculty}
-                          </PremiumTableCell>
-                          <PremiumTableCell>{row.officialHonorariumTimeIN === "00:00:00 AM" ? "N/A" : row.timeIN}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {row.officialHonorariumTimeIN === "00:00:00 AM" ? "N/A" : row.officialHonorariumTimeIN}
-                          </PremiumTableCell>
-                          <PremiumTableCell>{row.officialHonorariumTimeOUT === "00:00:00 AM" ? "N/A" : row.timeOUT}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {row.officialHonorariumTimeOUT === "00:00:00 AM" ? "N/A" : row.officialHonorariumTimeOUT}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeHN === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeHN}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyHN === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTimeHN : row.formattedfinalcalcFacultyHN}
-                          </PremiumTableCell>
-                          <PremiumTableCell>{row.officialServiceCreditTimeIN === "00:00:00 AM" ? "N/A" : row.timeIN}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {row.officialServiceCreditTimeIN === "00:00:00 AM" ? "N/A" : row.officialServiceCreditTimeIN}
-                          </PremiumTableCell>
-                          <PremiumTableCell>{row.officialServiceCreditTimeOUT === "00:00:00 AM" ? "N/A" : row.timeOUT}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {row.officialServiceCreditTimeOUT === "00:00:00 AM" ? "N/A" : row.officialServiceCreditTimeOUT}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeSC || !row.timeOUT || row.formattedFacultyRenderedTimeSC === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeSC}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultySC === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTimeSC : row.formattedfinalcalcFacultySC}
-                          </PremiumTableCell>
-                          <PremiumTableCell>{row.officialOverTimeIN === "00:00:00 AM" ? "N/A" : row.timeIN}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {row.officialOverTimeIN === "00:00:00 AM" ? "N/A" : row.officialOverTimeIN}
-                          </PremiumTableCell>
-                          <PremiumTableCell>{row.officialOverTimeOUT === "00:00:00 AM" ? "N/A" : row.timeOUT}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {row.officialOverTimeOUT === "00:00:00 AM" ? "N/A" : row.officialOverTimeOUT}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeOT === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeOT}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyOT === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTimeOT : row.formattedfinalcalcFacultyOT}
-                          </PremiumTableCell>
-                        </TableRow>
-                      ))}
+                      {attendanceData.map((row, index) => {
+                        const statusLabel = getStatusLabelForDate(row.date);
+                        const getStatusStyle = (label) => {
+                          if (label === "WORK SUSPENDED") {
+                            return {
+                              bgcolor: alpha("#d32f2f", 0.12),
+                              color: "#d32f2f",
+                              border: `1px solid ${alpha("#d32f2f", 0.4)}`,
+                            };
+                          }
+
+                          if (label === "ON LEAVE") {
+                            return {
+                              bgcolor: alpha("#f57c00", 0.12),
+                              color: "#f57c00",
+                              border: `1px solid ${alpha("#f57c00", 0.4)}`,
+                            };
+                          }
+
+                          if (label === "HOLIDAY") {
+                            return {
+                              bgcolor: alpha("#2e7d32", 0.12),
+                              color: "#2e7d32",
+                              border: `1px solid ${alpha("#2e7d32", 0.4)}`,
+                            };
+                          }
+
+                          return {};
+                        };
+                        
+                        return(
+                          <TableRow 
+                            key={index}
+                            sx={{ 
+                              '&:nth-of-type(even)': { bgcolor: alpha(primaryColor, 0.3) },
+                              '&:hover': { bgcolor: alpha(accentColor, 0.05) },
+                              transition: 'all 0.2s ease'
+                            }}
+                          > 
+                            <PremiumTableCell sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              <Box sx={{display: "flex", flexDirection: "column", alignItems: "center",  lineHeight: 1.1}}>
+                                <span>{row.date}</span>
+
+                                {statusLabel && (
+                                  <Chip
+                                    size="small"
+                                    label={statusLabel}
+                                    sx={{
+                                      mt: 0.5,
+                                      fontWeight: 700,
+                                      fontSize: "0.70rem",
+                                      height: 20,
+                                      ...getStatusStyle(statusLabel),
+                                    }}
+                                  />
+                                )}
+                              </Box>
+                            </PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.day}</PremiumTableCell>
+                            <PremiumTableCell>{row.timeIN}</PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.officialTimeIN}</PremiumTableCell>
+                            <PremiumTableCell>{row.timeOUT}</PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.officialTimeOUT}</PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              {!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTime === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTime}
+                            </PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              {!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFaculty === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTime : row.formattedfinalcalcFaculty}
+                            </PremiumTableCell>
+                            <PremiumTableCell>{row.officialHonorariumTimeIN === "00:00:00 AM" ? "N/A" : row.timeIN}</PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              {row.officialHonorariumTimeIN === "00:00:00 AM" ? "N/A" : row.officialHonorariumTimeIN}
+                            </PremiumTableCell>
+                            <PremiumTableCell>{row.officialHonorariumTimeOUT === "00:00:00 AM" ? "N/A" : row.timeOUT}</PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              {row.officialHonorariumTimeOUT === "00:00:00 AM" ? "N/A" : row.officialHonorariumTimeOUT}
+                            </PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              {!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeHN === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeHN}
+                            </PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              {!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyHN === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTimeHN : row.formattedfinalcalcFacultyHN}
+                            </PremiumTableCell>
+                            <PremiumTableCell>{row.officialServiceCreditTimeIN === "00:00:00 AM" ? "N/A" : row.timeIN}</PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              {row.officialServiceCreditTimeIN === "00:00:00 AM" ? "N/A" : row.officialServiceCreditTimeIN}
+                            </PremiumTableCell>
+                            <PremiumTableCell>{row.officialServiceCreditTimeOUT === "00:00:00 AM" ? "N/A" : row.timeOUT}</PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              {row.officialServiceCreditTimeOUT === "00:00:00 AM" ? "N/A" : row.officialServiceCreditTimeOUT}
+                            </PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              {!row.officialTimeSC || !row.timeOUT || row.formattedFacultyRenderedTimeSC === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeSC}
+                            </PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              {!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultySC === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTimeSC : row.formattedfinalcalcFacultySC}
+                            </PremiumTableCell>
+                            <PremiumTableCell>{row.officialOverTimeIN === "00:00:00 AM" ? "N/A" : row.timeIN}</PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              {row.officialOverTimeIN === "00:00:00 AM" ? "N/A" : row.officialOverTimeIN}
+                            </PremiumTableCell>
+                            <PremiumTableCell>{row.officialOverTimeOUT === "00:00:00 AM" ? "N/A" : row.timeOUT}</PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              {row.officialOverTimeOUT === "00:00:00 AM" ? "N/A" : row.officialOverTimeOUT}
+                            </PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              {!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeOT === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeOT}
+                            </PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
+                              {!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyOT === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTimeOT : row.formattedfinalcalcFacultyOT}
+                            </PremiumTableCell>
+                          </TableRow>
+                        )
+                      })}
                       <TableRow>
                         <PremiumTableCell colSpan={6} sx={{ fontWeight: "bold", textAlign: "right" }}>
                           Total Rendered Time (Regular Duty):
