@@ -1,8 +1,15 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useDeferredValue,
+  useRef,
+} from 'react';
 import axios from 'axios';
+import { getAuthHeaders } from '../../utils/auth';
+import { useSocket } from '../../contexts/SocketContext';
 import {
-  Container,
   Typography,
   TextField,
   Button,
@@ -14,1146 +21,2160 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel,
+  Card,
+  CardContent,
+  Avatar,
+  Fade,
+  Divider,
+  styled,
+  alpha,
+  TablePagination,
+  CircularProgress,
+  Backdrop,
+  Tooltip,
+  InputAdornment,
+  ToggleButton,
+  ToggleButtonGroup,
+  Paper,
+  Snackbar,
+  Alert,
+  Checkbox,
+  FormControlLabel,
+  Slide,
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Save as SaveIcon,
-  Cancel as CancelIcon,
   Close,
   EventNote,
   Search as SearchIcon,
   EventAvailable as ReorderIcon,
+  Refresh,
+  Person as PersonIcon,
+  CalendarMonth,
+  CheckCircle,
+  Cancel as CancelIcon,
+  AccessTime,
+  Block,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+  Save as SaveIcon,
+  Business as BusinessIcon,
+  ViewList as ViewListIcon,
+  ViewModule as ViewModuleIcon,
+  HowToReg,
+  CheckBox as CheckBoxIcon,
+  CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon,
+  SelectAll as SelectAllIcon,
+  DoneAll as DoneAllIcon,
+  ThumbDown as ThumbDownIcon,
 } from '@mui/icons-material';
-
 
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 import LeaveDatePickerModal from './LeaveDatePicker';
+import LeaveCredits from './LeaveCredits';
+import { useSystemSettings } from '../../hooks/useSystemSettings';
+import {
+  createThemedCard,
+  createThemedButton,
+  createThemedTextField,
+} from '../../utils/theme';
 
+// Stable themed components
+const ThemedCard = styled(Card, {
+  shouldForwardProp: (prop) => prop !== 'settings',
+})(({ settings = {} }) => createThemedCard(settings));
+
+const ThemedButton = styled(Button, {
+  shouldForwardProp: (prop) => prop !== 'settings',
+})(({ settings = {}, variant = 'contained' }) =>
+  createThemedButton(settings, variant),
+);
+
+const ThemedTextField = styled(TextField, {
+  shouldForwardProp: (prop) => prop !== 'settings',
+})(({ settings = {} }) => createThemedTextField(settings));
 
 const LeaveRequest = () => {
+  const { socket, connected } = useSocket();
+  const refreshRef = useRef(null);
+
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
-  const [newLeaveRequest, setNewLeaveRequest] = useState({
+  const [employeeNames, setEmployeeNames] = useState({});
+  const [newRequest, setNewRequest] = useState({
     employeeNumber: '',
     leave_code: '',
     leave_date: '',
     status: '0',
   });
-  const [editLeaveRequest, setEditLeaveRequest] = useState(null);
-  const [originalLeaveRequest, setOriginalLeaveRequest] = useState(null);
+  const [editRequest, setEditRequest] = useState(null);
+  const [originalRequest, setOriginalRequest] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const deferredSearch = useDeferredValue(searchTerm);
   const [loading, setLoading] = useState(false);
   const [successOpen, setSuccessOpen] = useState(false);
   const [successAction, setSuccessAction] = useState('');
   const [dateModalOpen, setDateModalOpen] = useState(false);
   const [selectedDates, setSelectedDates] = useState([]);
-  const [yearFilter, setYearFilter] = useState('');
-  const [monthFilter, setMonthFilter] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(8);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [leaveTypeFilter, setLeaveTypeFilter] = useState('all');
+  const [viewMode, setViewMode] = useState('grid');
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedRequests, setSelectedRequests] = useState([]);
+  const [bulkLoading, setBulkLoading] = useState(false);
 
+  const { settings } = useSystemSettings();
 
+  // Use stable themed components
+  const GlassCard = ThemedCard;
+  const ProfessionalButton = ThemedButton;
+  const ModernTextField = ThemedTextField;
+
+  // Get colors from system settings
+  const primaryColor = settings.accentColor || '#FEF9E1';
+  const secondaryColor = settings.backgroundColor || '#FFF8E7';
+  const accentColor = settings.primaryColor || '#6d2323';
+  const accentDark = settings.secondaryColor || '#8B3333';
+  const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
+  const grayColor = settings.textSecondaryColor || '#6c757d';
+
+  // Status Configuration
   const statusOptions = [
-    { value: '0', label: 'Pending', color: '#000000' },
+    {
+      value: '0',
+      label: 'Pending Review',
+      short: 'Pending',
+      color: '#F57C00',
+      bg: '#FFF3E0',
+      icon: AccessTime,
+    },
     {
       value: '1',
-      label: 'Approved by Manager and Pending for HR',
-      color: '#6d2323',
+      label: 'Manager Approved',
+      short: 'Manager Approved',
+      color: '#1565C0',
+      bg: '#E3F2FD',
+      icon: CheckCircle,
     },
-    { value: '2', label: 'Approved by HR', color: '#a31d1d' },
-    { value: '3', label: 'Denied by Manager/HR', color: '#000000' },
-    { value: '4', label: 'Cancelled', color: '#555555' },
+    {
+      value: '2',
+      label: 'HR Approved',
+      short: 'HR Approved',
+      color: '#2E7D32',
+      bg: '#E8F5E9',
+      icon: CheckCircle,
+    },
+    {
+      value: '3',
+      label: 'Denied',
+      short: 'Denied',
+      color: '#C62828',
+      bg: '#FFEBEE',
+      icon: Block,
+    },
+    {
+      value: '4',
+      label: 'Cancelled',
+      short: 'Cancelled',
+      color: '#757575',
+      bg: '#F5F5F5',
+      icon: CancelIcon,
+    },
   ];
 
-
-  const formatDate = (dateObj) => {
-    const year = dateObj.getFullYear();
-    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-    const day = String(dateObj.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-
-  const toggleDate = (dateStr) => {
-    setSelectedDates((prev) =>
-      prev.includes(dateStr)
-        ? prev.filter((d) => d !== dateStr)
-        : [...prev, dateStr]
+  const isSickLeave = (code) => {
+    const t = leaveTypes.find((x) => x.leave_code === code);
+    if (!t) return false;
+    return (
+      (t.leave_code || '').toLowerCase().includes('sl') ||
+      (t.leave_description || '').toLowerCase().includes('sick')
     );
   };
 
-
   useEffect(() => {
-    fetchLeaveRequests();
-    fetchLeaveTypes();
+    setPage(0);
+  }, [deferredSearch, statusFilter, leaveTypeFilter]);
+  useEffect(() => {
+    fetchAll();
   }, []);
 
+  // Keep latest fetch function for Socket.IO handler
+  useEffect(() => {
+    refreshRef.current = fetchAll;
+  });
 
-  const fetchLeaveRequests = async () => {
+  // Realtime: refresh when anyone changes leave request records
+  useEffect(() => {
+    if (!socket || !connected) return;
+
+    const handleChanged = () => {
+      refreshRef.current?.();
+    };
+
+    socket.on('leaveRequestChanged', handleChanged);
+    return () => {
+      socket.off('leaveRequestChanged', handleChanged);
+    };
+  }, [socket, connected]);
+
+  const fetchAll = async () => {
     try {
-      const res = await axios.get(
-        `${API_BASE_URL}/leaveRoute/leave_request`
+      const [reqRes, typeRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/leaveRoute/leave_request`, getAuthHeaders()),
+        axios.get(`${API_BASE_URL}/leaveRoute/leave_table`, getAuthHeaders()),
+      ]);
+      setLeaveRequests(reqRes.data);
+      setLeaveTypes(typeRes.data);
+
+      const names = {};
+      const empNums = [...new Set(reqRes.data.map((r) => r.employeeNumber))];
+      await Promise.all(
+        empNums.map(async (emp) => {
+          try {
+            const res = await axios.get(
+              `${API_BASE_URL}/personalinfo/person_table/${emp}`,
+              getAuthHeaders(),
+            );
+            names[emp] =
+              [res.data.firstName, res.data.lastName]
+                .filter(Boolean)
+                .join(' ') || 'Unknown';
+          } catch {
+            names[emp] = 'Unknown';
+          }
+        }),
       );
-      setLeaveRequests(res.data);
-    } catch (error) {
-      console.error('Error fetching data:', error);
+      setEmployeeNames(names);
+    } catch (e) {
+      console.error(e);
     }
   };
-
-
-  const fetchLeaveTypes = async () => {
-    try {
-      const res = await axios.get(
-        `${API_BASE_URL}/leaveRoute/leave_table`
-      );
-      setLeaveTypes(res.data);
-    } catch (error) {
-      console.error('Error fetching leave types:', error);
-    }
-  };
-
-
-  const formatDateForDisplay = (dateString) => {
-    if (!dateString) return '';
-
-
-    // If it's already in YYYY-MM-DD format, return as is
-    if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      return dateString;
-    }
-
-
-    // Handle other date formats
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return '';
-
-
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
 
   const handleAdd = async () => {
-    // Validate required fields
     if (
-      !newLeaveRequest.employeeNumber ||
-      !newLeaveRequest.leave_code ||
-      !newLeaveRequest.leave_date
+      !newRequest.employeeNumber ||
+      !newRequest.leave_code ||
+      !newRequest.leave_date
     ) {
-      alert('Please fill in all required fields');
+      alert('Please fill all required fields');
       return;
     }
-
-
     setLoading(true);
     try {
-      const payload = {
-        employeeNumber: newLeaveRequest.employeeNumber,
-        leave_code: newLeaveRequest.leave_code,
-        leave_dates: [newLeaveRequest.leave_date], // Send date as-is (YYYY-MM-DD format)
-        status: Number(newLeaveRequest.status),
-      };
-
-
-      console.log('Sending payload:', payload); // Debug log
-
-
       await axios.post(
         `${API_BASE_URL}/leaveRoute/leave_request`,
-        payload
+        {
+          employeeNumber: newRequest.employeeNumber,
+          leave_code: newRequest.leave_code,
+          leave_dates: [newRequest.leave_date],
+          status: Number(newRequest.status),
+        },
+        getAuthHeaders(),
       );
-
-
-      setNewLeaveRequest({
+      setNewRequest({
         employeeNumber: '',
         leave_code: '',
         leave_date: '',
         status: '0',
       });
-
-
-      setTimeout(() => {
-        setLoading(false);
-        setSuccessAction('adding');
-        setSuccessOpen(true);
-        setTimeout(() => setSuccessOpen(false), 2000);
-      }, 300);
-
-
-      fetchLeaveRequests();
-    } catch (error) {
-      console.error('Error adding data:', error);
+      setSelectedDates([]);
+      setSuccessAction('adding');
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2000);
+      fetchAll();
+    } catch (e) {
+      alert('Error adding request');
+    } finally {
       setLoading(false);
-
-
-      if (error.response?.data?.error) {
-        alert(`Error: ${error.response.data.error}`);
-      } else {
-        alert('An error occurred while adding the leave request');
-      }
     }
   };
 
-
   const handleUpdate = async () => {
-    // Validate required fields
-    if (
-      !editLeaveRequest.employeeNumber ||
-      !editLeaveRequest.leave_code ||
-      !editLeaveRequest.leave_date
-    ) {
-      alert('Please fill in all required fields');
-      return;
-    }
-
-
     try {
-      const payload = {
-        employeeNumber: editLeaveRequest.employeeNumber,
-        leave_code: editLeaveRequest.leave_code,
-        leave_date: editLeaveRequest.leave_date, // Send date as-is (YYYY-MM-DD format)
-        status: Number(editLeaveRequest.status),
-      };
-
-
-      console.log('Updating with payload:', payload); // Debug log
-
-
       await axios.put(
-        `${API_BASE_URL}/leaveRoute/leave_request/${editLeaveRequest.id}`,
-        payload
+        `${API_BASE_URL}/leaveRoute/leave_request/${editRequest.id}`,
+        {
+          employeeNumber: editRequest.employeeNumber,
+          leave_code: editRequest.leave_code,
+          leave_date: editRequest.leave_date,
+          status: Number(editRequest.status),
+        },
+        getAuthHeaders(),
       );
-
-
-      setEditLeaveRequest(null);
-      setOriginalLeaveRequest(null);
+      setEditRequest(null);
+      setOriginalRequest(null);
       setIsEditing(false);
-      fetchLeaveRequests();
       setSuccessAction('edit');
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
-    } catch (error) {
-      console.error('Error updating data:', error);
-
-
-      if (error.response?.data?.error) {
-        alert(`Error: ${error.response.data.error}`);
-      } else {
-        alert('An error occurred while updating the leave request');
-      }
+      fetchAll();
+    } catch {
+      alert('Error updating request');
     }
   };
-
 
   const handleDelete = async (id, status) => {
-    // Block delete if status is Cancelled (4)
     if (String(status) === '4') {
-      alert('Cancelled requests cannot be deleted.');
+      alert('Cannot delete cancelled request');
       return;
     }
-
-
-    if (
-      !window.confirm('Are you sure you want to delete this leave request?')
-    ) {
-      return;
-    }
-
-
+    if (!window.confirm('Delete this leave request?')) return;
     try {
-      // ✅ proceed with API delete
-      await axios.delete(`/api/leave-requests/${id}`);
-      alert('Leave request deleted successfully.');
-      fetchLeaveRequests(); // refresh list after delete
-    } catch (error) {
-      console.error('Error deleting leave request:', error);
-      alert('Failed to delete leave request.');
+      await axios.delete(
+        `${API_BASE_URL}/leaveRoute/leave_request/${id}`,
+        getAuthHeaders(),
+      );
+      closeModal();
+      setSuccessAction('delete');
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2000);
+      fetchAll();
+    } catch {
+      alert('Error deleting request');
     }
   };
 
-
-  const handleChange = (field, value) => {
-    setNewLeaveRequest({ ...newLeaveRequest, [field]: value });
+  const handleCancel = async (id) => {
+    if (!window.confirm('Cancel this leave request?')) return;
+    try {
+      const r = leaveRequests.find((x) => x.id === id);
+      await axios.put(
+        `${API_BASE_URL}/leaveRoute/leave_request/${id}`,
+        { ...r, status: 4 },
+        getAuthHeaders(),
+      );
+      closeModal();
+      setSuccessAction('cancel');
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2000);
+      fetchAll();
+    } catch {
+      alert('Error cancelling request');
+    }
   };
 
-
-  const handleOpenModal = (leaveRequest) => {
-    setEditLeaveRequest({ ...leaveRequest });
-    setOriginalLeaveRequest({ ...leaveRequest });
+  const closeModal = () => {
+    setEditRequest(null);
+    setOriginalRequest(null);
     setIsEditing(false);
   };
 
+  const hasChanges = () => {
+    if (!editRequest || !originalRequest) return false;
+    return (
+      editRequest.employeeNumber !== originalRequest.employeeNumber ||
+      editRequest.leave_code !== originalRequest.leave_code ||
+      editRequest.leave_date !== originalRequest.leave_date ||
+      editRequest.status !== originalRequest.status
+    );
+  };
 
-  const handleStartEdit = () => {
-    if (String(editLeaveRequest.status) === '4') {
-      alert('Cancelled requests cannot be edited.');
+  const handleViewModeChange = (event, newMode) => {
+    if (newMode !== null) {
+      setViewMode(newMode);
+    }
+  };
+
+  const toggleSelectMode = () => {
+    setSelectMode(!selectMode);
+    setSelectedRequests([]);
+  };
+
+  const handleSelectRequest = (id) => {
+    if (selectedRequests.includes(id)) {
+      setSelectedRequests(selectedRequests.filter((reqId) => reqId !== id));
+    } else {
+      setSelectedRequests([...selectedRequests, id]);
+    }
+  };
+
+  const handleSelectAll = () => {
+    if (selectedRequests.length === paged.length) {
+      setSelectedRequests([]);
+    } else {
+      setSelectedRequests(paged.map((req) => req.id));
+    }
+  };
+
+  const handleBulkStatusUpdate = async (newStatus) => {
+    if (selectedRequests.length === 0) {
+      alert('Please select at least one request');
       return;
     }
-    setIsEditing(true);
-  };
 
-
-  const handleCancelEdit = () => {
-    setEditLeaveRequest({ ...originalLeaveRequest });
-    setIsEditing(false);
-  };
-
-
-  const handleCloseModal = () => {
-    setEditLeaveRequest(null);
-    setOriginalLeaveRequest(null);
-    setIsEditing(false);
-  };
-
-
-  const inputStyle = { marginRight: 10, marginBottom: 10, width: 300.25 };
-
-
-  const fieldLabels = {
-    employeeNumber: 'Employee Number',
-    leave_code: 'Leave Type',
-    leave_date: 'Leave Date',
-    status: 'Status',
-  };
-
-
-  const getStatusInfo = (statusValue) => {
-    return (
-      statusOptions.find((opt) => opt.value === String(statusValue)) ||
-      statusOptions[0]
+    const statusLabel =
+      statusOptions.find((o) => o.value === String(newStatus))?.label ||
+      'Unknown';
+    const confirmed = window.confirm(
+      `Are you sure you want to update ${selectedRequests.length} request(s) to "${statusLabel}"?`,
     );
-  };
+    if (!confirmed) return;
 
-
-  const getLeaveTypeInfo = (leaveCode) => {
-    return (
-      leaveTypes.find((type) => type.leave_code === leaveCode) || {
-        leave_description: leaveCode,
-      }
-    );
-  };
-
-
-  // ✅ Unified filter with robust date parsing
-  const filteredRequests = leaveRequests.filter((req) => {
-    const employeeName = req.employeeNumber?.toLowerCase() || '';
-    const searchMatch = employeeName.includes(searchTerm.toLowerCase());
-
-
-    // Support both leave_date and leave_dates[0]
-    let rawDate =
-      req.leave_date ||
-      (Array.isArray(req.leave_dates) ? req.leave_dates[0] : null);
-
-
-    // Normalize date string (force YYYY-MM-DD)
-    if (rawDate && typeof rawDate === 'string' && rawDate.includes(',')) {
-      rawDate = rawDate.split(',')[0]; // take first if comma-separated
+    setBulkLoading(true);
+    try {
+      await axios.put(
+        `${API_BASE_URL}/leaveRoute/leave_request/bulk-update`,
+        { ids: selectedRequests, status: newStatus },
+        getAuthHeaders(),
+      );
+      setSuccessAction('bulk');
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2000);
+      setSelectedRequests([]);
+      setSelectMode(false);
+      fetchAll();
+    } catch (error) {
+      alert(
+        'Error updating requests: ' +
+          (error.response?.data?.error || error.message),
+      );
+    } finally {
+      setBulkLoading(false);
     }
-
-
-    let leaveDate = null;
-    if (rawDate) {
-      // Convert to standard YYYY-MM-DD format
-      const parts = rawDate.split(/[-/]/); // handle "YYYY-MM-DD" or "DD/MM/YYYY"
-      if (parts.length === 3) {
-        if (parts[0].length === 4) {
-          // Already YYYY-MM-DD
-          leaveDate = new Date(rawDate);
-        } else {
-          // Convert DD/MM/YYYY → YYYY-MM-DD
-          leaveDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-        }
-      }
-    }
-
-
-    const yearMatch = yearFilter
-      ? leaveDate && leaveDate.getFullYear().toString() === yearFilter
-      : true;
-
-
-    const monthMatch = monthFilter
-      ? leaveDate &&
-        String(leaveDate.getMonth() + 1).padStart(2, '0') === monthFilter
-      : true;
-
-
-    return searchMatch && yearMatch && monthMatch;
-  });
-
-
-  // ✅ Compute status counts
-  const statusCounts = {
-    pending: leaveRequests.filter((req) => String(req.status) === '0').length,
-    approvedManager: leaveRequests.filter((req) => String(req.status) === '1')
-      .length,
-    approvedHR: leaveRequests.filter((req) => String(req.status) === '2')
-      .length,
-    denied: leaveRequests.filter((req) => String(req.status) === '3').length,
   };
 
+  const filtered = useMemo(() => {
+    let data = leaveRequests;
+    if (statusFilter !== 'all')
+      data = data.filter((r) => String(r.status) === statusFilter);
+    if (leaveTypeFilter !== 'all')
+      data = data.filter((r) => r.leave_code === leaveTypeFilter);
+    const s = (deferredSearch || '').toLowerCase().trim();
+    if (s)
+      data = data.filter(
+        (r) =>
+          (employeeNames[r.employeeNumber] || '').toLowerCase().includes(s) ||
+          (r.employeeNumber || '').toLowerCase().includes(s),
+      );
+    return data;
+  }, [
+    leaveRequests,
+    deferredSearch,
+    employeeNames,
+    statusFilter,
+    leaveTypeFilter,
+  ]);
 
-  // Clear filters handler
-  const handleClearFilters = () => {
-    setSearchTerm('');
-    setYearFilter('');
-    setMonthFilter('');
+  const paged = filtered.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage,
+  );
+  const counts = {
+    all: leaveRequests.length,
+    0: leaveRequests.filter((r) => String(r.status) === '0').length,
+    1: leaveRequests.filter((r) => String(r.status) === '1').length,
+    2: leaveRequests.filter((r) => String(r.status) === '2').length,
+    3: leaveRequests.filter((r) => String(r.status) === '3').length,
   };
 
-
-  const displayDate = (rawDate) => {
-    if (!rawDate) return 'Not specified';
-
-
-    let dates = [];
-    if (Array.isArray(rawDate)) dates = rawDate;
-    else if (rawDate.includes(',')) dates = rawDate.split(',');
-    else dates = [rawDate];
-
-
-    return dates
-      .map((d) => {
-        const dateObj = new Date(d);
-        if (isNaN(dateObj)) return d;
-        return dateObj.toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-        });
-      })
-      .join(', ');
+  const getStatus = (v) =>
+    statusOptions.find((o) => o.value === String(v)) || statusOptions[0];
+  const getType = (c) =>
+    leaveTypes.find((t) => t.leave_code === c) || { leave_description: c };
+  const formatDate = (d) => {
+    if (!d) return 'N/A';
+    const s = Array.isArray(d) ? d[0] : d.split(',')[0];
+    const [y, m, day] = s.trim().split('-');
+    return new Date(y, m - 1, day).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
   };
-
-
-  const getStatusChipStyle = (statusValue) => {
-    const status = getStatusInfo(statusValue);
-    return {
-      backgroundColor: status.color,
-      color: '#fff',
-      fontWeight: 'bold',
-      display: 'flex',
-      alignItems: 'center',
-    };
-  };
-
 
   return (
-    <Container sx={{ mt: 0 }}>
-      {/* Loading Overlay */}
-      <LoadingOverlay open={loading} message="Processing leave request..." />
-
-
-      {/* Success Overlay */}
-      <SuccessfulOverlay open={successOpen} action={successAction} />
-
-
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          mb: 4,
-        }}
-      >
-        {/* Outer wrapper for header + content */}
-        <Box sx={{ width: '75%', maxWidth: '100%' }}>
-          {/* Header */}
-          <Box
-            sx={{
-              backgroundColor: '#6D2323',
-              color: '#ffffff',
-              p: 2,
-              borderRadius: '8px 8px 0 0',
-              display: 'flex',
-              alignItems: 'center',
-              pb: '15px',
-            }}
-          >
-            <EventNote sx={{ fontSize: '3rem', mr: 2, mt: '5px', ml: '5px' }} />
-            <Box>
-              <Typography variant="h5" sx={{ mb: 0.5 }}>
-                Employee Leave Request
-              </Typography>
-              <Typography variant="body2">
-                Manage Leave Request Records
-              </Typography>
-            </Box>
-          </Box>
-
-
-          {/* Content/Form */}
-          <Container
-            sx={{
-              backgroundColor: '#fff',
-              p: 3,
-              borderBottomLeftRadius: 2,
-              borderBottomRightRadius: 2,
-              boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.1)',
-              border: '1px solid #6d2323',
-              width: '100%',
-            }}
-          >
-            <Grid container spacing={3}>
-              <Grid item xs={12} sm={6}>
-                <Typography
-                  variant="subtitle2"
-                  sx={{ fontWeight: 'bold', mb: 1 }}
-                >
-                  Employee Number *
-                </Typography>
-                <TextField
-                  value={newLeaveRequest.employeeNumber}
-                  onChange={(e) =>
-                    handleChange('employeeNumber', e.target.value)
-                  }
-                  fullWidth
-                  required
-                  style={inputStyle}
-                />
-              </Grid>
-
-
-              <Grid item xs={12} sm={6}>
-                <Typography
-                  variant="subtitle2"
-                  sx={{ fontWeight: 'bold', mb: 1 }}
-                >
-                  Leave Type *
-                </Typography>
-                <FormControl fullWidth required style={inputStyle}>
-                  <Select
-                    value={newLeaveRequest.leave_code}
-                    onChange={(e) => handleChange('leave_code', e.target.value)}
-                    displayEmpty
-                  >
-                    <MenuItem value="">
-                      <em>Select Leave Type</em>
-                    </MenuItem>
-                    {leaveTypes.map((type) => (
-                      <MenuItem key={type.id} value={type.leave_code}>
-                        ({type.leave_code}) - {type.leave_description} -{' '}
-                        {type.leave_hours} hours
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-
-
-              <Grid item xs={12} sm={6}>
-                <Typography
-                  variant="subtitle2"
-                  sx={{ fontWeight: 'bold', mb: 1 }}
-                >
-                  Leave Date(s) *
-                </Typography>
-                <Button
-                  variant="outlined"
-                  onClick={() => setDateModalOpen(true)}
-                  sx={{
-                    width: '75%',
-                    height: '56px',
-                    border: '1px solid #6d2323',
-                    color: '#000',
-                  }}
-                >
-                  {selectedDates.length > 0
-                    ? `${selectedDates.length} date(s) selected`
-                    : 'Pick Leave Dates'}
-                </Button>
-
-
-                <LeaveDatePickerModal
-                  open={dateModalOpen}
-                  onClose={() => {
-                    setNewLeaveRequest({
-                      ...newLeaveRequest,
-                      leave_date: selectedDates.length
-                        ? selectedDates.join(',')
-                        : '',
-                    });
-                    setDateModalOpen(false);
-                  }}
-                  selectedDates={selectedDates}
-                  setSelectedDates={setSelectedDates}
-                />
-              </Grid>
-
-
-              <Grid item xs={12} sm={6}>
-                <Typography
-                  variant="subtitle2"
-                  sx={{ fontWeight: 'bold', mb: 1 }}
-                >
-                  Status
-                </Typography>
-                <FormControl fullWidth required style={inputStyle}>
-                  <Select
-                    value={newLeaveRequest.status}
-                    onChange={(e) => handleChange('status', e.target.value)}
-                  >
-                    {statusOptions.map((option) => (
-                      <MenuItem key={option.value} value={option.value}>
-                        {option.label}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
-
-
-            {/* Add Button */}
-            <Button
-              onClick={handleAdd}
-              variant="contained"
-              startIcon={<AddIcon />}
-              sx={{
-                mt: 3,
-                width: '100%',
-                backgroundColor: '#6D2323',
-                color: '#FEF9E1',
-                '&:hover': { backgroundColor: '#5a1d1d' },
-              }}
-            >
-              Add Leave Request
-            </Button>
-          </Container>
-        </Box>
-      </Box>
-
-
-      {/* Outer wrapper for header + content */}
-      <Box sx={{ width: '75%', maxWidth: '100%', margin: '20px auto' }}>
-        {/* Header */}
-        <Box
+    <Box
+      sx={{
+        py: { xs: 2, md: 4 },
+        mt: { xs: 0, md: -5 },
+        width: '100%',
+        maxWidth: '1600px',
+        mx: 'auto',
+        overflowX: 'hidden',
+      }}
+    >
+      <Box sx={{ px: { xs: 2, sm: 3, md: 6 } }}>
+        {/* Loading Backdrop */}
+        <Backdrop
           sx={{
-            backgroundColor: '#ffffff',
-            color: '#6d2323',
-            p: 3,
-            borderRadius: '8px 8px 0 0',
-            border: '1px solid #6d2323',
-            borderBottom: 'none',
+            color: primaryColor,
+            zIndex: (theme) => theme.zIndex.drawer + 1,
           }}
+          open={loading}
         >
-          {/* Header */}
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-            <ReorderIcon
-              sx={{ fontSize: '3rem', mr: 2, mt: '5px', ml: '5px' }}
-            />
-            <Box>
-              <Typography variant="h5" sx={{ mb: 0.5 }}>
-                Leave Request Records
-              </Typography>
-              <Typography variant="body2">
-                View and manage leave request information
-              </Typography>
-            </Box>
-          </Box>
-
-
-          {/* Status summary below header */}
-          <Box
-            sx={{
-              display: 'flex',
-              gap: 10,
-              flexWrap: 'wrap', // responsive, wraps if small screen
-            }}
-          >
-            <Chip
-              label={`Pending: ${statusCounts.pending}`}
-              sx={{
-                border: '1px solid black',
-                color: '#000000',
-                fontWeight: 'bold',
-              }}
-            />
-            <Chip
-              label={`Approved by Manager: ${statusCounts.approvedManager}`}
-              sx={{
-                border: '1px solid #6d2323',
-                color: '#6d2323',
-                fontWeight: 'bold',
-              }}
-            />
-            <Chip
-              label={`Approved by HR: ${statusCounts.approvedHR}`}
-              sx={{
-                border: 'solid 1px #a31d1d',
-                color: '#a31d1d',
-                fontWeight: 'bold',
-              }}
-            />
-            <Chip
-              label={`Denied: ${statusCounts.denied}`}
-              sx={{
-                border: '1px solid black',
-                color: '#000000',
-                fontWeight: 'bold',
-              }}
-            />
-          </Box>
-        </Box>
-
-
-        {/* Content */}
-        <Container
-          sx={{
-            backgroundColor: '#fff',
-            p: 3,
-            borderBottomLeftRadius: 2,
-            borderBottomRightRadius: 2,
-            boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.1)',
-            border: '1px solid #6d2323',
-            width: '100%',
-          }}
-        >
-          {/* Search Section */}
-          <Box sx={{ mb: 3, width: '100%' }}>
-            <Typography variant="subtitle2" sx={{ color: '#6D2323', mb: 1 }}>
-              Search Records
+          <Box sx={{ textAlign: 'center' }}>
+            <CircularProgress color="inherit" size={60} thickness={4} />
+            <Typography variant="h6" sx={{ mt: 2, color: primaryColor }}>
+              Processing leave request...
             </Typography>
+          </Box>
+        </Backdrop>
 
+        <SuccessfulOverlay
+          open={successOpen}
+          action={successAction}
+          onClose={() => setSuccessOpen(false)}
+        />
 
-            <Box
-              display="flex"
-              justifyContent="flex-start"
-              alignItems="center"
-              gap={2}
-              width="100%"
-            >
-              {/* Employee Number Search */}
-              <TextField
-                size="small"
-                variant="outlined"
-                placeholder="Search by Employee Number"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+        {/* Header */}
+        <Fade in timeout={500}>
+          <Box sx={{ mb: 4 }}>
+            <GlassCard settings={settings}>
+              <Box
                 sx={{
-                  backgroundColor: 'white',
-                  borderRadius: 1,
-                  width: '100%',
-                  maxWidth: '300px',
-                  '& .MuiOutlinedInput-root': {
-                    '& fieldset': { borderColor: '#6D2323' },
-                    '&:hover fieldset': { borderColor: '#6D2323' },
-                    '&.Mui-focused fieldset': { borderColor: '#6D2323' },
-                  },
-                }}
-                InputProps={{
-                  startAdornment: (
-                    <SearchIcon sx={{ color: '#6D2323', marginRight: 1 }} />
-                  ),
-                }}
-              />
-
-
-              {/* Clear Button */}
-              <Button
-                onClick={handleClearFilters}
-                variant="outlined"
-                sx={{
-                  borderColor: '#6D2323',
-                  color: '#6D2323',
-                  backgroundColor: 'white',
-                  '&:hover': {
-                    backgroundColor: '#a31d1d',
-                    color: 'white',
-                    borderColor: '#6D2323',
-                  },
+                  p: 5,
+                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                  color: accentColor,
+                  position: 'relative',
+                  overflow: 'hidden',
                 }}
               >
-                Clear
-              </Button>
-            </Box>
-          </Box>
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: -50,
+                    right: -50,
+                    width: 200,
+                    height: 200,
+                    background:
+                      'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)',
+                  }}
+                />
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    bottom: -30,
+                    left: '30%',
+                    width: 150,
+                    height: 150,
+                    background:
+                      'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
+                  }}
+                />
 
-
-          <Grid container spacing={2}>
-            {filteredRequests.map((leaveRequest) => {
-              const statusInfo = getStatusInfo(leaveRequest.status);
-              const leaveTypeInfo = getLeaveTypeInfo(leaveRequest.leave_code);
-
-
-              return (
-                <Grid item xs={12} sm={6} md={4} key={leaveRequest.id}>
-                  <Box
-                    onClick={() => handleOpenModal(leaveRequest)}
-                    sx={{
-                      border: '1px solid #6d2323',
-                      borderRadius: 2,
-                      p: 2,
-                      cursor: 'pointer',
-                      transition: '0.2s',
-                      '&:hover': { boxShadow: '0px 4px 10px rgba(0,0,0,0.2)' },
-                      height: '120px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    {/* Top Row */}
-                    <Box
+                <Box
+                  display="flex"
+                  alignItems="center"
+                  justifyContent="space-between"
+                  position="relative"
+                  zIndex={1}
+                >
+                  <Box display="flex" alignItems="center">
+                    <Avatar
                       sx={{
+                        bgcolor: 'rgba(109,35,35,0.15)',
+                        mr: 4,
+                        width: 64,
+                        height: 64,
+                        boxShadow: '0 8px 24px rgba(109,35,35,0.15)',
+                      }}
+                    >
+                      <BusinessIcon sx={{ color: accentColor, fontSize: 32 }} />
+                    </Avatar>
+                    <Box>
+                      <Typography
+                        variant="h4"
+                        component="h1"
+                        sx={{
+                          fontWeight: 700,
+                          mb: 1,
+                          lineHeight: 1.2,
+                          color: accentColor,
+                        }}
+                      >
+                        Leave Request Management
+                      </Typography>
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          opacity: 0.8,
+                          fontWeight: 400,
+                          color: accentDark,
+                        }}
+                      >
+                        Administrative Panel • Submit and manage employee leave
+                        requests
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Box display="flex" alignItems="center" gap={2}>
+                    <Tooltip title="Refresh Data">
+                      <IconButton
+                        onClick={() => window.location.reload()}
+                        sx={{
+                          bgcolor: 'rgba(109,35,35,0.1)',
+                          '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
+                          color: accentColor,
+                          width: 48,
+                          height: 48,
+                        }}
+                      >
+                        <Refresh sx={{ fontSize: 24 }} />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </Box>
+              </Box>
+            </GlassCard>
+          </Box>
+        </Fade>
+
+        {/* Main Content */}
+        <Grid container spacing={4}>
+          {/* Add New Request Section */}
+          <Grid item xs={12} lg={6}>
+            <Fade in timeout={700}>
+              <GlassCard
+                settings={settings}
+                sx={{
+                  height: 'calc(100vh - 200px)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                <Box
+                  sx={{
+                    p: 4,
+                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                    color: accentColor,
+                    display: 'flex',
+                    alignItems: 'center',
+                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                  }}
+                >
+                  <EventNote sx={{ fontSize: '1.8rem', mr: 2 }} />
+                  <Box>
+                    <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                      Add New Leave Request
+                    </Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.9 }}>
+                      Create a new leave request entry
+                    </Typography>
+                  </Box>
+                </Box>
+
+                <Box
+                  sx={{
+                    p: 4,
+                    flexGrow: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflowY: 'auto',
+                  }}
+                >
+                  {/* Employee Information Section */}
+                  <Box sx={{ mb: 3 }}>
+                    <Typography
+                      variant="h5"
+                      sx={{
+                        fontWeight: 600,
+                        mb: 2,
+                        color: accentColor,
                         display: 'flex',
-                        justifyContent: 'space-between',
                         alignItems: 'center',
                       }}
                     >
-                      <Box>
+                      <PersonIcon sx={{ mr: 2, fontSize: 24 }} />
+                      Employee Information{' '}
+                      <span
+                        style={{
+                          marginLeft: '12px',
+                          fontWeight: 400,
+                          opacity: 0.7,
+                          color: 'red',
+                        }}
+                      >
+                        *
+                      </span>
+                    </Typography>
+
+                    <Grid container spacing={2}>
+                      <Grid item xs={12}>
                         <Typography
                           variant="body2"
-                          sx={{ color: 'black', mb: 1 }}
+                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
                         >
-                          Employee Number:
+                          Employee Number
                         </Typography>
+                        <ModernTextField
+                          settings={settings}
+                          value={newRequest.employeeNumber}
+                          onChange={(e) =>
+                            setNewRequest({
+                              ...newRequest,
+                              employeeNumber: e.target.value,
+                            })
+                          }
+                          fullWidth
+                          size="small"
+                          placeholder="Enter employee ID"
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <PersonIcon
+                                  sx={{ color: accentColor, fontSize: 20 }}
+                                />
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
+                      </Grid>
+                    </Grid>
+                  </Box>
+
+                  <Divider sx={{ my: 3, borderColor: 'rgba(109,35,35,0.1)' }} />
+
+                  {/* Leave Details Section */}
+                  <Typography
+                    variant="h5"
+                    sx={{
+                      fontWeight: 600,
+                      mb: 3,
+                      color: accentColor,
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <EventNote sx={{ mr: 2, fontSize: 24 }} />
+                    Leave Details
+                  </Typography>
+
+                  <Grid container spacing={2}>
+                    <Grid item xs={12}>
+                      <Typography
+                        variant="body2"
+                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                      >
+                        Leave Type <span style={{ color: 'red' }}>*</span>
+                      </Typography>
+                      <FormControl fullWidth size="small">
+                        <ModernTextField
+                          settings={settings}
+                          select
+                          value={newRequest.leave_code}
+                          onChange={(e) => {
+                            setNewRequest({
+                              ...newRequest,
+                              leave_code: e.target.value,
+                            });
+                            setSelectedDates([]);
+                          }}
+                          displayEmpty
+                          SelectProps={{
+                            displayEmpty: true,
+                            renderValue: (value) =>
+                              value ? (
+                                `${value} - ${leaveTypes.find((t) => t.leave_code === value)?.leave_description || ''}`
+                              ) : (
+                                <em>Select Leave Type</em>
+                              ),
+                          }}
+                        >
+                          <MenuItem value="">
+                            <em>Select Leave Type</em>
+                          </MenuItem>
+                          {leaveTypes.map((t) => (
+                            <MenuItem key={t.id} value={t.leave_code}>
+                              {t.leave_code} - {t.leave_description}
+                            </MenuItem>
+                          ))}
+                        </ModernTextField>
+                      </FormControl>
+                    </Grid>
+
+                    <Grid item xs={12}>
+                      <Typography
+                        variant="body2"
+                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                      >
+                        Leave Date(s) <span style={{ color: 'red' }}>*</span>
+                      </Typography>
+                      <ProfessionalButton
+                        settings={settings}
+                        variant="outlined"
+                        onClick={() => setDateModalOpen(true)}
+                        startIcon={<CalendarMonth />}
+                        sx={{
+                          width: '100%',
+                          height: 40,
+                          justifyContent: 'flex-start',
+                        }}
+                      >
+                        {selectedDates.length > 0
+                          ? `${selectedDates.length} date(s) selected`
+                          : 'Select Leave Dates'}
+                      </ProfessionalButton>
+                      {isSickLeave(newRequest.leave_code) && (
                         <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 'bold', color: '#6d2323' }}
+                          variant="caption"
+                          sx={{ color: '#1565C0', mt: 1, display: 'block' }}
                         >
-                          {leaveRequest.employeeNumber}
+                          ℹ Past dates allowed for sick leave
                         </Typography>
-                      </Box>
+                      )}
+                      <LeaveDatePickerModal
+                        open={dateModalOpen}
+                        onClose={() => {
+                          setNewRequest({
+                            ...newRequest,
+                            leave_date: selectedDates.join(','),
+                          });
+                          setDateModalOpen(false);
+                        }}
+                        selectedDates={selectedDates}
+                        setSelectedDates={setSelectedDates}
+                        accentColor={accentColor}
+                        accentDark={accentDark}
+                        primaryColor={primaryColor}
+                        secondaryColor={secondaryColor}
+                        allowPastDates={isSickLeave(newRequest.leave_code)}
+                      />
+                    </Grid>
 
+                    <Grid item xs={12}>
+                      <Typography
+                        variant="body2"
+                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                      >
+                        Initial Status
+                      </Typography>
+                      <FormControl fullWidth size="small">
+                        <ModernTextField
+                          settings={settings}
+                          select
+                          value={newRequest.status}
+                          onChange={(e) =>
+                            setNewRequest({
+                              ...newRequest,
+                              status: e.target.value,
+                            })
+                          }
+                          SelectProps={{
+                            renderValue: (value) => {
+                              const opt = statusOptions.find(
+                                (o) => o.value === value,
+                              );
+                              return opt?.label || 'Select Status';
+                            },
+                          }}
+                        >
+                          {statusOptions.slice(0, 2).map((o) => (
+                            <MenuItem key={o.value} value={o.value}>
+                              {o.label}
+                            </MenuItem>
+                          ))}
+                        </ModernTextField>
+                      </FormControl>
+                    </Grid>
+                  </Grid>
 
-                      {/* Leave Type Chip */}
-                      <Chip
-                        label={
-                          leaveTypeInfo.leave_code || leaveRequest.leave_code
+                  <Box sx={{ mt: 'auto', pt: 3 }}>
+                    <ProfessionalButton
+                      onClick={handleAdd}
+                      settings={settings}
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      fullWidth
+                      sx={{
+                        backgroundColor: accentColor,
+                        color: primaryColor,
+                        py: 1.5,
+                        fontSize: '1rem',
+                        '&:hover': {
+                          backgroundColor: accentDark,
+                        },
+                      }}
+                    >
+                      Add Leave Request
+                    </ProfessionalButton>
+                  </Box>
+                </Box>
+              </GlassCard>
+            </Fade>
+          </Grid>
+
+          {/* Records Section */}
+          <Grid item xs={12} lg={6}>
+            <Fade in timeout={900}>
+              <GlassCard
+                settings={settings}
+                sx={{
+                  height: 'calc(100vh - 200px)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                <Box
+                  sx={{
+                    p: 4,
+                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                    color: accentColor,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <ReorderIcon sx={{ fontSize: '1.8rem', mr: 2 }} />
+                    <Box>
+                      <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                        Leave Request Records
+                      </Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.9 }}>
+                        Click on a record to view and manage details
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Tooltip
+                      title={
+                        selectMode
+                          ? 'Exit Selection Mode'
+                          : 'Select Multiple Requests'
+                      }
+                    >
+                      <Button
+                        onClick={toggleSelectMode}
+                        size="small"
+                        variant={selectMode ? 'contained' : 'outlined'}
+                        startIcon={
+                          selectMode ? (
+                            <CheckBoxIcon />
+                          ) : (
+                            <CheckBoxOutlineBlankIcon />
+                          )
                         }
                         sx={{
-                          backgroundColor: 'transparent',
-                          color: '#6d2323',
-                          px: 2,
-                          fontWeight: 'bold',
-                          fontSize: '16px',
-                          mb: 2,
-                          mr: -3,
+                          color: selectMode ? primaryColor : accentColor,
+                          backgroundColor: selectMode
+                            ? accentColor
+                            : 'transparent',
+                          borderColor: selectMode
+                            ? accentColor
+                            : 'rgba(109, 35, 35, 0.5)',
+                          '&:hover': {
+                            backgroundColor: selectMode
+                              ? accentDark
+                              : 'rgba(109, 35, 35, 0.08)',
+                            borderColor: accentColor,
+                          },
+                        }}
+                      >
+                        {selectMode ? 'Cancel' : 'Select'}
+                      </Button>
+                    </Tooltip>
+
+                    <ToggleButtonGroup
+                      value={viewMode}
+                      exclusive
+                      onChange={handleViewModeChange}
+                      aria-label="view mode"
+                      size="small"
+                      sx={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                        '& .MuiToggleButton-root': {
+                          color: accentColor,
+                          borderColor: 'rgba(109, 35, 35, 0.5)',
+                          padding: '4px 8px',
+                          '&.Mui-selected': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                            color: accentColor,
+                          },
+                        },
+                      }}
+                    >
+                      <ToggleButton value="grid" aria-label="grid view">
+                        <ViewModuleIcon fontSize="small" />
+                      </ToggleButton>
+                      <ToggleButton value="list" aria-label="list view">
+                        <ViewListIcon fontSize="small" />
+                      </ToggleButton>
+                    </ToggleButtonGroup>
+                  </Box>
+                </Box>
+
+                <Box
+                  sx={{
+                    p: 4,
+                    flexGrow: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {/* Search and Leave Type Filter Row */}
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      gap: 2,
+                      mb: 3,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Box sx={{ flex: 1 }}>
+                      <ModernTextField
+                        settings={settings}
+                        size="small"
+                        placeholder="Search by employee name or ID..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        fullWidth
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <SearchIcon
+                                sx={{ color: accentColor, fontSize: 20 }}
+                              />
+                            </InputAdornment>
+                          ),
                         }}
                       />
                     </Box>
-
-
-                    {/* Bottom Section */}
-                    <Box>
-                      <Typography
-                        variant="caption"
-                        sx={{ color: '#a31d1d', display: 'block', mb: 1 }}
+                    <FormControl sx={{ minWidth: 200 }} size="small">
+                      <ModernTextField
+                        settings={settings}
+                        select
+                        value={leaveTypeFilter}
+                        onChange={(e) => {
+                          setLeaveTypeFilter(e.target.value);
+                          setPage(0);
+                        }}
+                        label="Leave Type"
+                        variant="outlined"
                       >
-                        Date: {displayDate(leaveRequest.leave_date)}
-                      </Typography>
+                        <MenuItem value="all">All Leave Types</MenuItem>
+                        {leaveTypes.map((type) => (
+                          <MenuItem
+                            key={type.leave_code}
+                            value={type.leave_code}
+                          >
+                            {type.leave_code} - {type.leave_description}
+                          </MenuItem>
+                        ))}
+                      </ModernTextField>
+                    </FormControl>
+                  </Box>
 
-
+                  {/* Status Filter Chips */}
+                  <Box
+                    sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}
+                  >
+                    {[
+                      {
+                        label: `All (${counts.all})`,
+                        value: 'all',
+                        color: accentColor,
+                      },
+                      {
+                        label: `Pending (${counts['0']})`,
+                        value: '0',
+                        color: '#F57C00',
+                      },
+                      {
+                        label: `Manager (${counts['1']})`,
+                        value: '1',
+                        color: '#1565C0',
+                      },
+                      {
+                        label: `HR (${counts['2']})`,
+                        value: '2',
+                        color: '#2E7D32',
+                      },
+                      {
+                        label: `Denied (${counts['3']})`,
+                        value: '3',
+                        color: '#C62828',
+                      },
+                    ].map((f) => (
                       <Chip
-                        label={getStatusInfo(leaveRequest.status).label}
-                        size="small"
-                        sx={getStatusChipStyle(leaveRequest.status)}
+                        key={f.value}
+                        label={f.label}
+                        onClick={() => setStatusFilter(f.value)}
+                        sx={{
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          height: 28,
+                          border: `1px solid ${f.color}`,
+                          bgcolor:
+                            statusFilter === f.value ? f.color : 'transparent',
+                          color: statusFilter === f.value ? '#fff' : f.color,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          '&:hover': {
+                            bgcolor:
+                              statusFilter === f.value
+                                ? f.color
+                                : alpha(f.color, 0.08),
+                          },
+                        }}
+                      />
+                    ))}
+                  </Box>
+
+                  {/* Records List */}
+                  <Box
+                    sx={{
+                      flexGrow: 1,
+                      overflowY: 'auto',
+                      pr: 1,
+                      '&::-webkit-scrollbar': {
+                        width: '6px',
+                      },
+                      '&::-webkit-scrollbar-track': {
+                        background: '#f1f1f1',
+                        borderRadius: '3px',
+                      },
+                      '&::-webkit-scrollbar-thumb': {
+                        background: accentColor,
+                        borderRadius: '3px',
+                      },
+                    }}
+                  >
+                    {paged.length === 0 ? (
+                      <Box sx={{ textAlign: 'center', py: 8 }}>
+                        <EventNote
+                          sx={{ fontSize: 56, color: '#e0e0e0', mb: 2 }}
+                        />
+                        <Typography
+                          variant="h6"
+                          sx={{ color: accentColor, fontWeight: 'bold', mb: 1 }}
+                        >
+                          No Records Found
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: grayColor }}>
+                          {searchTerm ||
+                          statusFilter !== 'all' ||
+                          leaveTypeFilter !== 'all'
+                            ? 'Try adjusting your search or filter'
+                            : 'Add your first leave request'}
+                        </Typography>
+                      </Box>
+                    ) : viewMode === 'grid' ? (
+                      <Grid container spacing={2}>
+                        {paged.map((req) => {
+                          const status = getStatus(req.status);
+                          const type = getType(req.leave_code);
+                          const isCancelled = String(req.status) === '4';
+                          const StatusIcon = status.icon;
+                          const isSelected = selectedRequests.includes(req.id);
+
+                          return (
+                            <Grid item xs={12} sm={6} key={req.id}>
+                              <Card
+                                onClick={(e) => {
+                                  if (selectMode && !isCancelled) {
+                                    e.stopPropagation();
+                                    handleSelectRequest(req.id);
+                                  } else if (!isCancelled && !selectMode) {
+                                    setEditRequest({ ...req });
+                                    setOriginalRequest({ ...req });
+                                    setIsEditing(false);
+                                  }
+                                }}
+                                sx={{
+                                  cursor: isCancelled ? 'default' : 'pointer',
+                                  opacity: isCancelled ? 0.65 : 1,
+                                  border: isSelected
+                                    ? `2px solid ${accentColor}`
+                                    : '1px solid rgba(109, 35, 35, 0.1)',
+                                  height: '100%',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  position: 'relative',
+                                  backgroundColor: isSelected
+                                    ? 'rgba(109, 35, 35, 0.05)'
+                                    : 'white',
+                                  '&:hover': isCancelled
+                                    ? {}
+                                    : {
+                                        borderColor: accentColor,
+                                        transform: 'translateY(-2px)',
+                                        transition: 'all 0.2s ease',
+                                        boxShadow:
+                                          '0 4px 8px rgba(109,35,35,0.15)',
+                                      },
+                                }}
+                              >
+                                {selectMode && !isCancelled && (
+                                  <Checkbox
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      e.stopPropagation();
+                                      handleSelectRequest(req.id);
+                                    }}
+                                    sx={{
+                                      position: 'absolute',
+                                      top: 8,
+                                      right: 8,
+                                      zIndex: 10,
+                                      color: accentColor,
+                                      '&.Mui-checked': {
+                                        color: accentColor,
+                                      },
+                                    }}
+                                  />
+                                )}
+                                <CardContent
+                                  sx={{
+                                    p: 2,
+                                    flexGrow: 1,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                  }}
+                                >
+                                  <Box
+                                    sx={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      mb: 1,
+                                    }}
+                                  >
+                                    <PersonIcon
+                                      sx={{
+                                        fontSize: 18,
+                                        color: accentColor,
+                                        mr: 0.5,
+                                      }}
+                                    />
+                                    <Typography
+                                      variant="caption"
+                                      sx={{
+                                        color: accentColor,
+                                        px: 0.5,
+                                        py: 0.2,
+                                        borderRadius: 0.5,
+                                        fontSize: '0.7rem',
+                                        fontWeight: 'bold',
+                                      }}
+                                    >
+                                      #{req.employeeNumber}
+                                    </Typography>
+                                  </Box>
+
+                                  <Typography
+                                    variant="body2"
+                                    fontWeight="bold"
+                                    color="#333"
+                                    mb={0.5}
+                                    noWrap
+                                  >
+                                    {employeeNames[req.employeeNumber] ||
+                                      'Loading...'}
+                                  </Typography>
+
+                                  <Typography
+                                    variant="body2"
+                                    fontWeight="bold"
+                                    color="#333"
+                                    mb={1}
+                                    sx={{ flexGrow: 1 }}
+                                  >
+                                    {type.leave_description || req.leave_code}
+                                  </Typography>
+
+                                  <Box
+                                    sx={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                    }}
+                                  >
+                                    <Typography
+                                      variant="caption"
+                                      color="#000"
+                                      fontSize="0.75rem"
+                                    >
+                                      {formatDate(req.leave_date)}
+                                    </Typography>
+                                    <Chip
+                                      icon={
+                                        <StatusIcon sx={{ fontSize: 14 }} />
+                                      }
+                                      label={status.short}
+                                      size="small"
+                                      sx={{
+                                        bgcolor: status.bg,
+                                        color: status.color,
+                                        fontWeight: 600,
+                                        fontSize: '0.65rem',
+                                        height: 22,
+                                        '& .MuiChip-icon': {
+                                          color: status.color,
+                                        },
+                                      }}
+                                    />
+                                  </Box>
+                                </CardContent>
+                              </Card>
+                            </Grid>
+                          );
+                        })}
+                      </Grid>
+                    ) : (
+                      paged.map((req) => {
+                        const status = getStatus(req.status);
+                        const type = getType(req.leave_code);
+                        const isCancelled = String(req.status) === '4';
+                        const StatusIcon = status.icon;
+                        const isSelected = selectedRequests.includes(req.id);
+
+                        return (
+                          <Card
+                            key={req.id}
+                            onClick={(e) => {
+                              if (selectMode && !isCancelled) {
+                                e.stopPropagation();
+                                handleSelectRequest(req.id);
+                              } else if (!isCancelled && !selectMode) {
+                                setEditRequest({ ...req });
+                                setOriginalRequest({ ...req });
+                                setIsEditing(false);
+                              }
+                            }}
+                            sx={{
+                              cursor: isCancelled ? 'default' : 'pointer',
+                              opacity: isCancelled ? 0.65 : 1,
+                              border: isSelected
+                                ? `2px solid ${accentColor}`
+                                : '1px solid rgba(109, 35, 35, 0.1)',
+                              mb: 1,
+                              backgroundColor: isSelected
+                                ? 'rgba(109, 35, 35, 0.05)'
+                                : 'white',
+                              '&:hover': isCancelled
+                                ? {}
+                                : {
+                                    borderColor: accentColor,
+                                    backgroundColor: isSelected
+                                      ? 'rgba(109, 35, 35, 0.08)'
+                                      : 'rgba(254, 249, 225, 0.3)',
+                                  },
+                            }}
+                          >
+                            <Box sx={{ p: 2 }}>
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'flex-start',
+                                }}
+                              >
+                                {selectMode && !isCancelled && (
+                                  <Checkbox
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      e.stopPropagation();
+                                      handleSelectRequest(req.id);
+                                    }}
+                                    sx={{
+                                      mr: 1,
+                                      color: accentColor,
+                                      '&.Mui-checked': {
+                                        color: accentColor,
+                                      },
+                                    }}
+                                  />
+                                )}
+
+                                <Box sx={{ mr: 1.5, mt: 0.2 }}>
+                                  <PersonIcon
+                                    sx={{ fontSize: 20, color: accentColor }}
+                                  />
+                                </Box>
+
+                                <Box sx={{ flexGrow: 1 }}>
+                                  <Typography
+                                    variant="caption"
+                                    sx={{
+                                      color: accentColor,
+                                      fontSize: '0.7rem',
+                                      fontWeight: 'bold',
+                                      display: 'block',
+                                      mb: 0.5,
+                                    }}
+                                  >
+                                    #{req.employeeNumber}
+                                  </Typography>
+                                  <Typography
+                                    variant="body2"
+                                    fontWeight="bold"
+                                    color="#333"
+                                    sx={{ mb: 0.5 }}
+                                  >
+                                    {employeeNames[req.employeeNumber] ||
+                                      'Loading...'}
+                                  </Typography>
+
+                                  <Typography
+                                    variant="body2"
+                                    fontWeight="bold"
+                                    color="#333"
+                                    sx={{ mb: 0.5 }}
+                                  >
+                                    {type.leave_description || req.leave_code}
+                                  </Typography>
+
+                                  <Box
+                                    sx={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 1,
+                                    }}
+                                  >
+                                    <CalendarMonth
+                                      sx={{ fontSize: 14, color: '#000' }}
+                                    />
+                                    <Typography
+                                      variant="caption"
+                                      color="#000"
+                                      fontSize="0.75rem"
+                                    >
+                                      {formatDate(req.leave_date)}
+                                    </Typography>
+                                    <Chip
+                                      icon={
+                                        <StatusIcon sx={{ fontSize: 14 }} />
+                                      }
+                                      label={status.short}
+                                      size="small"
+                                      sx={{
+                                        bgcolor: status.bg,
+                                        color: status.color,
+                                        fontWeight: 600,
+                                        fontSize: '0.65rem',
+                                        height: 22,
+                                        ml: 'auto',
+                                        '& .MuiChip-icon': {
+                                          color: status.color,
+                                        },
+                                      }}
+                                    />
+                                  </Box>
+                                </Box>
+                              </Box>
+                            </Box>
+                          </Card>
+                        );
+                      })
+                    )}
+                  </Box>
+
+                  {/* Bulk Action Toolbar */}
+                  {selectMode && (
+                    <Slide
+                      direction="up"
+                      in={selectMode}
+                      mountOnEnter
+                      unmountOnExit
+                    >
+                      <Paper
+                        elevation={4}
+                        sx={{
+                          position: 'sticky',
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          p: 2,
+                          backgroundColor: primaryColor,
+                          borderTop: `2px solid ${accentColor}`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 2,
+                          flexWrap: 'wrap',
+                          zIndex: 100,
+                        }}
+                      >
+                        <Box
+                          sx={{ display: 'flex', alignItems: 'center', gap: 2 }}
+                        >
+                          <Checkbox
+                            checked={
+                              selectedRequests.length === paged.length &&
+                              paged.length > 0
+                            }
+                            indeterminate={
+                              selectedRequests.length > 0 &&
+                              selectedRequests.length < paged.length
+                            }
+                            onChange={handleSelectAll}
+                            sx={{
+                              color: accentColor,
+                              '&.Mui-checked, &.MuiCheckbox-indeterminate': {
+                                color: accentColor,
+                              },
+                            }}
+                          />
+                          <Typography
+                            variant="body2"
+                            sx={{ fontWeight: 600, color: accentColor }}
+                          >
+                            {selectedRequests.length === 0
+                              ? 'Select items'
+                              : `${selectedRequests.length} item${selectedRequests.length > 1 ? 's' : ''} selected`}
+                          </Typography>
+                        </Box>
+
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          <Tooltip title="Approve as Manager">
+                            <Button
+                              onClick={() => handleBulkStatusUpdate(1)}
+                              disabled={
+                                selectedRequests.length === 0 || bulkLoading
+                              }
+                              variant="contained"
+                              size="small"
+                              startIcon={
+                                bulkLoading ? (
+                                  <CircularProgress size={16} />
+                                ) : (
+                                  <CheckCircle />
+                                )
+                              }
+                              sx={{
+                                backgroundColor: '#1565C0',
+                                color: '#fff',
+                                '&:hover': { backgroundColor: '#0D47A1' },
+                                '&:disabled': { backgroundColor: '#ccc' },
+                              }}
+                            >
+                              Manager
+                            </Button>
+                          </Tooltip>
+
+                          <Tooltip title="Approve as HR">
+                            <Button
+                              onClick={() => handleBulkStatusUpdate(2)}
+                              disabled={
+                                selectedRequests.length === 0 || bulkLoading
+                              }
+                              variant="contained"
+                              size="small"
+                              startIcon={
+                                bulkLoading ? (
+                                  <CircularProgress size={16} />
+                                ) : (
+                                  <DoneAllIcon />
+                                )
+                              }
+                              sx={{
+                                backgroundColor: '#2E7D32',
+                                color: '#fff',
+                                '&:hover': { backgroundColor: '#1B5E20' },
+                                '&:disabled': { backgroundColor: '#ccc' },
+                              }}
+                            >
+                              HR Approve
+                            </Button>
+                          </Tooltip>
+
+                          <Tooltip title="Deny Requests">
+                            <Button
+                              onClick={() => handleBulkStatusUpdate(3)}
+                              disabled={
+                                selectedRequests.length === 0 || bulkLoading
+                              }
+                              variant="contained"
+                              size="small"
+                              startIcon={
+                                bulkLoading ? (
+                                  <CircularProgress size={16} />
+                                ) : (
+                                  <ThumbDownIcon />
+                                )
+                              }
+                              sx={{
+                                backgroundColor: '#C62828',
+                                color: '#fff',
+                                '&:hover': { backgroundColor: '#B71C1C' },
+                                '&:disabled': { backgroundColor: '#ccc' },
+                              }}
+                            >
+                              Deny
+                            </Button>
+                          </Tooltip>
+                        </Box>
+                      </Paper>
+                    </Slide>
+                  )}
+
+                  {/* Pagination */}
+                  {filtered.length > 0 && (
+                    <Box
+                      sx={{
+                        pt: 2,
+                        mt: 2,
+                        borderTop: `1px solid rgba(109,35,35,0.1)`,
+                      }}
+                    >
+                      <TablePagination
+                        component="div"
+                        count={filtered.length}
+                        page={page}
+                        onPageChange={(e, p) => setPage(p)}
+                        rowsPerPage={rowsPerPage}
+                        onRowsPerPageChange={(e) => {
+                          setRowsPerPage(+e.target.value);
+                          setPage(0);
+                        }}
+                        rowsPerPageOptions={[8, 16, 24]}
+                        sx={{
+                          '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows':
+                            {
+                              fontWeight: 600,
+                              fontSize: '0.85rem',
+                            },
+                        }}
                       />
                     </Box>
-                  </Box>
-                </Grid>
-              );
-            })}
-
-
-            {/* No Records Found */}
-            {filteredRequests.length === 0 && (
-              <Grid item xs={12}>
-                <Typography
-                  variant="body1"
-                  sx={{
-                    textAlign: 'center',
-                    color: '#6D2323',
-                    fontWeight: 'bold',
-                    mt: 2,
-                  }}
-                >
-                  No Records Found
-                </Typography>
-              </Grid>
-            )}
+                  )}
+                </Box>
+              </GlassCard>
+            </Fade>
           </Grid>
-        </Container>
+        </Grid>
 
-
-        {/* Modal */}
+        {/* Edit Modal */}
         <Modal
-          open={!!editLeaveRequest}
-          onClose={handleCloseModal}
+          open={!!editRequest}
+          onClose={closeModal}
           sx={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
           }}
         >
-          <Box
+          <GlassCard
+            settings={settings}
             sx={{
-              backgroundColor: '#fff',
-              border: '1px solid #6d2323',
-              borderRadius: 2,
-              width: '75%',
+              width: '90%',
               maxWidth: '700px',
-              maxHeight: '85vh',
-              overflowY: 'auto',
-              position: 'relative',
+              maxHeight: '90vh',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
             }}
           >
-            {editLeaveRequest && (
+            {editRequest && (
               <>
                 {/* Modal Header */}
                 <Box
                   sx={{
-                    backgroundColor: '#6D2323',
-                    color: '#ffffff',
-                    p: 2,
-                    borderRadius: '8px 8px 0 0',
+                    p: 3,
+                    background: `linear-gradient(135deg, ${settings.secondaryColor || accentDark} 0%, ${settings.deleteButtonHoverColor || accentColor} 100%)`,
+                    color: settings.accentColor || '#FEF9E1',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 10,
+                    flexShrink: 0,
                   }}
                 >
-                  <Typography variant="h6">
-                    {isEditing
-                      ? 'Edit Leave Request Information'
-                      : 'Leave Request Information'}
+                  <Typography
+                    variant="h6"
+                    sx={{
+                      fontWeight: 'bold',
+                      color: settings.accentColor || '#FEF9E1',
+                    }}
+                  >
+                    {isEditing ? 'Edit Leave Request' : 'Leave Request Details'}
                   </Typography>
-                  <IconButton onClick={handleCloseModal} sx={{ color: '#fff' }}>
+                  <IconButton
+                    onClick={closeModal}
+                    sx={{ color: settings.accentColor || '#FEF9E1' }}
+                  >
                     <Close />
                   </IconButton>
                 </Box>
 
+                <Box
+                  sx={{
+                    p: 4,
+                    flexGrow: 1,
+                    overflowY: 'auto',
+                    minHeight: 0,
+                    '&::-webkit-scrollbar': {
+                      width: '6px',
+                    },
+                    '&::-webkit-scrollbar-track': {
+                      background: '#f1f1f1',
+                      borderRadius: '3px',
+                    },
+                    '&::-webkit-scrollbar-thumb': {
+                      background: settings.primaryColor || accentColor,
+                      borderRadius: '3px',
+                    },
+                  }}
+                >
+                  {/* Employee Information Section */}
+                  <Box sx={{ mb: 3 }}>
+                    <Typography
+                      variant="h5"
+                      sx={{
+                        fontWeight: 600,
+                        mb: 2,
+                        color: accentColor,
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <PersonIcon sx={{ mr: 2, fontSize: 24 }} />
+                      Employee Information
+                    </Typography>
 
-                {/* Modal Content */}
-                <Box sx={{ p: 3 }}>
-                  <Grid container spacing={3}>
-                    <Grid item xs={12} sm={6}>
-                      <Typography
-                        variant="subtitle2"
-                        sx={{ fontWeight: 'bold', mb: 1 }}
-                      >
-                        Employee Number {isEditing && '*'}
-                      </Typography>
-                      <TextField
-                        value={editLeaveRequest.employeeNumber || ''}
-                        onChange={(e) =>
-                          setEditLeaveRequest({
-                            ...editLeaveRequest,
-                            employeeNumber: e.target.value,
-                          })
-                        }
-                        fullWidth
-                        disabled={
-                          !isEditing || String(editLeaveRequest.status) === '4'
-                        }
-                        required={isEditing}
-                        sx={{
-                          '& .MuiInputBase-input.Mui-disabled': {
-                            WebkitTextFillColor: '#000000',
-                            color: '#000000',
-                          },
-                        }}
-                      />
+                    <Grid container spacing={2}>
+                      <Grid item xs={6}>
+                        <Typography
+                          variant="body2"
+                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                        >
+                          Employee Number
+                        </Typography>
+                        {isEditing ? (
+                          <ModernTextField
+                            settings={settings}
+                            value={editRequest.employeeNumber}
+                            onChange={(e) =>
+                              setEditRequest({
+                                ...editRequest,
+                                employeeNumber: e.target.value,
+                              })
+                            }
+                            fullWidth
+                            size="small"
+                          />
+                        ) : (
+                          <Box
+                            sx={{
+                              p: 1.5,
+                              bgcolor: 'rgba(254, 249, 225, 0.5)',
+                              borderRadius: 1,
+                              border: '1px solid rgba(109, 35, 35, 0.2)',
+                            }}
+                          >
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 'bold', color: accentColor }}
+                            >
+                              #{editRequest.employeeNumber}
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: grayColor }}
+                            >
+                              {employeeNames[editRequest.employeeNumber]}
+                            </Typography>
+                          </Box>
+                        )}
+                      </Grid>
+
+                      <Grid item xs={6}>
+                        <Typography
+                          variant="body2"
+                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                        >
+                          Leave Type
+                        </Typography>
+                        {isEditing ? (
+                          <FormControl fullWidth size="small">
+                            <ModernTextField
+                              settings={settings}
+                              select
+                              value={editRequest.leave_code}
+                              onChange={(e) =>
+                                setEditRequest({
+                                  ...editRequest,
+                                  leave_code: e.target.value,
+                                })
+                              }
+                              SelectProps={{
+                                displayEmpty: true,
+                                renderValue: (value) =>
+                                  value ? (
+                                    `${value} - ${leaveTypes.find((t) => t.leave_code === value)?.leave_description || ''}`
+                                  ) : (
+                                    <em>Select Type</em>
+                                  ),
+                              }}
+                            >
+                              <MenuItem value="">
+                                <em>Select Type</em>
+                              </MenuItem>
+                              {leaveTypes.map((t) => (
+                                <MenuItem key={t.id} value={t.leave_code}>
+                                  {t.leave_code} - {t.leave_description}
+                                </MenuItem>
+                              ))}
+                            </ModernTextField>
+                          </FormControl>
+                        ) : (
+                          <Box
+                            sx={{
+                              p: 1.5,
+                              bgcolor: 'rgba(254, 249, 225, 0.5)',
+                              borderRadius: 1,
+                              border: '1px solid rgba(109, 35, 35, 0.2)',
+                            }}
+                          >
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 'bold', color: '#333' }}
+                            >
+                              {
+                                getType(editRequest.leave_code)
+                                  .leave_description
+                              }
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: grayColor }}
+                            >
+                              Code: {editRequest.leave_code}
+                            </Typography>
+                          </Box>
+                        )}
+                      </Grid>
                     </Grid>
+                  </Box>
 
+                  <Divider sx={{ my: 3, borderColor: 'rgba(109,35,35,0.1)' }} />
 
-                    <Grid item xs={12} sm={6}>
+                  {/* Leave Details Section */}
+                  <Typography
+                    variant="h5"
+                    sx={{
+                      fontWeight: 600,
+                      mb: 3,
+                      color: accentColor,
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <EventNote sx={{ mr: 2, fontSize: 24 }} />
+                    Leave Details
+                  </Typography>
+
+                  <Grid container spacing={2}>
+                    <Grid item xs={6}>
                       <Typography
-                        variant="subtitle2"
-                        sx={{ fontWeight: 'bold', mb: 1 }}
+                        variant="body2"
+                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
                       >
-                        Leave Type {isEditing && '*'}
+                        Leave Date
                       </Typography>
-                      <FormControl
-                        fullWidth
-                        disabled={!isEditing}
-                        required={isEditing}
-                      >
-                        <Select
-                          value={editLeaveRequest.leave_code || ''}
+                      {isEditing ? (
+                        <ModernTextField
+                          settings={settings}
+                          type="date"
+                          value={editRequest.leave_date?.split(',')[0] || ''}
                           onChange={(e) =>
-                            setEditLeaveRequest({
-                              ...editLeaveRequest,
-                              leave_code: e.target.value,
+                            setEditRequest({
+                              ...editRequest,
+                              leave_date: e.target.value,
                             })
                           }
-                          displayEmpty
+                          fullWidth
+                          size="small"
+                        />
+                      ) : (
+                        <Box
                           sx={{
-                            '& .MuiSelect-select.Mui-disabled': {
-                              WebkitTextFillColor: '#000000',
-                              color: '#000000',
-                            },
+                            p: 1.5,
+                            bgcolor: 'rgba(254, 249, 225, 0.5)',
+                            borderRadius: 1,
+                            border: '1px solid rgba(109, 35, 35, 0.2)',
                           }}
                         >
-                          <MenuItem value="">
-                            <em>Select Leave Type</em>
-                          </MenuItem>
-                          {leaveTypes.map((type) => (
-                            <MenuItem key={type.id} value={type.leave_code}>
-                              ({type.leave_code}) - {type.leave_description} -{' '}
-                              {type.leave_hours} hours
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
+                          <Typography variant="body2">
+                            {formatDate(editRequest.leave_date)}
+                          </Typography>
+                        </Box>
+                      )}
                     </Grid>
 
-
-                    <Grid item xs={12} sm={6}>
+                    <Grid item xs={6}>
                       <Typography
-                        variant="subtitle2"
-                        sx={{ fontWeight: 'bold', mb: 1 }}
-                      >
-                        Leave Date {isEditing && '*'}
-                      </Typography>
-                      <TextField
-                        type="date"
-                        value={editLeaveRequest.leave_date || ''}
-                        onChange={(e) =>
-                          setEditLeaveRequest({
-                            ...editLeaveRequest,
-                            leave_date: e.target.value,
-                          })
-                        }
-                        fullWidth
-                        disabled={!isEditing}
-                        required={isEditing}
-                        InputLabelProps={{ shrink: true }}
-                        sx={{
-                          '& .MuiInputBase-input.Mui-disabled': {
-                            WebkitTextFillColor: '#000000',
-                            color: '#000000',
-                          },
-                        }}
-                      />
-                    </Grid>
-
-
-                    <Grid item xs={12} sm={6}>
-                      <Typography
-                        variant="subtitle2"
-                        sx={{ fontWeight: 'bold', mb: 1 }}
+                        variant="body2"
+                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
                       >
                         Status
                       </Typography>
-                      <FormControl fullWidth disabled={!isEditing}>
-                        <Select
-                          value={String(editLeaveRequest.status || '')}
-                          onChange={(e) =>
-                            setEditLeaveRequest({
-                              ...editLeaveRequest,
-                              status: e.target.value,
-                            })
-                          }
-                          displayEmpty
-                          renderValue={(selected) => {
-                            if (!selected) return 'Select Status';
-                            const status = statusOptions.find(
-                              (s) => s.value === selected
-                            );
-                            return status ? status.label : selected;
+                      <FormControl fullWidth size="small">
+                        <ModernTextField
+                          settings={settings}
+                          select
+                          value={String(editRequest.status)}
+                          onChange={async (e) => {
+                            const s = e.target.value;
+                            setEditRequest({ ...editRequest, status: s });
+                            if (!isEditing) {
+                              try {
+                                await axios.put(
+                                  `${API_BASE_URL}/leaveRoute/leave_request/${editRequest.id}`,
+                                  { ...editRequest, status: +s },
+                                  getAuthHeaders(),
+                                );
+                                closeModal();
+                                setSuccessAction('status');
+                                setSuccessOpen(true);
+                                setTimeout(() => setSuccessOpen(false), 2000);
+                                fetchAll();
+                              } catch {
+                                alert('Error updating status');
+                              }
+                            }
                           }}
-                          sx={{
-                            '& .MuiSelect-select.Mui-disabled': {
-                              WebkitTextFillColor: '#000000',
-                              color: '#000000',
+                          disabled={isEditing}
+                          SelectProps={{
+                            renderValue: (value) => {
+                              const opt = statusOptions.find(
+                                (o) => o.value === value,
+                              );
+                              const Icon = opt?.icon;
+                              return (
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 1,
+                                  }}
+                                >
+                                  {Icon && (
+                                    <Icon
+                                      sx={{ fontSize: 18, color: opt.color }}
+                                    />
+                                  )}
+                                  <Typography
+                                    sx={{ fontWeight: 600, color: opt?.color }}
+                                  >
+                                    {opt?.label}
+                                  </Typography>
+                                </Box>
+                              );
                             },
                           }}
                         >
-                          <MenuItem value="">
-                            <em>Select Status</em>
-                          </MenuItem>
-                          {statusOptions.map((option) => (
-                            <MenuItem key={option.value} value={option.value}>
-                              {option.label}
+                          {statusOptions.map((o) => (
+                            <MenuItem
+                              key={o.value}
+                              value={o.value}
+                              sx={{ py: 1.5 }}
+                            >
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 1.5,
+                                }}
+                              >
+                                <Box
+                                  sx={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: '50%',
+                                    bgcolor: o.color,
+                                  }}
+                                />
+                                <Typography sx={{ fontWeight: 500 }}>
+                                  {o.label}
+                                </Typography>
+                              </Box>
                             </MenuItem>
                           ))}
-                        </Select>
+                        </ModernTextField>
                       </FormControl>
                     </Grid>
                   </Grid>
 
-
-                  {/* Action Buttons */}
+                  {/* Leave Balance */}
                   <Box
                     sx={{
-                      display: 'flex',
-                      justifyContent: 'flex-end',
                       mt: 3,
-                      gap: 2,
+                      p: 2.5,
+                      bgcolor: 'rgba(254, 249, 225, 0.5)',
+                      borderRadius: 1,
+                      border: '1px solid rgba(109, 35, 35, 0.2)',
                     }}
                   >
-                    {!isEditing ? (
-                      <>
-                        <Button
-                          onClick={handleDelete}
-                          variant="contained"
-                          startIcon={<DeleteIcon />}
-                          disabled={String(editLeaveRequest?.status) === '4'}
-                          sx={{
-                            backgroundColor: '#9c1a1a',
-                            color: '#fff',
-                            '&:hover': { backgroundColor: '#7a1414' },
-                          }}
-                        >
-                          Delete
-                        </Button>
-                        <Button
-                          onClick={handleStartEdit}
-                          variant="contained"
-                          startIcon={<EditIcon />}
-                          disabled={String(editLeaveRequest?.status) === '4'}
-                          sx={{
-                            backgroundColor: '#6D2323',
-                            color: '#FEF9E1',
-                            '&:hover': { backgroundColor: '#5a1d1d' },
-                          }}
-                        >
-                          Edit
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          onClick={handleCancelEdit}
-                          variant="outlined"
-                          startIcon={<CancelIcon />}
-                          sx={{
-                            color: '#ffffff',
-                            backgroundColor: 'black',
-                            '&:hover': { backgroundColor: '#333333' },
-                          }}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          onClick={handleUpdate}
-                          variant="contained"
-                          startIcon={<SaveIcon />}
-                          sx={{ backgroundColor: '#6D2323', color: '#FEF9E1' }}
-                        >
-                          Save
-                        </Button>
-                      </>
-                    )}
+                    <Typography
+                      variant="body2"
+                      sx={{ fontWeight: 600, mb: 1.5, color: accentColor }}
+                    >
+                      Employee Leave Balance
+                    </Typography>
+                    <LeaveCredits
+                      personID={editRequest.employeeNumber}
+                      compact
+                      accentColor={accentColor}
+                    />
                   </Box>
+                </Box>
+
+                {/* Bottom Action Bar */}
+                <Box
+                  sx={{
+                    borderTop: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.2)}`,
+                    backgroundColor: '#FFFFFF',
+                    px: 3,
+                    py: 2,
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    gap: 2,
+                    position: 'sticky',
+                    bottom: 0,
+                    zIndex: 10,
+                    flexShrink: 0,
+                  }}
+                >
+                  {!isEditing ? (
+                    <>
+                      <ProfessionalButton
+                        onClick={() => handleCancel(editRequest.id)}
+                        disabled={['2', '3', '4'].includes(
+                          String(editRequest.status),
+                        )}
+                        settings={settings}
+                        variant="outlined"
+                        sx={{
+                          borderColor: '#F57C00',
+                          color: '#F57C00',
+                          minWidth: '120px',
+                          '&:hover': {
+                            backgroundColor: alpha('#F57C00', 0.1),
+                          },
+                          '&:disabled': {
+                            borderColor: '#ccc',
+                            color: '#ccc',
+                          },
+                        }}
+                      >
+                        Cancel Request
+                      </ProfessionalButton>
+                      <ProfessionalButton
+                        onClick={() =>
+                          handleDelete(editRequest.id, editRequest.status)
+                        }
+                        disabled={String(editRequest.status) === '4'}
+                        startIcon={<DeleteIcon />}
+                        settings={settings}
+                        variant="outlined"
+                        sx={{
+                          borderColor:
+                            settings.deleteButtonColor || accentColor,
+                          color: settings.deleteButtonColor || accentColor,
+                          minWidth: '120px',
+                          '&:hover': {
+                            backgroundColor: alpha(
+                              settings.deleteButtonColor || accentColor,
+                              0.1,
+                            ),
+                            borderColor:
+                              settings.deleteButtonHoverColor || accentDark,
+                            color:
+                              settings.deleteButtonHoverColor || accentDark,
+                          },
+                          '&:disabled': {
+                            borderColor: '#ccc',
+                            color: '#ccc',
+                          },
+                        }}
+                      >
+                        Delete
+                      </ProfessionalButton>
+                      <ProfessionalButton
+                        onClick={() => setIsEditing(true)}
+                        disabled={String(editRequest.status) === '4'}
+                        startIcon={<EditIcon />}
+                        settings={settings}
+                        variant="contained"
+                        sx={{
+                          backgroundColor:
+                            settings.updateButtonColor || accentColor,
+                          color: settings.accentColor || '#FEF9E1',
+                          minWidth: '120px',
+                          '&:hover': {
+                            backgroundColor:
+                              settings.updateButtonHoverColor || accentDark,
+                          },
+                          '&:disabled': {
+                            backgroundColor: '#ddd',
+                          },
+                        }}
+                      >
+                        Edit
+                      </ProfessionalButton>
+                    </>
+                  ) : (
+                    <>
+                      <ProfessionalButton
+                        onClick={() => {
+                          setEditRequest({ ...originalRequest });
+                          setIsEditing(false);
+                        }}
+                        startIcon={<CancelIcon />}
+                        settings={settings}
+                        variant="outlined"
+                        sx={{
+                          borderColor: settings.cancelButtonColor || '#6c757d',
+                          color: settings.cancelButtonColor || '#6c757d',
+                          minWidth: '120px',
+                          '&:hover': {
+                            backgroundColor: alpha(
+                              settings.cancelButtonColor || '#6c757d',
+                              0.1,
+                            ),
+                          },
+                        }}
+                      >
+                        Cancel
+                      </ProfessionalButton>
+                      <ProfessionalButton
+                        onClick={handleUpdate}
+                        startIcon={<SaveIcon />}
+                        disabled={!hasChanges()}
+                        settings={settings}
+                        variant="contained"
+                        sx={{
+                          backgroundColor: hasChanges()
+                            ? settings.updateButtonColor || accentColor
+                            : alpha(settings.primaryColor || accentColor, 0.5),
+                          color: settings.accentColor || '#FEF9E1',
+                          minWidth: '120px',
+                          '&:hover': {
+                            backgroundColor: hasChanges()
+                              ? settings.updateButtonHoverColor || accentDark
+                              : alpha(
+                                  settings.primaryColor || accentColor,
+                                  0.5,
+                                ),
+                          },
+                          '&:disabled': {
+                            color: alpha(
+                              settings.accentColor || '#FEF9E1',
+                              0.5,
+                            ),
+                          },
+                        }}
+                      >
+                        Save
+                      </ProfessionalButton>
+                    </>
+                  )}
                 </Box>
               </>
             )}
-          </Box>
+          </GlassCard>
         </Modal>
       </Box>
-    </Container>
+    </Box>
   );
 };
 
-
 export default LeaveRequest;
-
-
-

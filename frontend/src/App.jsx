@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from 'react';
 import {
   BrowserRouter as Router,
   Routes,
   Route,
   useLocation,
   useNavigate,
-} from "react-router-dom";
+} from 'react-router-dom';
 import {
   AppBar,
   Toolbar,
@@ -18,117 +18,125 @@ import {
   DialogContent,
   DialogActions,
   Button,
-} from "@mui/material";
-import axios from "axios";
-import ProtectedRoute from "./components/ProtectedRoute";
+  LinearProgress,
+  Paper,
+} from '@mui/material';
+import { AccessTime, Lock, Logout } from '@mui/icons-material'; // Icons for professional look
+import axios from 'axios';
+import ProtectedRoute from './components/ProtectedRoute';
 import {
   SystemSettingsProvider,
   useSystemSettings,
-} from "./contexts/SystemSettingsContext";
-import { SocketProvider } from "./contexts/SocketContext";
-import "@fontsource/poppins";
-import earistLogo from "./assets/earistLogo.jpg";
-import hrisLogo from "./assets/hrisLogo.png";
-import API_BASE_URL from "./apiConfig";
+} from './contexts/SystemSettingsContext';
+import { SocketProvider } from './contexts/SocketContext';
+import '@fontsource/poppins';
+import earistLogo from './assets/earistLogo.jpg';
+import hrisLogo from './assets/hrisLogo.png';
+import API_BASE_URL from './apiConfig';
 
-import Login from "./components/Login";
-import Register from "./components/Register";
-import ResetPassword from "./components/ResetPassword";
-import LoadingOverlay from "./components/LoadingOverlay";
-import SuccessfulOverlay from "./components/SuccessfulOverlay";
-import AccessDenied from "./components/AccessDenied";
-import SystemSetting from "./SystemSettings";
-import PayrollFormulas from "./components/PAYROLL/PayrollFormulas";
+import Login from './components/Login';
+import Register from './components/Register';
+import ResetPassword from './components/ResetPassword';
+import LoadingOverlay from './components/LoadingOverlay';
+import SuccessfulOverlay from './components/SuccessfulOverlay';
+import AccessDenied from './components/AccessDenied';
+import SystemSetting from './SystemSettings';
+import PayrollFormulas from './components/PAYROLL/PayrollFormulas';
 
-import Home from "./components/Home";
-import Sidebar from "./components/Sidebar";
-import AdminHome from "./components/HomeAdmin";
-import ForgotPassword from "./components/ForgotPassword";
-import AnnouncementForm from "./components/Announcement";
-import Profile from "./components/DASHBOARD/Profile";
-import BulkRegister from "./components/BulkRegister";
-import Registration from "./components/Registration";
-import Reports from "./components/Reports";
-import EmployeeReports from "./components/EmployeeReports";
+import Home from './components/Home';
+import Sidebar from './components/Sidebar';
+import AdminHome from './components/HomeAdmin';
+import ForgotPassword from './components/ForgotPassword';
+import AnnouncementForm from './components/Announcement';
+import Profile from './components/DASHBOARD/Profile';
+import BulkRegister from './components/BulkRegister';
+import Registration from './components/Registration';
+import Reports from './components/Reports';
+import EmployeeReports from './components/EmployeeReports';
 
-import PersonalTable from "./components/DASHBOARD/PersonTable";
-import Children from "./components/DASHBOARD/Children";
-import College from "./components/DASHBOARD/College";
-import OtherSkills from "./components/DASHBOARD/OtheInformation";
-import WorkExperience from "./components/DASHBOARD/WorkExperience";
-import Vocational from "./components/DASHBOARD/Vocational";
-import LearningAndDevelopment from "./components/DASHBOARD/LearningAndDevelopment";
-import VoluntaryWork from "./components/DASHBOARD/Voluntary";
-import Eligibility from "./components/DASHBOARD/Eligibility";
-import GraduateTable from "./components/DASHBOARD/GraduateStudies";
+import PersonalTable from './components/DASHBOARD/PersonTable';
+import Children from './components/DASHBOARD/Children';
+import College from './components/DASHBOARD/College';
+import OtherSkills from './components/DASHBOARD/OtheInformation';
+import WorkExperience from './components/DASHBOARD/WorkExperience';
+import Vocational from './components/DASHBOARD/Vocational';
+import LearningAndDevelopment from './components/DASHBOARD/LearningAndDevelopment';
+import VoluntaryWork from './components/DASHBOARD/Voluntary';
+import Eligibility from './components/DASHBOARD/Eligibility';
+import GraduateTable from './components/DASHBOARD/GraduateStudies';
 
-import ViewAttendanceRecord from "./components/ATTENDANCE/AttendanceDevice";
-import AttendanceModification from "./components/ATTENDANCE/AttendanceModification";
-import AttendanceUserState from "./components/ATTENDANCE/AttendanceUserState";
-import DailyTimeRecord from "./components/ATTENDANCE/DailyTimeRecord";
-import DailyTimeRecordFaculty from "./components/ATTENDANCE/DailyTimeRecordOverall";
-import DailyTimeRecordEditor from "./components/ATTENDANCE/DailyTimeRecordEditor";
-import AttendanceForm from "./components/ATTENDANCE/AttendanceState";
-import AttendanceModule from "./components/ATTENDANCE/AttendanceModuleNonTeaching";
-import AttendanceModuleFaculty from "./components/ATTENDANCE/AttendanceModuleFaculty30hrs";
-import AttendanceModuleFaculty40 from "./components/ATTENDANCE/AttendanceModuleFacultyDesignated";
-import OverallAttendancePage from "./components/ATTENDANCE/AttendanceSummary";
-import OfficialTimeForm from "./components/ATTENDANCE/OfficialTimeForm";
+import ViewAttendanceRecord from './components/ATTENDANCE/AttendanceDevice';
+import AttendanceModification from './components/ATTENDANCE/AttendanceModification';
+import AttendanceUserState from './components/ATTENDANCE/AttendanceUserState';
+import DailyTimeRecord from './components/ATTENDANCE/DailyTimeRecord';
+import DailyTimeRecordHonorarium from './components/ATTENDANCE/DailyTimeRecordHonorarium';
+import DailytimeRecordOvertime from './components/ATTENDANCE/DailyTimeRecordOvertime';
+import DailyTimeRecordServiceCredits from './components/ATTENDANCE/DailyTimeRecordServiceCredits';
 
-import Remittances from "./components/PAYROLL/Remittances";
-import ItemTable from "./components/PAYROLL/ItemTable";
-import SalaryGradeTable from "./components/PAYROLL/SalaryGradeTable";
-import DepartmentTable from "./components/PAYROLL/DepartmentTable";
-import DepartmentAssignment from "./components/PAYROLL/DepartmentAssignment";
-import Holiday from "./components/PAYROLL/Holiday";
-import PhilHealthTable from "./components/PAYROLL/PhilHealth";
-import PayrollProcess from "./components/PAYROLL/PayrollProcessing";
-import PayrollProcessed from "./components/PAYROLL/PayrollProcessed";
-import PayrollProcessedJO from "./components/PAYROLL/PayrollProcessedJO";
-import PayrollReleased from "./components/PAYROLL/PayrollReleased";
+import DailyTimeRecordOvertime from './components/ATTENDANCE/DailyTimeRecordOvertime';
+import DailyTimeRecordEditor from './components/ATTENDANCE/DailyTimeRecordEditor';
+import AttendanceForm from './components/ATTENDANCE/AttendanceState';
+import AttendanceModule from './components/ATTENDANCE/AttendanceModuleNonTeaching';
+import AttendanceModuleFaculty from './components/ATTENDANCE/AttendanceModuleFaculty30hrs';
+import AttendanceModuleFaculty40 from './components/ATTENDANCE/AttendanceModuleFacultyDesignated';
+import OverallAttendancePage from './components/ATTENDANCE/AttendanceSummary';
+import OfficialTimeForm from './components/ATTENDANCE/OfficialTimeForm';
 
-import AssessmentClearance from "./components/FORMS/AssessmentClearance";
-import Clearance from "./components/FORMS/Clearance";
-import ClearanceBack from "./components/FORMS/ClearanceBack";
-import FacultyClearance from "./components/FORMS/FacultyClearance";
-import FacultyClearance70Days from "./components/FORMS/FacultyClearance70Days";
-import InServiceTraining from "./components/FORMS/InServiceTraining";
-import LeaveCard from "./components/FORMS/LeaveCard";
-import LeaveCardBack from "./components/FORMS/LeaveCardBack";
-import LocatorSlip from "./components/FORMS/LocatorSlip";
-import PermissionToTeach from "./components/FORMS/PermissionToTeach";
-import RequestForID from "./components/FORMS/RequestForID";
-import SalnFront from "./components/FORMS/SalnFront";
-import SalnBack from "./components/FORMS/SalnBack";
-import ScholarshipAgreement from "./components/FORMS/ScholarshipAgreement";
-import SubjectStillToBeTaken from "./components/FORMS/SubjectStillToBeTaken";
-import IndividualFacultyLoading from "./components/FORMS/IndividualFacultyLoading";
-import HrmsRequestForms from "./components/FORMS/HRMSRequestForms";
-import EmploymentCategoryManagement from "./components/EmploymentCategory";
+import Remittances from './components/PAYROLL/Remittances';
+import ItemTable from './components/PAYROLL/ItemTable';
+import SalaryGradeTable from './components/PAYROLL/SalaryGradeTable';
+import DepartmentTable from './components/PAYROLL/DepartmentTable';
+import DepartmentAssignment from './components/PAYROLL/DepartmentAssignment';
+import Holiday from './components/PAYROLL/Holiday';
+import PhilHealthTable from './components/PAYROLL/PhilHealth';
+import PayrollProcess from './components/PAYROLL/PayrollProcessing';
+import PayrollProcessed from './components/PAYROLL/PayrollProcessed';
+import PayrollProcessedJO from './components/PAYROLL/PayrollProcessedJO';
+import PayrollReleased from './components/PAYROLL/PayrollReleased';
 
-import PDS1 from "./components/PDS/PDS1";
-import PDS2 from "./components/PDS/PDS2";
-import PDS3 from "./components/PDS/PDS3";
-import PDS4 from "./components/PDS/PDS4";
+import AssessmentClearance from './components/FORMS/AssessmentClearance';
+import Clearance from './components/FORMS/Clearance';
+import ClearanceBack from './components/FORMS/ClearanceBack';
+import FacultyClearance from './components/FORMS/FacultyClearance';
+import FacultyClearance70Days from './components/FORMS/FacultyClearance70Days';
+import InServiceTraining from './components/FORMS/InServiceTraining';
+import LeaveCard from './components/FORMS/LeaveCard';
+import LeaveCardBack from './components/FORMS/LeaveCardBack';
+import LocatorSlip from './components/FORMS/LocatorSlip';
+import PermissionToTeach from './components/FORMS/PermissionToTeach';
+import RequestForID from './components/FORMS/RequestForID';
+import SalnFront from './components/FORMS/SalnFront';
+import SalnBack from './components/FORMS/SalnBack';
+import ScholarshipAgreement from './components/FORMS/ScholarshipAgreement';
+import SubjectStillToBeTaken from './components/FORMS/SubjectStillToBeTaken';
+import IndividualFacultyLoading from './components/FORMS/IndividualFacultyLoading';
+import HrmsRequestForms from './components/FORMS/HRMSRequestForms';
+import EmploymentCategoryManagement from './components/EmploymentCategory';
 
-import Payslip from "./components/PAYROLL/Payslip";
-import PayslipOverall from "./components/PAYROLL/PayslipOverall";
-import PayslipDistribution from "./components/PAYROLL/PayslipDistribution";
+import PDS1 from './components/PDS/PDS1';
+import PDS2 from './components/PDS/PDS2';
+import PDS3 from './components/PDS/PDS3';
+import PDS4 from './components/PDS/PDS4';
 
-import LeaveRequestUser from "./components/LEAVE/LeaveRequestUser";
-import LeaveTable from "./components/LEAVE/LeaveTable";
-import LeaveRequest from "./components/LEAVE/LeaveRequest";
-import LeaveDatePickerModal from "./components/LEAVE/LeaveDatePicker";
-import LeaveAssignment from "./components/LEAVE/LeaveAssignment";
-import LeaveCredits from "./components/LEAVE/LeaveCredits";
+import Payslip from './components/PAYROLL/Payslip';
+import PayslipOverall from './components/PAYROLL/PayslipOverall';
+import PayslipDistribution from './components/PAYROLL/PayslipDistribution';
 
-import UsersList from "./components/UsersList";
-import PagesList from "./components/PagesList";
-import AuditLogs from "./components/AuditLogs";
-import Settings from "./components/Settings";
-import AdminSecurity from "./components/AdminManagement";
-import PayrollJO from "./components/PAYROLL/PayrollJO";
-import UnderConstruction from "./components/UnderConstruction";
+import LeaveRequestUser from './components/LEAVE/LeaveRequestUser';
+import LeaveTable from './components/LEAVE/LeaveTable';
+import LeaveRequest from './components/LEAVE/LeaveRequest';
+import LeaveDatePickerModal from './components/LEAVE/LeaveDatePicker';
+import LeaveAssignment from './components/LEAVE/LeaveAssignment';
+import LeaveCredits from './components/LEAVE/LeaveCredits';
+
+import UsersList from './components/UsersList';
+import PagesList from './components/PagesList';
+import AuditLogs from './components/AuditLogs';
+import Settings from './components/Settings';
+import AdminSecurity from './components/AdminManagement';
+import PayrollJO from './components/PAYROLL/PayrollJO';
+import UnderConstruction from './components/UnderConstruction';
+import DailyTimeRecordFaculty from './components/ATTENDANCE/DailyTimeRecordOverall';
 
 function App() {
   const [open, setOpen] = useState(false);
@@ -171,8 +179,8 @@ function App() {
 
   const dynamicTheme = createTheme({
     typography: {
-      fontFamily: "Poppins, sans-serif",
-      body1: { fontSize: "13px" },
+      fontFamily: 'Poppins, sans-serif',
+      body1: { fontSize: '13px' },
     },
     palette: {
       primary: {
@@ -184,12 +192,12 @@ function App() {
         main: systemSettings.secondaryColor,
       },
       background: {
-        default: "#f5f5f5",
-        paper: "#ffffff",
+        default: '#f5f5f5',
+        paper: '#ffffff',
       },
       text: {
-        primary: "#333333",
-        secondary: "#666666",
+        primary: '#333333',
+        secondary: '#666666',
       },
     },
     components: {
@@ -198,14 +206,14 @@ function App() {
           contained: {
             backgroundColor: systemSettings.primaryColor,
             color: systemSettings.textColor,
-            "&:hover": {
+            '&:hover': {
               backgroundColor: systemSettings.hoverColor,
             },
           },
           outlined: {
             borderColor: systemSettings.primaryColor,
             color: systemSettings.primaryColor,
-            "&:hover": {
+            '&:hover': {
               borderColor: systemSettings.hoverColor,
               backgroundColor: `${systemSettings.accentColor}33`,
             },
@@ -222,10 +230,10 @@ function App() {
       MuiTableHead: {
         styleOverrides: {
           root: {
-            "& .MuiTableCell-head": {
+            '& .MuiTableCell-head': {
               backgroundColor: systemSettings.primaryColor,
               color: systemSettings.textColor,
-              fontWeight: "bold",
+              fontWeight: 'bold',
             },
           },
         },
@@ -234,14 +242,14 @@ function App() {
         styleOverrides: {
           filled: {
             backgroundColor: systemSettings.accentColor,
-            color: "#000000",
+            color: '#000000',
           },
         },
       },
       MuiTab: {
         styleOverrides: {
           root: {
-            "&.Mui-selected": {
+            '&.Mui-selected': {
               color: systemSettings.primaryColor,
             },
           },
@@ -263,18 +271,23 @@ function App() {
   // --- Idle and token expiration handling ---
   const [idleWarningOpen, setIdleWarningOpen] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
+
+  // VISUAL STATE ONLY - For the countdown display (Does not affect logic refs)
+  const [timeLeft, setTimeLeft] = useState(0);
+
   const idleTimeoutRef = useRef(null);
   const logoutTimeoutRef = useRef(null);
 
-  const IDLE_WARNING_TIME = 10 * 60 * 1000; // 10 minutes | WARNING TIME
-  const AUTO_LOGOUT_TIME = 15 * 60 * 1000; // 15 minutes | AUTO LOGOUT TIME AFTER WARNING
+  const IDLE_WARNING_TIME = 10 * 60 * 1000; // 10 minutes
+  const AUTO_LOGOUT_TIME = 15 * 60 * 1000; // 15 minutes
+  const COUNTDOWN_SECONDS = (AUTO_LOGOUT_TIME - IDLE_WARNING_TIME) / 1000; // 300 seconds
 
   // Check if user is on an authenticated page
   const isAuthenticatedPage = ![
-    "/",
-    "/login",
-    "/register",
-    "/forgot-password",
+    '/',
+    '/login',
+    '/register',
+    '/forgot-password',
   ].includes(location.pathname);
 
   const clearTimers = () => {
@@ -299,20 +312,20 @@ function App() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
-    sessionStorage.removeItem("token");
+    localStorage.removeItem('token');
+    sessionStorage.removeItem('token');
     setIdleWarningOpen(false);
     setSessionExpired(false);
     clearTimers();
-    navigate("/");
+    navigate('/');
   };
 
   const handleAutoLogout = () => {
     // Close the warning dialog
     setIdleWarningOpen(false);
     // Clear the tokens
-    localStorage.removeItem("token");
-    sessionStorage.removeItem("token");
+    localStorage.removeItem('token');
+    sessionStorage.removeItem('token');
     // Clear all timers
     clearTimers();
     // Show the session expired dialog
@@ -321,7 +334,36 @@ function App() {
 
   const handleSessionExpiredClose = () => {
     setSessionExpired(false);
-    navigate("/");
+    navigate('/');
+  };
+
+  // VISUAL COUNTDOWN EFFECT (Purely for the progress bar and text)
+  useEffect(() => {
+    let interval;
+
+    if (idleWarningOpen) {
+      setTimeLeft(COUNTDOWN_SECONDS);
+      interval = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      setTimeLeft(0);
+    }
+
+    return () => clearInterval(interval);
+  }, [idleWarningOpen]);
+
+  // Format seconds to MM:SS
+  const formatTime = (seconds) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
   useEffect(() => {
@@ -335,11 +377,11 @@ function App() {
     }
 
     const events = [
-      "mousemove",
-      "mousedown",
-      "keydown",
-      "scroll",
-      "touchstart",
+      'mousemove',
+      'mousedown',
+      'keydown',
+      'scroll',
+      'touchstart',
     ];
 
     events.forEach((event) => {
@@ -360,10 +402,10 @@ function App() {
     <ThemeProvider theme={dynamicTheme}>
       <Box
         sx={{
-          display: "flex",
-          flexDirection: "column",
-          minHeight: "10vh",
-          overflow: "hidden",
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: '10vh',
+          overflow: 'hidden',
         }}
       >
         <AppBar
@@ -371,11 +413,11 @@ function App() {
           sx={{
             zIndex: 1201,
             bgcolor: systemSettings.secondaryColor,
-            height: "62px",
-            overflow: "hidden",
+            height: '62px',
+            overflow: 'hidden',
           }}
         >
-          <Toolbar sx={{ display: "flex", alignItems: "center" }}>
+          <Toolbar sx={{ display: 'flex', alignItems: 'center' }}>
             <>
               <img
                 src={systemSettings.institutionLogo || earistLogo}
@@ -383,10 +425,10 @@ function App() {
                 width="45"
                 height="45"
                 style={{
-                  marginRight: "10px",
-                  border: "1px solid white",
-                  borderRadius: "50px",
-                  marginLeft: "-15px",
+                  marginRight: '10px',
+                  border: '1px solid white',
+                  borderRadius: '50px',
+                  marginLeft: '-15px',
                 }}
               />
             </>
@@ -398,7 +440,7 @@ function App() {
                 sx={{
                   lineHeight: 1.2,
                   color: systemSettings.textColor,
-                  marginTop: "8px",
+                  marginTop: '8px',
                 }}
               >
                 {systemSettings.institutionName}
@@ -408,8 +450,8 @@ function App() {
                 noWrap
                 sx={{
                   color: systemSettings.textColor,
-                  fontWeight: "bold",
-                  marginTop: "-5px",
+                  fontWeight: 'bold',
+                  marginTop: '-5px',
                 }}
               >
                 {systemSettings.systemName}
@@ -418,8 +460,8 @@ function App() {
           </Toolbar>
         </AppBar>
 
-        {!["/", "/login", "/register", "/forgot-password"].includes(
-          location.pathname
+        {!['/', '/login', '/register', '/forgot-password'].includes(
+          location.pathname,
         ) && (
           <Sidebar
             open={open}
@@ -442,27 +484,27 @@ function App() {
           onClick={handleMainContentClick}
           sx={{
             flexGrow: 1,
-            bgcolor: "transparent",
-            p: { xs: 2, sm: 2, md: 3 },
+            bgcolor: 'transparent',
+            p: { xs: 1, sm: 1, md: 5 },
             marginLeft: drawerOpen ? `${drawerWidth}px` : `${collapsedWidth}px`,
-            transition: "margin-left 0.3s ease",
-            fontFamily: "Poppins, sans-serif",
-            minHeight: "100vh",
+            transition: 'margin-left 0.3s ease',
+            fontFamily: 'Poppins, sans-serif',
+            minHeight: '100vh',
 
-            "& .MuiPaper-root": {
+            '& .MuiPaper-root': {
               borderColor: systemSettings.primaryColor,
             },
-            "& .MuiButton-contained": {
+            '& .MuiButton-contained': {
               backgroundColor: systemSettings.primaryColor,
-              "&:hover": {
+              '&:hover': {
                 backgroundColor: systemSettings.hoverColor,
               },
             },
-            "& .MuiTableHead-root": {
-              "& .MuiTableCell-head": {
+            '& .MuiTableHead-root': {
+              '& .MuiTableCell-head': {
                 backgroundColor: systemSettings.primaryColor,
                 color: systemSettings.textColor,
-                fontWeight: "bold",
+                fontWeight: 'bold',
               },
             },
           }}
@@ -477,7 +519,9 @@ function App() {
             <Route
               path="/reset-password"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <ResetPassword />
                 </ProtectedRoute>
               }
@@ -486,7 +530,12 @@ function App() {
               path="/settings"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <Settings />
                 </ProtectedRoute>
@@ -497,7 +546,12 @@ function App() {
               path="/home"
               element={
                 <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "staff", "technical"]}
+                  allowedRoles={[
+                    'administrator',
+                    'superadmin',
+                    'staff',
+                    'technical',
+                  ]}
                 >
                   <Home />
                 </ProtectedRoute>
@@ -506,7 +560,9 @@ function App() {
             <Route
               path="/children"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <Children />
                 </ProtectedRoute>
               }
@@ -514,7 +570,9 @@ function App() {
             <Route
               path="/voluntarywork"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <VoluntaryWork />
                 </ProtectedRoute>
               }
@@ -522,7 +580,9 @@ function App() {
             <Route
               path="/learningdev"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <LearningAndDevelopment />
                 </ProtectedRoute>
               }
@@ -530,7 +590,9 @@ function App() {
             <Route
               path="/eligibility"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <Eligibility />
                 </ProtectedRoute>
               }
@@ -538,7 +600,9 @@ function App() {
             <Route
               path="/college"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <College />
                 </ProtectedRoute>
               }
@@ -546,7 +610,9 @@ function App() {
             <Route
               path="/graduate"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <GraduateTable />
                 </ProtectedRoute>
               }
@@ -554,7 +620,9 @@ function App() {
             <Route
               path="/vocational"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <Vocational />
                 </ProtectedRoute>
               }
@@ -562,7 +630,9 @@ function App() {
             <Route
               path="/workexperience"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <WorkExperience />
                 </ProtectedRoute>
               }
@@ -571,7 +641,12 @@ function App() {
               path="/personalinfo"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <PersonalTable />
                 </ProtectedRoute>
@@ -580,7 +655,9 @@ function App() {
             <Route
               path="/other-information"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <OtherSkills />
                 </ProtectedRoute>
               }
@@ -589,7 +666,9 @@ function App() {
             <Route
               path="/view_attendance"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <ViewAttendanceRecord />
                 </ProtectedRoute>
               }
@@ -597,7 +676,9 @@ function App() {
             <Route
               path="/search_attendance"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <AttendanceModification />
                 </ProtectedRoute>
               }
@@ -607,7 +688,12 @@ function App() {
               path="/attendance-user-state"
               element={
                 <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "staff", "technical"]}
+                  allowedRoles={[
+                    'administrator',
+                    'superadmin',
+                    'staff',
+                    'technical',
+                  ]}
                 >
                   <AttendanceUserState />
                 </ProtectedRoute>
@@ -618,16 +704,68 @@ function App() {
               path="/daily_time_record"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <DailyTimeRecord />
                 </ProtectedRoute>
               }
             />
             <Route
+              path="/daily_time_record_honorarium"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
+                >
+                  <DailyTimeRecordHonorarium />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/daily_time_record_service_credits"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
+                >
+                  <DailyTimeRecordServiceCredits />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/daily_time_record_overtime"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
+                >
+                  <DailyTimeRecordOvertime />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/daily_time_record_faculty"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <DailyTimeRecordFaculty />
                 </ProtectedRoute>
               }
@@ -635,7 +773,9 @@ function App() {
             <Route
               path="/daily_time_record_editor"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <DailyTimeRecordEditor />
                 </ProtectedRoute>
               }
@@ -644,7 +784,12 @@ function App() {
               path="/attendance_form"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <AttendanceForm />
                 </ProtectedRoute>
@@ -653,7 +798,9 @@ function App() {
             <Route
               path="/attendance_module"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <AttendanceModule />
                 </ProtectedRoute>
               }
@@ -661,7 +808,9 @@ function App() {
             <Route
               path="/attendance_module_faculty"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <AttendanceModuleFaculty />
                 </ProtectedRoute>
               }
@@ -670,7 +819,9 @@ function App() {
             <Route
               path="/attendance_module_faculty_40hrs"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <AttendanceModuleFaculty40 />
                 </ProtectedRoute>
               }
@@ -679,7 +830,9 @@ function App() {
             <Route
               path="/attendance_summary"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <OverallAttendancePage />
                 </ProtectedRoute>
               }
@@ -687,7 +840,9 @@ function App() {
             <Route
               path="/official_time"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <OfficialTimeForm />
                 </ProtectedRoute>
               }
@@ -697,7 +852,12 @@ function App() {
               path="/pds1"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <PDS1 />
                 </ProtectedRoute>
@@ -707,7 +867,12 @@ function App() {
               path="/pds2"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <PDS2 />
                 </ProtectedRoute>
@@ -717,7 +882,12 @@ function App() {
               path="/pds3"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <PDS3 />
                 </ProtectedRoute>
@@ -727,7 +897,12 @@ function App() {
               path="/pds4"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <PDS4 />
                 </ProtectedRoute>
@@ -737,7 +912,9 @@ function App() {
             <Route
               path="/payroll-table"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <PayrollProcess />
                 </ProtectedRoute>
               }
@@ -746,7 +923,9 @@ function App() {
             <Route
               path="/payroll-processed"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <PayrollProcessed />
                 </ProtectedRoute>
               }
@@ -755,7 +934,9 @@ function App() {
             <Route
               path="/payroll-processed-jo"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <PayrollProcessedJO />
                 </ProtectedRoute>
               }
@@ -764,7 +945,9 @@ function App() {
             <Route
               path="/payroll-released"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <PayrollReleased />
                 </ProtectedRoute>
               }
@@ -773,7 +956,9 @@ function App() {
             <Route
               path="/payroll-jo"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <PayrollJO />
                 </ProtectedRoute>
               }
@@ -782,7 +967,9 @@ function App() {
             <Route
               path="/remittance-table"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <Remittances />
                 </ProtectedRoute>
               }
@@ -791,7 +978,9 @@ function App() {
             <Route
               path="/philhealth-table"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <PhilHealthTable />
                 </ProtectedRoute>
               }
@@ -800,7 +989,9 @@ function App() {
             <Route
               path="/item-table"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <ItemTable />
                 </ProtectedRoute>
               }
@@ -809,7 +1000,9 @@ function App() {
             <Route
               path="/salary-grade"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <SalaryGradeTable />
                 </ProtectedRoute>
               }
@@ -818,7 +1011,9 @@ function App() {
             <Route
               path="/department-table"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <DepartmentTable />
                 </ProtectedRoute>
               }
@@ -827,7 +1022,9 @@ function App() {
             <Route
               path="/department-assignment"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <DepartmentAssignment />
                 </ProtectedRoute>
               }
@@ -836,7 +1033,9 @@ function App() {
             <Route
               path="/holiday"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <Holiday />
                 </ProtectedRoute>
               }
@@ -845,7 +1044,9 @@ function App() {
             <Route
               path="/assessment-clearance"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <AssessmentClearance />
                 </ProtectedRoute>
               }
@@ -853,7 +1054,9 @@ function App() {
             <Route
               path="/clearance"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <Clearance />
                 </ProtectedRoute>
               }
@@ -861,7 +1064,9 @@ function App() {
             <Route
               path="/clearance-back"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <ClearanceBack />
                 </ProtectedRoute>
               }
@@ -870,7 +1075,9 @@ function App() {
             <Route
               path="/faculty-clearance"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <FacultyClearance />
                 </ProtectedRoute>
               }
@@ -878,7 +1085,9 @@ function App() {
             <Route
               path="/faculty-clearance-70-days"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <FacultyClearance70Days />
                 </ProtectedRoute>
               }
@@ -886,7 +1095,9 @@ function App() {
             <Route
               path="/hrms-request-forms"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <HrmsRequestForms />
                 </ProtectedRoute>
               }
@@ -894,7 +1105,9 @@ function App() {
             <Route
               path="/individual-faculty-loading"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <IndividualFacultyLoading />
                 </ProtectedRoute>
               }
@@ -902,7 +1115,9 @@ function App() {
             <Route
               path="/in-service-training"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <InServiceTraining />
                 </ProtectedRoute>
               }
@@ -910,7 +1125,9 @@ function App() {
             <Route
               path="/leave-card"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <LeaveCard />
                 </ProtectedRoute>
               }
@@ -918,7 +1135,9 @@ function App() {
             <Route
               path="/leave-card-back"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <LeaveCardBack />
                 </ProtectedRoute>
               }
@@ -926,7 +1145,9 @@ function App() {
             <Route
               path="/locator-slip"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <LocatorSlip />
                 </ProtectedRoute>
               }
@@ -934,7 +1155,9 @@ function App() {
             <Route
               path="/permission-to-teach"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <PermissionToTeach />
                 </ProtectedRoute>
               }
@@ -942,7 +1165,9 @@ function App() {
             <Route
               path="/request-for-id"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <RequestForID />
                 </ProtectedRoute>
               }
@@ -950,7 +1175,9 @@ function App() {
             <Route
               path="/saln-front"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <SalnFront />
                 </ProtectedRoute>
               }
@@ -958,7 +1185,9 @@ function App() {
             <Route
               path="/saln-back"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <SalnBack />
                 </ProtectedRoute>
               }
@@ -966,7 +1195,9 @@ function App() {
             <Route
               path="/scholarship-agreement"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <ScholarshipAgreement />
                 </ProtectedRoute>
               }
@@ -974,7 +1205,9 @@ function App() {
             <Route
               path="/subject"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <SubjectStillToBeTaken />
                 </ProtectedRoute>
               }
@@ -984,7 +1217,12 @@ function App() {
               path="/profile"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <Profile />
                 </ProtectedRoute>
@@ -995,7 +1233,12 @@ function App() {
               path="/announcement"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <AnnouncementForm />
                 </ProtectedRoute>
@@ -1006,7 +1249,12 @@ function App() {
               path="/payslip"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <Payslip />
                 </ProtectedRoute>
@@ -1017,7 +1265,12 @@ function App() {
               path="/overall-payslip"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <PayslipOverall />
                 </ProtectedRoute>
@@ -1028,7 +1281,12 @@ function App() {
               path="/distribution-payslip"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <PayslipDistribution />
                 </ProtectedRoute>
@@ -1039,7 +1297,12 @@ function App() {
               path="/loading-overlay"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <LoadingOverlay />
                 </ProtectedRoute>
@@ -1050,7 +1313,12 @@ function App() {
               path="/successful-overlay"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <SuccessfulOverlay />
                 </ProtectedRoute>
@@ -1061,7 +1329,12 @@ function App() {
               path="admin-home"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <AdminHome />
                 </ProtectedRoute>
@@ -1072,14 +1345,19 @@ function App() {
               path="employee-category"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <EmploymentCategoryManagement />
                 </ProtectedRoute>
               }
             />
 
-            <Route path="/leave-table" element={<UnderConstruction />} />
+            {/* <Route path="/leave-table" element={<UnderConstruction />} />
 
             <Route path="/leave-request" element={<UnderConstruction />} />
 
@@ -1089,12 +1367,78 @@ function App() {
 
             <Route path="/leave-date-picker" element={<UnderConstruction />} />
 
-            <Route path="/leave-credits" element={<UnderConstruction />} />
+            <Route path="/leave-credits" element={<UnderConstruction />} /> */}
+
+            <Route
+              path="/leave-table"
+              element={
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
+                  <LeaveTable />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/leave-request"
+              element={
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
+                  <LeaveRequest />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/leave-request-user"
+              element={
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
+                  <LeaveRequestUser />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/leave-assignment"
+              element={
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
+                  <LeaveAssignment />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/leave-date-picker"
+              element={
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
+                  <LeaveDatePickerModal />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/leave-credits"
+              element={
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
+                  <LeaveCredits />
+                </ProtectedRoute>
+              }
+            />
 
             <Route
               path="/users-list"
               element={
-                <ProtectedRoute allowedRoles={["superadmin", "technical"]}>
+                <ProtectedRoute allowedRoles={['superadmin', 'technical']}>
                   <UsersList />
                 </ProtectedRoute>
               }
@@ -1103,9 +1447,7 @@ function App() {
             <Route
               path="/pages-list"
               element={
-                <ProtectedRoute
-                  allowedRoles={["technical"]}
-                >
+                <ProtectedRoute allowedRoles={['technical']}>
                   <PagesList />
                 </ProtectedRoute>
               }
@@ -1114,7 +1456,9 @@ function App() {
             <Route
               path="/audit-logs"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <AuditLogs />
                 </ProtectedRoute>
               }
@@ -1123,7 +1467,9 @@ function App() {
             <Route
               path="/reports"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <Reports />
                 </ProtectedRoute>
               }
@@ -1133,7 +1479,12 @@ function App() {
               path="/employee-reports"
               element={
                 <ProtectedRoute
-                  allowedRoles={["staff", "administrator", "superadmin", "technical"]}
+                  allowedRoles={[
+                    'staff',
+                    'administrator',
+                    'superadmin',
+                    'technical',
+                  ]}
                 >
                   <EmployeeReports />
                 </ProtectedRoute>
@@ -1143,7 +1494,9 @@ function App() {
             <Route
               path="/system-settings"
               element={
-                <ProtectedRoute allowedRoles={["administrator", "superadmin", "technical"]}>
+                <ProtectedRoute
+                  allowedRoles={['administrator', 'superadmin', 'technical']}
+                >
                   <SystemSetting />
                 </ProtectedRoute>
               }
@@ -1152,7 +1505,7 @@ function App() {
             <Route
               path="/payroll-formulas"
               element={
-                <ProtectedRoute allowedRoles={["superadmin", "technical"]}>
+                <ProtectedRoute allowedRoles={['superadmin', 'technical']}>
                   <PayrollFormulas />
                 </ProtectedRoute>
               }
@@ -1161,7 +1514,7 @@ function App() {
             <Route
               path="/admin-security"
               element={
-                <ProtectedRoute allowedRoles={["superadmin", "technical"]}>
+                <ProtectedRoute allowedRoles={['superadmin', 'technical']}>
                   <AdminSecurity />
                 </ProtectedRoute>
               }
@@ -1172,45 +1525,171 @@ function App() {
           </Routes>
         </Box>
 
-        {/* Idle warning dialog */}
-        <Dialog open={idleWarningOpen && isAuthenticatedPage}>
-          <DialogTitle>
-            <b>Session Expiring</b>
-          </DialogTitle>
-          <DialogContent>
-            <Typography>
-              You have been idle for a while. You will be logged out soon due to
-              inactivity.
+        {/* IDLE WARNING DIALOG: PROFESSIONAL, INTERACTIVE, FORMAL */}
+        <Dialog
+          open={idleWarningOpen && isAuthenticatedPage}
+          PaperProps={{
+            sx: {
+              borderRadius: 3,
+              boxShadow: '0px 10px 30px rgba(0,0,0,0.15)',
+              overflow: 'hidden',
+            },
+          }}
+        >
+          {/* 1. Dark Maroon Header with Icon */}
+          <Box
+            sx={{
+              bgcolor: systemSettings.primaryColor,
+              color: 'white',
+              p: 3,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+            }}
+          >
+            <AccessTime sx={{ fontSize: 32 }} />
+            <Typography
+              variant="h6"
+              sx={{ fontWeight: 600, letterSpacing: 0.5 }}
+            >
+              SESSION EXPIRING SOON
             </Typography>
+          </Box>
+
+          <DialogContent sx={{ pb: 1 }}>
+            <Box sx={{ textAlign: 'center', py: 2 }}>
+              <Typography
+                variant="body1"
+                sx={{ color: 'text.secondary', mb: 2 }}
+              >
+                You have been inactive. For security purposes, you will be
+                logged out in:
+              </Typography>
+
+              {/* 2. Interactive Countdown Timer */}
+              <Typography
+                variant="h3"
+                sx={{
+                  fontWeight: 700,
+                  color: systemSettings.primaryColor,
+                  fontFamily: 'monospace', // Monospace makes the numbers stay fixed width
+                  mb: 1,
+                }}
+              >
+                {formatTime(timeLeft)}
+              </Typography>
+
+              {/* 3. Visual Progress Bar */}
+              <LinearProgress
+                variant="determinate"
+                value={(timeLeft / COUNTDOWN_SECONDS) * 100}
+                sx={{
+                  height: 6,
+                  borderRadius: 3,
+                  backgroundColor: '#e0e0e0',
+                  '& .MuiLinearProgress-bar': {
+                    backgroundColor: systemSettings.primaryColor,
+                  },
+                }}
+              />
+            </Box>
           </DialogContent>
-          <DialogActions>
+
+          <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+            <Button
+              onClick={handleLogout}
+              startIcon={<Logout />}
+              variant="outlined"
+              sx={{
+                textTransform: 'none',
+                fontWeight: 500,
+                color: '#6d2323',
+                borderColor: '#6d2323',
+                '&:hover': {
+                  borderColor: '#757575',
+                  backgroundColor: 'rgba(117, 117, 117, 0.04)',
+                },
+              }}
+            >
+              Logout Now
+            </Button>
+
             <Button
               onClick={() => {
                 setIdleWarningOpen(false);
                 resetIdleTimer();
               }}
-              color="primary"
+              variant="contained"
+              disableElevation
+              sx={{
+                px: 3,
+                textTransform: 'none',
+                fontWeight: 600,
+                backgroundColor: systemSettings.primaryColor,
+                '&:hover': {
+                  backgroundColor: systemSettings.hoverColor,
+                },
+              }}
             >
               Stay Logged In
-            </Button>
-            <Button onClick={handleLogout} color="secondary">
-              Logout Now
             </Button>
           </DialogActions>
         </Dialog>
 
-        {/* Session expired dialog - show regardless of page */}
-        <Dialog open={sessionExpired}>
-          <DialogTitle>
-            <b>Session Expired</b>
-          </DialogTitle>
-          <DialogContent>
-            <Typography>
-              You've been inactive for a while. Please sign in again.
+        {/* SESSION EXPIRED DIALOG: PROFESSIONAL, FORMAL */}
+        <Dialog
+          open={sessionExpired}
+          PaperProps={{
+            sx: {
+              borderRadius: 3,
+              boxShadow: '0px 10px 30px rgba(0,0,0,0.15)',
+              overflow: 'hidden',
+            },
+          }}
+        >
+          {/* 1. Dark Maroon Header with Icon */}
+          <Box
+            sx={{
+              bgcolor: systemSettings.primaryColor,
+              color: 'white',
+              p: 3,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+            }}
+          >
+            <Lock sx={{ fontSize: 32 }} />
+            <Typography
+              variant="h6"
+              sx={{ fontWeight: 600, letterSpacing: 0.5 }}
+            >
+              SESSION EXPIRED
+            </Typography>
+          </Box>
+
+          <DialogContent sx={{ textAlign: 'center', py: 3 }}>
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+              You have been inactive for an extended period. For security
+              purposes, your session has expired. Please log in again.
             </Typography>
           </DialogContent>
-          <DialogActions>
-            <Button onClick={handleSessionExpiredClose} color="primary">
+
+          <DialogActions sx={{ px: 3, pb: 3 }}>
+            <Button
+              onClick={handleSessionExpiredClose}
+              variant="contained"
+              fullWidth
+              disableElevation
+              sx={{
+                py: 1.2,
+                textTransform: 'none',
+                fontWeight: 600,
+                backgroundColor: systemSettings.primaryColor,
+                '&:hover': {
+                  backgroundColor: systemSettings.hoverColor,
+                },
+              }}
+            >
               OKAY
             </Button>
           </DialogActions>
@@ -1220,20 +1699,20 @@ function App() {
       <Box
         component="footer"
         sx={{
-          position: "fixed",
+          position: 'fixed',
           bottom: 0,
           left: 0,
-          width: "100%",
+          width: '100%',
           zIndex: (theme) => theme.zIndex.drawer + 1,
           bgcolor: systemSettings.secondaryColor,
           color: systemSettings.textColor,
-          textAlign: "center",
-          padding: "20px",
-          height: "10px",
-          overflow: "hidden",
+          textAlign: 'center',
+          padding: '20px',
+          height: '10px',
+          overflow: 'hidden',
         }}
       >
-        <Typography variant="body2" sx={{ zIndex: 1, position: "relative" }}>
+        <Typography variant="body2" sx={{ zIndex: 1, position: 'relative' }}>
           {systemSettings.footerText}
         </Typography>
       </Box>
