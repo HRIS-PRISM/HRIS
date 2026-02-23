@@ -1040,7 +1040,7 @@ const PayrollProcess = () => {
     'nbcDiffl597',
     'increment',
   ];
-  const SalaryComputation = ['abs', 'h', 'm'];
+  const SalaryComputation = ['dvlt', 'vlb', 'abs', 'h', 'm'];
   const MandatoryDeductions = [
     'withholdingTax',
     'totalGsisDeds',
@@ -1096,6 +1096,14 @@ const PayrollProcess = () => {
         maximumFractionDigits: 2,
       }),
       grossSalary: (parseFloat(calculatedItem.grossSalary) || 0).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+      dvlt: (parseFloat(calculatedItem.dvlt) || 0).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+      vlb: (parseFloat(calculatedItem.vlb) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
@@ -1174,6 +1182,8 @@ const PayrollProcess = () => {
         row.nbcDiffl597,
         row.increment,
         row.grossSalary,
+        row.dvlt,
+        row.vlb,
         row.abs,
         row.h,
         row.m,
@@ -1239,18 +1249,20 @@ const PayrollProcess = () => {
         { value: row.nbcDiffl597, colIndex: 9 },
         { value: row.increment, colIndex: 10 },
         { value: row.grossSalary, colIndex: 11 },
-        { value: row.abs, colIndex: 12 },
-        { value: row.h, colIndex: 13 },
-        { value: row.m, colIndex: 14 },
-        { value: row.netSalary, colIndex: 15 },
-        { value: row.withholdingTax, colIndex: 16 },
-        { value: row.totalGsisDeds, colIndex: 17 },
-        { value: row.totalPagibigDeds, colIndex: 18 },
-        { value: row.PhilHealthContribution, colIndex: 19 },
-        { value: row.totalOtherDeds, colIndex: 20 },
-        { value: row.totalDeductions, colIndex: 21 },
-        { value: row.pay1st, colIndex: 22 },
-        { value: row.pay2nd, colIndex: 23 },
+        { value: row.dvlt, colIndex: 12 },
+        { value: row.vlb, colIndex: 13 },
+        { value: row.abs, colIndex: 14 },
+        { value: row.h, colIndex: 15 },
+        { value: row.m, colIndex: 16 },
+        { value: row.netSalary, colIndex: 17 },
+        { value: row.withholdingTax, colIndex: 18 },
+        { value: row.totalGsisDeds, colIndex: 19 },
+        { value: row.totalPagibigDeds, colIndex: 20 },
+        { value: row.PhilHealthContribution, colIndex: 21 },
+        { value: row.totalOtherDeds, colIndex: 22 },
+        { value: row.totalDeductions, colIndex: 23 },
+        { value: row.pay1st, colIndex: 24 },
+        { value: row.pay2nd, colIndex: 25 },
       ];
 
       columnData.forEach(({ value, colIndex }) => {
@@ -2266,6 +2278,18 @@ const PayrollProcess = () => {
                           isHeader
                           sx={{ color: textPrimaryColor }}
                         >
+                          <b>DVLT</b>
+                        </PremiumTableCell>
+                        <PremiumTableCell
+                          isHeader
+                          sx={{ color: textPrimaryColor }}
+                        >
+                          <b>VLB</b>
+                        </PremiumTableCell>
+                        <PremiumTableCell
+                          isHeader
+                          sx={{ color: textPrimaryColor }}
+                        >
                           <b>ABS</b>
                         </PremiumTableCell>
                         <PremiumTableCell
@@ -2670,6 +2694,12 @@ const PayrollProcess = () => {
                                 </ExcelTableCell>
                                 <ExcelTableCell>
                                   {row.grossSalary}
+                                </ExcelTableCell>
+                                <ExcelTableCell>
+                                  <b>{row.dvlt}</b>
+                                </ExcelTableCell>
+                                <ExcelTableCell>
+                                  <b>{row.vlb}</b>
                                 </ExcelTableCell>
                                 <ExcelTableCell>
                                   <b>{row.abs}</b>
@@ -3573,9 +3603,25 @@ const PayrollProcess = () => {
                         gutterBottom
                         sx={{ color: accentColor }}
                       >
-                        Absent Deductions
+                        Absent Deductions & Leave
                       </Typography>
                       <Grid container spacing={2}>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">
+                            DVLT
+                          </Typography>
+                          <Typography variant="body2" fontWeight="500">
+                            {editRow.dvlt || '0.00'}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">
+                            VLB
+                          </Typography>
+                          <Typography variant="body2" fontWeight="500">
+                            {editRow.vlb || '0.00'}
+                          </Typography>
+                        </Grid>
                         <Grid item xs={4}>
                           <Typography variant="caption" color="text.secondary">
                             ABS
@@ -4066,7 +4112,7 @@ const PayrollProcess = () => {
                       </Grid>
                     </Paper>
 
-                    {/* Absent Deductions - Editable */}
+                    {/* Absent Deductions & Leave - Editable */}
                     <Paper sx={{ p: 2, mb: 2, border: '1px solid #e0e0e0' }}>
                       <Typography
                         variant="subtitle1"
@@ -4074,9 +4120,29 @@ const PayrollProcess = () => {
                         gutterBottom
                         sx={{ color: accentColor }}
                       >
-                        Absent Deductions
+                        Absent Deductions & Leave
                       </Typography>
                       <Grid container spacing={2}>
+                        <Grid item xs={4}>
+                          <TextField
+                            fullWidth
+                            label="DVLT"
+                            name="dvlt"
+                            value={editRow.dvlt || ''}
+                            onChange={handleModalChange}
+                            size="small"
+                          />
+                        </Grid>
+                        <Grid item xs={4}>
+                          <TextField
+                            fullWidth
+                            label="VLB"
+                            name="vlb"
+                            value={editRow.vlb || ''}
+                            onChange={handleModalChange}
+                            size="small"
+                          />
+                        </Grid>
                         <Grid item xs={4}>
                           <TextField
                             fullWidth
@@ -4754,7 +4820,7 @@ const PayrollProcess = () => {
                     </Grid>
                   </Paper>
 
-                  {/* Absent Deductions */}
+                  {/* Absent Deductions & Leave */}
                   <Paper sx={{ p: 2, mb: 2, bgcolor: 'white' }}>
                     <Typography
                       variant="subtitle1"
@@ -4762,9 +4828,25 @@ const PayrollProcess = () => {
                       gutterBottom
                       sx={{ color: accentColor }}
                     >
-                      Absent Deductions
+                      Absent Deductions & Leave
                     </Typography>
                     <Grid container spacing={2}>
+                      <Grid item xs={4}>
+                        <Typography variant="caption" color="text.secondary">
+                          DVLT
+                        </Typography>
+                        <Typography variant="body2" fontWeight="500">
+                          {viewRow.dvlt || '0.00'}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={4}>
+                        <Typography variant="caption" color="text.secondary">
+                          VLB
+                        </Typography>
+                        <Typography variant="body2" fontWeight="500">
+                          {viewRow.vlb || '0.00'}
+                        </Typography>
+                      </Grid>
                       <Grid item xs={4}>
                         <Typography variant="caption" color="text.secondary">
                           ABS
@@ -5753,6 +5835,12 @@ const PayrollProcess = () => {
                       <ExcelCell isHeader sx={{ width: 100 }}>
                         Gross Salary
                       </ExcelCell>
+                      <ExcelCell isHeader sx={{ width: 80 }}>
+                        DVLT
+                      </ExcelCell>
+                      <ExcelCell isHeader sx={{ width: 80 }}>
+                        VLB
+                      </ExcelCell>
                       <ExcelCell isHeader sx={{ width: 60 }}>
                         ABS
                       </ExcelCell>
@@ -5797,7 +5885,7 @@ const PayrollProcess = () => {
                     {getFilteredExcelRows().length === 0 ? (
                       <TableRow>
                         <ExcelCell
-                          colSpan={24}
+                          colSpan={26}
                           sx={{ textAlign: 'center', py: 8 }}
                         >
                           <Box
@@ -5970,7 +6058,7 @@ const PayrollProcess = () => {
                               onClick={() => handleCellClick(displayIndex, 12)}
                               sx={{ fontWeight: 'bold' }}
                             >
-                              {row.abs}
+                              {row.dvlt}
                             </ExcelCell>
                             <ExcelCell
                               isSelected={isCellSelected(displayIndex, 13)}
@@ -5979,8 +6067,9 @@ const PayrollProcess = () => {
                                 13
                               )}
                               onClick={() => handleCellClick(displayIndex, 13)}
+                              sx={{ fontWeight: 'bold' }}
                             >
-                              {row.h}
+                              {row.vlb}
                             </ExcelCell>
                             <ExcelCell
                               isSelected={isCellSelected(displayIndex, 14)}
@@ -5989,8 +6078,9 @@ const PayrollProcess = () => {
                                 14
                               )}
                               onClick={() => handleCellClick(displayIndex, 14)}
+                              sx={{ fontWeight: 'bold' }}
                             >
-                              {row.m}
+                              {row.abs}
                             </ExcelCell>
                             <ExcelCell
                               isSelected={isCellSelected(displayIndex, 15)}
@@ -6000,7 +6090,7 @@ const PayrollProcess = () => {
                               )}
                               onClick={() => handleCellClick(displayIndex, 15)}
                             >
-                              {row.netSalary}
+                              {row.h}
                             </ExcelCell>
                             <ExcelCell
                               isSelected={isCellSelected(displayIndex, 16)}
@@ -6010,7 +6100,7 @@ const PayrollProcess = () => {
                               )}
                               onClick={() => handleCellClick(displayIndex, 16)}
                             >
-                              {row.withholdingTax}
+                              {row.m}
                             </ExcelCell>
                             <ExcelCell
                               isSelected={isCellSelected(displayIndex, 17)}
@@ -6020,7 +6110,7 @@ const PayrollProcess = () => {
                               )}
                               onClick={() => handleCellClick(displayIndex, 17)}
                             >
-                              {row.totalGsisDeds}
+                              {row.netSalary}
                             </ExcelCell>
                             <ExcelCell
                               isSelected={isCellSelected(displayIndex, 18)}
@@ -6030,7 +6120,7 @@ const PayrollProcess = () => {
                               )}
                               onClick={() => handleCellClick(displayIndex, 18)}
                             >
-                              {row.totalPagibigDeds}
+                              {row.withholdingTax}
                             </ExcelCell>
                             <ExcelCell
                               isSelected={isCellSelected(displayIndex, 19)}
@@ -6040,7 +6130,7 @@ const PayrollProcess = () => {
                               )}
                               onClick={() => handleCellClick(displayIndex, 19)}
                             >
-                              {row.PhilHealthContribution}
+                              {row.totalGsisDeds}
                             </ExcelCell>
                             <ExcelCell
                               isSelected={isCellSelected(displayIndex, 20)}
@@ -6050,7 +6140,7 @@ const PayrollProcess = () => {
                               )}
                               onClick={() => handleCellClick(displayIndex, 20)}
                             >
-                              {row.totalOtherDeds}
+                              {row.totalPagibigDeds}
                             </ExcelCell>
                             <ExcelCell
                               isSelected={isCellSelected(displayIndex, 21)}
@@ -6060,7 +6150,7 @@ const PayrollProcess = () => {
                               )}
                               onClick={() => handleCellClick(displayIndex, 21)}
                             >
-                              {row.totalDeductions}
+                              {row.PhilHealthContribution}
                             </ExcelCell>
                             <ExcelCell
                               isSelected={isCellSelected(displayIndex, 22)}
@@ -6069,9 +6159,8 @@ const PayrollProcess = () => {
                                 22
                               )}
                               onClick={() => handleCellClick(displayIndex, 22)}
-                              sx={{ color: 'red', fontWeight: 'bold' }}
                             >
-                              {row.pay1st}
+                              {row.totalOtherDeds}
                             </ExcelCell>
                             <ExcelCell
                               isSelected={isCellSelected(displayIndex, 23)}
@@ -6080,6 +6169,27 @@ const PayrollProcess = () => {
                                 23
                               )}
                               onClick={() => handleCellClick(displayIndex, 23)}
+                            >
+                              {row.totalDeductions}
+                            </ExcelCell>
+                            <ExcelCell
+                              isSelected={isCellSelected(displayIndex, 24)}
+                              isHighlighted={isCellHighlighted(
+                                displayIndex,
+                                24
+                              )}
+                              onClick={() => handleCellClick(displayIndex, 24)}
+                              sx={{ color: 'red', fontWeight: 'bold' }}
+                            >
+                              {row.pay1st}
+                            </ExcelCell>
+                            <ExcelCell
+                              isSelected={isCellSelected(displayIndex, 25)}
+                              isHighlighted={isCellHighlighted(
+                                displayIndex,
+                                25
+                              )}
+                              onClick={() => handleCellClick(displayIndex, 25)}
                               sx={{ color: 'red', fontWeight: 'bold' }}
                             >
                               {row.pay2nd}
