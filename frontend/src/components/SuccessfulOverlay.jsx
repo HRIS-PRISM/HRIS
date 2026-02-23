@@ -25,6 +25,9 @@ const SuccessfulOverlay = ({ open, action, onClose, showOkButton = false }) => {
       case 'download': return 'Successfully Downloaded!';
       case 'gmail': return 'Successfully Sent to Gmail!';
       case 'reset': return 'Successfully Reset!';
+      case 'bulk': return 'Successfully Updated!';
+      case 'status': return 'Status Updated!';
+      case 'cancel': return 'Successfully Cancelled!';
       default: return 'Successful!';
     }
   };
