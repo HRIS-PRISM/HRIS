@@ -1,5 +1,5 @@
 import API_BASE_URL from "../apiConfig";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import {
@@ -156,8 +156,13 @@ const AuditLogs = () => {
   const [sessionTimer, setSessionTimer] = useState(600); // 10 minutes in seconds
   const [sessionWarningShown, setSessionWarningShown] = useState(false);
   const [sessionWarningOpen, setSessionWarningOpen] = useState(false);
+  const [virtualScrollTop, setVirtualScrollTop] = useState(0);
+  const logScrollRef = useRef(null);
 
   const SESSION_DURATION = 10 * 60 * 1000; // 10 minutes in milliseconds
+  const LOG_LIST_HEIGHT = 500;
+  const LOG_ROW_HEIGHT = 120;
+  const LOG_OVERSCAN = 8;
 
   const settings = useSystemSettings();
 
@@ -378,6 +383,13 @@ const AuditLogs = () => {
     }
   }, [isAuthenticated]);
 
+  useEffect(() => {
+    setVirtualScrollTop(0);
+    if (logScrollRef.current) {
+      logScrollRef.current.scrollTop = 0;
+    }
+  }, [actionFilter, moduleFilter, dateFilter, isAuthenticated]);
+
   // Filter logs
   useEffect(() => {
     let filtered = [...auditLogs];
@@ -590,12 +602,42 @@ const AuditLogs = () => {
     setToast({});
   };
 
+  // Store first the action needed to normalize
+  const ACTION_MAP = {
+    CREATE: ["ADD", "INSERT", "CREATE", "REGISTER", "SEND", ],
+    VIEW: ["VIEW", "OPEN", "READ"],
+    SEARCH: ["SEARCH", "FILTER", "FIND"],
+    UPDATE: ["UPDATE", "UPDATED", "EDIT", "MODIFY", "CHANGE"],
+    DELETE: ["DELETE", "REMOVE", "DESTROY"],
+    PRINT: ["PRINT", "EXPORT", "DOWNLOAD"],
+  };
+
+  // Normalize first the action before putting on map
+  const normalizeAction = (action) => {
+    if (typeof action !== "string") return null;
+    
+
+    const normalized = action.trim().toUpperCase();
+    if (!normalized) return null;
+
+    for (const [mainAction, keywords] of Object.entries(ACTION_MAP)) {
+      if (keywords.some((keyword) => normalized.includes(keyword))) {
+        return mainAction;
+      }
+    }
+
+    return normalized;
+  };
+
   // Get unique actions for filter
   const getUniqueActions = () => {
-    const actions = [
-      ...new Set(auditLogs.map((log) => log.action).filter(Boolean)),
-    ];
-    return actions.sort();
+    return [
+      ...new Set(
+        auditLogs
+          .map((log) => normalizeAction(log.action))
+          .filter(Boolean)
+      ),
+    ].sort();
   };
 
   // Get unique modules for filter
@@ -605,6 +647,41 @@ const AuditLogs = () => {
     ];
     return modules.sort();
   };
+
+  const virtualizationRange = useMemo(() => {
+    const totalItems = filteredLogs.length;
+    if (totalItems === 0) {
+      return { startIndex: 0, endIndex: -1 };
+    }
+
+    const startIndex = Math.max(
+      Math.floor(virtualScrollTop / LOG_ROW_HEIGHT) - LOG_OVERSCAN,
+      0
+    );
+    const endIndex = Math.min(
+      totalItems - 1,
+      Math.ceil((virtualScrollTop + LOG_LIST_HEIGHT) / LOG_ROW_HEIGHT) +
+        LOG_OVERSCAN
+    );
+
+    return { startIndex, endIndex };
+  }, [filteredLogs.length, virtualScrollTop]);
+
+  const visibleLogs = useMemo(() => {
+    if (virtualizationRange.endIndex < virtualizationRange.startIndex) {
+      return [];
+    }
+
+    return filteredLogs.slice(
+      virtualizationRange.startIndex,
+      virtualizationRange.endIndex + 1
+    );
+  }, [filteredLogs, virtualizationRange]);
+
+  const topSpacerHeight = virtualizationRange.startIndex * LOG_ROW_HEIGHT;
+  const bottomSpacerHeight =
+    Math.max(filteredLogs.length - virtualizationRange.endIndex - 1, 0) *
+    LOG_ROW_HEIGHT;
 
 
   // ACCESSING 2
@@ -1299,8 +1376,12 @@ const AuditLogs = () => {
 
               {/* Scrollable container for log entries */}
               <Box
+                ref={logScrollRef}
+                onScroll={(event) =>
+                  setVirtualScrollTop(event.currentTarget.scrollTop)
+                }
                 sx={{
-                  height: "500px",
+                  height: `${LOG_LIST_HEIGHT}px`,
                   overflowY: "auto",
                   p: 3,
                   "&::-webkit-scrollbar": {
@@ -1356,15 +1437,20 @@ const AuditLogs = () => {
                   </Box>
                 ) : (
                   <Box>
-                    {filteredLogs.map((log, index) => {
+                    {topSpacerHeight > 0 && (
+                      <Box sx={{ height: `${topSpacerHeight}px` }} />
+                    )}
+                    {visibleLogs.map((log, index) => {
+                      const virtualIndex = virtualizationRange.startIndex + index;
                       const actionColor = getActionColor(log.action);
 
                       return (
                         <Box
-                          key={log.id || index}
+                          key={log.id || virtualIndex}
                           sx={{
                             p: 2,
                             mb: 1.5,
+                            minHeight: `${LOG_ROW_HEIGHT - 12}px`,
                             backgroundColor: "#f9fafb",
                             borderLeft: `4px solid ${actionColor}`,
                             borderRadius: "8px",
@@ -1385,6 +1471,10 @@ const AuditLogs = () => {
                           <Box
                             sx={{
                               color: "#1f2937",
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                              overflow: "hidden",
                               "& strong": {
                                 fontWeight: 600,
                               },
@@ -1448,6 +1538,9 @@ const AuditLogs = () => {
                         </Box>
                       );
                     })}
+                    {bottomSpacerHeight > 0 && (
+                      <Box sx={{ height: `${bottomSpacerHeight}px` }} />
+                    )}
                   </Box>
                 )}
               </Box>
