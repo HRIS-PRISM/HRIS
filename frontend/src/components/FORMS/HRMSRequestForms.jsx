@@ -65,18 +65,41 @@ const HrmsRequestForms = () => {
               </div>
               <div style={{position: 'relative', top: '201px', left: '-0.75in', width: '8in', height: '0.03in', backgroundColor: 'black', margin: 'auto' }}/>
               <div style={{position: 'relative', top: '50px', right: '0.70in', width: '8in', float: 'left'}}>
-                <b><font size="3">I. PRINTED NAME OF THE REQUESTING EMPLOYEE: _____________________________________</font></b>
+                <b><font size="3">I. PRINTED NAME OF THE REQUESTING EMPLOYEE:{' '}
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      width: '500px',
+                      borderBottom: '1px solid black',
+                    }}
+                  />
+                </font></b>
               </div>
               <div style={{position: 'relative', top: '50px', left: '0.52in', float: 'right',}}>
               <b><font size="2">(Please use the back page if more than one employee)</font></b>
               </div>
-              <div style={{position: 'relative', top: '285px', left: '-0.75in', width: '8in', height: '0.03in', backgroundColor: 'black', margin: 'auto' }}/>
+              <div style={{position: 'relative', top: '285px', left: '-0.75in', width: '8in', height: '0.04in', backgroundColor: 'black', margin: 'auto' }}/>
               <div style={{position: 'relative', top: '60px', left: '-0.70in', width: '8in', float: 'left'}}>
               <b><font size="3">II. ADDRESS:</font></b>
               </div>
               <div style={{position: 'relative', top: '45px', left: '1.80in', width: '8in', float: 'right'}}>
-              <b><font size="3">_______________________________________________<br />
-              _______________________________________________</font></b>
+              <b><font size="3">
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '500px',
+                    borderBottom: '1px solid black',
+                  }}
+                />
+                <br />
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '500px',
+                    borderBottom: '1px solid black',
+                  }}
+                />
+              </font></b>
               </div>
               <div style={{position: 'relative', top: '350px', left: '-.75in', width: '8in', height: '0.03in', backgroundColor: 'black', margin: 'auto'}}/>
               <div style={{position: 'relative', top: '60px', left: '-.70in', width: '8in', float: 'left'}}>
@@ -102,27 +125,59 @@ const HrmsRequestForms = () => {
               </div>
               <div style={{position: 'relative', top: '-45px', left: '-0.50in', width: '8in', float: 'left'}}>
               <font size="3"><b>Other Documents</b><br />
-              <i>Please specify: ______________________________________________</i></font>
+              <i>Please specify:{' '}
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '500px',
+                    borderBottom: '1px solid black',
+                  }}
+                />
+              </i></font>
               </div>
               <div style={{position: 'relative', top: '15.15cm', left: '-0.75in', width: '8in', height: '0.03in', backgroundColor: 'black', margin: 'auto'}}/>
               <div style={{position: 'relative', top:'-28px', left: '-0.70in', width: '8in', float: 'left'}}>
               <b><font size="3">IV. PURPOSE OF REQUEST:</font></b>
               </div>
               <div style={{position: 'relative', top: '-1cm', left: '3in', width: '8in', float: 'right'}}>
-              <b><font size="3">______________________________________</font></b>
+              <b><font size="3">
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '400px',
+                    borderBottom: '1px solid black',
+                  }}
+                />
+              </font></b>
               </div>
               <div style={{position: 'relative', top: '16.45cm', left: '-0.75in', width: '8in', height: '0.03in', backgroundColor: 'black', margin: 'auto'}}/>
               <div style={{position: 'relative', top: '-0.75cm', left: '-0.69in', width: '8in', float: 'left'}}>
               <b><font size="3">V. REQUESTED BY:</font></b>
               </div>
               <div style={{position: 'relative', top: '-20px', left: '-0.75in', width: '4in', float: 'left', textAlign: 'center'}}>
-              <font size="3"><b>_______________________</b><br />(Name and Signature)</font>
+              <font size="3"><b>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '300px',
+                    borderBottom: '1px solid black',
+                  }}
+                />
+              </b><br />(Name and Signature)</font>
               </div>
               <div style={{position: 'relative', top: '-2.60cm', left: '5.1in', width: '8in', float: 'right'}}>
               <b><font size="3">VI. RECEIVED BY:</font></b>
               </div>
               <div style={{position: 'relative', top: '-90px', left: '0.8in', width: '4in', float: 'right', textAlign: 'center'}}>
-              <font size="3"><b>________________________</b><br />(Name and Signature)</font>
+              <font size="3"><b>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '300px',
+                    borderBottom: '1px solid black',
+                  }}
+                />
+              </b><br />(Name and Signature)</font>
               </div>
               <div style={{position: 'relative', top: '16.40cm', left: '0in', width: '0.03in', height: '0.75in', backgroundColor: 'black', margin: 'auto'}}/>
               <div style={{position: 'relative', top: '-1.75cm', left: '-0.75in', width: '4in', float: 'left'}}>
@@ -193,7 +248,15 @@ const HrmsRequestForms = () => {
               </div>
               <div style={{position: 'relative', top: '201px', left: '-0.75in', width: '8in', height: '0.03in', backgroundColor: 'black', margin: 'auto' }}/>
               <div style={{position: 'relative', top: '50px', right: '0.70in', width: '8in', float: 'left'}}>
-                <b><font size="3">I. PRINTED NAME OF THE REQUESTING EMPLOYEE: _____________________________________</font></b>
+                <b><font size="3">I. PRINTED NAME OF THE REQUESTING EMPLOYEE:{' '}
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      width: '500px',
+                      borderBottom: '1px solid black',
+                    }}
+                  />
+                </font></b>
               </div>
               <div style={{position: 'relative', top: '50px', left: '0.52in', float: 'right',}}>
               <b><font size="2">(Please use the back page if more than one employee)</font></b>
@@ -203,8 +266,23 @@ const HrmsRequestForms = () => {
               <b><font size="3">II. ADDRESS:</font></b>
               </div>
               <div style={{position: 'relative', top: '45px', left: '1.80in', width: '8in', float: 'right'}}>
-              <b><font size="3">_______________________________________________<br />
-              _______________________________________________</font></b>
+              <b><font size="3">
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '500px',
+                    borderBottom: '1px solid black',
+                  }}
+                />
+                <br />
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '500px',
+                    borderBottom: '1px solid black',
+                  }}
+                />
+              </font></b>
               </div>
               <div style={{position: 'relative', top: '350px', left: '-.75in', width: '8in', height: '0.03in', backgroundColor: 'black', margin: 'auto'}}/>
               <div style={{position: 'relative', top: '60px', left: '-.70in', width: '8in', float: 'left'}}>
@@ -230,27 +308,59 @@ const HrmsRequestForms = () => {
               </div>
               <div style={{position: 'relative', top: '-45px', left: '-0.50in', width: '8in', float: 'left'}}>
               <font size="3"><b>Other Documents</b><br />
-              <i>Please specify: ______________________________________________</i></font>
+              <i>Please specify:{' '}
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '500px',
+                    borderBottom: '1px solid black',
+                  }}
+                />
+              </i></font>
               </div>
               <div style={{position: 'relative', top: '15.15cm', left: '-0.75in', width: '8in', height: '0.03in', backgroundColor: 'black', margin: 'auto'}}/>
               <div style={{position: 'relative', top:'-28px', left: '-0.70in', width: '8in', float: 'left'}}>
               <b><font size="3">IV. PURPOSE OF REQUEST:</font></b>
               </div>
               <div style={{position: 'relative', top: '-1cm', left: '3in', width: '8in', float: 'right'}}>
-              <b><font size="3">______________________________________</font></b>
+              <b><font size="3">
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '400px',
+                    borderBottom: '1px solid black',
+                  }}
+                />
+              </font></b>
               </div>
               <div style={{position: 'relative', top: '16.45cm', left: '-0.75in', width: '8in', height: '0.03in', backgroundColor: 'black', margin: 'auto'}}/>
               <div style={{position: 'relative', top: '-0.75cm', left: '-0.69in', width: '8in', float: 'left'}}>
               <b><font size="3">V. REQUESTED BY:</font></b>
               </div>
               <div style={{position: 'relative', top: '-20px', left: '-0.75in', width: '4in', float: 'left', textAlign: 'center'}}>
-              <font size="3"><b>_______________________</b><br />(Name and Signature)</font>
+              <font size="3"><b>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '300px',
+                    borderBottom: '1px solid black',
+                  }}
+                />
+              </b><br />(Name and Signature)</font>
               </div>
               <div style={{position: 'relative', top: '-2.60cm', left: '5.1in', width: '8in', float: 'right'}}>
               <b><font size="3">VI. RECEIVED BY:</font></b>
               </div>
               <div style={{position: 'relative', top: '-90px', left: '0.8in', width: '4in', float: 'right', textAlign: 'center'}}>
-              <font size="3"><b>________________________</b><br />(Name and Signature)</font>
+              <font size="3"><b>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '300px',
+                    borderBottom: '1px solid black',
+                  }}
+                />
+              </b><br />(Name and Signature)</font>
               </div>
               <div style={{position: 'relative', top: '16.40cm', left: '0in', width: '0.03in', height: '0.75in', backgroundColor: 'black', margin: 'auto'}}/>
               <div style={{position: 'relative', top: '-1.75cm', left: '-0.75in', width: '4in', float: 'left'}}>

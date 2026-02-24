@@ -360,10 +360,7 @@ const AssessmentClearance = () => {
   };
 
   // Helper function to render text with underline only when data exists
-  const renderWithUnderline = (
-    value,
-    placeholder = '________________________',
-  ) => {
+  const renderWithUnderline = (value, emptyLineWidth = '45px') => {
     if (value) {
       return (
         <span
@@ -388,7 +385,16 @@ const AssessmentClearance = () => {
         </span>
       );
     }
-    return placeholder;
+    
+    return (
+      <span
+        style={{
+          display: 'inline-block',
+          width: emptyLineWidth,
+          borderBottom: '1px solid black',
+        }}
+      />
+    );
   };
 
   // Render the form display (left side)
@@ -405,15 +411,13 @@ const AssessmentClearance = () => {
           fontFamily: 'Poppins, sans-serif',
           alignContent: 'center',
           margin: 'auto',
-          marginTop: '20px',
+          marginTop: '80px',
           marginBottom: '20px',
           backgroundColor: '#ffffff',
           boxSizing: 'border-box',
         }}
       >
         <div style={{ width: '5.25in', margin: 'auto' }}>
-          <br />
-          <br />
           <div style={{ width: '5.25in', margin: 'auto', textAlign: 'center' }}>
             <img
               src={logo}
@@ -436,7 +440,7 @@ const AssessmentClearance = () => {
             </div>
           </div>
           <div style={{ textAlign: 'center', marginTop: '10px' }}>
-            {renderWithUnderline(formData.date, '__________________')}
+            {renderWithUnderline(formData.date, '200px')}
             <div style={{ marginTop: '2px', fontSize: '90%' }}>Date</div>
           </div>
           <div style={{ textAlign: 'center', marginTop: '15px' }}>
@@ -446,11 +450,33 @@ const AssessmentClearance = () => {
               </i>
             </b>
             <br />
-            <br />1<sup>ST</sup> {formData.first_semester ? '✓' : '____'} 2
-            <sup>ND</sup> {formData.second_semester ? '✓' : '____'}{' '}
+            <br />1<sup>ST</sup>{' '}
+            {formData.first_semester ? (
+              '✓'
+            ) : (
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: '45px',
+                  borderBottom: '1px solid black',
+                }}
+              />
+            )}{' '}
+            2<sup>ND</sup>{' '}
+            {formData.second_semester ? (
+              '✓'
+            ) : (
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: '45px',
+                  borderBottom: '1px solid black',
+                }}
+              />
+            )}{' '}
             Semester/School year{' '}
-            {renderWithUnderline(formData.school_year_from, '_____')} -{' '}
-            {renderWithUnderline(formData.school_year_to, '______')}
+            {renderWithUnderline(formData.school_year_from, '45px')} -{' '}
+            {renderWithUnderline(formData.school_year_to, '45px')}
             <br />
           </div>
         </div>
@@ -466,19 +492,19 @@ const AssessmentClearance = () => {
         >
           <tr>
             <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-              {renderWithUnderline(formData.name)}
+              {renderWithUnderline(formData.name, '100%')}
             </td>
             <td colSpan="2" style={{ height: '0.25in', textAlign: 'center' }}>
               &nbsp;
             </td>
             <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-              {renderWithUnderline(formData.position)}
+              {renderWithUnderline(formData.position, '100%')}
             </td>
             <td colSpan="2" style={{ height: '0.25in', textAlign: 'center' }}>
               of
             </td>
             <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-              {renderWithUnderline(formData.department)}
+              {renderWithUnderline(formData.department, '100%')}
             </td>
           </tr>
           <tr>
@@ -607,7 +633,7 @@ const AssessmentClearance = () => {
                 textAlign: 'center',
               }}
             >
-              {renderWithUnderline(formData.date_signed, '')}
+              {formData.date_signed}
             </td>
           </tr>
           <tr>
@@ -800,10 +826,7 @@ const AssessmentClearance = () => {
                 verticalAlign: 'bottom',
               }}
             >
-              {renderWithUnderline(
-                formData.date_fully_accomplished,
-                '________________________',
-              )}
+              {renderWithUnderline(formData.date_fully_accomplished, '200px')}
               <br />
               Date Fully Accomplished
             </td>
@@ -818,7 +841,7 @@ const AssessmentClearance = () => {
             >
               {renderWithUnderline(
                 formData.vacation_address,
-                '______________________________',
+                '100%',
               )}
               <br />
               Vacation Address
@@ -844,10 +867,7 @@ const AssessmentClearance = () => {
             <td colSpan="32" style={{ height: '0.35in', fontSize: '90%' }}>
               <b>
                 DEADLINE OF SUBMISSION:{' '}
-                {renderWithUnderline(
-                  formData.deadline_of_submission,
-                  '______________________________',
-                )}{' '}
+                {renderWithUnderline(formData.deadline_of_submission, '200px')}{' '}
               </b>
             </td>
           </tr>

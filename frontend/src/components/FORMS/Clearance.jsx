@@ -4,26 +4,15 @@ import Button from "@mui/material/Button";
 import NavigateNextIcon from "@mui/icons-material/NavigateNext";
 import { useNavigate } from "react-router-dom"; // Import useNavigate
 
-
-
-
- 
 const Clearance = () => {
     const handleNext = () => {
         navigate("/clearance-back");
       };
    
     const navigate = useNavigate();
-
-
-   
-   
 return (
-
-
     <div
       style={{
-        border: "1px solid black",
         padding: "0.25in",
         width: "8in",
         height: "15.5in",
@@ -31,10 +20,11 @@ return (
         alignContent:'center',
         margin: 'auto',
         marginTop: '50px',
+        marginBottom: '30%',
         backgroundColor: '#ffffff',
       }}
     >
-      <span style={{ fontSize: "2", fontWeight: "bold", fontStyle: "italic"}}>
+      <span style={{ fontSize: "12px", fontWeight: "bold", fontStyle: "italic"}}>
         CS Form No. 7
         <br />
         Revised 2018
@@ -42,12 +32,12 @@ return (
 
 
       <div style={{ width: "5.25in", margin: "auto" }}>
-        <div style={{ position: "relative", top: "10px", float: "left" }}>
+        <div style={{ position: "relative", top: "20px", float: "left", left: "-30px" }}>
           <img src= {logo} alt="Logo" height="90px" />
         </div>
 
 
-        <div style={{position: 'relative', top: '15px', textAlign: 'center', float: 'right'}}>
+        <div style={{position: 'relative', top: '15px', textAlign: 'center', float: 'right', left: '-75px'}}>
             <font size="3">Republic of the Philippines</font><br />
             <b><font size="4">EULOGIO "AMANG" RODRIGUEZ</font></b><br />
             <b><font size="4">INSTITUTE OF SCIENCE AND TECHNOLOGY</font></b><br />
@@ -59,10 +49,8 @@ return (
       <div style={{padding: '0.1in', width: '4in', textAlign: 'center', margin: 'auto'}}>
         <font size="5">CLEARANCE FORM</font><br />
         <font size="2"><i>(Instructions at the back)</i></font>
-    </div>
-
-
-          <table style={{border:'3px solid black', borderCollapse:'collapse', width:'8in', tableLayout:'fixed'}}>
+      </div>
+      <table style={{border:'3px solid black', borderCollapse:'collapse', width:'8in', tableLayout:'fixed'}}>
           <tr>
             <td colSpan="1" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px solid black' }}>
             I
@@ -71,12 +59,19 @@ return (
             PURPOSE
             </td>
         </tr>
-    <tr>
+        <tr>
             <td colSpan="12" style={{height: '0.1in', border: '0px solid black'}}>
             &nbsp;
             </td>
             <td colSpan="10" style={{height: '0.1in', border: '0px solid black', textAlign: 'center'}}>
-            ______________________________<br />
+            <span
+              style={{
+                display: 'inline-block',
+                width: '320px',
+                borderBottom: '1px solid black',
+              }}
+            />
+            <br />
             Date of Filing
             </td>
         </tr>
@@ -105,28 +100,63 @@ return (
             </td>
             <td colSpan="9">
             [ ] Other Mode of Separation:<br />
-            &nbsp;&nbsp;&nbsp; Please specify: ________________
+            &nbsp;&nbsp;&nbsp; Please specify:{' '}
+            <span
+              style={{
+                display: 'inline-block',
+                width: '200px',
+                borderBottom: '1px solid black',
+              }}
+            />
             </td>
            
         </tr>
         <tr>
             <td colSpan="20" style={{height: '0.1in',}}>
             <br />
-            Date of Effectivity: ____________________________________________________
+            Date of Effectivity:{' '}
+            <span
+              style={{
+                display: 'inline-block',
+                width: '80%',
+                borderBottom: '1px solid black',
+              }}
+            />
             <br />
             </td>
         </tr>
         <tr>
             <td colSpan="12" style={{height: '0.1in', border: '1px solid black'}}>
             <br />
-            Office of Assignment: __________________________
+            Office of Assignment:{' '}
+            <span
+              style={{
+                display: 'inline-block',
+                width: '300px',
+                borderBottom: '1px solid black',
+              }}
+            />
             <br />
             <br />
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Position/SG/Step: __________________________
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Position/SG/Step:{' '}
+            <span
+              style={{
+                display: 'inline-block',
+                width: '300px',
+                borderBottom: '1px solid black',
+              }}
+            />
             </td>
             <td colSpan="10" style={{height: '0.1in', border: '1px solid black', textAlign: 'center'}}>
             <br />
-            ______________________________<br />
+            <span
+              style={{
+                display: 'inline-block',
+                width: '300px',
+                borderBottom: '1px solid black',
+              }}
+            />
+            <br />
             Name and Signature of Employee
             </td>
         </tr>
@@ -150,12 +180,26 @@ return (
         <tr>
             <td colSpan="11" style={{height: '0.1in', border: '0px solid black', textAlign: 'center'}}>
             <br />
-            ______________________________<br />
+            <span
+              style={{
+                display: 'inline-block',
+                width: '300px',
+                borderBottom: '1px solid black',
+              }}
+            />
+            <br />
             Immediate Supervisor
             </td>
             <td colSpan="11" style={{height: '0.1in', border: '0px solid black', textAlign: 'center'}}>
             <br />
-            ______________________________<br />
+            <span
+              style={{
+                display: 'inline-block',
+                width: '300px',
+                borderBottom: '1px solid black',
+              }}
+            />
+            <br />
             Head of Office
             </td>
         </tr>

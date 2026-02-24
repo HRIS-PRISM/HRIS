@@ -14,7 +14,6 @@ const ClearanceBack = () => {
 
     return (
         <div style={{
-            border: '1px solid black',
             padding: '0.25in',
             width: '8in',
             height: '10.5in',
@@ -23,8 +22,7 @@ const ClearanceBack = () => {
             margin: 'auto',
             marginTop: '50px',
             backgroundColor: '#ffffff'
-            
-            }}>
+        }}>
             <font size="4">
 
 
@@ -34,33 +32,31 @@ const ClearanceBack = () => {
 
 
             <ol type="1">
-                <li>Employees who are retiring, being separated, transferring to other agencies,<br />
-                leaving the Philippines and going on leave of absence <b>for more than 30 days</b><br />
-                shall prepare this form in quadruplicate.<br /><br />
+                <li style={{textAlign: "justify", width: "100%"}}>Employees who are retiring, being separated, transferring to other agencies,
+                leaving the Philippines and going on leave of absence <b>for more than 30 days</b> shall prepare this form in quadruplicate.<br /><br />
                 </li>
-                <li>This clearance should be duly accomplished before paying the last salary or<br />
-                any money due the employees. (Specify which type of clearance: maternity<br />
-                leave, retirement, transfer, etc.)<br /><br />
+                <li style={{textAlign: "justify", width: "100%"}}>This clearance should be duly accomplished before paying the last salary or
+                any money due the employees. (Specify which type of clearance: maternity leave, retirement, transfer, etc.)<br /><br />
                 </li>
-                <li>If the employees are cleared from a unit/office/department, the<br />
-                clearing/authorized official may attach to this clearance the pertinent<br />
-                documents that shall prove that the employees are cleared of any obligation or<br />
-                accountability from their office, if any, and tick the box under the "Cleared"<br />
+                <li style={{textAlign: "justify", width: "100%"}}>If the employees are cleared from a unit/office/department, the
+                clearing/authorized official may attach to this clearance the pertinent
+                documents that shall prove that the employees are cleared of any obligation or
+                accountability from their office, if any, and tick the box under the "Cleared"
                 column before affixing their signatures.<br /><br />
                 </li>
-                <li>If the employees appear to have uncleared accountability/ies from a<br />
-                unit/office/department, the clearing/authorized official shall attach to this<br />
-                clearance the pertinent document/s that shall prove that the employees have<br />
-                remaining obligation or accountability from their office further indicating the<br />
-                necessary action/s that the employee must satisfy in order to be cleared, and<br />
-                tick the box under the "Uncleared" column. The clearing/authorized official<br />
-                must only sign this clearance corresponding to their name once the employee<br />
-                have complied the necessary requirements and cleared of all the obligation/s<br />
-                and accountability/ies from their office. They must also tick the box under the<br />
+                <li style={{textAlign: "justify", width: "100%"}}>If the employees appear to have uncleared accountability/ies from a
+                unit/office/department, the clearing/authorized official shall attach to this
+                clearance the pertinent document/s that shall prove that the employees have
+                remaining obligation or accountability from their office further indicating the
+                necessary action/s that the employee must satisfy in order to be cleared, and
+                tick the box under the "Uncleared" column. The clearing/authorized official
+                must only sign this clearance corresponding to their name once the employee
+                have complied the necessary requirements and cleared of all the obligation/s
+                and accountability/ies from their office. They must also tick the box under the
                 "Cleared" column.<br /><br />              
                 </li>
-                <li>The HRMO shall distribute copies of approved clearance as follows: original to<br />
-                the employee; duplicate to be attached to the payroll or voucher; triplicate to<br />
+                <li style={{textAlign: "justify", width: "100%"}}>The HRMO shall distribute copies of approved clearance as follows: original to
+                the employee; duplicate to be attached to the payroll or voucher; triplicate to
                 human resource unit file; and fourth copy to accounting/auditing office.<br /><br />
                 </li>
                 <li>Processing of clearance certificate shall follow the order of number indicated.</li><br /><br />
