@@ -158,7 +158,7 @@ const LeaveTable = () => {
   const fieldLabels = {
     leave_description: 'Leave Description',
     leave_code: 'Leave Code',
-    leave_hours: 'Leave Hours',
+    leave_hours: 'Default Days',
   };
 
   const filteredLeaveTypes = leaveTypes.filter((lt) => {
@@ -177,19 +177,13 @@ const LeaveTable = () => {
     },
   };
 
-  // A quick colour for the avatar based on usage of leave hours
-  const getCodeColor = (code) => {
-    if (!code) return '#6d2323';
-    return '#6d2323';
-  };
-
   return (
     <Box
       sx={{
         py: { xs: 2, md: 4 },
         mt: { xs: 0, md: -5 },
         width: '100%',
-        maxWidth: '100%',
+        maxWidth: '1600px',
         mx: 'auto',
         px: { xs: 2, sm: 3, md: 4 },
       }}
@@ -241,14 +235,14 @@ const LeaveTable = () => {
         <SectionHeader
           icon={EventNote}
           title="Add New Leave Type"
-          subtitle="Define a leave code, description, and default hours allocation"
+          subtitle="Define a leave code, description, and default days allocation"
         />
 
         <CardContent sx={{ p: 4 }}>
-          <Grid container spacing={3} alignItems="flex-start">
+          <Grid container spacing={2} alignItems="flex-end">
             {/* Leave Code */}
-            <Grid item xs={12} md={3}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>
+            <Grid item xs={12} sm={6} md={2.5}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323', fontSize: '0.875rem' }}>
                 Leave Code *
               </Typography>
               <TextField
@@ -258,17 +252,17 @@ const LeaveTable = () => {
                 }
                 fullWidth
                 placeholder="e.g., VL, SL, EL"
-                size="medium"
+                size="small"
                 sx={inputSx}
               />
-              <Typography variant="caption" sx={{ color: '#888', mt: 0.5, display: 'block' }}>
-                Short identifier (2–4 letters)
+              <Typography variant="caption" sx={{ color: '#888', mt: 0.5, display: 'block', fontSize: '0.7rem' }}>
+                2–4 letters
               </Typography>
             </Grid>
 
             {/* Leave Description */}
-            <Grid item xs={12} md={5}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>
+            <Grid item xs={12} sm={6} md={4}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323', fontSize: '0.875rem' }}>
                 Leave Description *
               </Typography>
               <TextField
@@ -278,64 +272,71 @@ const LeaveTable = () => {
                 }
                 fullWidth
                 placeholder="e.g., Vacation Leave"
-                size="medium"
+                size="small"
                 sx={inputSx}
               />
-              <Typography variant="caption" sx={{ color: '#888', mt: 0.5, display: 'block' }}>
+              <Typography variant="caption" sx={{ color: '#888', mt: 0.5, display: 'block', fontSize: '0.7rem' }}>
                 Full name of the leave type
               </Typography>
             </Grid>
 
-            {/* Default Hours */}
-            <Grid item xs={12} md={2}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>
-                Default Hours
+            {/* Default Days (converts to hours) */}
+            <Grid item xs={12} sm={6} md={3}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323', fontSize: '0.875rem' }}>
+                Default Days
               </Typography>
               <TextField
                 type="number"
-                value={newLeaveType.leave_hours}
-                onChange={(e) =>
-                  setNewLeaveType({ ...newLeaveType, leave_hours: e.target.value })
-                }
+                value={newLeaveType.leave_hours !== '' ? newLeaveType.leave_hours / 8 : ''}
+                onChange={(e) => {
+                  const days = e.target.value;
+                  setNewLeaveType({
+                    ...newLeaveType,
+                    leave_hours: days !== '' ? parseFloat(days) * 8 : '',
+                  });
+                }}
                 fullWidth
-                placeholder="e.g., 80"
-                size="medium"
-                inputProps={{ min: 0, step: 8 }}
+                placeholder="e.g., 10"
+                size="small"
+                inputProps={{ min: 0, step: 1 }}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
-                      <TimeIcon sx={{ color: '#6d2323', fontSize: 20 }} />
+                      <TimeIcon sx={{ color: '#6d2323', fontSize: 18 }} />
                     </InputAdornment>
                   ),
                   endAdornment: (
                     <InputAdornment position="end">
-                      <Typography variant="caption" sx={{ color: '#888' }}>
-                        {((parseFloat(newLeaveType.leave_hours) || 0) / 8).toFixed(1)} days
+                      <Typography variant="caption" sx={{ color: '#888', fontSize: '0.7rem' }}>
+                        = {newLeaveType.leave_hours || 0} hrs
                       </Typography>
                     </InputAdornment>
                   ),
                 }}
                 sx={inputSx}
               />
-              <Typography variant="caption" sx={{ color: '#888', mt: 0.5, display: 'block' }}>
-                8 hrs = 1 day
+              <Typography variant="caption" sx={{ color: '#888', mt: 0.5, display: 'block', fontSize: '0.7rem' }}>
+                1 day = 8 hrs
               </Typography>
             </Grid>
 
             {/* Add Button */}
-            <Grid item xs={12} md={2}>
+            <Grid item xs={12} sm={6} md={2.5}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: 'transparent', fontSize: '0.875rem' }}>
+                Action
+              </Typography>
               <Button
                 onClick={handleAdd}
                 variant="contained"
                 fullWidth
-                size="large"
+                size="medium"
                 startIcon={<AddIcon />}
                 disabled={loading || !newLeaveType.leave_code || !newLeaveType.leave_description}
                 sx={{
-                  mt: 3,
-                  height: 50,
+                  height: 40,
                   borderRadius: 2,
                   fontWeight: 600,
+                  fontSize: '0.875rem',
                   backgroundColor:
                     !newLeaveType.leave_code || !newLeaveType.leave_description
                       ? '#cccccc'
@@ -361,6 +362,9 @@ const LeaveTable = () => {
               >
                 {loading ? 'Adding...' : 'Add Type'}
               </Button>
+              <Typography variant="caption" sx={{ color: 'transparent', mt: 0.5, display: 'block', fontSize: '0.7rem' }}>
+                &nbsp;
+              </Typography>
             </Grid>
           </Grid>
         </CardContent>
@@ -648,26 +652,41 @@ const LeaveTable = () => {
                         {fieldLabels[field]}
                       </Typography>
                       <TextField
-                        value={editLeaveType[field] || ''}
-                        onChange={(e) =>
-                          setEditLeaveType({
-                            ...editLeaveType,
-                            [field]:
-                              field === 'leave_code'
-                                ? e.target.value.toUpperCase()
-                                : e.target.value,
-                          })
+                        value={
+                          field === 'leave_hours'
+                            ? editLeaveType[field] !== '' && editLeaveType[field] != null
+                              ? editLeaveType[field] / 8
+                              : ''
+                            : editLeaveType[field] || ''
                         }
+                        onChange={(e) => {
+                          if (field === 'leave_hours') {
+                            const days = e.target.value;
+                            setEditLeaveType({
+                              ...editLeaveType,
+                              leave_hours: days !== '' ? parseFloat(days) * 8 : '',
+                            });
+                          } else {
+                            setEditLeaveType({
+                              ...editLeaveType,
+                              [field]:
+                                field === 'leave_code'
+                                  ? e.target.value.toUpperCase()
+                                  : e.target.value,
+                            });
+                          }
+                        }}
                         fullWidth
                         disabled={!isEditing}
                         type={field === 'leave_hours' ? 'number' : 'text'}
+                        inputProps={field === 'leave_hours' ? { min: 0, step: 1 } : undefined}
                         InputProps={
                           field === 'leave_hours'
                             ? {
                                 endAdornment: (
                                   <InputAdornment position="end">
                                     <Typography variant="caption" sx={{ color: '#888' }}>
-                                      hrs
+                                      = {editLeaveType.leave_hours || 0} hrs
                                     </Typography>
                                   </InputAdornment>
                                 ),

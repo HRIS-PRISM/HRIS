@@ -46,6 +46,7 @@ import {
   ChevronRight as ChevronRightIcon,
   ChevronLeft as ChevronLeftIcon,
   History as HistoryIcon,
+  CalendarToday as CalendarIcon,
 } from '@mui/icons-material';
 
 import LoadingOverlay from '../LoadingOverlay';
@@ -80,6 +81,11 @@ const getProgressPercent = (remaining, total) => {
   return Math.max(0, Math.min(100, (remaining / total) * 100));
 };
 
+// Converts days string to hours number
+const daysToHours = (days) => (parseFloat(days) || 0) * 8;
+// Converts hours number to days string (for display)
+const hoursToDays = (hours) => ((hours || 0) / 8).toString();
+
 // ─────────────────────────────────────────────
 // STYLED HELPERS
 // ─────────────────────────────────────────────
@@ -100,6 +106,78 @@ const GlassCard = ({ children, sx = {} }) => (
     {children}
   </Card>
 );
+
+// ─────────────────────────────────────────────
+// DAYS INPUT FIELD — enters days, shows hours conversion
+// ─────────────────────────────────────────────
+const DaysInputField = ({
+  label,
+  value,           // days value (string or number)
+  onChange,        // (days: string) => void
+  color = '#6d2323',
+  bgColor = 'transparent',
+  borderColor,
+  helperText,
+  isAutoFilled = false,
+  disabled = false,
+  readOnly = false,
+  variant = 'outlined',
+}) => {
+  const hours = daysToHours(value);
+  const bc = borderColor || (isAutoFilled ? 'rgba(46,125,50,0.5)' : `${color}30`);
+
+  return (
+    <Box>
+      <TextField
+        type="number"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        label={label}
+        fullWidth
+        size="medium"
+        disabled={disabled}
+        InputProps={{
+          readOnly,
+          startAdornment: (
+            <InputAdornment position="start">
+              <CalendarIcon sx={{ color, fontSize: 20 }} />
+            </InputAdornment>
+          ),
+          endAdornment: (
+            <InputAdornment position="end">
+              <Typography variant="caption" sx={{ color: '#888', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                = {hours} hrs
+              </Typography>
+            </InputAdornment>
+          ),
+        }}
+        inputProps={{ min: 0, step: 0.5 }}
+        variant={readOnly ? 'standard' : 'outlined'}
+        sx={{
+          '& .MuiOutlinedInput-root': {
+            borderRadius: 2,
+            backgroundColor: isAutoFilled ? 'rgba(46,125,50,0.03)' : bgColor,
+            '& fieldset': {
+              borderColor: bc,
+              borderWidth: isAutoFilled ? 2 : 1,
+            },
+            '&:hover fieldset': { borderColor: color },
+            '&.Mui-focused fieldset': { borderColor: color, borderWidth: 2 },
+          },
+          '& .MuiInputBase-input': { color, fontWeight: 600 },
+          '& .MuiInputLabel-root': { color },
+          '& .MuiInputLabel-root.Mui-focused': { color },
+          ...(readOnly && { '& .MuiInputBase-input': { color: '#333', fontWeight: 600 } }),
+        }}
+      />
+      {helperText && (
+        <Typography variant="caption" sx={{ color: isAutoFilled ? '#2E7D32' : '#888', mt: 0.5, display: 'block', fontWeight: isAutoFilled ? 600 : 400 }}>
+          {helperText}
+        </Typography>
+      )}
+    </Box>
+  );
+};
 
 // ─────────────────────────────────────────────
 // CARRY FORWARD SUMMARY PANEL
@@ -126,7 +204,6 @@ const CarryForwardSummary = ({ leaveCode, employeeAssignments }) => {
       overflow: 'hidden',
       bgcolor: '#fafafa',
     }}>
-
       {/* ── Header ── */}
       <Box sx={{
         px: 2.5, py: 1.5,
@@ -154,7 +231,6 @@ const CarryForwardSummary = ({ leaveCode, employeeAssignments }) => {
           const barColor  = getStatusColor(row.remaining_hours, row.total_hours);
           const label     = periodLabel(row.period_year, row.period_semester);
 
-          // Human-readable status phrase
           const statusPhrase = remDays <= 0
             ? 'Fully used'
             : remDays === totalDays
@@ -163,8 +239,6 @@ const CarryForwardSummary = ({ leaveCode, employeeAssignments }) => {
 
           return (
             <Box key={row.id} sx={{ py: 1.5, borderBottom: idx < sorted.length - 1 ? '1px solid rgba(0,0,0,0.06)' : 'none' }}>
-
-              {/* Top row: period name + status badge */}
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.75 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Typography sx={{ fontWeight: 600, color: '#2c2c2c', fontSize: '0.83rem' }}>
@@ -182,17 +256,11 @@ const CarryForwardSummary = ({ leaveCode, employeeAssignments }) => {
                     </Box>
                   )}
                 </Box>
-                {/* Remaining callout — the most important number */}
-                <Typography sx={{
-                  fontWeight: 700,
-                  color: barColor,
-                  fontSize: '0.88rem',
-                }}>
+                <Typography sx={{ fontWeight: 700, color: barColor, fontSize: '0.88rem' }}>
                   {remDays <= 0 ? 'No balance left' : `${remDays.toFixed(1)} days left`}
                 </Typography>
               </Box>
 
-              {/* Progress bar — visual at a glance */}
               <Box sx={{ position: 'relative', height: 8, bgcolor: 'rgba(0,0,0,0.07)', borderRadius: 4, overflow: 'hidden', mb: 0.75 }}>
                 <Box sx={{
                   position: 'absolute', left: 0, top: 0, bottom: 0,
@@ -203,7 +271,6 @@ const CarryForwardSummary = ({ leaveCode, employeeAssignments }) => {
                 }} />
               </Box>
 
-              {/* Bottom row: plain sentence + used/total breakdown */}
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Typography sx={{ fontSize: '0.72rem', color: '#888' }}>
                   {statusPhrase}
@@ -212,7 +279,6 @@ const CarryForwardSummary = ({ leaveCode, employeeAssignments }) => {
                   {usedDays.toFixed(1)} used &nbsp;·&nbsp; {totalDays.toFixed(1)} total
                 </Typography>
               </Box>
-
             </Box>
           );
         })}
@@ -225,7 +291,6 @@ const CarryForwardSummary = ({ leaveCode, employeeAssignments }) => {
         borderTop: `1px solid ${hasBalance ? 'rgba(46,125,50,0.14)' : 'rgba(0,0,0,0.06)'}`,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2,
       }}>
-        {/* Left: plain-English explanation */}
         <Box>
           <Typography sx={{ fontWeight: 700, fontSize: '0.82rem', color: hasBalance ? '#2E7D32' : '#888', mb: 0.25 }}>
             {hasBalance
@@ -239,7 +304,6 @@ const CarryForwardSummary = ({ leaveCode, employeeAssignments }) => {
           </Typography>
         </Box>
 
-        {/* Right: the single number that matters */}
         {hasBalance && (
           <Box sx={{
             flexShrink: 0,
@@ -258,7 +322,6 @@ const CarryForwardSummary = ({ leaveCode, employeeAssignments }) => {
           </Box>
         )}
       </Box>
-
     </Box>
   );
 };
@@ -272,15 +335,18 @@ const LeaveAssignment = () => {
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+
+  // newAssignment stores DAYS for carried/allocated, and HOURS for total
   const [newAssignment, setNewAssignment] = useState({
     leave_code: '',
     employeeNumber: '',
     total_hours: '',
-    carried_forward_hours: '0',
-    allocated_hours: '',
+    carried_forward_days: '0',   // ← days input
+    allocated_days: '',           // ← days input
     period_year: new Date().getFullYear().toString(),
     period_semester: '',
   });
+
   const [editAssignment, setEditAssignment] = useState(null);
   const [originalAssignment, setOriginalAssignment] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -300,49 +366,52 @@ const LeaveAssignment = () => {
   // All assignments for the currently selected employee
   const [employeeAssignments, setEmployeeAssignments] = useState([]);
 
+  // Edit modal day fields (derived from hours when opening, stored as days strings)
+  const [editCarriedDays, setEditCarriedDays] = useState('0');
+  const [editAllocatedDays, setEditAllocatedDays] = useState('0');
+
   useEffect(() => {
     fetchAssignments();
     fetchLeaveTypes();
     fetchEmployees();
   }, []);
 
-  // When employee or leave type changes, compute carry-forward from ALL previous periods
+  // When employee or leave type changes, compute carry-forward from ALL previous periods (display only)
   useEffect(() => {
     if (!selectedEmployee?.employeeNumber || !newAssignment.leave_code) {
       setIsCarryForwardAutoSuggested(false);
-      setNewAssignment(prev => ({ ...prev, carried_forward_hours: '0', total_hours: (parseFloat(prev.allocated_hours) || 0).toString() }));
+      setNewAssignment(prev => ({
+        ...prev,
+        carried_forward_days: '0',
+      }));
       return;
     }
 
-    // Filter assignments for this employee
     const empAssignments = assignments.filter(
       a => a.employeeNumber?.toString() === selectedEmployee.employeeNumber?.toString()
     );
     setEmployeeAssignments(empAssignments);
 
-    // Get all rows for the chosen leave code
     const leaveRows = empAssignments.filter(a => a.leave_code === newAssignment.leave_code);
 
     if (!leaveRows.length) {
       setIsCarryForwardAutoSuggested(false);
       setNewAssignment(prev => ({
         ...prev,
-        carried_forward_hours: '0',
-        total_hours: (parseFloat(prev.allocated_hours) || 0).toString(),
+        carried_forward_days: '0',
       }));
       return;
     }
 
-    // Sum ALL previous periods' remaining_hours as carry forward
+    // Sum ALL previous periods' remaining_hours → convert to days (for display only)
     const totalCarryForwardHours = leaveRows.reduce((sum, r) => sum + (r.remaining_hours || 0), 0);
-    const allocated = parseFloat(newAssignment.allocated_hours) || 0;
+    const totalCarryForwardDays = totalCarryForwardHours / 8;
 
     setNewAssignment(prev => ({
       ...prev,
-      carried_forward_hours: totalCarryForwardHours.toString(),
-      total_hours: (totalCarryForwardHours + allocated).toString(),
+      carried_forward_days: totalCarryForwardDays.toString(),
     }));
-    setIsCarryForwardAutoSuggested(totalCarryForwardHours > 0);
+    setIsCarryForwardAutoSuggested(totalCarryForwardDays > 0);
 
   }, [selectedEmployee, newAssignment.leave_code, assignments]);
 
@@ -406,10 +475,11 @@ const LeaveAssignment = () => {
   const handleAdd = async () => {
     const employeeNumber = selectedEmployee?.employeeNumber?.toString().trim();
     const leaveCode = newAssignment.leave_code;
-    const totalHours = newAssignment.total_hours;
+    const carriedHours = daysToHours(newAssignment.carried_forward_days);
+    const allocatedHours = daysToHours(newAssignment.allocated_days);
 
     if (!employeeNumber || !leaveCode) { setError('Please select an employee and leave type'); return; }
-    if (!totalHours || parseFloat(totalHours) < 0) { setError('Please enter valid leave hours (must be 0 or greater)'); return; }
+    if (!allocatedHours || allocatedHours <= 0) { setError('Please enter valid allocation days (must be greater than 0)'); return; }
     if (isDuplicateAssignment(employeeNumber, leaveCode, newAssignment.period_year, newAssignment.period_semester)) {
       setError('This employee already has an assignment for this leave type and period'); return;
     }
@@ -419,9 +489,9 @@ const LeaveAssignment = () => {
       const payload = {
         leave_code: leaveCode,
         employeeNumber,
-        total_hours: parseFloat(totalHours),
-        carried_forward_hours: parseFloat(newAssignment.carried_forward_hours) || 0,
-        allocated_hours: parseFloat(newAssignment.allocated_hours) || parseFloat(totalHours),
+        total_hours: allocatedHours,            // total = new allocation only
+        carried_forward_hours: carriedHours,    // stored for reference, not added to total
+        allocated_hours: allocatedHours,
         period_year: parseInt(newAssignment.period_year) || new Date().getFullYear(),
         period_semester: newAssignment.period_semester || null,
       };
@@ -431,7 +501,7 @@ const LeaveAssignment = () => {
       setSelectedEmployee(null);
       setNewAssignment({
         leave_code: '', employeeNumber: '', total_hours: '',
-        carried_forward_hours: '0', allocated_hours: '',
+        carried_forward_days: '0', allocated_days: '',
         period_year: new Date().getFullYear().toString(), period_semester: '',
       });
       setIsCarryForwardAutoSuggested(false);
@@ -448,6 +518,8 @@ const LeaveAssignment = () => {
     const assignmentId = editAssignment?.id;
     const employeeNumber = editAssignment.employeeNumber?.toString().trim();
     const leaveCode = editAssignment.leave_code;
+    const carriedHours = daysToHours(editCarriedDays);
+    const allocatedHours = daysToHours(editAllocatedDays);
 
     if (!assignmentId) { setError('Error: Assignment ID is missing.'); return; }
     if (!employeeNumber || !leaveCode) { setError('Please fill in all required fields'); return; }
@@ -457,11 +529,12 @@ const LeaveAssignment = () => {
 
     try {
       const payload = {
-        leave_code: leaveCode, employeeNumber,
-        total_hours: parseFloat(editAssignment.total_hours) || 0,
+        leave_code: leaveCode,
+        employeeNumber,
+        total_hours: allocatedHours,            // total = new allocation only
         remaining_hours: parseFloat(editAssignment.remaining_hours) || 0,
-        carried_forward_hours: parseFloat(editAssignment.carried_forward_hours) || 0,
-        allocated_hours: parseFloat(editAssignment.allocated_hours) || parseFloat(editAssignment.total_hours) || 0,
+        carried_forward_hours: carriedHours,    // stored for reference, not added to total
+        allocated_hours: allocatedHours,
         period_year: parseInt(editAssignment.period_year) || new Date().getFullYear(),
         period_semester: editAssignment.period_semester || null,
       };
@@ -489,11 +562,23 @@ const LeaveAssignment = () => {
   };
 
   const handleOpenModal = (assignment) => {
-    setEditAssignment({ ...assignment }); setOriginalAssignment({ ...assignment });
-    setIsEditing(false); setError('');
+    setEditAssignment({ ...assignment });
+    setOriginalAssignment({ ...assignment });
+    // Pre-populate day fields from hours
+    setEditCarriedDays(hoursToDays(assignment.carried_forward_hours));
+    setEditAllocatedDays(hoursToDays(assignment.allocated_hours));
+    setIsEditing(false);
+    setError('');
   };
+
   const handleStartEdit = () => { setIsEditing(true); setError(''); };
-  const handleCancelEdit = () => { setEditAssignment({ ...originalAssignment }); setIsEditing(false); setError(''); };
+  const handleCancelEdit = () => {
+    setEditAssignment({ ...originalAssignment });
+    setEditCarriedDays(hoursToDays(originalAssignment.carried_forward_hours));
+    setEditAllocatedDays(hoursToDays(originalAssignment.allocated_hours));
+    setIsEditing(false);
+    setError('');
+  };
   const handleBackToPeriods = () => { setEditAssignment(null); setOriginalAssignment(null); setIsEditing(false); setError(''); };
   const handleCloseModal = () => {
     setEditAssignment(null); setOriginalAssignment(null); setIsEditing(false); setError('');
@@ -542,6 +627,17 @@ const LeaveAssignment = () => {
     ? employeeAssignments.filter(a => a.leave_code === newAssignment.leave_code)
     : [];
 
+  // Derived totals — carried forward is DISPLAY ONLY, does not add to total
+  const carriedHoursNew = daysToHours(newAssignment.carried_forward_days);
+  const allocatedHoursNew = daysToHours(newAssignment.allocated_days);
+  const totalHoursNew = allocatedHoursNew;   // carried does NOT add to total
+  const totalDaysNew = totalHoursNew / 8;
+
+  // Derived totals for edit modal — carried is display only
+  const editCarriedHours = daysToHours(editCarriedDays);
+  const editAllocatedHours = daysToHours(editAllocatedDays);
+  const editTotalHours = editAllocatedHours;  // carried does NOT add to total
+
   return (
     <Box sx={{ py: { xs: 2, md: 4 }, mt: { xs: 0, md: -5 }, width: '100%', maxWidth: '100%', mx: 'auto', px: { xs: 2, sm: 3, md: 4 } }}>
       <LoadingOverlay open={loading} message="Processing leave assignment..." />
@@ -574,7 +670,7 @@ const LeaveAssignment = () => {
           <EventNote sx={{ fontSize: '1.8rem', mr: 2 }} />
           <Box>
             <Typography variant="h6" sx={{ fontWeight: 'bold' }}>Assign Leave to Employee</Typography>
-            <Typography variant="caption" sx={{ opacity: 0.9 }}>Select an employee and assign leave type with designated hours</Typography>
+            <Typography variant="caption" sx={{ opacity: 0.9 }}>Select an employee and assign leave type with designated days</Typography>
           </Box>
         </Box>
 
@@ -587,7 +683,11 @@ const LeaveAssignment = () => {
               <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>Select Employee *</Typography>
               <Autocomplete
                 value={selectedEmployee}
-                onChange={(e, v) => { setSelectedEmployee(v); setError(''); setNewAssignment(prev => ({ ...prev, leave_code: '', carried_forward_hours: '0', total_hours: '', allocated_hours: '' })); }}
+                onChange={(e, v) => {
+                  setSelectedEmployee(v);
+                  setError('');
+                  setNewAssignment(prev => ({ ...prev, leave_code: '', carried_forward_days: '0', total_hours: '', allocated_days: '' }));
+                }}
                 options={employees}
                 getOptionLabel={o => `${o.fullName || `${o.firstName || ''} ${o.lastName || ''}`.trim()} (${o.employeeNumber})`}
                 filterOptions={(options, { inputValue }) => {
@@ -667,68 +767,43 @@ const LeaveAssignment = () => {
               </Grid>
             )}
 
-            {/* ── CARRIED BALANCE HOURS ── */}
+            {/* ── CARRIED BALANCE DAYS ── */}
             <Grid item xs={12} md={3}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323', display: 'flex', alignItems: 'center', gap: 1 }}>
-                Carried Balance Hours
-                {isCarryForwardAutoSuggested && (
-                  <Chip label="Auto" size="small" icon={<CheckCircleIcon />} sx={{ height: 20, fontSize: '0.65rem', bgcolor: 'rgba(46,125,50,0.1)', color: '#2E7D32', '& .MuiChip-icon': { fontSize: 14, color: '#2E7D32' } }} />
-                )}
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#2E7D32', display: 'flex', alignItems: 'center', gap: 1 }}>
+                Carried Balance Days
+                <Chip label="Info only" size="small" sx={{ height: 20, fontSize: '0.65rem', bgcolor: 'rgba(46,125,50,0.1)', color: '#2E7D32' }} />
               </Typography>
-              <TextField
-                type="number"
-                value={newAssignment.carried_forward_hours}
-                onChange={e => {
-                  const cf = parseFloat(e.target.value) || 0;
-                  const al = parseFloat(newAssignment.allocated_hours) || 0;
-                  setNewAssignment(prev => ({ ...prev, carried_forward_hours: e.target.value, total_hours: (cf + al).toString() }));
-                  setIsCarryForwardAutoSuggested(false);
-                  setError('');
-                }}
-                placeholder="Previous balance..."
-                fullWidth size="medium"
-                inputProps={{ min: 0, step: 8 }}
-                InputProps={{
-                  startAdornment: <InputAdornment position="start"><TimeIcon sx={{ color: '#2E7D32' }} /></InputAdornment>,
-                  endAdornment: <InputAdornment position="end"><Typography variant="caption" sx={{ color: '#888' }}>{((parseFloat(newAssignment.carried_forward_hours) || 0) / 8).toFixed(1)} days</Typography></InputAdornment>,
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: 2,
-                    '& fieldset': { borderColor: isCarryForwardAutoSuggested ? 'rgba(46,125,50,0.5)' : 'rgba(46,125,50,0.3)', borderWidth: isCarryForwardAutoSuggested ? 2 : 1 },
-                    '&:hover fieldset': { borderColor: '#2E7D32' },
-                    '&.Mui-focused fieldset': { borderColor: '#2E7D32', borderWidth: 2 },
-                    backgroundColor: isCarryForwardAutoSuggested ? 'rgba(46,125,50,0.03)' : 'transparent',
-                  },
-                }}
-              />
-              <Typography variant="caption" sx={{ color: isCarryForwardAutoSuggested ? '#2E7D32' : '#666', mt: 0.5, display: 'block', fontWeight: isCarryForwardAutoSuggested ? 600 : 500 }}>
-                {isCarryForwardAutoSuggested
-                  ? `✓ Auto-filled from ${selectedLeaveAssignments.length} previous period${selectedLeaveAssignments.length !== 1 ? 's' : ''}`
-                  : 'Manually set (auto-fill overridden)'}
+              <Box sx={{
+                borderRadius: 2, border: '1px solid rgba(46,125,50,0.3)',
+                bgcolor: 'rgba(46,125,50,0.04)', px: 2, py: 1.5,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                minHeight: 56,
+              }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CalendarIcon sx={{ color: '#2E7D32', fontSize: 20 }} />
+                  <Typography sx={{ fontWeight: 700, color: '#2E7D32', fontSize: '1.1rem' }}>
+                    {parseFloat(newAssignment.carried_forward_days) || 0} days
+                  </Typography>
+                </Box>
+                <Typography variant="caption" sx={{ color: '#888' }}>
+                  = {carriedHoursNew} hrs
+                </Typography>
+              </Box>
+              <Typography variant="caption" sx={{ color: '#2E7D32', mt: 0.5, display: 'block', fontWeight: 600 }}>
+                From previous periods — not added to total
               </Typography>
             </Grid>
 
-            {/* NEW ALLOCATION HOURS */}
+            {/* NEW ALLOCATION DAYS */}
             <Grid item xs={12} md={3}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>New Allocation Hours</Typography>
-              <TextField
-                type="number"
-                value={newAssignment.allocated_hours}
-                onChange={e => {
-                  const cf = parseFloat(newAssignment.carried_forward_hours) || 0;
-                  const al = parseFloat(e.target.value) || 0;
-                  setNewAssignment(prev => ({ ...prev, allocated_hours: e.target.value, total_hours: (cf + al).toString() }));
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>New Allocation Days</Typography>
+              <DaysInputField
+                value={newAssignment.allocated_days}
+                onChange={days => {
+                  setNewAssignment(prev => ({ ...prev, allocated_days: days }));
                   setError('');
                 }}
-                placeholder="New hours for this period..."
-                fullWidth size="medium"
-                inputProps={{ min: 0, step: 8 }}
-                InputProps={{
-                  startAdornment: <InputAdornment position="start"><TimeIcon sx={{ color: '#1976d2' }} /></InputAdornment>,
-                  endAdornment: <InputAdornment position="end"><Typography variant="caption" sx={{ color: '#888' }}>{((parseFloat(newAssignment.allocated_hours) || 0) / 8).toFixed(1)} days</Typography></InputAdornment>,
-                }}
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, '& fieldset': { borderColor: 'rgba(25,118,210,0.3)' }, '&:hover fieldset': { borderColor: '#1976d2' }, '&.Mui-focused fieldset': { borderColor: '#1976d2', borderWidth: 2 } } }}
+                color="#1976d2"
               />
               <Typography variant="caption" sx={{ color: '#1976d2', mt: 0.5, display: 'block', fontWeight: 500 }}>Fresh allocation for current period</Typography>
             </Grid>
@@ -763,32 +838,36 @@ const LeaveAssignment = () => {
               <Typography variant="caption" sx={{ color: '#888', mt: 0.5, display: 'block' }}>Leave blank for annual</Typography>
             </Grid>
 
-            {/* TOTAL HOURS (read-only) */}
+            {/* TOTAL — read-only summary */}
             <Grid item xs={12} md={2}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>Total Hours *</Typography>
-              <TextField
-                type="number" value={newAssignment.total_hours} fullWidth size="medium"
-                InputProps={{
-                  readOnly: true,
-                  startAdornment: <InputAdornment position="start"><TimeIcon sx={{ color: '#6d2323' }} /></InputAdornment>,
-                  endAdornment: <InputAdornment position="end"><Chip label={`${(parseFloat(newAssignment.total_hours) || 0) / 8} days`} size="small" sx={{ bgcolor: 'rgba(109,35,35,0.1)', color: '#6d2323', fontWeight: 700, fontSize: '0.7rem' }} /></InputAdornment>,
-                }}
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, backgroundColor: '#f5f5f5', '& fieldset': { borderColor: 'rgba(109,35,35,0.2)' } }, '& .MuiInputBase-input': { fontWeight: 700, color: '#6d2323', fontSize: '1.1rem' } }}
-              />
-              <Typography variant="caption" sx={{ color: '#6d2323', mt: 0.5, display: 'block', fontWeight: 600 }}>Auto-calculated sum</Typography>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>New Total *</Typography>
+              <Box sx={{
+                borderRadius: 2, border: '2px solid rgba(109,35,35,0.3)',
+                bgcolor: '#f5f5f5', px: 2, py: 1.5,
+                display: 'flex', flexDirection: 'column', gap: 0.25,
+                minHeight: 56, justifyContent: 'center',
+              }}>
+                <Typography sx={{ fontWeight: 800, color: '#6d2323', fontSize: '1.25rem', lineHeight: 1 }}>
+                  {totalDaysNew % 1 === 0 ? totalDaysNew : totalDaysNew.toFixed(1)} days
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#999', fontWeight: 500 }}>
+                  = {totalHoursNew} hours
+                </Typography>
+              </Box>
+              <Typography variant="caption" sx={{ color: '#6d2323', mt: 0.5, display: 'block', fontWeight: 600 }}>Allocation only (excl. carry-over)</Typography>
             </Grid>
 
             {/* ASSIGN BUTTON */}
             <Grid item xs={12} md={2}>
               <Button
                 onClick={handleAdd} variant="contained" fullWidth size="large" startIcon={<AddIcon />}
-                disabled={loading || !selectedEmployee || !newAssignment.leave_code || !newAssignment.total_hours}
+                disabled={loading || !selectedEmployee || !newAssignment.leave_code || !allocatedHoursNew}
                 sx={{
                   mt: 3, height: 50, borderRadius: 2, fontWeight: 600,
-                  backgroundColor: (!selectedEmployee || !newAssignment.leave_code || !newAssignment.total_hours) ? '#cccccc' : '#6D2323',
-                  color: (!selectedEmployee || !newAssignment.leave_code || !newAssignment.total_hours) ? '#666' : '#FFF',
-                  boxShadow: (!selectedEmployee || !newAssignment.leave_code || !newAssignment.total_hours) ? 'none' : '0 4px 12px rgba(109,35,35,0.3)',
-                  '&:hover': { backgroundColor: (!selectedEmployee || !newAssignment.leave_code || !newAssignment.total_hours) ? '#cccccc' : '#5a1d1d' },
+                  backgroundColor: (!selectedEmployee || !newAssignment.leave_code || !allocatedHoursNew) ? '#cccccc' : '#6D2323',
+                  color: (!selectedEmployee || !newAssignment.leave_code || !allocatedHoursNew) ? '#666' : '#FFF',
+                  boxShadow: (!selectedEmployee || !newAssignment.leave_code || !allocatedHoursNew) ? 'none' : '0 4px 12px rgba(109,35,35,0.3)',
+                  '&:hover': { backgroundColor: (!selectedEmployee || !newAssignment.leave_code || !allocatedHoursNew) ? '#cccccc' : '#5a1d1d' },
                   '&:disabled': { backgroundColor: '#cccccc !important', color: '#666 !important', boxShadow: 'none !important' },
                 }}
               >
@@ -1038,25 +1117,65 @@ const LeaveAssignment = () => {
                       <TextField value={`${editAssignment.leave_code || ''} - ${getLeaveTypeInfo(editAssignment.leave_code).leave_description}`} fullWidth size="medium" variant="standard" InputProps={{ readOnly: true, disableUnderline: true }} sx={{ '& .MuiInputBase-input': { color: '#000' } }} />
                     )}
                   </Grid>
-                  {[['Total Hours', 'total_hours', false], ['Used Hours', 'used_hours', false]].map(([label, field, editable]) => (
-                    <Grid item xs={12} sm={4} key={field}>
+
+                  {/* Read-only stats */}
+                  {[['Total Hours', editAssignment.total_hours || 0], ['Used Hours', editAssignment.used_hours || 0]].map(([label, val]) => (
+                    <Grid item xs={12} sm={4} key={label}>
                       <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>{label}</Typography>
-                      <TextField type="number" value={editAssignment[field] || 0} fullWidth variant="standard" InputProps={{ readOnly: true, disableUnderline: true, endAdornment: <InputAdornment position="end">hrs</InputAdornment> }} sx={{ '& .MuiInputBase-input': { color: '#000' } }} />
+                      <TextField type="number" value={val} fullWidth variant="standard" InputProps={{ readOnly: true, disableUnderline: true, endAdornment: <InputAdornment position="end">hrs</InputAdornment> }} sx={{ '& .MuiInputBase-input': { color: '#000' } }} />
                     </Grid>
                   ))}
                   <Grid item xs={12} sm={4}>
                     <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>Remaining Hours</Typography>
                     <TextField type="number" value={editAssignment.remaining_hours || ''} onChange={e => setEditAssignment({ ...editAssignment, remaining_hours: parseFloat(e.target.value) || 0 })} fullWidth size="medium" variant={isEditing ? 'outlined' : 'standard'} inputProps={{ min: 0, step: 1 }} InputProps={{ readOnly: !isEditing, disableUnderline: !isEditing, endAdornment: <InputAdornment position="end">hrs</InputAdornment> }} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 }, '& .MuiInputBase-input': { color: '#000' } }} />
                   </Grid>
+
                   <Grid item xs={12}><Divider sx={{ my: 1 }}><Chip label="Carried Balance & Allocation" size="small" sx={{ bgcolor: 'rgba(109,35,35,0.1)', color: '#6d2323', fontWeight: 600 }} /></Divider></Grid>
+
+                  {/* ── Carried Balance DAYS — display only ── */}
                   <Grid item xs={12} sm={3}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#2E7D32' }}>Carried Balance Hours</Typography>
-                    <TextField type="number" value={editAssignment.carried_forward_hours || 0} onChange={e => { const cf = parseFloat(e.target.value) || 0; const al = parseFloat(editAssignment.allocated_hours) || 0; setEditAssignment({ ...editAssignment, carried_forward_hours: cf, total_hours: cf + al }); }} fullWidth size="medium" variant={isEditing ? 'outlined' : 'standard'} inputProps={{ min: 0, step: 8 }} InputProps={{ readOnly: !isEditing, disableUnderline: !isEditing, endAdornment: <InputAdornment position="end">{((editAssignment.carried_forward_hours || 0) / 8).toFixed(1)} days</InputAdornment> }} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 }, '& .MuiInputBase-input': { color: '#2E7D32', fontWeight: 600 } }} />
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#2E7D32', display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                      Carried Balance Days
+                      <Chip label="Info only" size="small" sx={{ height: 18, fontSize: '0.6rem', bgcolor: 'rgba(46,125,50,0.1)', color: '#2E7D32' }} />
+                    </Typography>
+                    <Box sx={{
+                      borderRadius: 2, border: '1px solid rgba(46,125,50,0.3)',
+                      bgcolor: 'rgba(46,125,50,0.04)', px: 2, py: 1.25,
+                      display: 'flex', flexDirection: 'column', gap: 0.25,
+                    }}>
+                      <Typography sx={{ fontWeight: 700, color: '#2E7D32', fontSize: '1rem' }}>
+                        {parseFloat(editCarriedDays) || 0} days
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#888' }}>
+                        = {daysToHours(editCarriedDays)} hrs
+                      </Typography>
+                    </Box>
+                    <Typography variant="caption" sx={{ color: '#2E7D32', mt: 0.5, display: 'block', fontWeight: 600, fontSize: '0.68rem' }}>
+                      Not added to total
+                    </Typography>
                   </Grid>
+
+                  {/* ── Allocated DAYS ── */}
                   <Grid item xs={12} sm={3}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#1976d2' }}>Allocated Hours</Typography>
-                    <TextField type="number" value={editAssignment.allocated_hours || 0} onChange={e => { const cf = parseFloat(editAssignment.carried_forward_hours) || 0; const al = parseFloat(e.target.value) || 0; setEditAssignment({ ...editAssignment, allocated_hours: al, total_hours: cf + al }); }} fullWidth size="medium" variant={isEditing ? 'outlined' : 'standard'} inputProps={{ min: 0, step: 8 }} InputProps={{ readOnly: !isEditing, disableUnderline: !isEditing, endAdornment: <InputAdornment position="end">{((editAssignment.allocated_hours || 0) / 8).toFixed(1)} days</InputAdornment> }} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 }, '& .MuiInputBase-input': { color: '#1976d2', fontWeight: 600 } }} />
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#1976d2' }}>Allocated Days</Typography>
+                    {isEditing ? (
+                      <DaysInputField
+                        value={editAllocatedDays}
+                        onChange={days => setEditAllocatedDays(days)}
+                        color="#1976d2"
+                      />
+                    ) : (
+                      <Box sx={{ py: 1 }}>
+                        <Typography sx={{ fontWeight: 700, color: '#1976d2', fontSize: '1.1rem' }}>
+                          {parseFloat(editAllocatedDays) || 0} days
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#888' }}>
+                          = {daysToHours(editAllocatedDays)} hrs
+                        </Typography>
+                      </Box>
+                    )}
                   </Grid>
+
                   <Grid item xs={12} sm={3}>
                     <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>Period Year</Typography>
                     <TextField type="number" value={editAssignment.period_year || 2026} onChange={e => setEditAssignment({ ...editAssignment, period_year: parseInt(e.target.value) })} fullWidth size="medium" variant={isEditing ? 'outlined' : 'standard'} inputProps={{ min: 2020, max: 2035 }} InputProps={{ readOnly: !isEditing, disableUnderline: !isEditing }} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 }, '& .MuiInputBase-input': { color: '#000' } }} />
@@ -1073,17 +1192,31 @@ const LeaveAssignment = () => {
                       <TextField value={editAssignment.period_semester || 'Annual'} fullWidth size="medium" variant="standard" InputProps={{ readOnly: true, disableUnderline: true }} sx={{ '& .MuiInputBase-input': { color: '#000' } }} />
                     )}
                   </Grid>
+
+                  {/* Days Summary */}
                   <Grid item xs={12}>
                     <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'rgba(109,35,35,0.05)', border: '1px solid rgba(109,35,35,0.1)' }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5, color: '#6d2323' }}>Days Summary (8 hours = 1 day)</Typography>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5, color: '#6d2323' }}>Days Summary (1 day = 8 hours)</Typography>
                       <Grid container spacing={2}>
-                        {[['Total Days', 'total_hours', '#6d2323'], ['Used Days', 'used_hours', '#ed6c02'], ['Remaining Days', 'remaining_hours', getStatusColor(editAssignment.remaining_hours, editAssignment.total_hours)]].map(([label, field, color]) => (
-                          <Grid item xs={4} key={field}>
-                            <Typography variant="h5" sx={{ fontWeight: 700, color }}>{((editAssignment[field] || 0) / 8).toFixed(1)}</Typography>
+                        {[
+                          ['Total Days', isEditing ? (editTotalHours / 8) : (editAssignment.total_hours || 0) / 8, '#6d2323'],
+                          ['Used Days', (editAssignment.used_hours || 0) / 8, '#ed6c02'],
+                          ['Remaining Days', (editAssignment.remaining_hours || 0) / 8, getStatusColor(editAssignment.remaining_hours, editAssignment.total_hours)],
+                        ].map(([label, val, color]) => (
+                          <Grid item xs={4} key={label}>
+                            <Typography variant="h5" sx={{ fontWeight: 700, color }}>{Number(val).toFixed(1)}</Typography>
                             <Typography variant="caption" sx={{ color: '#666' }}>{label}</Typography>
                           </Grid>
                         ))}
                       </Grid>
+                      {isEditing && (
+                        <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid rgba(109,35,35,0.1)' }}>
+                          <Typography variant="caption" sx={{ color: '#888' }}>
+                            New Allocation: <strong style={{ color: '#6d2323' }}>{parseFloat(editAllocatedDays) || 0}d ({editTotalHours} hrs)</strong>
+                            &nbsp;·&nbsp; Carried balance (<strong style={{ color: '#2E7D32' }}>{parseFloat(editCarriedDays) || 0}d</strong>) is separate and not included in total.
+                          </Typography>
+                        </Box>
+                      )}
                     </Box>
                   </Grid>
                 </Grid>
