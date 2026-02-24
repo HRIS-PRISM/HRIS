@@ -945,7 +945,7 @@ const LeaveAssignment = () => {
                         ))}
                       </Box>
                       <Box sx={{ flexGrow: 1 }}>
-                        <Typography variant="caption" sx={{ color: '#888', fontWeight: 600, mb: 1, display: 'block', textTransform: 'uppercase', letterSpacing: 0.5, fontSize: '0.65rem' }}>📋 Leave Credits</Typography>
+                        <Typography variant="caption" sx={{ color: '#888', fontWeight: 600, mb: 1, display: 'block', textTransform: 'uppercase', letterSpacing: 0.5, fontSize: '0.65rem' }}>Leave Credits</Typography>
                         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
                           {employeeGroup.leaveTypes.map(lt => {
                             const stats = getLeaveTypeStats(lt.periods);
