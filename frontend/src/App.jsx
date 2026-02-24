@@ -127,6 +127,7 @@ import LeaveRequest from "./components/LEAVE/LeaveRequest";
 import LeaveDatePickerModal from "./components/LEAVE/LeaveDatePicker";
 import LeaveAssignment from "./components/LEAVE/LeaveAssignment";
 import LeaveCredits from "./components/LEAVE/LeaveCredits";
+import Leave from "./components/FORMS/Leave";
 
 import UsersList from "./components/UsersList";
 import PagesList from "./components/PagesList";
@@ -1139,6 +1140,16 @@ function App() {
                   allowedRoles={["administrator", "superadmin", "technical"]}
                 >
                   <LeaveCardBack />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/leave-form"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <Leave/>
                 </ProtectedRoute>
               }
             />
