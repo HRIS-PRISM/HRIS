@@ -387,7 +387,34 @@ router.put('/leave_request/:id', (req, res) => {
       );
 
 
-      res.json({ message: 'Leave request updated successfully' });
+      // If status is HR Approved (2), recalculate leave_assignment
+      if (numStatus === 2) {
+        // 1. Count all HR Approved requests for this employee/leave_code
+        const countQuery = 'SELECT COUNT(*) as approved_days FROM leave_request WHERE employeeNumber = ? AND leave_code = ? AND status = 2';
+        db.query(countQuery, [employeeNumber, leave_code], (err3, countResults) => {
+          if (err3) return res.status(500).json({ error: err3.message });
+          // 2. Get leave_hours for this leave_code
+          const getHoursQuery = 'SELECT leave_hours FROM leave_table WHERE leave_code = ?';
+          db.query(getHoursQuery, [leave_code], (err4, hoursResults) => {
+            if (err4) return res.status(500).json({ error: err4.message });
+            const leaveHours = hoursResults[0]?.leave_hours || 8;
+            const usedHours = (countResults[0].approved_days || 0) * leaveHours;
+            // 3. Update leave_assignment
+            const updateAssignmentQuery = `
+              UPDATE leave_assignment la
+              JOIN leave_table lt ON la.leave_code = lt.leave_code
+              SET la.used_hours = ?, la.remaining_hours = la.allocated_hours - ?, la.total_hours = la.allocated_hours
+              WHERE la.employeeNumber = ? AND la.leave_code = ?
+            `;
+            db.query(updateAssignmentQuery, [usedHours, usedHours, employeeNumber, leave_code], (err5) => {
+              if (err5) return res.status(500).json({ error: err5.message });
+              res.json({ message: 'Leave request updated and leave credits deducted successfully' });
+            });
+          });
+        });
+      } else {
+        res.json({ message: 'Leave request updated successfully' });
+      }
     }
   );
 });

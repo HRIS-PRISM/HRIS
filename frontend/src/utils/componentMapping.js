@@ -430,6 +430,35 @@ export const componentMapping = {
     description: 'Payroll Formulas',
     icon: AdminPanelSettings,
   },
+  'leave-table': {
+    componentPath: 'components/LEAVE/LeaveTable.jsx',
+    routePath: '/leave-table',
+    componentName: 'LeaveTable',
+    description: 'Leave Table Management',
+    icon: EventNote,
+  },
+  'leave-assignment': {
+    componentPath: 'components/LEAVE/LeaveAssignment.jsx',
+    routePath: '/leave-assignment',
+    componentName: 'LeaveAssignment',
+    description: 'Leave Assignment',
+    icon: Assignment,
+  },
+  'leave-request': {
+    componentPath: 'components/LEAVE/LeaveRequest.jsx',
+    routePath: '/leave-request',
+    componentName: 'LeaveRequest',
+    description: 'Leave Request Management',
+    icon: Description,
+  },
+  'leave-request-user': {
+    componentPath: 'components/LEAVE/LeaveRequestUser.jsx',
+    routePath: '/leave-request-user',
+    componentName: 'LeaveRequestUser',
+    description: 'User Leave Request',
+    icon: EventNote,
+  },
+
 };
 
 /**
@@ -468,6 +497,7 @@ export const categoryIcons = {
   'Information Management': Person,
   'Attendance Management': CalendarMonth,
   'Payroll Management': MonetizationOn,
+  'Leave Management': EventNote,
   Form: Assignment,
   'Pages Management': Pages,
   'Personal Data Sheets': FileCopy,

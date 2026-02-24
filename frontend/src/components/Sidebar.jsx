@@ -183,6 +183,12 @@ const Sidebar = ({
     setOpenDTR(!openDTR);
   };
 
+  // Add internal state for Leave dropdown
+  const [openLeave, setOpenLeave] = useState(false);
+  const handleClickLeave = () => {
+    setOpenLeave(!openLeave);
+  };
+
   // Use prop value if provided, otherwise use internal state
   const openSystemAdmin =
     propOpenSystemAdmin !== undefined
@@ -455,6 +461,8 @@ const Sidebar = ({
       setSelectedItem("leave-assignment");
     } else if (currentPath === "/leave-request") {
       setSelectedItem("leave-request");
+    } else if (currentPath === "/leave-request-user") {
+      setSelectedItem("leave-request-user");
     } else if (currentPath === "/assessment-clearance") {
       setSelectedItem("assessment-clearance");
     } else if (currentPath === "/clearance") {
@@ -3317,6 +3325,257 @@ const Sidebar = ({
                   </List>
                 </Collapse>
               </>
+            )}
+
+            {/* LEAVE DROPDOWN */}
+            {(shouldShowMenuItem("/leave-table") || 
+              shouldShowMenuItem("/leave-assignment") || 
+              shouldShowMenuItem("/leave-request") || 
+              shouldShowMenuItem("/leave-request-user")) && (
+            <>
+              <ListItem
+                button
+                onClick={handleClickLeave}
+                sx={{
+                  color: settings.textSecondaryColor,
+                  cursor: "pointer",
+                  "&:hover": {
+                    bgcolor: settings.hoverColor || "#6D2323",
+                  },
+                }}
+              >
+                <ListItemIcon>
+                  <EventNote sx={{ color: settings.textSecondaryColor }} />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Leave Management"
+                  sx={{ marginLeft: "-10px", whiteSpace: 'noWrap' }}
+                />
+                <ListItemIcon sx={{ marginLeft: "10rem", color: settings.textSecondaryColor }}>
+                  {openLeave ? <ExpandLess /> : <ExpandMore />}
+                </ListItemIcon>
+              </ListItem>
+
+              <Collapse in={openLeave} timeout="auto" unmountOnExit>
+                <List component="div" disablePadding sx={{ pl: 5.4 }}>
+                  {/* Leave Table - Admin only */}
+                  {userRole !== "staff" && shouldShowMenuItem("/leave-table") && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/leave-table"
+                    onClick={() => handleItemClick("leave-table")}
+                    sx={{
+                      bgcolor:
+                        selectedItem === "leave-table"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "leave-table"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "leave-table"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "leave-table"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "leave-table" ? "15px" : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "leave-table" ? "15px" : 0,
+                    }}
+                  >
+                    <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                      <TableChartIcon />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Leave Table"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                  )}
+
+                  {/* Leave Assignment - Admin only */}
+                  {userRole !== "staff" && shouldShowMenuItem("/leave-assignment") && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/leave-assignment"
+                    onClick={() => handleItemClick("leave-assignment")}
+                    sx={{
+                      bgcolor:
+                        selectedItem === "leave-assignment"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "leave-assignment"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "leave-assignment"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "leave-assignment"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "leave-assignment" ? "15px" : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "leave-assignment" ? "15px" : 0,
+                    }}
+                  >
+                    <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                      <AssignmentIcon />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Leave Assignment"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                  )}
+
+                  {/* Leave Request - Admin only */}
+                  {userRole !== "staff" && shouldShowMenuItem("/leave-request") && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/leave-request"
+                    onClick={() => handleItemClick("leave-request")}
+                    sx={{
+                      bgcolor:
+                        selectedItem === "leave-request"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "leave-request"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "leave-request"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "leave-request"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "leave-request" ? "15px" : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "leave-request" ? "15px" : 0,
+                    }}
+                  >
+                    <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                      <DescriptionIcon />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Leave Request Management"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                  )}
+
+                  {/* Leave Request User - Staff only */}
+                  {shouldShowMenuItem("/leave-request-user") && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/leave-request-user"
+                    onClick={() => handleItemClick("leave-request-user")}
+                    sx={{
+                      bgcolor:
+                        selectedItem === "leave-request-user"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "leave-request-user"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "leave-request-user"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "leave-request-user"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "leave-request-user" ? "15px" : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "leave-request-user" ? "15px" : 0,
+                    }}
+                  >
+                    <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                      <DescriptionIcon />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Leave Request User"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                  )}
+                </List>
+              </Collapse>
+            </>
             )}
 
            {userRole !== "staff" && (

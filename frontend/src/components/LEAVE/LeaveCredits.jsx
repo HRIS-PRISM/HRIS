@@ -133,9 +133,9 @@ const LeaveGroupCard = ({ group, accentColor }) => {
   const [expanded, setExpanded] = useState(false);
 
   const hasPrevious = group.previousEntries.length > 0;
-  const statusColor = getStatusColor(group.grandRemaining, group.grandTotal);
-  const statusText  = getStatusText(group.grandRemaining, group.grandTotal);
-  const grandPct    = group.grandTotal > 0 ? (group.grandRemaining / group.grandTotal) * 100 : 0;
+  const statusColor = getStatusColor(group.currRemaining, group.currTotal);
+  const statusText  = getStatusText(group.currRemaining, group.currTotal);
+  const currPct    = group.currTotal > 0 ? (group.currRemaining / group.currTotal) * 100 : 0;
 
   const currColor = getStatusColor(group.currRemaining, group.currTotal);
   const prevColor = group.prevRemainingDays > 0 ? '#EF6C00' : '#9e9e9e';
@@ -165,10 +165,10 @@ const LeaveGroupCard = ({ group, accentColor }) => {
           </Box>
           <Box sx={{ textAlign: 'right', ml: 2, flexShrink: 0 }}>
             <Typography sx={{ fontWeight: 800, color: statusColor, lineHeight: 1, fontSize: '1.15rem' }}>
-              {group.grandRemaining.toFixed(1)}
+              {group.currRemaining.toFixed(1)}
             </Typography>
             <Typography variant="caption" sx={{ color: '#aaa', fontSize: '0.68rem' }}>
-              / {group.grandTotal.toFixed(1)} days total
+              / {group.currTotal.toFixed(1)} days current
             </Typography>
           </Box>
         </Box>
@@ -199,6 +199,9 @@ const LeaveGroupCard = ({ group, accentColor }) => {
                 </Typography>
                 <Typography variant="caption" sx={{ color: '#bbb', fontSize: '0.63rem' }}>
                   days · {group.previousEntries.length} prev. period{group.previousEntries.length !== 1 ? 's' : ''}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#999', fontSize: '0.6rem', fontStyle: 'italic', display: 'block', mt: 0.5 }}>
+                  (For reference only—cannot be deducted)
                 </Typography>
               </Box>
 
@@ -239,14 +242,14 @@ const LeaveGroupCard = ({ group, accentColor }) => {
 
         {/* Overall progress bar */}
         <ProgressBar>
-          <ProgressFill width={grandPct} color={statusColor} />
+          <ProgressFill width={currPct} color={statusColor} />
         </ProgressBar>
 
         {/* Footer */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography variant="caption" sx={{ color: '#bbb', fontSize: '0.68rem' }}>
-              Used: {group.grandUsed.toFixed(1)} d
+              Used: {group.currUsed.toFixed(1)} d
             </Typography>
             {hasPrevious && (
               <Box
@@ -360,7 +363,7 @@ const CompactView = ({ rawCredits, loading, accentColor }) => {
 // ============================================
 const FullView = ({ rawCredits, loading, error, onRetry, accentColor, accentDark }) => {
   const grouped = groupByLeaveCode(rawCredits);
-  const totalRemaining = grouped.reduce((sum, g) => sum + g.grandRemaining, 0);
+  const totalRemaining = grouped.reduce((sum, g) => sum + g.currRemaining, 0);
 
   if (loading) return (
     <Box sx={{ textAlign: 'center', py: 4 }}>

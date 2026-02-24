@@ -74,6 +74,7 @@ import {
   Description as FormIcon,
   Folder,
   FolderSpecial,
+  EventNote,
 } from '@mui/icons-material';
 import AccessDenied from './AccessDenied';
 import axios from 'axios';
@@ -297,6 +298,7 @@ const PagesList = () => {
     'Information Management',
     'Attendance Management',
     'Payroll Management',
+    'Leave Management',
     'Form',
     'Pages Management',
     'Personal Data Sheets'
@@ -531,6 +533,11 @@ const PagesList = () => {
         return {
           sx: { bgcolor: alpha(settings?.secondaryColor || '#6d2323', 0.12), color: settings?.secondaryColor || '#6d2323' },
           icon: <Payment />,
+        };
+      case 'leave management':
+        return {
+          sx: { bgcolor: alpha(settings?.primaryColor || '#894444', 0.12), color: settings?.primaryColor || '#894444' },
+          icon: <EventNote />,
         };
       case 'form':
         return {

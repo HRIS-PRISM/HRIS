@@ -340,7 +340,7 @@ const LeaveAssignment = () => {
     setNewAssignment(prev => ({
       ...prev,
       carried_forward_hours: totalCarryForwardHours.toString(),
-      total_hours: (totalCarryForwardHours + allocated).toString(),
+      total_hours: allocated.toString(),
     }));
     setIsCarryForwardAutoSuggested(totalCarryForwardHours > 0);
 
@@ -481,6 +481,7 @@ const LeaveAssignment = () => {
     try {
       await axios.delete(`${API_BASE_URL}/leaveRoute/leave_assignment/${id}`);
       setEditAssignment(null); setOriginalAssignment(null); setIsEditing(false); setError('');
+      setEmployeeLeavesModalOpen(false); setSelectedEmployeeLeaves(null); setSelectedLeaveTypeInModal(null);
       await fetchAssignments();
       setSuccessAction('delete'); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 2000);
     } catch (error) {
@@ -716,9 +717,8 @@ const LeaveAssignment = () => {
                 type="number"
                 value={newAssignment.allocated_hours}
                 onChange={e => {
-                  const cf = parseFloat(newAssignment.carried_forward_hours) || 0;
                   const al = parseFloat(e.target.value) || 0;
-                  setNewAssignment(prev => ({ ...prev, allocated_hours: e.target.value, total_hours: (cf + al).toString() }));
+                  setNewAssignment(prev => ({ ...prev, allocated_hours: e.target.value, total_hours: al.toString() }));
                   setError('');
                 }}
                 placeholder="New hours for this period..."
@@ -775,7 +775,7 @@ const LeaveAssignment = () => {
                 }}
                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, backgroundColor: '#f5f5f5', '& fieldset': { borderColor: 'rgba(109,35,35,0.2)' } }, '& .MuiInputBase-input': { fontWeight: 700, color: '#6d2323', fontSize: '1.1rem' } }}
               />
-              <Typography variant="caption" sx={{ color: '#6d2323', mt: 0.5, display: 'block', fontWeight: 600 }}>Auto-calculated sum</Typography>
+              <Typography variant="caption" sx={{ color: '#6d2323', mt: 0.5, display: 'block', fontWeight: 600 }}>Current period allocation only</Typography>
             </Grid>
 
             {/* ASSIGN BUTTON */}
@@ -1055,7 +1055,7 @@ const LeaveAssignment = () => {
                   </Grid>
                   <Grid item xs={12} sm={3}>
                     <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#1976d2' }}>Allocated Hours</Typography>
-                    <TextField type="number" value={editAssignment.allocated_hours || 0} onChange={e => { const cf = parseFloat(editAssignment.carried_forward_hours) || 0; const al = parseFloat(e.target.value) || 0; setEditAssignment({ ...editAssignment, allocated_hours: al, total_hours: cf + al }); }} fullWidth size="medium" variant={isEditing ? 'outlined' : 'standard'} inputProps={{ min: 0, step: 8 }} InputProps={{ readOnly: !isEditing, disableUnderline: !isEditing, endAdornment: <InputAdornment position="end">{((editAssignment.allocated_hours || 0) / 8).toFixed(1)} days</InputAdornment> }} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 }, '& .MuiInputBase-input': { color: '#1976d2', fontWeight: 600 } }} />
+                    <TextField type="number" value={editAssignment.allocated_hours || 0} onChange={e => { const al = parseFloat(e.target.value) || 0; setEditAssignment({ ...editAssignment, allocated_hours: al, total_hours: al }); }} fullWidth size="medium" variant={isEditing ? 'outlined' : 'standard'} inputProps={{ min: 0, step: 8 }} InputProps={{ readOnly: !isEditing, disableUnderline: !isEditing, endAdornment: <InputAdornment position="end">{((editAssignment.allocated_hours || 0) / 8).toFixed(1)} days</InputAdornment> }} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 }, '& .MuiInputBase-input': { color: '#1976d2', fontWeight: 600 } }} />
                   </Grid>
                   <Grid item xs={12} sm={3}>
                     <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}>Period Year</Typography>

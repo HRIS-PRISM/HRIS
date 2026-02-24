@@ -31,6 +31,11 @@ import {
   Avatar,
   Tooltip,
   alpha,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  FormHelperText,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -49,6 +54,8 @@ import {
   Group as GroupIcon,
   FamilyRestroom as FamilyRestroomIcon,
   Refresh,
+  NavigateNext as NextIcon,
+  NavigateBefore as PrevIcon,
 } from '@mui/icons-material';
 
 import LoadingOverlay from '../LoadingOverlay';
@@ -67,7 +74,7 @@ import {
   createThemedTextField,
 } from '../../utils/theme';
 
-// Stable themed components (avoid recreating styled components on every render)
+// Stable themed components
 const ThemedCard = styled(Card, {
   shouldForwardProp: (prop) => prop !== 'settings',
 })(({ settings = {} }) => createThemedCard(settings));
@@ -359,7 +366,6 @@ const EmployeeAutocomplete = ({
 const Children = () => {
   const { socket, connected } = useSocket();
   const refreshChildrenRef = useRef(null);
-  // Get settings from context
   const { settings } = useSystemSettings();
 
   const [children, setChildren] = useState([]);
@@ -372,25 +378,32 @@ const Children = () => {
     dateOfBirth: '',
     person_id: '',
   });
-  const [editChild, setEditChild] = useState(null);
-  const [originalChild, setOriginalChild] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [successOpen, setSuccessOpen] = useState(false);
-  const [successAction, setSuccessAction] = useState('');
-  const [errors, setErrors] = useState({});
-  const [viewMode, setViewMode] = useState('grid');
+  
+  // Pagination State
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
 
+  // Modal States
   const [selectedEmployee, setSelectedEmployee] = useState(null);
-  const [selectedEditEmployee, setSelectedEditEmployee] = useState(null);
-
+  
+  // Split View Modal State
   const [employeeChildrenModal, setEmployeeChildrenModal] = useState({
     open: false,
     employeeId: null,
     employeeName: '',
     children: [],
   });
+  
+  // Detail View State (Right Side)
+  const [selectedChild, setSelectedChild] = useState(null);
+  const [tempChildData, setTempChildData] = useState(null);
+  const [isEditingChild, setIsEditingChild] = useState(false);
+
+  const [loading, setLoading] = useState(false);
+  const [successOpen, setSuccessOpen] = useState(false);
+  const [successAction, setSuccessAction] = useState('');
+  const [errors, setErrors] = useState({});
+  const [viewMode, setViewMode] = useState('grid');
 
   const [snackbar, setSnackbar] = useState({
     open: false,
@@ -404,12 +417,12 @@ const Children = () => {
 
   const navigate = useNavigate();
 
-  // Use stable themed components
+  // Stable themed components
   const GlassCard = ThemedCard;
   const ProfessionalButton = ThemedButton;
   const ModernTextField = ThemedTextField;
 
-  // Color scheme from settings (for compatibility)
+  // Colors
   const primaryColor = settings.accentColor || '#FEF9E1';
   const secondaryColor = settings.backgroundColor || '#FFF8E7';
   const accentColor = settings.primaryColor || '#6d2323';
@@ -417,7 +430,7 @@ const Children = () => {
     settings.secondaryColor || settings.hoverColor || '#8B3333';
   const grayColor = settings.textSecondaryColor || '#6c757d';
 
-  // Dynamic page access control using component identifier
+  // Access Control
   const {
     hasAccess,
     loading: accessLoading,
@@ -465,19 +478,15 @@ const Children = () => {
     }
   };
 
-  // Keep latest fetch function for Socket.IO handler
   useEffect(() => {
     refreshChildrenRef.current = fetchChildren;
   });
 
-  // Realtime: refresh when anyone changes children records
   useEffect(() => {
     if (!socket || !connected) return;
-
     const handleChanged = () => {
       refreshChildrenRef.current?.();
     };
-
     socket.on('childrenTableChanged', handleChanged);
     return () => {
       socket.off('childrenTableChanged', handleChanged);
@@ -486,7 +495,6 @@ const Children = () => {
 
   const groupChildrenByEmployee = () => {
     const grouped = {};
-
     children.forEach((child) => {
       if (!grouped[child.person_id]) {
         grouped[child.person_id] = {
@@ -497,7 +505,6 @@ const Children = () => {
       }
       grouped[child.person_id].children.push(child);
     });
-
     return Object.values(grouped);
   };
 
@@ -509,13 +516,11 @@ const Children = () => {
       'dateOfBirth',
       'person_id',
     ];
-
     requiredFields.forEach((field) => {
       if (!newChild[field] || newChild[field].trim() === '') {
         newErrors[field] = 'This field is required';
       }
     });
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -525,7 +530,6 @@ const Children = () => {
       showSnackbar('Please fill in all required fields', 'error');
       return;
     }
-
     setLoading(true);
     try {
       await axios.post(
@@ -557,59 +561,14 @@ const Children = () => {
     }
   };
 
-  const handleUpdate = async () => {
-    try {
-      await axios.put(
-        `${API_BASE_URL}/childrenRoute/children-table/${editChild.id}`,
-        editChild,
-        getAuthHeaders(),
-      );
-      setEditChild(null);
-      setOriginalChild(null);
-      setSelectedEditEmployee(null);
-      setIsEditing(false);
-      fetchChildren();
-      setSuccessAction('edit');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-    } catch (err) {
-      console.error('Error updating data:', err);
-      showSnackbar('Failed to update child record. Please try again.', 'error');
-    }
-  };
-
-  const handleDelete = async (id) => {
-    try {
-      await axios.delete(
-        `${API_BASE_URL}/childrenRoute/children-table/${id}`,
-        getAuthHeaders(),
-      );
-      setEditChild(null);
-      setOriginalChild(null);
-      setSelectedEditEmployee(null);
-      setIsEditing(false);
-      fetchChildren();
-      setSuccessAction('delete');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-    } catch (err) {
-      console.error('Error deleting data:', err);
-      showSnackbar('Failed to delete child record. Please try again.', 'error');
-    }
-  };
-
-  const handleChange = (field, value, isEdit = false) => {
-    if (isEdit) {
-      setEditChild({ ...editChild, [field]: value });
-    } else {
-      setNewChild({ ...newChild, [field]: value });
-      if (errors[field]) {
-        setErrors((prev) => {
-          const newErrors = { ...prev };
-          delete newErrors[field];
-          return newErrors;
-        });
-      }
+  const handleChange = (field, value) => {
+    setNewChild({ ...newChild, [field]: value });
+    if (errors[field]) {
+      setErrors((prev) => {
+        const newErrors = { ...prev };
+        delete newErrors[field];
+        return newErrors;
+      });
     }
   };
 
@@ -626,37 +585,22 @@ const Children = () => {
     setSelectedEmployee(employee);
   };
 
-  const handleEditEmployeeChange = (employeeNumber) => {
-    setEditChild({ ...editChild, person_id: employeeNumber });
-  };
-
-  const handleEditEmployeeSelect = (employee) => {
-    setSelectedEditEmployee(employee);
-  };
-
-  const handleOpenModal = async (child) => {
-    const employeeName = employeeNames[child.person_id] || 'Unknown';
-
-    setEditChild({ ...child });
-    setOriginalChild({ ...child });
-    setSelectedEditEmployee({
-      name: employeeName,
-      employeeNumber: child.person_id,
-    });
-    setIsEditing(false);
-  };
-
-  const handleOpenEmployeeChildrenModal = (
-    employeeId,
-    employeeName,
-    children,
-  ) => {
+  // Modal Handlers
+  const handleOpenEmployeeChildrenModal = (employeeId, employeeName, children) => {
     setEmployeeChildrenModal({
       open: true,
       employeeId,
       employeeName,
       children,
     });
+    // Select first child by default if available
+    if (children.length > 0) {
+      selectChild(children[0]);
+    } else {
+      setSelectedChild(null);
+      setTempChildData(null);
+      setIsEditingChild(false);
+    }
   };
 
   const handleCloseEmployeeChildrenModal = () => {
@@ -666,35 +610,98 @@ const Children = () => {
       employeeName: '',
       children: [],
     });
+    setSelectedChild(null);
+    setTempChildData(null);
+    setIsEditingChild(false);
   };
 
-  const handleStartEdit = () => {
-    setIsEditing(true);
+  const selectChild = (child) => {
+    setSelectedChild(child);
+    setTempChildData({ ...child });
+    setIsEditingChild(false);
   };
 
-  const handleCancelEdit = () => {
-    setEditChild({ ...originalChild });
-    setSelectedEditEmployee({
-      name: employeeNames[originalChild.person_id] || 'Unknown',
-      employeeNumber: originalChild.person_id,
-    });
-    setIsEditing(false);
+  const handleDetailChange = (field, value) => {
+    setTempChildData({ ...tempChildData, [field]: value });
   };
 
-  const handleCloseModal = () => {
-    setEditChild(null);
-    setOriginalChild(null);
-    setSelectedEditEmployee(null);
-    setIsEditing(false);
-  };
-
-  const handleViewModeChange = (event, newMode) => {
-    if (newMode !== null) {
-      setViewMode(newMode);
+  const handleUpdateChild = async () => {
+    if (!tempChildData) return;
+    
+    setLoading(true);
+    try {
+      await axios.put(
+        `${API_BASE_URL}/childrenRoute/children-table/${tempChildData.id}`,
+        tempChildData,
+        getAuthHeaders(),
+      );
+      
+      // Update local modal state immediately
+      const updatedChildren = employeeChildrenModal.children.map(c => 
+        c.id === tempChildData.id ? { ...tempChildData } : c
+      );
+      setEmployeeChildrenModal(prev => ({ ...prev, children: updatedChildren }));
+      
+      setSelectedChild({ ...tempChildData });
+      setIsEditingChild(false);
+      
+      fetchChildren(); // Refresh global data
+      setSuccessAction('edit');
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2000);
+    } catch (err) {
+      console.error('Error updating child:', err);
+      showSnackbar('Failed to update child record. Please try again.', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
+  const handleDeleteChild = async () => {
+    if (!selectedChild) return;
+
+    if (!window.confirm('Are you sure you want to delete this child record?')) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await axios.delete(
+        `${API_BASE_URL}/childrenRoute/children-table/${selectedChild.id}`,
+        getAuthHeaders(),
+      );
+
+      // Update local modal state
+      const updatedChildren = employeeChildrenModal.children.filter(c => c.id !== selectedChild.id);
+      setEmployeeChildrenModal(prev => ({ ...prev, children: updatedChildren }));
+
+      // Select next available or clear
+      if (updatedChildren.length > 0) {
+        selectChild(updatedChildren[0]);
+      } else {
+        setSelectedChild(null);
+        setTempChildData(null);
+      }
+
+      fetchChildren();
+      setSuccessAction('delete');
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2000);
+    } catch (err) {
+      console.error('Error deleting child:', err);
+      showSnackbar('Failed to delete child record. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setTempChildData({ ...selectedChild });
+    setIsEditingChild(false);
+  };
+
   const getAge = (dateOfBirth) => {
+    if (!dateOfBirth) return 'N/A';
     const today = new Date();
     const birthDate = new Date(dateOfBirth);
     let age = today.getFullYear() - birthDate.getFullYear();
@@ -708,29 +715,51 @@ const Children = () => {
     return age;
   };
 
-  const hasChanges = () => {
-    if (!editChild || !originalChild) return false;
-
-    return (
-      editChild.childrenFirstName !== originalChild.childrenFirstName ||
-      editChild.childrenMiddleName !== originalChild.childrenMiddleName ||
-      editChild.childrenLastName !== originalChild.childrenLastName ||
-      editChild.childrenNameExtension !== originalChild.childrenNameExtension ||
-      editChild.dateOfBirth !== originalChild.dateOfBirth ||
-      editChild.person_id !== originalChild.person_id
-    );
+  const handleViewModeChange = (event, newMode) => {
+    if (newMode !== null) {
+      setViewMode(newMode);
+    }
   };
+
+  // Pagination Logic
+  const [searchTerm, setSearchTerm] = useState('');
+  const groupedChildren = groupChildrenByEmployee();
+  const filteredGroupedChildren = groupedChildren.filter((group) => {
+    const employeeName = group.employeeName.toLowerCase();
+    const employeeId = group.employeeId?.toString() || '';
+    const childrenNames = group.children
+      .map((child) =>
+        `${child.childrenFirstName} ${child.childrenMiddleName} ${child.childrenLastName}`.toLowerCase(),
+      )
+      .join(' ');
+    const search = searchTerm.toLowerCase();
+    return (
+      employeeId.includes(search) ||
+      employeeName.includes(search) ||
+      childrenNames.includes(search)
+    );
+  });
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  // Avoid layout shift
+  useEffect(() => {
+    if (page > 0 && page * rowsPerPage >= filteredGroupedChildren.length) {
+      setPage(0);
+    }
+  }, [filteredGroupedChildren.length, rowsPerPage, page]);
 
   if (hasAccess === null) {
     return (
       <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <CircularProgress sx={{ color: accentColor, mb: 2 }} />
           <Typography variant="h6" sx={{ color: accentColor }}>
             Loading access information...
@@ -751,24 +780,17 @@ const Children = () => {
     );
   }
 
-  const groupedChildren = groupChildrenByEmployee();
+  // Pagination calculations
+  const totalRows = filteredGroupedChildren.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / rowsPerPage));
+  const startRow = totalRows === 0 ? 0 : page * rowsPerPage + 1;
+  const endRow = Math.min((page + 1) * rowsPerPage, totalRows);
 
-  const filteredGroupedChildren = groupedChildren.filter((group) => {
-    const employeeName = group.employeeName.toLowerCase();
-    const employeeId = group.employeeId?.toString() || '';
-    const childrenNames = group.children
-      .map((child) =>
-        `${child.childrenFirstName} ${child.childrenMiddleName} ${child.childrenLastName}`.toLowerCase(),
-      )
-      .join(' ');
-
-    const search = searchTerm.toLowerCase();
-    return (
-      employeeId.includes(search) ||
-      employeeName.includes(search) ||
-      childrenNames.includes(search)
-    );
-  });
+  const paginatedData = (() => {
+    const start = page * rowsPerPage;
+    const end = start + rowsPerPage;
+    return filteredGroupedChildren.slice(start, end);
+  })();
 
   return (
     <Box
@@ -817,7 +839,6 @@ const Children = () => {
                       'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
                   }}
                 />
-
                 <Box
                   display="flex"
                   alignItems="center"
@@ -1089,7 +1110,7 @@ const Children = () => {
                     }}
                   >
                     <ChildCareIcon sx={{ mr: 2, fontSize: 24 }} />
-                    Child Details
+                    {newChild.childrenFirstName || newChild.childrenLastName ? `${newChild.childrenFirstName} ${newChild.childrenMiddleName ? newChild.childrenMiddleName + ' ' : ''}${newChild.childrenLastName}${newChild.childrenNameExtension ? ', ' + newChild.childrenNameExtension : ''}`.trim() : 'Child Details'}
                   </Typography>
 
                   <Grid container spacing={2}>
@@ -1284,9 +1305,10 @@ const Children = () => {
                     display: 'flex',
                     flexDirection: 'column',
                     overflow: 'hidden',
+                    pt: 2,
                   }}
                 >
-                  <Box sx={{ mb: 3 }}>
+                  <Box sx={{ mb: 2, flexShrink: 0 }}>
                     <ModernTextField
                       size="small"
                       variant="outlined"
@@ -1302,6 +1324,7 @@ const Children = () => {
                     />
                   </Box>
 
+                  {/* Scrollable Area */}
                   <Box
                     sx={{
                       flexGrow: 1,
@@ -1322,12 +1345,13 @@ const Children = () => {
                   >
                     {viewMode === 'grid' ? (
                       <Grid container spacing={1.5}>
-                        {filteredGroupedChildren.map((group) => (
+                        {paginatedData.map((group) => (
                           <Grid
                             item
                             xs={12}
                             sm={6}
-                            md={4}
+                            md={6}
+                            lg={6}
                             key={group.employeeId}
                           >
                             <Card
@@ -1340,66 +1364,58 @@ const Children = () => {
                               }
                               sx={{
                                 cursor: 'pointer',
-                                border: `1px solid ${alpha(
-                                  settings.primaryColor || '#6d2323',
-                                  0.1,
-                                )}`,
+                                border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.15)}`,
                                 height: '100%',
+                                backgroundColor: '#ffffff',
                                 display: 'flex',
                                 flexDirection: 'column',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                                transition: 'all 0.2s ease',
                                 '&:hover': {
                                   borderColor: accentColor,
-                                  transform: 'translateY(-2px)',
-                                  transition: 'all 0.2s ease',
-                                  boxShadow: '0 4px 8px rgba(109,35,35,0.15)',
+                                  transform: 'translateY(-4px)',
+                                  boxShadow: '0 8px 16px rgba(109,35,35,0.1)',
                                 },
                               }}
                             >
                               <CardContent
                                 sx={{
-                                  p: 1.75,
+                                  p: 1.5,
                                   flexGrow: 1,
                                   display: 'flex',
                                   flexDirection: 'column',
-                                  gap: 0.4,
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                  textAlign: 'center',
+                                  gap: 0.5,
                                 }}
                               >
-                                <Box
+                                <Avatar
                                   sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    mb: 0.25,
+                                    bgcolor: alpha(accentColor, 0.1),
+                                    color: accentColor,
+                                    width: 36,
+                                    height: 36,
                                   }}
                                 >
-                                  <FamilyRestroomIcon
-                                    sx={{
-                                      fontSize: 18,
-                                      color: accentColor,
-                                      mr: 0.75,
-                                    }}
-                                  />
-                                  <Typography
-                                    variant="caption"
-                                    sx={{
-                                      color: accentColor,
-                                      px: 0.5,
-                                      py: 0.15,
-                                      borderRadius: 0.5,
-                                      fontSize: '0.7rem',
-                                      fontWeight: 'bold',
-                                      backgroundColor: alpha(accentColor, 0.06),
-                                    }}
-                                  >
-                                    ID: {group.employeeId}
-                                  </Typography>
-                                </Box>
-
+                                  <FamilyRestroomIcon sx={{ fontSize: 20 }} />
+                                </Avatar>
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    color: accentColor,
+                                    fontWeight: 'bold',
+                                    fontSize: '0.7rem',
+                                    lineHeight: 1.2,
+                                  }}
+                                >
+                                  ID: {group.employeeId}
+                                </Typography>
                                 <Typography
                                   variant="body2"
-                                  fontWeight="bold"
-                                  color="#222"
-                                  sx={{ lineHeight: 1.2 }}
-                                  noWrap
+                                  fontWeight="600"
+                                  color="#333"
+                                  sx={{ lineHeight: 1.2, fontSize: '0.9rem' }}
                                 >
                                   {group.employeeName}
                                 </Typography>
@@ -1409,7 +1425,7 @@ const Children = () => {
                         ))}
                       </Grid>
                     ) : (
-                      filteredGroupedChildren.map((group) => (
+                      paginatedData.map((group) => (
                         <Card
                           key={group.employeeId}
                           onClick={() =>
@@ -1422,22 +1438,23 @@ const Children = () => {
                           sx={{
                             cursor: 'pointer',
                             border: '1px solid rgba(109, 35, 35, 0.1)',
-                            mb: 0.75,
+                            mb: 1,
+                            backgroundColor: '#fff',
                             '&:hover': {
                               borderColor: accentColor,
                               backgroundColor: alpha(
                                 settings.accentColor ||
                                   settings.backgroundColor ||
                                   '#FEF9E1',
-                                0.3,
+                                0.2,
                               ),
                             },
                           }}
                         >
-                          <Box sx={{ p: 1.75 }}>
+                          <Box sx={{ p: 1 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center' }}>
                               <FamilyRestroomIcon
-                                sx={{ fontSize: 20, color: accentColor, mr: 1 }}
+                                sx={{ fontSize: 18, color: accentColor, mr: 1.5 }}
                               />
                               <Box sx={{ flexGrow: 1 }}>
                                 <Typography
@@ -1446,6 +1463,7 @@ const Children = () => {
                                     color: accentColor,
                                     fontSize: '0.7rem',
                                     fontWeight: 'bold',
+                                    lineHeight: 1.1,
                                   }}
                                 >
                                   ID: {group.employeeId}
@@ -1454,7 +1472,7 @@ const Children = () => {
                                   variant="body2"
                                   fontWeight="bold"
                                   color="#333"
-                                  sx={{ lineHeight: 1.2 }}
+                                  sx={{ lineHeight: 1.2, fontSize: '0.9rem' }}
                                 >
                                   {group.employeeName}
                                 </Typography>
@@ -1465,7 +1483,7 @@ const Children = () => {
                       ))
                     )}
 
-                    {filteredGroupedChildren.length === 0 && (
+                    {paginatedData.length === 0 && (
                       <Box textAlign="center" py={4}>
                         <Typography
                           variant="h6"
@@ -1481,13 +1499,104 @@ const Children = () => {
                       </Box>
                     )}
                   </Box>
+
+                  {/* Fixed Footer - Pagination */}
+                  <Box
+                    sx={{
+                      flexShrink: 0,
+                      mt: 2,
+                      pt: 1.5,
+                      borderTop: `1px solid ${alpha(accentColor, 0.15)}`,
+                      display: 'flex',
+                      justifyContent: 'flex-end',
+                      alignItems: 'center',
+                      backgroundColor: '#fff',
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-end',
+                        gap: 0.5,
+                      }}
+                    >
+                      {/* Rows per page */}
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.75,
+                        }}
+                      >
+                        <Typography
+                          sx={{
+                            fontSize: '0.75rem',
+                            color: accentColor,
+                            fontWeight: 600,
+                          }}
+                        >
+                          Rows per page:
+                        </Typography>
+                        <FormControl size="small" sx={{ minWidth: 70 }}>
+                          <Select
+                            value={rowsPerPage}
+                            onChange={handleChangeRowsPerPage}
+                            sx={{ fontSize: '0.75rem', height: 28 }}
+                          >
+                            <MenuItem value={20}>20</MenuItem>
+                            <MenuItem value={40}>40</MenuItem>
+                            <MenuItem value={60}>60</MenuItem>
+                            <MenuItem value={80}>80</MenuItem>
+                            <MenuItem value={100}>100</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Box>
+
+                      {/* Total + Pagination */}
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.5,
+                        }}
+                      >
+                        <Typography
+                          sx={{
+                            fontSize: '0.75rem',
+                            color: accentColor,
+                          }}
+                        >
+                          {startRow}-{endRow} of {totalRows}
+                        </Typography>
+                        <IconButton
+                          size="small"
+                          onClick={() => setPage((p) => Math.max(0, p - 1))}
+                          disabled={page <= 0}
+                          sx={{ color: accentColor, p: 0.5 }}
+                        >
+                          <PrevIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={() =>
+                            setPage((p) => Math.min(totalPages - 1, p + 1))
+                          }
+                          disabled={page >= totalPages - 1}
+                          sx={{ color: accentColor, p: 0.5 }}
+                        >
+                          <NextIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                      </Box>
+                    </Box>
+                  </Box>
                 </Box>
               </GlassCard>
             </Fade>
           </Grid>
         </Grid>
 
-        {/* Employee Children Modal */}
+        {/* Employee Children Modal - Split View */}
         <Modal
           open={employeeChildrenModal.open}
           onClose={handleCloseEmployeeChildrenModal}
@@ -1500,20 +1609,24 @@ const Children = () => {
           <GlassCard
             settings={settings}
             sx={{
-              width: '90%',
-              maxWidth: '800px',
-              maxHeight: '90vh',
-              overflowY: 'auto',
+              width: '95%',
+              maxWidth: '1200px',
+              height: '85vh',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
             }}
           >
+            {/* Header with Gradient and White Text */}
             <Box
               sx={{
-                p: 4,
-                background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                color: accentColor,
+                p: 3,
+                background: `linear-gradient(135deg, ${settings.secondaryColor || '#6d2323'} 0%, ${settings.deleteButtonHoverColor || '#a31d1d'} 100%)`,
+                color: '#ffffff', // Explicitly White as requested
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
+                flexShrink: 0,
               }}
             >
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -1533,705 +1646,340 @@ const Children = () => {
               </Box>
               <IconButton
                 onClick={handleCloseEmployeeChildrenModal}
-                sx={{ color: accentColor }}
+                sx={{ color: '#ffffff' }}
               >
                 <Close />
               </IconButton>
             </Box>
 
-            <Box sx={{ p: 4 }}>
-              {employeeChildrenModal.children.length > 0 ? (
-                <Grid container spacing={2}>
+            {/* Split Body */}
+            <Box
+              sx={{
+                flexGrow: 1,
+                display: 'flex',
+                overflow: 'hidden',
+                backgroundColor: '#fff',
+              }}
+            >
+              {/* Left Panel: List of Children */}
+              <Box
+                sx={{
+                  width: '350px',
+                  borderRight: '1px solid rgba(0,0,0,0.1)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  backgroundColor: '#f9f9f9',
+                }}
+              >
+                <Box sx={{ p: 2, borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
+                  <Typography variant="subtitle2" fontWeight="bold">
+                    Children List
+                  </Typography>
+                </Box>
+                <List sx={{ flexGrow: 1, overflowY: 'auto', p: 1 }}>
                   {employeeChildrenModal.children.map((child) => (
-                    <Grid item xs={12} sm={6} md={4} key={child.id}>
-                      <Card
-                        onClick={() => handleOpenModal(child)}
-                        sx={{
-                          cursor: 'pointer',
-                          border: '1px solid rgba(109, 35, 35, 0.1)',
-                          height: '100%',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          '&:hover': {
-                            borderColor: accentColor,
-                            transform: 'translateY(-2px)',
-                            transition: 'all 0.2s ease',
-                            boxShadow: '0 4px 8px rgba(109,35,35,0.15)',
-                          },
-                        }}
-                      >
-                        <CardContent
-                          sx={{
-                            p: 2,
-                            flexGrow: 1,
-                            display: 'flex',
-                            flexDirection: 'column',
-                          }}
-                        >
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              mb: 1,
-                            }}
-                          >
-                            <ChildCareIcon
-                              sx={{ fontSize: 18, color: accentColor, mr: 0.5 }}
-                            />
-                            <Typography
-                              variant="caption"
-                              sx={{
-                                color: accentColor,
-                                px: 0.5,
-                                py: 0.2,
-                                borderRadius: 0.5,
-                                fontSize: '0.7rem',
-                                fontWeight: 'bold',
-                              }}
-                            >
-                              ID: {child.id}
-                            </Typography>
-                          </Box>
-
-                          <Typography
-                            variant="body2"
-                            fontWeight="bold"
-                            color="#333"
-                            mb={0.5}
-                            noWrap
-                          >
-                            {child.childrenFirstName} {child.childrenMiddleName}{' '}
-                            {child.childrenLastName}
-                          </Typography>
-
-                          {child.childrenNameExtension && (
-                            <Typography
-                              variant="caption"
-                              color={grayColor}
-                              mb={0.5}
-                            >
-                              {child.childrenNameExtension}
-                            </Typography>
-                          )}
-
-                          {child.dateOfBirth && (
-                            <Box
-                              sx={{
-                                display: 'inline-block',
-                                px: 1,
-                                py: 0.3,
-                                borderRadius: 0.5,
-                                backgroundColor: alpha(
-                                  settings.primaryColor || '#6d2323',
-                                  0.1,
-                                ),
-                                border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.2)}`,
-                                alignSelf: 'flex-start',
-                                mt: 'auto',
-                              }}
-                            >
-                              <Typography
-                                variant="caption"
-                                sx={{
-                                  color: accentColor,
-                                  fontSize: '0.7rem',
-                                  fontWeight: 'bold',
-                                }}
-                              >
-                                Age: {getAge(child.dateOfBirth)} years
-                              </Typography>
-                            </Box>
-                          )}
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  ))}
-                </Grid>
-              ) : (
-                <Box textAlign="center" py={4}>
-                  <Typography
-                    variant="h6"
-                    color={accentColor}
-                    fontWeight="bold"
-                    sx={{ mb: 1 }}
-                  >
-                    No Children Records Found
-                  </Typography>
-                  <Typography variant="body2" color={grayColor}>
-                    This employee doesn't have any children records yet.
-                  </Typography>
-                </Box>
-              )}
-            </Box>
-          </GlassCard>
-        </Modal>
-
-        {/* Edit Child Modal */}
-        <Modal
-          open={!!editChild}
-          onClose={handleCloseModal}
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <GlassCard
-            settings={settings}
-            sx={{
-              width: '90%',
-              maxWidth: '900px',
-              maxHeight: '90vh',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }}
-          >
-            {editChild && (
-              <>
-                <Box
-                  sx={{
-                    p: 3,
-                    background: `linear-gradient(135deg, ${settings.secondaryColor || '#6d2323'} 0%, ${settings.deleteButtonHoverColor || '#a31d1d'} 100%)`,
-                    color: settings.accentColor || '#FEF9E1',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 10,
-                    flexShrink: 0,
-                  }}
-                >
-                  <Typography
-                    variant="h6"
-                    sx={{
-                      fontWeight: 'bold',
-                      color: settings.accentColor || '#FEF9E1',
-                    }}
-                  >
-                    {isEditing ? 'Edit Child Information' : 'Child Details'}
-                  </Typography>
-                  <IconButton
-                    onClick={handleCloseModal}
-                    sx={{ color: settings.accentColor || '#FEF9E1' }}
-                  >
-                    <Close />
-                  </IconButton>
-                </Box>
-
-                <Box
-                  sx={{
-                    p: 4,
-                    flexGrow: 1,
-                    overflowY: 'auto',
-                    minHeight: 0,
-                    '&::-webkit-scrollbar': {
-                      width: '6px',
-                    },
-                    '&::-webkit-scrollbar-track': {
-                      background: '#f1f1f1',
-                      borderRadius: '3px',
-                    },
-                    '&::-webkit-scrollbar-thumb': {
-                      background: settings.primaryColor || accentColor,
-                      borderRadius: '3px',
-                    },
-                  }}
-                >
-                  <Box sx={{ mb: 3 }}>
-                    <Typography
-                      variant="h5"
+                    <ListItem
+                      key={child.id}
+                      button
+                      selected={selectedChild?.id === child.id}
+                      onClick={() => selectChild(child)}
                       sx={{
-                        fontWeight: 600,
-                        mb: 2,
-                        color: accentColor,
-                        display: 'flex',
-                        alignItems: 'center',
+                        borderRadius: 1,
+                        mb: 1,
+                        border: selectedChild?.id === child.id
+                          ? `1px solid ${accentColor}`
+                          : '1px solid transparent',
+                        backgroundColor: selectedChild?.id === child.id
+                          ? alpha(accentColor, 0.1)
+                          : 'transparent',
+                        '&.Mui-selected': {
+                          backgroundColor: alpha(accentColor, 0.1),
+                          '&:hover': {
+                            backgroundColor: alpha(accentColor, 0.2),
+                          },
+                        },
                       }}
                     >
-                      <PersonIcon sx={{ mr: 2, fontSize: 24 }} />
-                      Employee Information
-                    </Typography>
+                      <ListItemText
+                        primary={
+                          <Typography variant="body2" fontWeight="bold" noWrap>
+                            {child.childrenFirstName} {child.childrenLastName}
+                          </Typography>
+                        }
+                        secondary={
+                          <Typography variant="caption" noWrap>
+                            Age: {getAge(child.dateOfBirth)} yrs
+                          </Typography>
+                        }
+                      />
+                    </ListItem>
+                  ))}
+                  {employeeChildrenModal.children.length === 0 && (
+                    <Box p={2} textAlign="center">
+                      <Typography variant="body2" color="textSecondary">
+                        No children added.
+                      </Typography>
+                    </Box>
+                  )}
+                </List>
+              </Box>
 
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} sm={6}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                        >
-                          Search Employee
-                        </Typography>
-                        <EmployeeAutocomplete
-                          value={editChild?.person_id || ''}
-                          onChange={
-                            isEditing ? handleEditEmployeeChange : () => {}
-                          }
-                          selectedEmployee={selectedEditEmployee}
-                          onEmployeeSelect={
-                            isEditing ? handleEditEmployeeSelect : () => {}
-                          }
-                          placeholder="Search and select employee..."
-                          settings={settings}
-                          required
-                          disabled={!isEditing}
-                          dropdownDisabled={!isEditing}
-                        />
-                        {!isEditing && (
+              {/* Right Panel: Child Details / Edit Form */}
+              <Box
+                sx={{
+                  flexGrow: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                }}
+              >
+                {selectedChild ? (
+                  <>
+                    <Box
+                      sx={{
+                        p: 2,
+                        borderBottom: '1px solid rgba(0,0,0,0.1)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        backgroundColor: '#fff',
+                      }}
+                    >
+                      <Typography variant="h6" sx={{ fontWeight: 'bold', color: accentColor }}>
+                        {selectedChild ? `${selectedChild.childrenFirstName} ${selectedChild.childrenMiddleName ? selectedChild.childrenMiddleName + ' ' : ''}${selectedChild.childrenLastName}${selectedChild.childrenNameExtension ? ', ' + selectedChild.childrenNameExtension : ''}`.trim() : 'Child Details'}
+                      </Typography>
+                    </Box>
+
+                    <Box
+                      sx={{
+                        flexGrow: 1,
+                        overflowY: 'auto',
+                        p: 3,
+                      }}
+                    >
+                      <Grid container spacing={3}>
+                        {/* Read Only or Editable Fields */}
+                        <Grid item xs={12}>
                           <Typography
-                            variant="caption"
-                            sx={{
-                              color: grayColor,
-                              fontStyle: 'italic',
-                              display: 'block',
-                              mt: 0.5,
-                            }}
+                            variant="body2"
+                            sx={{ fontWeight: 600, mb: 1, color: grayColor }}
                           >
-                            Contact administrator for assistance.
+                            First Name
                           </Typography>
-                        )}
-                      </Grid>
-
-                      <Grid item xs={12} sm={6}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                        >
-                          Selected Employee
-                        </Typography>
-                        {selectedEditEmployee ? (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              backgroundColor: alpha(
-                                settings.accentColor ||
-                                  settings.backgroundColor ||
-                                  '#FEF9E1',
-                                0.8,
-                              ),
-                              border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.3)}`,
-                              borderRadius: 2,
-                              padding: '12px',
-                              gap: 1.5,
-                            }}
-                          >
-                            <PersonIcon
-                              sx={{ color: accentColor, fontSize: 20 }}
+                          {isEditingChild ? (
+                            <ModernTextField
+                              value={tempChildData.childrenFirstName}
+                              onChange={(e) =>
+                                handleDetailChange('childrenFirstName', e.target.value)
+                              }
+                              fullWidth
+                              size="small"
                             />
-                            <Box
-                              sx={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                flex: 1,
-                              }}
-                            >
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  fontWeight: 'bold',
-                                  color: accentColor,
-                                  fontSize: '14px',
-                                  lineHeight: 1.2,
-                                }}
-                              >
-                                {selectedEditEmployee.name}
-                              </Typography>
-                              <Typography
-                                variant="caption"
-                                sx={{
-                                  color: settings.textPrimaryColor || '#A31D1D',
-                                  fontSize: '12px',
-                                  lineHeight: 1.2,
-                                }}
-                              >
-                                ID: {selectedEditEmployee.employeeNumber}
-                              </Typography>
-                            </Box>
-                          </Box>
-                        ) : (
-                          <Box
+                          ) : (
+                            <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                              {selectedChild.childrenFirstName}
+                            </Typography>
+                          )}
+                        </Grid>
+
+                        <Grid item xs={12}>
+                          <Typography
+                            variant="body2"
+                            sx={{ fontWeight: 600, mb: 1, color: grayColor }}
+                          >
+                            Middle Name
+                          </Typography>
+                          {isEditingChild ? (
+                            <ModernTextField
+                              value={tempChildData.childrenMiddleName}
+                              onChange={(e) =>
+                                handleDetailChange('childrenMiddleName', e.target.value)
+                              }
+                              fullWidth
+                              size="small"
+                            />
+                          ) : (
+                            <Typography variant="body1">
+                              {selectedChild.childrenMiddleName || 'N/A'}
+                            </Typography>
+                          )}
+                        </Grid>
+
+                        <Grid item xs={12}>
+                          <Typography
+                            variant="body2"
+                            sx={{ fontWeight: 600, mb: 1, color: grayColor }}
+                          >
+                            Last Name
+                          </Typography>
+                          {isEditingChild ? (
+                            <ModernTextField
+                              value={tempChildData.childrenLastName}
+                              onChange={(e) =>
+                                handleDetailChange('childrenLastName', e.target.value)
+                              }
+                              fullWidth
+                              size="small"
+                            />
+                          ) : (
+                            <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                              {selectedChild.childrenLastName}
+                            </Typography>
+                          )}
+                        </Grid>
+
+                        <Grid item xs={12}>
+                          <Typography
+                            variant="body2"
+                            sx={{ fontWeight: 600, mb: 1, color: grayColor }}
+                          >
+                            Name Extension
+                          </Typography>
+                          {isEditingChild ? (
+                            <ModernTextField
+                              value={tempChildData.childrenNameExtension}
+                              onChange={(e) =>
+                                handleDetailChange('childrenNameExtension', e.target.value)
+                              }
+                              fullWidth
+                              size="small"
+                            />
+                          ) : (
+                            <Typography variant="body1">
+                              {selectedChild.childrenNameExtension || 'N/A'}
+                            </Typography>
+                          )}
+                        </Grid>
+
+                        <Grid item xs={12}>
+                          <Typography
+                            variant="body2"
+                            sx={{ fontWeight: 600, mb: 1, color: grayColor }}
+                          >
+                            Date of Birth
+                          </Typography>
+                          {isEditingChild ? (
+                            <ModernTextField
+                              type="date"
+                              value={tempChildData.dateOfBirth?.split('T')[0] || ''}
+                              onChange={(e) =>
+                                handleDetailChange('dateOfBirth', e.target.value)
+                              }
+                              fullWidth
+                              size="small"
+                            />
+                          ) : (
+                            <Typography variant="body1">
+                              {selectedChild.dateOfBirth?.split('T')[0] || 'N/A'}
+                            </Typography>
+                          )}
+                        </Grid>
+                      </Grid>
+                    </Box>
+
+                    {/* Footer Actions */}
+                    <Box
+                      sx={{
+                        p: 2,
+                        borderTop: '1px solid rgba(0,0,0,0.1)',
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        gap: 2,
+                        backgroundColor: '#fff',
+                      }}
+                    >
+                      {isEditingChild ? (
+                        <>
+                          <ProfessionalButton
+                            onClick={handleCancelEdit}
+                            variant="outlined"
+                            startIcon={<CancelIcon />}
                             sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              backgroundColor: 'rgba(0, 0, 0, 0.05)',
-                              border: `2px dashed ${alpha(settings.primaryColor || '#6d2323', 0.3)}`,
-                              borderRadius: 2,
-                              padding: '12px',
-                              minHeight: '48px',
+                              borderColor: settings.cancelButtonColor || '#6c757d',
+                              color: settings.cancelButtonColor || '#6c757d',
+                              minWidth: '100px',
                             }}
                           >
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                color: grayColor,
-                                fontStyle: 'italic',
-                                fontSize: '14px',
-                              }}
-                            >
-                              No employee selected
-                            </Typography>
-                          </Box>
-                        )}
-                      </Grid>
-                    </Grid>
-                  </Box>
-
-                  <Divider sx={{ my: 3, borderColor: 'rgba(109,35,35,0.1)' }} />
-
-                  <Typography
-                    variant="h5"
-                    sx={{
-                      fontWeight: 600,
-                      mb: 3,
-                      color: accentColor,
-                      display: 'flex',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <ChildCareIcon sx={{ mr: 2, fontSize: 24 }} />
-                    Child Details
-                  </Typography>
-
-                  <Grid container spacing={2}>
-                    <Grid item xs={12}>
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                      >
-                        First Name
-                      </Typography>
-                      {isEditing ? (
-                        <ModernTextField
-                          value={editChild.childrenFirstName}
-                          onChange={(e) =>
-                            handleChange(
-                              'childrenFirstName',
-                              e.target.value,
-                              true,
-                            )
-                          }
-                          fullWidth
-                          size="small"
-                        />
+                            Cancel
+                          </ProfessionalButton>
+                          <ProfessionalButton
+                            onClick={handleUpdateChild}
+                            variant="contained"
+                            startIcon={<SaveIcon />}
+                            sx={{
+                              backgroundColor: accentColor,
+                              color: primaryColor,
+                              minWidth: '100px',
+                              '&:hover': { backgroundColor: accentDark },
+                            }}
+                          >
+                            Save
+                          </ProfessionalButton>
+                        </>
                       ) : (
-                        <Box
-                          sx={{
-                            p: 1.5,
-                            bgcolor: alpha(
-                              settings.accentColor ||
-                                settings.backgroundColor ||
-                                '#FEF9E1',
-                              0.5,
-                            ),
-                            borderRadius: 1,
-                            border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.2)}`,
-                          }}
-                        >
-                          <Typography variant="body2">
-                            {editChild.childrenFirstName}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                      >
-                        Middle Name
-                      </Typography>
-                      {isEditing ? (
-                        <ModernTextField
-                          value={editChild.childrenMiddleName}
-                          onChange={(e) =>
-                            handleChange(
-                              'childrenMiddleName',
-                              e.target.value,
-                              true,
-                            )
-                          }
-                          fullWidth
-                          size="small"
-                        />
-                      ) : (
-                        <Box
-                          sx={{
-                            p: 1.5,
-                            bgcolor: alpha(
-                              settings.accentColor ||
-                                settings.backgroundColor ||
-                                '#FEF9E1',
-                              0.5,
-                            ),
-                            borderRadius: 1,
-                            border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.2)}`,
-                          }}
-                        >
-                          <Typography variant="body2">
-                            {editChild.childrenMiddleName || 'N/A'}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                      >
-                        Last Name
-                      </Typography>
-                      {isEditing ? (
-                        <ModernTextField
-                          value={editChild.childrenLastName}
-                          onChange={(e) =>
-                            handleChange(
-                              'childrenLastName',
-                              e.target.value,
-                              true,
-                            )
-                          }
-                          fullWidth
-                          size="small"
-                        />
-                      ) : (
-                        <Box
-                          sx={{
-                            p: 1.5,
-                            bgcolor: alpha(
-                              settings.accentColor ||
-                                settings.backgroundColor ||
-                                '#FEF9E1',
-                              0.5,
-                            ),
-                            borderRadius: 1,
-                            border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.2)}`,
-                          }}
-                        >
-                          <Typography variant="body2">
-                            {editChild.childrenLastName}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                      >
-                        Name Extension
-                      </Typography>
-                      {isEditing ? (
-                        <ModernTextField
-                          value={editChild.childrenNameExtension}
-                          onChange={(e) =>
-                            handleChange(
-                              'childrenNameExtension',
-                              e.target.value,
-                              true,
-                            )
-                          }
-                          fullWidth
-                          size="small"
-                        />
-                      ) : (
-                        <Box
-                          sx={{
-                            p: 1.5,
-                            bgcolor: alpha(
-                              settings.accentColor ||
-                                settings.backgroundColor ||
-                                '#FEF9E1',
-                              0.5,
-                            ),
-                            borderRadius: 1,
-                            border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.2)}`,
-                          }}
-                        >
-                          <Typography variant="body2">
-                            {editChild.childrenNameExtension || 'N/A'}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                      >
-                        Date of Birth
-                      </Typography>
-                      {isEditing ? (
-                        <ModernTextField
-                          type="date"
-                          value={editChild.dateOfBirth?.split('T')[0] || ''}
-                          onChange={(e) =>
-                            handleChange('dateOfBirth', e.target.value, true)
-                          }
-                          fullWidth
-                          size="small"
-                        />
-                      ) : (
-                        <Box
-                          sx={{
-                            p: 1.5,
-                            bgcolor: alpha(
-                              settings.accentColor ||
-                                settings.backgroundColor ||
-                                '#FEF9E1',
-                              0.5,
-                            ),
-                            borderRadius: 1,
-                            border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.2)}`,
-                          }}
-                        >
-                          <Typography variant="body2">
-                            {editChild.dateOfBirth?.split('T')[0] || 'N/A'}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Grid>
-                  </Grid>
-                </Box>
-
-                {/* Bottom action bar - Edit and Delete aligned */}
-                <Box
-                  sx={{
-                    borderTop: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.2)}`,
-                    backgroundColor: '#FFFFFF',
-                    px: 3,
-                    py: 2,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'flex-end',
-                    gap: 2,
-                    position: 'sticky',
-                    bottom: 0,
-                    zIndex: 10,
-                    flexShrink: 0,
-                  }}
-                >
-                  {!isEditing ? (
-                    <>
-                      <ProfessionalButton
-                        onClick={handleStartEdit}
-                        variant="contained"
-                        startIcon={<EditIcon />}
-                        sx={{
-                          backgroundColor:
-                            settings.updateButtonColor ||
-                            settings.primaryColor ||
-                            '#6d2323',
-                          color: settings.accentColor || '#FEF9E1',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor:
-                              settings.updateButtonHoverColor ||
-                              settings.hoverColor ||
-                              '#a31d1d',
-                          },
-                        }}
-                      >
-                        Edit
-                      </ProfessionalButton>
-                      <ProfessionalButton
-                        onClick={() => handleDelete(editChild.id)}
-                        variant="outlined"
-                        startIcon={<DeleteIcon />}
-                        sx={{
-                          borderColor:
-                            settings.deleteButtonColor ||
-                            settings.primaryColor ||
-                            '#6d2323',
-                          color:
-                            settings.deleteButtonColor ||
-                            settings.primaryColor ||
-                            '#6d2323',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: alpha(
-                              settings.deleteButtonColor ||
+                        <>
+                          <ProfessionalButton
+                            onClick={() => setIsEditingChild(true)}
+                            variant="contained"
+                            startIcon={<EditIcon />}
+                            size="small"
+                            sx={{
+                              backgroundColor: accentColor,
+                              color: primaryColor,
+                              minWidth: '100px',
+                              mr: 1,
+                              '&:hover': { backgroundColor: accentDark },
+                            }}
+                          >
+                            Edit
+                          </ProfessionalButton>
+                          <ProfessionalButton
+                            onClick={handleDeleteChild}
+                            variant="outlined"
+                            startIcon={<DeleteIcon />}
+                            sx={{
+                              borderColor:
+                                settings.deleteButtonColor ||
                                 settings.primaryColor ||
                                 '#6d2323',
-                              0.1,
-                            ),
-                            borderColor:
-                              settings.deleteButtonHoverColor ||
-                              settings.hoverColor ||
-                              '#a31d1d',
-                            color:
-                              settings.deleteButtonHoverColor ||
-                              settings.hoverColor ||
-                              '#a31d1d',
-                          },
-                        }}
-                      >
-                        Delete
-                      </ProfessionalButton>
-                    </>
-                  ) : (
-                    <>
-                      <ProfessionalButton
-                        onClick={handleCancelEdit}
-                        variant="outlined"
-                        startIcon={<CancelIcon />}
-                        sx={{
-                          borderColor: settings.cancelButtonColor || '#6c757d',
-                          color: settings.cancelButtonColor || '#6c757d',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: alpha(
-                              settings.cancelButtonColor || '#6c757d',
-                              0.1,
-                            ),
-                            borderColor:
-                              settings.cancelButtonHoverColor || '#5a6268',
-                            color: settings.cancelButtonHoverColor || '#5a6268',
-                          },
-                        }}
-                      >
-                        Cancel
-                      </ProfessionalButton>
-                      <ProfessionalButton
-                        onClick={handleUpdate}
-                        variant="contained"
-                        startIcon={<SaveIcon />}
-                        disabled={!hasChanges()}
-                        sx={{
-                          backgroundColor: hasChanges()
-                            ? settings.updateButtonColor ||
-                              settings.primaryColor ||
-                              '#6d2323'
-                            : alpha(settings.primaryColor || '#6d2323', 0.5),
-                          color: settings.accentColor || '#FEF9E1',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: hasChanges()
-                              ? settings.updateButtonHoverColor ||
-                                settings.hoverColor ||
-                                '#a31d1d'
-                              : alpha(settings.primaryColor || '#6d2323', 0.5),
-                          },
-                          '&:disabled': {
-                            color: alpha(
-                              settings.accentColor || '#FEF9E1',
-                              0.5,
-                            ),
-                          },
-                        }}
-                      >
-                        Save
-                      </ProfessionalButton>
-                    </>
-                  )}
-                </Box>
-              </>
-            )}
+                              color:
+                                settings.deleteButtonColor ||
+                                settings.primaryColor ||
+                                '#6d2323',
+                              minWidth: '100px',
+                              '&:hover': {
+                                backgroundColor: alpha(
+                                  settings.deleteButtonColor ||
+                                    settings.primaryColor ||
+                                    '#6d2323',
+                                  0.1,
+                                ),
+                              },
+                            }}
+                          >
+                            Delete
+                          </ProfessionalButton>
+                        </>
+                      )}
+                    </Box>
+                  </>
+                ) : (
+                  <Box
+                    sx={{
+                      flexGrow: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: grayColor,
+                    }}
+                  >
+                    <Typography variant="h6">
+                      Select a child from the list to view details
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            </Box>
           </GlassCard>
         </Modal>
 
