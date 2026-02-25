@@ -265,20 +265,25 @@ const LeaveRequest = () => {
     }
 
     // Validate: check if employee has enough allocated hours for this leave type
-    const employeeAssignments = Object.values(employeeNames).length > 0 
-      ? Object.keys(employeeNames).filter(emp => emp === newRequest.employeeNumber)
-      : [];
-    
+    const employeeAssignments =
+      Object.values(employeeNames).length > 0
+        ? Object.keys(employeeNames).filter(
+            (emp) => emp === newRequest.employeeNumber,
+          )
+        : [];
+
     // Count leave dates (8 hours per day)
-    const leaveDates = Array.isArray(newRequest.leave_date) 
-      ? newRequest.leave_date 
-      : newRequest.leave_date.split(',').filter(d => d.trim());
+    const leaveDates = Array.isArray(newRequest.leave_date)
+      ? newRequest.leave_date
+      : newRequest.leave_date.split(',').filter((d) => d.trim());
     const hoursRequested = leaveDates.length * 8;
-    
+
     // Find the leave assignment for this employee and leave type
-    const leaveAssignment = leaveCredits?.assignments?.find(a =>
-      a.employeeNumber?.toString() === newRequest.employeeNumber?.toString() &&
-      a.leave_code === newRequest.leave_code
+    const leaveAssignment = leaveCredits?.assignments?.find(
+      (a) =>
+        a.employeeNumber?.toString() ===
+          newRequest.employeeNumber?.toString() &&
+        a.leave_code === newRequest.leave_code,
     );
 
     if (leaveAssignment) {
@@ -289,8 +294,8 @@ const LeaveRequest = () => {
       if (availableHours < hoursRequested) {
         alert(
           `Insufficient allocated hours. ` +
-          `Requested: ${(hoursRequested / 8).toFixed(1)} days, ` +
-          `Available: ${(availableHours / 8).toFixed(1)} days`
+            `Requested: ${(hoursRequested / 8).toFixed(1)} days, ` +
+            `Available: ${(availableHours / 8).toFixed(1)} days`,
         );
         return;
       }
@@ -1759,7 +1764,8 @@ const LeaveRequest = () => {
                       }}
                     >
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        🔒 This request has been HR Approved and cannot be edited or deleted.
+                        🔒 This request has been HR Approved and cannot be
+                        edited or deleted.
                       </Typography>
                     </Alert>
                   )}
@@ -1982,7 +1988,9 @@ const LeaveRequest = () => {
                               }
                             }
                           }}
-                          disabled={isEditing || String(editRequest.status) === '2'}
+                          disabled={
+                            isEditing || String(editRequest.status) === '2'
+                          }
                           SelectProps={{
                             renderValue: (value) => {
                               const opt = statusOptions.find(
@@ -2112,7 +2120,9 @@ const LeaveRequest = () => {
                         onClick={() =>
                           handleDelete(editRequest.id, editRequest.status)
                         }
-                        disabled={['2', '4'].includes(String(editRequest.status))}
+                        disabled={['2', '4'].includes(
+                          String(editRequest.status),
+                        )}
                         startIcon={<DeleteIcon />}
                         settings={settings}
                         variant="outlined"
@@ -2136,13 +2146,19 @@ const LeaveRequest = () => {
                             color: '#ccc',
                           },
                         }}
-                        title={String(editRequest.status) === '2' ? 'Cannot delete HR approved requests' : 'Delete this request'}
+                        title={
+                          String(editRequest.status) === '2'
+                            ? 'Cannot delete HR approved requests'
+                            : 'Delete this request'
+                        }
                       >
                         Delete
                       </ProfessionalButton>
                       <ProfessionalButton
                         onClick={() => setIsEditing(true)}
-                        disabled={['2', '4'].includes(String(editRequest.status))}
+                        disabled={['2', '4'].includes(
+                          String(editRequest.status),
+                        )}
                         startIcon={<EditIcon />}
                         settings={settings}
                         variant="contained"
@@ -2159,7 +2175,11 @@ const LeaveRequest = () => {
                             backgroundColor: '#ddd',
                           },
                         }}
-                        title={String(editRequest.status) === '2' ? 'Cannot edit HR approved requests' : 'Edit this request'}
+                        title={
+                          String(editRequest.status) === '2'
+                            ? 'Cannot edit HR approved requests'
+                            : 'Edit this request'
+                        }
                       >
                         Edit
                       </ProfessionalButton>

@@ -33,6 +33,7 @@ import {
   Schedule as ScheduleIcon,
   Add as AddIcon,
   WarningAmber as WarningIcon,
+  AccountBalanceWallet as WalletIcon,
 } from '@mui/icons-material';
 import { MenuItem, Select, TextField, Card, CardContent } from '@mui/material';
 import axios from 'axios';
@@ -43,7 +44,7 @@ import { jwtDecode } from 'jwt-decode';
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 import LeaveDatePickerModal from './LeaveDatePicker';
-import LeaveCredits from './LeaveCredits';
+// Removed LeaveCredits import to implement Grid version inline
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 
 const GlassCard = styled(Card)(() => ({
@@ -85,6 +86,24 @@ const RecordCard = styled(Card)(() => ({
     borderColor: 'rgba(109,35,35,0.15)',
   },
 }));
+const BalanceCard = styled(Card)(() => ({
+  borderRadius: 12,
+  padding: '10px',
+  background: 'rgba(255,255,255,0.7)',
+  backdropFilter: 'blur(8px)',
+  border: '1px solid rgba(255,255,255,0.4)',
+  boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+  transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+  minHeight: '120px',
+  maxHeight: '140px',
+  display: 'flex',
+  flexDirection: 'column',
+  justifyContent: 'center',
+  '&:hover': {
+    transform: 'translateY(-2px)',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+  },
+}));
 
 const LeaveRequestUser = () => {
   const { socket, connected } = useSocket();
@@ -92,7 +111,7 @@ const LeaveRequestUser = () => {
 
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
-  const [assignments, setAssignments] = useState([]); // ← current user's leave assignments
+  const [assignments, setAssignments] = useState([]); 
 
   const [newLeaveRequest, setNewLeaveRequest] = useState({
     leave_code: '',
@@ -108,9 +127,11 @@ const LeaveRequestUser = () => {
   const [dateModalOpen, setDateModalOpen] = useState(false);
   const [selectedDates, setSelectedDates] = useState([]);
 
-  // ── Insufficient balance alert ──────────────────────────────
   const [balanceAlertOpen, setBalanceAlertOpen] = useState(false);
   const [balanceAlertDetail, setBalanceAlertDetail] = useState('');
+  // Snackbar for unavailable dates
+  const [unavailableDatesAlertOpen, setUnavailableDatesAlertOpen] = useState(false);
+  const [unavailableDatesAlertDetail, setUnavailableDatesAlertDetail] = useState('');
 
   const { settings } = useSystemSettings();
   const primaryColor = settings.accentColor || '#FEF9E1';
@@ -119,7 +140,17 @@ const LeaveRequestUser = () => {
   const accentDark = settings.secondaryColor || '#8B3333';
   const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
 
-  // ── Helpers ─────────────────────────────────────────────────
+  // Helper to format date as "February 26, 2026"
+  const formatDateDisplay = (dateStr) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
+
   const isSickLeave = () => {
     const t = leaveTypes.find(
       (x) => x.leave_code === newLeaveRequest.leave_code,
@@ -132,10 +163,23 @@ const LeaveRequestUser = () => {
     );
   };
 
-  /**
-   * Returns the remaining DAYS on the ALLOCATED row (carried_forward_hours = 0/null)
-   * for the currently selected leave type. Returns null if unknown.
-   */
+  // Computed: Grouped balances for Grid View
+  const groupedBalances = useMemo(() => {
+    const map = {};
+    assignments.forEach((a) => {
+      const code = a.leave_code;
+      const desc = leaveTypes.find((lt) => lt.leave_code === code)?.leave_description || code;
+      if (!map[code]) {
+        map[code] = { code, description: desc, totalHours: 0 };
+      }
+      map[code].totalHours += parseFloat(a.remaining_hours || 0);
+    });
+    return Object.values(map).map((b) => ({
+      ...b,
+      totalDays: (b.totalHours / 8).toFixed(1),
+    }));
+  }, [assignments, leaveTypes]);
+
   const getAllocatedRemainingDays = () => {
     if (!newLeaveRequest.leave_code || !assignments.length) return null;
     const allocated = assignments
@@ -184,7 +228,6 @@ const LeaveRequestUser = () => {
     { value: '4', label: 'Cancelled' },
   ];
 
-  // ── Token decode ─────────────────────────────────────────────
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
@@ -208,7 +251,6 @@ const LeaveRequestUser = () => {
     refreshRef.current = fetchLeaveRequests;
   });
 
-  // Real-time updates
   useEffect(() => {
     if (!socket || !connected) return;
     const handleReq = () => {
@@ -264,7 +306,6 @@ const LeaveRequestUser = () => {
     }
   };
 
-  // ── Submit ───────────────────────────────────────────────────
   const handleAdd = async () => {
     if (!newLeaveRequest.leave_code) {
       alert('Please select a leave type.');
@@ -275,7 +316,21 @@ const LeaveRequestUser = () => {
       return;
     }
 
-    // ── Client-side balance check (ALLOCATED only) ──
+    // Check for unavailable (HR-approved) dates
+    const unavailableDates = selectedDates.filter(date =>
+      leaveRequests.some(req => {
+        const reqDates = (req.leave_date || '').split(',').map(s => s.trim());
+        return reqDates.includes(date) && String(req.status) === '2';
+      })
+    );
+    if (unavailableDates.length > 0) {
+      setUnavailableDatesAlertDetail(
+        `One or more selected dates are unavailable due to existing HR-approved leave. Please change your selection.`
+      );
+      setUnavailableDatesAlertOpen(true);
+      return;
+    }
+
     const remainingDays = getAllocatedRemainingDays();
     if (remainingDays !== null && selectedDates.length > remainingDays) {
       const typeName =
@@ -311,7 +366,6 @@ const LeaveRequestUser = () => {
       setSelectedDates([]);
     } catch (err) {
       const errMsg = err.response?.data?.error || err.message;
-      // Show server-side "Insufficient Leave Balance" in the same alert
       if (err.response?.status === 400) {
         const detail = err.response?.data?.detail || errMsg;
         setBalanceAlertDetail(detail);
@@ -326,7 +380,13 @@ const LeaveRequestUser = () => {
 
   const handleChange = (field, value) => {
     setNewLeaveRequest((prev) => ({ ...prev, [field]: value }));
-    if (field === 'leave_code') setSelectedDates([]);
+    if (field === 'leave_code') {
+      setSelectedDates([]);
+      // Debug logs for leave type selection
+      console.log('Selected leave_code:', value);
+      console.log('Assignments:', assignments);
+      console.log('LeaveTypes:', leaveTypes);
+    }
   };
 
   const getLeaveTypeInfo = (leaveCode) =>
@@ -446,12 +506,45 @@ const LeaveRequestUser = () => {
     });
   };
 
-  // ── Balance indicator computed values ────────────────────────
   const remainingDays = getAllocatedRemainingDays();
-  const isOverBalance =
-    remainingDays !== null && selectedDates.length > remainingDays;
-  const afterSubmit =
-    remainingDays !== null ? remainingDays - selectedDates.length : null;
+  const isOverBalance = remainingDays !== null && selectedDates.length > remainingDays;
+
+  // Inline error states for UI
+  const [inlineLeaveTypeError, setInlineLeaveTypeError] = React.useState('');
+  const [inlineSelectedDatesError, setInlineSelectedDatesError] = React.useState('');
+
+  React.useEffect(() => {
+    // Reset errors
+    setInlineLeaveTypeError('');
+    setInlineSelectedDatesError('');
+    if (newLeaveRequest.leave_code) {
+      // Find all assignments for this leave type
+      const hasAllocation = assignments.some(
+        (a) => a.leave_code === newLeaveRequest.leave_code && parseFloat(a.allocated_hours || 0) > 0
+      );
+      // Find balance for selected leave type from groupedBalances
+      const selectedBalance = groupedBalances.find(
+        (b) => b.code === newLeaveRequest.leave_code
+      );
+      const totalDays = selectedBalance ? parseFloat(selectedBalance.totalDays) : 0;
+      if (!hasAllocation) {
+        const leaveTypeName =
+          leaveTypes.find((t) => t.leave_code === newLeaveRequest.leave_code)?.leave_description || newLeaveRequest.leave_code;
+        setInlineLeaveTypeError(
+          `This request cannot be processed due to insufficient leave balance.`
+        );
+      }
+      // Over-balance error
+      if (
+        remainingDays !== null &&
+        selectedDates.length > remainingDays
+      ) {
+        setInlineSelectedDatesError(
+          `You requested ${selectedDates.length} day(s) but only have ${remainingDays.toFixed(1)} allocated day(s) remaining.`
+        );
+      }
+    }
+  }, [newLeaveRequest.leave_code, groupedBalances, remainingDays, selectedDates, leaveTypes]);
 
   return (
     <Box
@@ -480,13 +573,49 @@ const LeaveRequestUser = () => {
         action={successAction}
         onClose={() => setSuccessOpen(false)}
       />
+      {/* Snackbar for unavailable dates (bottom right) */}
+      <Snackbar
+        open={unavailableDatesAlertOpen}
+        onClose={() => setUnavailableDatesAlertOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        autoHideDuration={5000}
+        sx={{
+          zIndex: 9999,
+          mb: { xs: 8, sm: 10, md: 12 }, // push up above footer
+        }}
+      >
+        <Alert
+          severity="error"
+          onClose={() => setUnavailableDatesAlertOpen(false)}
+          icon={<WarningIcon fontSize="inherit" />}
+          sx={{
+            width: '100%',
+            maxWidth: 420,
+            borderRadius: 3,
+            background: '#C62828',
+            color: '#fff',
+            boxShadow: '0 8px 32px rgba(198,40,40,0.18)',
+            border: '1.5px solid #C62828',
+            '& .MuiAlert-message': { width: '100%' },
+            '& .MuiTypography-root': { color: '#fff' },
+          }}
+        >
+          <Typography sx={{ fontWeight: 700, fontSize: '1rem', mb: 0.5 }}>
+            Unavailable Leave Date(s)
+          </Typography>
+          <Typography variant="body2" sx={{ opacity: 0.95 }}>
+            {unavailableDatesAlertDetail}
+          </Typography>
+        </Alert>
+      </Snackbar>
 
-      {/* ── Insufficient Balance Snackbar ─────────────────────── */}
+      {/* Removed: Instant balance error snackbar (handled in LeaveDatePickerModal) */}
+      {/* Existing balance alert for backend errors */}
       <Snackbar
         open={balanceAlertOpen}
         onClose={() => setBalanceAlertOpen(false)}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-        sx={{ top: { xs: 16, sm: 24 }, zIndex: 9999 }}
+        sx={{ top: { xs: 32, sm: 48 }, zIndex: 9999 }}
       >
         <Alert
           severity="error"
@@ -520,6 +649,9 @@ const LeaveRequestUser = () => {
                 background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                 position: 'relative',
                 overflow: 'hidden',
+                border: '2px solid #6D2323',
+                borderRadius: 0,
+                boxShadow: '0 4px 24px rgba(109, 35, 35, 0.06)',
               }}
             >
               <Box
@@ -597,13 +729,82 @@ const LeaveRequestUser = () => {
         </Box>
       </Fade>
 
+      {/* Full Width Leave Balance Section (Grid View) */}
+      <Fade in timeout={600}>
+        <Box sx={{ mb: 4 }}>
+          <GlassCard>
+            <Box
+              sx={{
+                p: 3,
+                pl: 4,
+                background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                color: accentColor,
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              <WalletIcon sx={{ fontSize: '1.5rem', mr: 2 }} />
+              <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                Your Leave Balances
+              </Typography>
+            </Box>
+            <Box sx={{ p: 3, bgcolor: 'rgba(255,255,255,0.4)' }}>
+              {groupedBalances.length === 0 ? (
+                <Typography align="center" sx={{ py: 4, color: '#666' }}>
+                  No balance information available.
+                </Typography>
+              ) : (
+                <Grid container spacing={1}>
+                  {groupedBalances.map((balance) => {
+                    // Find max days for this leave type
+                    const maxAssignment = assignments
+                      .filter(a => a.leave_code === balance.code)
+                      .reduce((max, a) => {
+                        const days = parseFloat(a.allocated_hours || 0) / 8;
+                        return days > max ? days : max;
+                      }, 0);
+                    return (
+                      <Grid item xs={12} sm={6} md={4} lg={2} key={balance.code}>
+                        <BalanceCard>
+                          <Box sx={{ mb: 1 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: accentColor }}>
+                              {balance.description} ({balance.code})
+                            </Typography>
+                          </Box>
+                          <Typography variant="h5" sx={{ fontWeight: 700, color: textPrimaryColor, mb: 0.2, fontSize: '1.2rem' }}>
+                            {balance.totalDays} out of {maxAssignment.toFixed(1)}
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: '#666', fontSize: '0.9rem', mb: 1 }}>
+                            Days
+                          </Typography>
+                          <Box sx={{ mt: 0.5, height: 3, width: '100%', bgcolor: '#e0e0e0', borderRadius: 2 }}>
+                            <Box 
+                              sx={{ 
+                                height: '100%', 
+                                width: `${maxAssignment > 0 ? Math.min(100, (balance.totalDays / maxAssignment) * 100) : 0}%`,
+                                bgcolor: '#2E7D32', // Green
+                                borderRadius: 2 
+                              }} 
+                            />
+                          </Box>
+                        </BalanceCard>
+                      </Grid>
+                    );
+                  })}
+                </Grid>
+              )}
+            </Box>
+          </GlassCard>
+        </Box>
+      </Fade>
+
+      {/* Two Column Row: Form | Records */}
       <Grid container spacing={4}>
-        {/* Left Column */}
-        <Grid item xs={12} lg={8}>
-          {/* Form Section */}
+        {/* Left Column: Submit Form */}
+        <Grid item xs={12} lg={6}>
           <Fade in timeout={700}>
             <GlassCard
-              sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}
+              sx={{ height: '100%', border: `1px solid ${alpha(accentColor, 0.1)}` }}
             >
               <Box
                 sx={{
@@ -627,12 +828,12 @@ const LeaveRequestUser = () => {
               </Box>
 
               <Box sx={{ p: 4 }}>
-                <Grid container spacing={3}>
-                  {/* Employee Number */}
-                  <Grid item xs={12} sm={6}>
+                <Grid container spacing={2}>
+                  {/* Row 1: Employee Number */}
+                  <Grid item xs={12}>
                     <Typography
                       variant="body2"
-                      sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                      sx={{ fontWeight: 600, mb: 1, color: accentColor }}
                     >
                       Employee Number
                     </Typography>
@@ -649,11 +850,11 @@ const LeaveRequestUser = () => {
                     />
                   </Grid>
 
-                  {/* Leave Type */}
-                  <Grid item xs={12} sm={6}>
+                  {/* Row 2: Leave Type */}
+                  <Grid item xs={12}>
                     <Typography
                       variant="body2"
-                      sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                      sx={{ fontWeight: 600, mb: 1, color: accentColor }}
                     >
                       Leave Type *
                     </Typography>
@@ -675,73 +876,56 @@ const LeaveRequestUser = () => {
                         ))}
                       </ModernSelect>
                     </FormControl>
+                    {inlineLeaveTypeError && (
+                      <Box sx={{ mt: 1 }}>
+                        <Alert severity="error" icon={<WarningIcon fontSize="inherit" />} sx={{ fontSize: '0.95rem', py: 0.5, px: 2, borderRadius: 2, background: 'rgba(198,40,40,0.06)' }}>
+                          {inlineLeaveTypeError}
+                        </Alert>
+                      </Box>
+                    )}
                   </Grid>
 
                   {/* ── Balance indicator ── */}
-                  {newLeaveRequest.leave_code && remainingDays !== null && (
+                  {newLeaveRequest.leave_code && remainingDays !== null && isOverBalance && (
                     <Grid item xs={12}>
                       <Box
                         sx={{
                           px: 2,
                           py: 1.5,
                           borderRadius: 2,
-                          bgcolor: isOverBalance
-                            ? 'rgba(198,40,40,0.06)'
-                            : 'rgba(46,125,50,0.05)',
-                          border: `1.5px solid ${isOverBalance ? 'rgba(198,40,40,0.3)' : 'rgba(46,125,50,0.25)'}`,
+                          bgcolor: 'rgba(198,40,40,0.06)',
+                          border: '1.5px solid rgba(198,40,40,0.3)',
                           display: 'flex',
                           alignItems: 'center',
                           gap: 1.5,
                         }}
                       >
-                        {isOverBalance ? (
-                          <WarningIcon
-                            sx={{
-                              color: '#C62828',
-                              fontSize: 20,
-                              flexShrink: 0,
-                            }}
-                          />
-                        ) : (
-                          <CheckCircle
-                            sx={{
-                              color: '#2E7D32',
-                              fontSize: 20,
-                              flexShrink: 0,
-                            }}
-                          />
-                        )}
+                        <WarningIcon
+                          sx={{
+                            color: '#C62828',
+                            fontSize: 20,
+                            flexShrink: 0,
+                          }}
+                        />
                         <Typography
                           variant="body2"
                           sx={{
                             fontWeight: 600,
-                            color: isOverBalance ? '#C62828' : '#2E7D32',
+                            color: '#C62828',
                             flex: 1,
                           }}
                         >
-                          {isOverBalance
-                            ? `Insufficient balance — you have ${remainingDays.toFixed(1)} day(s) but selected ${selectedDates.length}.`
-                            : `Allocated balance available: ${remainingDays.toFixed(1)} day(s)`}
+                          {`Insufficient balance — you have ${remainingDays.toFixed(1)} day(s) but selected ${selectedDates.length}.`}
                         </Typography>
-                        {selectedDates.length > 0 &&
-                          !isOverBalance &&
-                          afterSubmit !== null && (
-                            <Typography
-                              variant="caption"
-                              sx={{ color: '#888', flexShrink: 0 }}
-                            >
-                              After: {afterSubmit.toFixed(1)} day(s) left
-                            </Typography>
-                          )}
                       </Box>
                     </Grid>
                   )}
 
-                  {/* Leave Dates */}
-                  <Grid item xs={12} sm={6}>
+                  {/* Row 3: Leave Dates */}
+                  <Grid item xs={12}>
                     <Typography
                       variant="body2"
-                      sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                      sx={{ fontWeight: 600, mb: 1, color: accentColor }}
                     >
                       Leave Date(s) *
                     </Typography>
@@ -751,10 +935,12 @@ const LeaveRequestUser = () => {
                       startIcon={<CalendarIcon />}
                       sx={{
                         width: '100%',
-                        height: 44,
+                        height: 48, // Slightly taller for better clickability
                         border: `1.5px solid ${isOverBalance ? '#C62828' : accentColor}`,
                         color: isOverBalance ? '#C62828' : accentColor,
+                        justifyContent: 'flex-start', // Align text left
                       }}
+                      disabled={remainingDays === 0}
                     >
                       {selectedDates.length > 0
                         ? `${selectedDates.length} date(s) selected`
@@ -778,6 +964,8 @@ const LeaveRequestUser = () => {
                       secondaryColor={secondaryColor}
                       allowPastDates={isSickLeave()}
                       leaveType={newLeaveRequest.leave_code}
+                      leaveRequests={leaveRequests}
+                      maxSelectableDates={remainingDays}
                     />
                     {isSickLeave() && (
                       <Typography
@@ -789,57 +977,82 @@ const LeaveRequestUser = () => {
                     )}
                   </Grid>
 
-                  {/* Selected Dates chips */}
-                  <Grid item xs={12} sm={6}>
+                  {/* Row 4: Selected Dates */}
+                  <Grid item xs={12}>
                     <Typography
                       variant="body2"
-                      sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                      sx={{ fontWeight: 600, mb: 1, color: 'accentColor' }}
                     >
                       Selected Dates
                     </Typography>
                     <Box
                       sx={{
-                        minHeight: 44,
+                        minHeight: 48,
                         display: 'flex',
                         alignItems: 'center',
                         flexWrap: 'wrap',
-                        gap: 0.5,
-                        p: 1.5,
+                        gap: 1,
+                        p: 2,
                         border: `1px solid ${alpha(isOverBalance ? '#C62828' : accentColor, 0.2)}`,
                         borderRadius: 2,
                         backgroundColor: 'rgba(255,255,255,0.5)',
                       }}
                     >
                       {selectedDates.length > 0 ? (
-                        selectedDates.map((date) => (
-                          <Chip
-                            key={date}
-                            label={date}
-                            size="small"
-                            onDelete={() =>
-                              setSelectedDates((prev) =>
-                                prev.filter((d) => d !== date),
-                              )
+                        selectedDates.map((date) => {
+                          // Check if this date is already HR-approved in leaveRequests
+                          const isHRApproved = leaveRequests.some(
+                            (req) => {
+                              // leave_date can be comma-separated, so check if date is included
+                              const reqDates = (req.leave_date || '').split(',').map(s => s.trim());
+                              return reqDates.includes(date) && String(req.status) === '2';
                             }
-                            sx={{
-                              bgcolor: alpha(
-                                isOverBalance ? '#C62828' : accentColor,
-                                0.1,
-                              ),
-                              color: isOverBalance ? '#C62828' : accentColor,
-                              fontSize: '0.75rem',
-                              height: 28,
-                            }}
-                          />
-                        ))
+                          );
+                          const chip = (
+                            <Chip
+                              key={date}
+                              label={formatDateDisplay(date)}
+                              onDelete={
+                                isHRApproved
+                                  ? undefined
+                                  : () =>
+                                      setSelectedDates((prev) =>
+                                        prev.filter((d) => d !== date),
+                                      )
+                              }
+                              sx={{
+                                bgcolor: isHRApproved ? 'rgba(198,40,40,0.12)' : 'rgba(46,125,50,0.15)',
+                                color: isHRApproved ? '#C62828' : '#2E7D32',
+                                fontSize: '0.85rem',
+                                height: 32,
+                                cursor: isHRApproved ? 'not-allowed' : 'pointer',
+                                opacity: isHRApproved ? 0.7 : 1,
+                              }}
+                              disabled={isHRApproved}
+                            />
+                          );
+                          return isHRApproved ? (
+                            <Tooltip
+                              key={date}
+                              title={
+                                'This date is unavailable. An HR-approved leave has already been scheduled.'
+                              }
+                              arrow
+                            >
+                              <span>{chip}</span>
+                            </Tooltip>
+                          ) : (
+                            chip
+                          );
+                        })
                       ) : (
-                        <Typography variant="caption" sx={{ color: '#999' }}>
+                        <Typography variant="body2" sx={{ color: '#999', fontStyle: 'italic' }}>
                           No dates selected
                         </Typography>
                       )}
                     </Box>
+                    {/* Over-balance warning now shown in LeaveDatePickerModal only */}
                   </Grid>
-                </Grid>
 
                 {/* Submit button */}
                 <ProfessionalButton
@@ -847,15 +1060,15 @@ const LeaveRequestUser = () => {
                   variant="contained"
                   startIcon={isOverBalance ? <WarningIcon /> : <AddIcon />}
                   fullWidth
-                  disabled={isOverBalance}
+                  disabled={isOverBalance || remainingDays === 0}
                   sx={{
-                    mt: 3,
-                    py: 1.5,
+                    mt: 2,
+                    py: 1.2,
                     fontSize: '1rem',
-                    backgroundColor: isOverBalance ? '#ccc' : accentColor,
-                    color: isOverBalance ? '#666' : primaryColor,
+                    backgroundColor: isOverBalance || remainingDays === 0 ? '#ccc' : accentColor,
+                    color: isOverBalance || remainingDays === 0 ? '#666' : primaryColor,
                     '&:hover': {
-                      backgroundColor: isOverBalance ? '#ccc' : accentDark,
+                      backgroundColor: isOverBalance || remainingDays === 0 ? '#ccc' : accentDark,
                     },
                     '&:disabled': {
                       backgroundColor: '#ccc !important',
@@ -863,17 +1076,25 @@ const LeaveRequestUser = () => {
                     },
                   }}
                 >
-                  {isOverBalance
+                  {remainingDays === 0
+                    ? 'No Balance — Cannot Submit'
+                    : isOverBalance
                     ? 'Insufficient Balance — Cannot Submit'
                     : 'Submit Leave Request'}
                 </ProfessionalButton>
-              </Box>
-            </GlassCard>
-          </Fade>
+                {/* End of form inner Grid is below */}
+              </Grid>
+            </Box>
+          </GlassCard>
+        </Fade>
+      </Grid>
 
-          {/* Records Section */}
+      {/* Right Column: Records */}
+      <Grid item xs={12} lg={6}>
           <Fade in timeout={900}>
-            <GlassCard sx={{ border: `1px solid ${alpha(accentColor, 0.1)}` }}>
+            <GlassCard
+              sx={{ height: '100%', border: `1px solid ${alpha(accentColor, 0.1)}`, display: 'flex', flexDirection: 'column' }}
+            >
               <Box
                 sx={{
                   p: 4,
@@ -900,7 +1121,6 @@ const LeaveRequestUser = () => {
                       </Typography>
                     </Box>
                   </Box>
-                  {/* Filters */}
                   <Box
                     sx={{
                       display: 'flex',
@@ -976,7 +1196,8 @@ const LeaveRequestUser = () => {
               <Box
                 sx={{
                   p: 4,
-                  maxHeight: 500,
+                  flexGrow: 1,
+                  maxHeight: 340,
                   overflowY: 'auto',
                   '&::-webkit-scrollbar': { width: 6 },
                   '&::-webkit-scrollbar-track': {
@@ -1007,7 +1228,7 @@ const LeaveRequestUser = () => {
                     <Typography variant="body2" sx={{ color: '#666', mt: 1 }}>
                       {monthFilter || leaveTypeFilter || statusFilter
                         ? 'Try adjusting your filters'
-                        : 'Submit your first request above'}
+                        : 'Submit your first request using the form'}
                     </Typography>
                   </Box>
                 ) : (
@@ -1193,21 +1414,6 @@ const LeaveRequestUser = () => {
                 )}
               </Box>
             </GlassCard>
-          </Fade>
-        </Grid>
-
-        {/* Right Column – Leave Credits */}
-        <Grid item xs={12} lg={4}>
-          <Fade in timeout={800}>
-            <Box sx={{ position: 'sticky', top: 20 }}>
-              <LeaveCredits
-                personID={personID}
-                accentColor={accentColor}
-                accentDark={accentDark}
-                primaryColor={primaryColor}
-                secondaryColor={secondaryColor}
-              />
-            </Box>
           </Fade>
         </Grid>
       </Grid>
