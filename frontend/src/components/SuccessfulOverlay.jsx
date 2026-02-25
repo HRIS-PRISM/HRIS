@@ -9,7 +9,7 @@ const SuccessfulOverlay = ({ open, action, onClose, showOkButton = false }) => {
     if (open && !showOkButton) {
       const timer = setTimeout(() => {
         if (onClose) onClose();
-      }, 2500);
+      }, 1000);
       return () => clearTimeout(timer);
     }
   }, [open, showOkButton, onClose]);

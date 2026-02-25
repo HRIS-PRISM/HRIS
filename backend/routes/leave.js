@@ -14,6 +14,38 @@ const emitLeaveChange = (eventName) => {
   }
 };
 
+// Convert DB hour values to numeric hours.
+// Supports numeric values (number or numeric string) and HH:MM[:SS] strings like "33:29:49".
+const parseDbHours = (val) => {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === "number") return Number.isFinite(val) ? val : 0;
+
+  const s = String(val).trim();
+  if (!s) return 0;
+
+  // Handle HH:MM or HH:MM:SS
+  if (s.includes(":")) {
+    const [hh, mm, ss] = s.split(":");
+    const h = Number(hh) || 0;
+    const m = Number(mm) || 0;
+    const sec = Number(ss) || 0;
+    return h + m / 60 + sec / 3600;
+  }
+
+  // Handle "1,234.50"
+  const n = parseFloat(s.replace(/,/g, ""));
+  return Number.isFinite(n) ? n : 0;
+};
+
+const normalizeAssignmentRow = (r) => ({
+  ...r,
+  total_hours: parseDbHours(r.total_hours),
+  remaining_hours: parseDbHours(r.remaining_hours),
+  used_hours: parseDbHours(r.used_hours),
+  carried_forward_hours: parseDbHours(r.carried_forward_hours),
+  allocated_hours: parseDbHours(r.allocated_hours),
+});
+
 // ============================================
 // EMPLOYEES
 // ============================================
@@ -109,7 +141,9 @@ router.get("/leave_assignment", (req, res) => {
         .status(500)
         .json({ error: "Failed to fetch leave assignments: " + err.message });
     }
-    res.json(results);
+    // Normalize hour fields so frontend receives numeric hour values
+    const out = Array.isArray(results) ? results.map(normalizeAssignmentRow) : results;
+    res.json(out);
   });
 });
 
@@ -127,7 +161,8 @@ router.get("/leave_assignment/employee/:employeeNumber", (req, res) => {
       return res
         .status(500)
         .json({ error: "Failed to fetch leave assignments" });
-    res.json(results);
+    const out = Array.isArray(results) ? results.map(normalizeAssignmentRow) : results;
+    res.json(out);
   });
 });
 
@@ -157,8 +192,8 @@ router.get(
       const prev = results[0];
       res.json({
         hasHistory: true,
-        suggestedCarryForward: prev.remaining_hours || 0,
-        previousPeriod: prev,
+        suggestedCarryForward: parseDbHours(prev.remaining_hours) || 0,
+        previousPeriod: normalizeAssignmentRow(prev),
       });
     });
   },
@@ -326,20 +361,32 @@ router.put("/leave_assignment/:id", (req, res) => {
       if (current.length === 0)
         return res.status(404).json({ error: "Assignment not found" });
 
+      // Safely parse numeric fields to avoid NaN when empty strings are supplied
+      const currentTotal = parseDbHours(current[0].total_hours) || 0;
+      const currentCarried = parseDbHours(current[0].carried_forward_hours) || 0;
+      const currentAllocated = parseDbHours(current[0].allocated_hours) || currentTotal;
+
       const newTotal =
-        total_hours !== undefined
-          ? parseFloat(total_hours)
-          : current[0].total_hours;
-      const newRemaining = parseFloat(remaining_hours) || 0;
+        total_hours !== undefined && total_hours !== ''
+          ? parseDbHours(total_hours)
+          : currentTotal;
+
+      const newRemaining =
+        remaining_hours !== undefined && remaining_hours !== ''
+          ? parseDbHours(remaining_hours)
+          : (parseDbHours(current[0].remaining_hours) || 0);
+
       const newUsed = Math.max(0, newTotal - newRemaining);
+
       const newCarriedForward =
-        carried_forward_hours !== undefined
-          ? parseFloat(carried_forward_hours)
-          : current[0].carried_forward_hours || 0;
+        carried_forward_hours !== undefined && carried_forward_hours !== ''
+          ? parseDbHours(carried_forward_hours)
+          : currentCarried;
+
       const newAllocated =
-        allocated_hours !== undefined
-          ? parseFloat(allocated_hours)
-          : current[0].allocated_hours || newTotal;
+        allocated_hours !== undefined && allocated_hours !== ''
+          ? parseDbHours(allocated_hours)
+          : currentAllocated;
       const newYear =
         period_year !== undefined ? period_year : current[0].period_year;
       const newSemester =
@@ -485,9 +532,7 @@ router.post("/leave_request", (req, res) => {
   `;
 
   const proceed = (assignmentRow) => {
-    const currentRemaining = assignmentRow
-      ? parseFloat(assignmentRow.remaining_hours) || 0
-      : 0;
+    const currentRemaining = assignmentRow ? parseDbHours(assignmentRow.remaining_hours) : 0;
 
     // ── BALANCE CHECK ──────────────────────────────────────────
     if (!assignmentRow || currentRemaining < hoursNeeded) {
@@ -620,14 +665,10 @@ router.put("/leave_request/bulk-update", (req, res) => {
               operations[index];
 
             const applyDelta = (row) => {
-              const newRemaining = Math.max(
-                0,
-                parseFloat(row.remaining_hours || 0) - deltaHours,
-              );
-              const newUsed = Math.max(
-                0,
-                parseFloat(row.used_hours || 0) + deltaHours,
-              );
+                const currentRem = parseDbHours(row.remaining_hours);
+                const currentUsed = parseDbHours(row.used_hours);
+                const newRemaining = Math.max(0, currentRem - deltaHours);
+                const newUsed = Math.max(0, currentUsed + deltaHours);
               db.query(
                 "UPDATE leave_assignment SET remaining_hours = ?, used_hours = ? WHERE id = ?",
                 [newRemaining, newUsed, row.id],
@@ -747,11 +788,10 @@ router.put("/leave_request/:id", (req, res) => {
             );
             return updateStatus();
           }
-          const newRemaining = Math.max(
-            0,
-            parseFloat(row.remaining_hours || 0) - 8,
-          );
-          const newUsed = parseFloat(row.used_hours || 0) + 8;
+            const currentRem = parseDbHours(row.remaining_hours);
+            const currentUsed = parseDbHours(row.used_hours);
+            const newRemaining = Math.max(0, currentRem - 8);
+            const newUsed = currentUsed + 8;
           db.query(
             "UPDATE leave_assignment SET remaining_hours = ?, used_hours = ? WHERE id = ?",
             [newRemaining, newUsed, row.id],
@@ -788,8 +828,10 @@ router.put("/leave_request/:id", (req, res) => {
             );
             return updateStatus();
           }
-          const newRemaining = parseFloat(row.remaining_hours || 0) + 8;
-          const newUsed = Math.max(0, parseFloat(row.used_hours || 0) - 8);
+          const currentRem = parseDbHours(row.remaining_hours);
+          const currentUsed = parseDbHours(row.used_hours);
+          const newRemaining = currentRem + 8;
+          const newUsed = Math.max(0, currentUsed - 8);
           db.query(
             "UPDATE leave_assignment SET remaining_hours = ?, used_hours = ? WHERE id = ?",
             [newRemaining, newUsed, row.id],

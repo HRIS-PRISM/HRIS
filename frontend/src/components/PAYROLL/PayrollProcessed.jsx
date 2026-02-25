@@ -1,6 +1,6 @@
-import API_BASE_URL from "../../apiConfig";
-import React, { useEffect, useState } from "react";
-import axios from "axios";
+import API_BASE_URL from '../../apiConfig';
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
 import {
   Table,
   TableHead,
@@ -21,13 +21,13 @@ import {
   Select,
   MenuItem,
   InputAdornment,
-} from "@mui/material";
-import * as XLSX from "xlsx";
-import LoadingOverlay from "../LoadingOverlay";
-import SuccessfulOverlay from "../SuccessfulOverlay";
-import { useSystemSettings } from "../../hooks/useSystemSettings";
-import usePageAccess from "../../hooks/usePageAccess";
-import AccessDenied from "../AccessDenied";
+} from '@mui/material';
+import * as XLSX from 'xlsx';
+import LoadingOverlay from '../LoadingOverlay';
+import SuccessfulOverlay from '../SuccessfulOverlay';
+import { useSystemSettings } from '../../hooks/useSystemSettings';
+import usePageAccess from '../../hooks/usePageAccess';
+import AccessDenied from '../AccessDenied';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
 import {
   CloudUpload,
@@ -46,7 +46,7 @@ import {
   Info,
   Warning,
   Error,
-} from "@mui/icons-material";
+} from '@mui/icons-material';
 import {
   Grid,
   Card,
@@ -63,12 +63,12 @@ import {
   Snackbar,
   Checkbox,
   Badge,
-} from "@mui/material";
-import SearchIcon from "@mui/icons-material/Search";
-import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
-import TextField from "@mui/material/TextField";
-import BusinessCenterIcon from "@mui/icons-material/BusinessCenter";
-import PendingIcon from "@mui/icons-material/Pending";
+} from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import TextField from '@mui/material/TextField';
+import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
+import PendingIcon from '@mui/icons-material/Pending';
 
 // Helper function to convert hex to rgb
 const hexToRgb = (hex) => {
@@ -76,79 +76,79 @@ const hexToRgb = (hex) => {
   return result
     ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(
         result[3],
-        16
+        16,
       )}`
-    : "109, 35, 35";
+    : '109, 35, 35';
 };
 
 // Professional styled components - colors will be applied via sx prop
 const GlassCard = styled(Card)(({ theme }) => ({
   borderRadius: 20,
-  backdropFilter: "blur(10px)",
-  overflow: "hidden",
-  transition: "boxShadow 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-  position: "relative",
+  backdropFilter: 'blur(10px)',
+  overflow: 'hidden',
+  transition: 'boxShadow 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+  position: 'relative',
 }));
 
 const ProfessionalButton = styled(Button)(
-  ({ theme, variant, color = "primary" }) => ({
+  ({ theme, variant, color = 'primary' }) => ({
     borderRadius: 12,
     fontWeight: 600,
-    padding: "12px 24px",
-    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    textTransform: "none",
-    fontSize: "0.95rem",
-    letterSpacing: "0.025em",
+    padding: '12px 24px',
+    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    textTransform: 'none',
+    fontSize: '0.95rem',
+    letterSpacing: '0.025em',
     boxShadow:
-      variant === "contained" ? "0 4px 14px rgba(254, 249, 225, 0.25)" : "none",
-    "&:hover": {
-      transform: "translateY(-2px)",
+      variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
+    '&:hover': {
+      transform: 'translateY(-2px)',
       boxShadow:
-        variant === "contained"
-          ? "0 6px 20px rgba(254, 249, 225, 0.35)"
-          : "none",
+        variant === 'contained'
+          ? '0 6px 20px rgba(254, 249, 225, 0.35)'
+          : 'none',
     },
-    "&:active": {
-      transform: "translateY(0)",
+    '&:active': {
+      transform: 'translateY(0)',
     },
-  })
+  }),
 );
 
 const ModernTextField = styled(TextField)(({ theme }) => ({
-  "& .MuiOutlinedInput-root": {
+  '& .MuiOutlinedInput-root': {
     borderRadius: 12,
-    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    backgroundColor: "rgba(255, 255, 255, 0.8)",
-    "&:hover": {
-      transform: "translateY(-1px)",
-      backgroundColor: "rgba(255, 255, 255, 0.95)",
+    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    '&:hover': {
+      transform: 'translateY(-1px)',
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
     },
-    "&.Mui-focused": {
-      transform: "translateY(-1px)",
-      boxShadow: "0 4px 20px rgba(254, 249, 225, 0.25)",
-      backgroundColor: "rgba(255, 255, 255, 1)",
+    '&.Mui-focused': {
+      transform: 'translateY(-1px)',
+      boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
+      backgroundColor: 'rgba(255, 255, 255, 1)',
     },
   },
-  "& .MuiInputLabel-root": {
+  '& .MuiInputLabel-root': {
     fontWeight: 500,
   },
 }));
 
 const PremiumTableContainer = styled(TableContainer)(({ theme }) => ({
   borderRadius: 16,
-  overflow: "hidden",
-  boxShadow: "0 4px 24px rgba(109, 35, 35, 0.06)",
-  border: "1px solid rgba(109, 35, 35, 0.08)",
+  overflow: 'hidden',
+  boxShadow: '0 4px 24px rgba(109, 35, 35, 0.06)',
+  border: '1px solid rgba(109, 35, 35, 0.08)',
 }));
 
 const PremiumTableCell = styled(TableCell)(({ theme, isHeader = false }) => ({
   fontWeight: isHeader ? 600 : 500,
-  padding: "18px 20px",
+  padding: '18px 20px',
   borderBottom: isHeader
-    ? "2px solid rgba(254, 249, 225, 0.5)"
-    : "1px solid rgba(109, 35, 35, 0.06)",
-  fontSize: "0.95rem",
-  letterSpacing: "0.025em",
+    ? '2px solid rgba(254, 249, 225, 0.5)'
+    : '1px solid rgba(109, 35, 35, 0.06)',
+  fontSize: '0.95rem',
+  letterSpacing: '0.025em',
 }));
 
 // Custom styled TableCell for Excel-like appearance
@@ -156,13 +156,13 @@ const ExcelTableCell = ({ children, header, ...props }) => (
   <TableCell
     {...props}
     sx={{
-      border: "1px solid #E0E0E0",
-      padding: "8px",
-      backgroundColor: header ? "#F5F5F5" : "inherit",
-      fontWeight: header ? "bold" : "normal",
-      whiteSpace: "nowrap",
-      "&:hover": {
-        backgroundColor: header ? "#F5F5F5" : "#F8F8F8",
+      border: '1px solid #E0E0E0',
+      padding: '8px',
+      backgroundColor: header ? '#F5F5F5' : 'inherit',
+      fontWeight: header ? 'bold' : 'normal',
+      whiteSpace: 'nowrap',
+      '&:hover': {
+        backgroundColor: header ? '#F5F5F5' : '#F8F8F8',
       },
       ...props.sx,
     }}
@@ -176,16 +176,16 @@ const PayrollProcessed = () => {
   const { settings } = useSystemSettings();
 
   // Get colors from system settings - aligned with PayrollProcessing.jsx
-  const primaryColor = settings.accentColor || "#FEF9E1"; // Cards color
-  const secondaryColor = settings.backgroundColor || "#FFF8E7"; // Background
-  const accentColor = settings.primaryColor || "#6d2323"; // Primary accent
-  const accentDark = settings.secondaryColor || "#8B3333"; // Darker accent
-  const textPrimaryColor = settings.textPrimaryColor || "#6d2323";
-  const textSecondaryColor = settings.textSecondaryColor || "#FEF9E1";
-  const hoverColor = settings.hoverColor || "#6D2323";
-  const blackColor = "#1a1a1a";
-  const whiteColor = "#FFFFFF";
-  const grayColor = "#6c757d";
+  const primaryColor = settings.accentColor || '#FEF9E1'; // Cards color
+  const secondaryColor = settings.backgroundColor || '#FFF8E7'; // Background
+  const accentColor = settings.primaryColor || '#6d2323'; // Primary accent
+  const accentDark = settings.secondaryColor || '#8B3333'; // Darker accent
+  const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
+  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
+  const hoverColor = settings.hoverColor || '#6D2323';
+  const blackColor = '#1a1a1a';
+  const whiteColor = '#FFFFFF';
+  const grayColor = '#6c757d';
 
   //ACCESSING
   // Dynamic page access control using component identifier
@@ -194,34 +194,34 @@ const PayrollProcessed = () => {
     hasAccess,
     loading: accessLoading,
     error: accessError,
-  } = usePageAccess("payroll-processed");
+  } = usePageAccess('payroll-processed');
   // ACCESSING END
 
   const [finalizedData, setFinalizedData] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
   const [openConfirm, setOpenConfirm] = useState(false);
   const [selectedRow, setSelectedRow] = useState(null);
   const [confidentialPasswordInput, setConfidentialPasswordInput] =
-    useState("");
+    useState('');
   const [openConfidentialPassword, setOpenConfidentialPassword] =
     useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [departments, setDepartments] = useState([]);
-  const [selectedDepartment, setSelectedDepartment] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedDepartment, setSelectedDepartment] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [filteredFinalizedData, setFilteredFinalizedData] = useState([]);
-  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedDate, setSelectedDate] = useState('');
   const [selectedRows, setSelectedRows] = useState([]);
   const [overlayLoading, setOverlayLoading] = useState(false);
   const [successOpen, setSuccessOpen] = useState(false);
-  const [successAction, setSuccessAction] = useState("");
+  const [successAction, setSuccessAction] = useState('');
   const [openReleaseConfirm, setOpenReleaseConfirm] = useState(false);
   const [releaseLoading, setReleaseLoading] = useState(false);
   const [releasedIdSet, setReleasedIdSet] = useState(new Set());
-  const [selectedMonth, setSelectedMonth] = useState("");
-  const [selectedYear, setSelectedYear] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState('');
+  const [selectedYear, setSelectedYear] = useState('');
   const [summaryData, setSummaryData] = useState({
     totalEmployees: 0,
     processedEmployees: 0,
@@ -229,30 +229,30 @@ const PayrollProcessed = () => {
     totalNetSalary: 0,
   });
   const [snackbarOpen, setSnackbarOpen] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState("");
+  const [snackbarMessage, setSnackbarMessage] = useState('');
 
   const handleExportToExcel = () => {
     if (filteredFinalizedData.length === 0) {
-      alert("No data to export.");
+      alert('No data to export.');
       return;
     }
 
     const getMonthName = (dateString) => {
-      if (!dateString) return "Unknown";
+      if (!dateString) return 'Unknown';
       const date = new Date(dateString);
       const months = [
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
+        'January',
+        'February',
+        'March',
+        'April',
+        'May',
+        'June',
+        'July',
+        'August',
+        'September',
+        'October',
+        'November',
+        'December',
       ];
       return months[date.getMonth()];
     };
@@ -267,61 +267,67 @@ const PayrollProcessed = () => {
     const year = getYear(firstDate);
 
     const toNumber = (value) => {
-      if (value === null || value === undefined || value === "") return "";
-      const cleaned = String(value).replace(/[₱,\s]/g, "");
+      if (value === null || value === undefined || value === '') return '';
+      const cleaned = String(value).replace(/[₱,\s]/g, '');
       const num = parseFloat(cleaned);
       return isNaN(num) ? value : num;
     };
 
     const headers = [
-      "No.",
-      "Department",
-      "Employee Number",
-      "Start Date",
-      "End Date",
-      "Name",
-      "Position",
-      "Rate NBC 594",
+      'No.',
+      'Department',
+      'Employee Number',
+      'Start Date',
+      'End Date',
+      'Name',
+      'Position',
+      'Rate NBC 594',
       "NBC DIFF'L 597",
-      "Increment",
-      "Gross Salary",
-      "ABS",
-      "H",
-      "M",
-      "Net Salary",
-      "Withholding Tax",
-      "Total GSIS Deductions",
-      "Total Pag-ibig Deductions",
-      "PhilHealth",
-      "Total Other Deductions",
-      "Total Deductions",
-      "1st Pay",
-      "2nd Pay",
-      "RT Ins.",
-      "EC",
-      "Status",
+      'Increment',
+      'Gross Salary',
+      'TEVL',
+      'DVLT',
+      'VLB',
+      'ABS',
+      'H',
+      'M',
+      'Net Salary',
+      'Withholding Tax',
+      'Total GSIS Deductions',
+      'Total Pag-ibig Deductions',
+      'PhilHealth',
+      'Total Other Deductions',
+      'Total Deductions',
+      '1st Pay',
+      '2nd Pay',
+      'RT Ins.',
+      'EC',
+      'Status',
     ];
 
     const excelDataArray = [];
     const title = `Payroll Processed - ${monthName} ${year}`;
-    const titleRow = [title, ...Array(headers.length - 1).fill("")];
+    const titleRow = [title, ...Array(headers.length - 1).fill('')];
     excelDataArray.push(titleRow);
-    excelDataArray.push(Array(headers.length).fill(""));
+    excelDataArray.push(Array(headers.length).fill(''));
     excelDataArray.push(headers);
 
     filteredFinalizedData.forEach((row, index) => {
       excelDataArray.push([
         index + 1,
-        row.department || "",
-        row.employeeNumber || "",
-        row.startDate || "",
-        row.endDate || "",
-        row.name || "",
-        row.position || "",
+        row.department || '',
+        row.employeeNumber || '',
+        row.startDate || '',
+        row.endDate || '',
+        row.name || '',
+        row.position || '',
         toNumber(row.rateNbc594),
         toNumber(row.nbcDiffl597),
         toNumber(row.increment),
         toNumber(row.grossSalary),
+        toNumber(row.tevl),
+        toNumber(row.dvlt),
+        toNumber(row.vlb),
         toNumber(row.abs),
         row.h || 0,
         row.m || 0,
@@ -336,15 +342,15 @@ const PayrollProcessed = () => {
         toNumber(row.pay2nd),
         toNumber(row.rtIns),
         toNumber(row.ec),
-        row.status || "",
+        row.status || '',
       ]);
     });
 
     const worksheet = XLSX.utils.aoa_to_sheet(excelDataArray);
     const workbook = XLSX.utils.book_new();
 
-    if (!worksheet["!merges"]) worksheet["!merges"] = [];
-    worksheet["!merges"].push({
+    if (!worksheet['!merges']) worksheet['!merges'] = [];
+    worksheet['!merges'].push({
       s: { r: 0, c: 0 },
       e: { r: 0, c: headers.length - 1 },
     });
@@ -353,47 +359,47 @@ const PayrollProcessed = () => {
       const headerLength = header.length;
       const titleLength = idx === 0 ? title.length : 0;
       const dataLengths = filteredFinalizedData.map((row, rowIdx) => {
-        let value = "";
+        let value = '';
         if (idx === 0) value = String(rowIdx + 1);
-        else if (idx === 1) value = String(row.department || "");
-        else if (idx === 2) value = String(row.employeeNumber || "");
-        else if (idx === 3) value = String(row.startDate || "");
-        else if (idx === 4) value = String(row.endDate || "");
-        else if (idx === 5) value = String(row.name || "");
-        else if (idx === 6) value = String(row.position || "");
-        else if (idx === 7) value = String(toNumber(row.rateNbc594) || "");
-        else if (idx === 8) value = String(toNumber(row.nbcDiffl597) || "");
-        else if (idx === 9) value = String(toNumber(row.increment) || "");
-        else if (idx === 10) value = String(toNumber(row.grossSalary) || "");
-        else if (idx === 11) value = String(toNumber(row.abs) || "");
-        else if (idx === 12) value = String(row.h || "");
-        else if (idx === 13) value = String(row.m || "");
-        else if (idx === 14) value = String(toNumber(row.netSalary) || "");
-        else if (idx === 15)
-          value = String(toNumber(row.withholdingTax) || "");
-        else if (idx === 16)
-          value = String(toNumber(row.totalGsisDeds) || "");
-        else if (idx === 17)
-          value = String(toNumber(row.totalPagibigDeds) || "");
-        else if (idx === 18)
-          value = String(toNumber(row.PhilHealthContribution) || "");
-        else if (idx === 19)
-          value = String(toNumber(row.totalOtherDeds) || "");
+        else if (idx === 1) value = String(row.department || '');
+        else if (idx === 2) value = String(row.employeeNumber || '');
+        else if (idx === 3) value = String(row.startDate || '');
+        else if (idx === 4) value = String(row.endDate || '');
+        else if (idx === 5) value = String(row.name || '');
+        else if (idx === 6) value = String(row.position || '');
+        else if (idx === 7) value = String(toNumber(row.rateNbc594) || '');
+        else if (idx === 8) value = String(toNumber(row.nbcDiffl597) || '');
+        else if (idx === 9) value = String(toNumber(row.increment) || '');
+        else if (idx === 10) value = String(toNumber(row.grossSalary) || '');
+        else if (idx === 11) value = String(toNumber(row.tevl) || '');
+        else if (idx === 12) value = String(toNumber(row.dvlt) || '');
+        else if (idx === 13) value = String(toNumber(row.vlb) || '');
+        else if (idx === 14) value = String(toNumber(row.abs) || '');
+        else if (idx === 15) value = String(row.h || '');
+        else if (idx === 16) value = String(row.m || '');
+        else if (idx === 17) value = String(toNumber(row.netSalary) || '');
+        else if (idx === 18) value = String(toNumber(row.withholdingTax) || '');
+        else if (idx === 19) value = String(toNumber(row.totalGsisDeds) || '');
         else if (idx === 20)
-          value = String(toNumber(row.totalDeductions) || "");
-        else if (idx === 21) value = String(toNumber(row.pay1st) || "");
-        else if (idx === 22) value = String(toNumber(row.pay2nd) || "");
-        else if (idx === 23) value = String(toNumber(row.rtIns) || "");
-        else if (idx === 24) value = String(toNumber(row.ec) || "");
-        else if (idx === 25) value = String(row.status || "");
+          value = String(toNumber(row.totalPagibigDeds) || '');
+        else if (idx === 21)
+          value = String(toNumber(row.PhilHealthContribution) || '');
+        else if (idx === 22) value = String(toNumber(row.totalOtherDeds) || '');
+        else if (idx === 23)
+          value = String(toNumber(row.totalDeductions) || '');
+        else if (idx === 24) value = String(toNumber(row.pay1st) || '');
+        else if (idx === 25) value = String(toNumber(row.pay2nd) || '');
+        else if (idx === 26) value = String(toNumber(row.rtIns) || '');
+        else if (idx === 27) value = String(toNumber(row.ec) || '');
+        else if (idx === 28) value = String(row.status || '');
         return value.length;
       });
       const maxLength = Math.max(headerLength, titleLength, ...dataLengths);
       return { wch: Math.min(Math.max(maxLength + 2, 10), 30) };
     });
-    worksheet["!cols"] = colWidths;
+    worksheet['!cols'] = colWidths;
 
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Processed Payroll");
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Processed Payroll');
 
     const filename = `PayrollProcessed_${monthName}_${year}.xlsx`;
     XLSX.writeFile(workbook, filename);
@@ -401,38 +407,38 @@ const PayrollProcessed = () => {
 
   // Month options for filtering
   const monthOptions = [
-    { value: "", label: "All Months" },
-    { value: "01", label: "January" },
-    { value: "02", label: "February" },
-    { value: "03", label: "March" },
-    { value: "04", label: "April" },
-    { value: "05", label: "May" },
-    { value: "06", label: "June" },
-    { value: "07", label: "July" },
-    { value: "08", label: "August" },
-    { value: "09", label: "September" },
-    { value: "10", label: "October" },
-    { value: "11", label: "November" },
-    { value: "12", label: "December" },
+    { value: '', label: 'All Months' },
+    { value: '01', label: 'January' },
+    { value: '02', label: 'February' },
+    { value: '03', label: 'March' },
+    { value: '04', label: 'April' },
+    { value: '05', label: 'May' },
+    { value: '06', label: 'June' },
+    { value: '07', label: 'July' },
+    { value: '08', label: 'August' },
+    { value: '09', label: 'September' },
+    { value: '10', label: 'October' },
+    { value: '11', label: 'November' },
+    { value: '12', label: 'December' },
   ];
 
   // Year options for filtering
   const yearOptions = [
-    { value: "", label: "All Years" },
-    { value: "2024", label: "2024" },
-    { value: "2025", label: "2025" },
-    { value: "2026", label: "2026" },
+    { value: '', label: 'All Years' },
+    { value: '2024', label: '2024' },
+    { value: '2025', label: '2025' },
+    { value: '2026', label: '2026' },
   ];
 
   // Normalize a date string to YYYY-MM-DD for reliable key comparison
   const normalizeDateString = (dateInput) => {
     try {
-      if (!dateInput) return "";
+      if (!dateInput) return '';
       const d = new Date(dateInput);
       if (Number.isNaN(d.getTime())) return String(dateInput);
       const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     } catch (_) {
       return String(dateInput);
@@ -441,26 +447,26 @@ const PayrollProcessed = () => {
 
   // Build a consistent composite key for a payroll record
   const getRecordKey = (record) => {
-    const emp = record?.employeeNumber ?? "";
+    const emp = record?.employeeNumber ?? '';
     const start = normalizeDateString(record?.startDate);
     const end = normalizeDateString(record?.endDate);
     return `${emp}-${start}-${end}`;
   };
 
   const getAuthHeaders = () => {
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem('token');
     console.log(
-      "Token from localStorage:",
-      token ? "Token exists" : "No token found"
+      'Token from localStorage:',
+      token ? 'Token exists' : 'No token found',
     );
     if (token) {
-      console.log("Token length:", token.length);
-      console.log("Token starts with:", token.substring(0, 20) + "...");
+      console.log('Token length:', token.length);
+      console.log('Token starts with:', token.substring(0, 20) + '...');
     }
     return {
       headers: {
         Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
     };
   };
@@ -473,7 +479,7 @@ const PayrollProcessed = () => {
       searchTerm,
       newDate,
       selectedMonth,
-      selectedYear
+      selectedYear,
     );
   };
 
@@ -504,11 +510,11 @@ const PayrollProcessed = () => {
     try {
       const response = await axios.get(
         `${API_BASE_URL}/api/department-table`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setDepartments(response.data);
     } catch (err) {
-      console.error("Error fetching departments:", err);
+      console.error('Error fetching departments:', err);
     }
   };
 
@@ -516,20 +522,22 @@ const PayrollProcessed = () => {
     try {
       const res = await axios.get(
         `${API_BASE_URL}/PayrollRoute/payroll-processed`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
 
       // Filter for Regular employees only (employmentCategory = 1)
       // employmentCategory: 0 = Job Order, 1 = Regular, -1 = Not set
-      const regularData = res.data.filter((item) => item.employmentCategory === 1);
+      const regularData = res.data.filter(
+        (item) => item.employmentCategory === 1,
+      );
 
       setFinalizedData(regularData);
       setFilteredFinalizedData(regularData);
 
       setLoading(false);
     } catch (err) {
-      console.error("Error fetching finalized payroll:", err);
-      setError("An error occurred while fetching the finalized payroll.");
+      console.error('Error fetching finalized payroll:', err);
+      setError('An error occurred while fetching the finalized payroll.');
       setLoading(false);
     }
   };
@@ -538,7 +546,7 @@ const PayrollProcessed = () => {
     try {
       const res = await axios.get(
         `${API_BASE_URL}/PayrollReleasedRoute/released-payroll`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       // Build a set of composite keys to uniquely identify released records
       const releasedKeys = new Set();
@@ -550,7 +558,7 @@ const PayrollProcessed = () => {
       }
       setReleasedIdSet(releasedKeys);
     } catch (err) {
-      console.error("Error fetching released payroll for disable logic:", err);
+      console.error('Error fetching released payroll for disable logic:', err);
     }
   };
 
@@ -601,7 +609,7 @@ const PayrollProcessed = () => {
       searchTerm,
       selectedDate,
       selectedMonth,
-      selectedYear
+      selectedYear,
     );
   };
 
@@ -613,7 +621,7 @@ const PayrollProcessed = () => {
       term,
       selectedDate,
       selectedMonth,
-      selectedYear
+      selectedYear,
     );
   };
 
@@ -625,7 +633,7 @@ const PayrollProcessed = () => {
       searchTerm,
       selectedDate,
       selectedMonthValue,
-      selectedYear
+      selectedYear,
     );
   };
 
@@ -637,7 +645,7 @@ const PayrollProcessed = () => {
       searchTerm,
       selectedDate,
       selectedMonth,
-      selectedYearValue
+      selectedYearValue,
     );
   };
 
@@ -652,11 +660,11 @@ const PayrollProcessed = () => {
       const lowerSearch = search.toLowerCase();
       filtered = filtered.filter(
         (record) =>
-          (record.name || "").toLowerCase().includes(lowerSearch) ||
-          (record.employeeNumber || "")
+          (record.name || '').toLowerCase().includes(lowerSearch) ||
+          (record.employeeNumber || '')
             .toString()
             .toLowerCase()
-            .includes(lowerSearch)
+            .includes(lowerSearch),
       );
     }
 
@@ -678,13 +686,13 @@ const PayrollProcessed = () => {
     }
 
     // Apply month filter based on startDate
-    if (month && month !== "") {
+    if (month && month !== '') {
       filtered = filtered.filter((record) => {
         if (record.startDate) {
           const recordDate = new Date(record.startDate);
           const recordMonth = String(recordDate.getMonth() + 1).padStart(
             2,
-            "0"
+            '0',
           );
           return recordMonth === month;
         }
@@ -693,7 +701,7 @@ const PayrollProcessed = () => {
     }
 
     // Apply year filter based on startDate
-    if (year && year !== "") {
+    if (year && year !== '') {
       filtered = filtered.filter((record) => {
         if (record.startDate) {
           const recordDate = new Date(record.startDate);
@@ -710,12 +718,12 @@ const PayrollProcessed = () => {
     // Recompute summary based on filtered data, similar to PayrollProcessing
     const totalNet = filtered.reduce(
       (sum, item) => sum + parseFloat(item.netSalary || 0),
-      0
+      0,
     );
 
     // totalReleased is kept in sync by useEffect below, but also restrict to current filter
     const totalReleasedFiltered = filtered.filter((record) =>
-      releasedIdSet.has(getRecordKey(record))
+      releasedIdSet.has(getRecordKey(record)),
     ).length;
 
     setSummaryData((prev) => ({
@@ -732,54 +740,37 @@ const PayrollProcessed = () => {
     try {
       // Find the record to be deleted
       const recordToDelete = finalizedData.find((item) => item.id === rowId);
-      
+
       // First update UI immediately
       setFinalizedData((prev) => prev.filter((item) => item.id !== rowId));
       setFilteredFinalizedData((prev) =>
-        prev.filter((item) => item.id !== rowId)
+        prev.filter((item) => item.id !== rowId),
       );
 
       // Delete from payroll-processed
       await axios.delete(
         `${API_BASE_URL}/PayrollRoute/payroll-processed/${rowId}`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
-
-      // Update status in payroll-with-remittance from Processed to Unprocessed
-      try {
-        if (recordToDelete && recordToDelete.employeeNumber) {
-          await axios.put(
-            `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${recordToDelete.employeeNumber}`,
-            {
-              ...recordToDelete,
-              status: "Unprocessed",
-            },
-            getAuthHeaders()
-          );
-        }
-      } catch (updateError) {
-        console.error("Error updating payroll status:", updateError);
-        // Continue even if status update fails - the deletion was successful
-      }
 
       // Show loading for 2-3 seconds, then success overlay
       setTimeout(() => {
         setOverlayLoading(false);
-        setSuccessAction("delete");
+        setSuccessAction('delete');
         setSuccessOpen(true);
         setTimeout(() => setSuccessOpen(false), 2500);
       }, 2500);
     } catch (error) {
-      console.error("Error deleting payroll data:", error);
+      console.error('Error deleting payroll data:', error);
       setOverlayLoading(false);
       // If API call fails, revert the UI changes
       const res = await axios.get(
         `${API_BASE_URL}/PayrollRoute/payroll-processed`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       // Filter for Regular employees only
       const regularData = res.data.filter(
-        (item) => item.employmentCategory === 1
+        (item) => item.employmentCategory === 1,
       );
       setFinalizedData(regularData);
       setFilteredFinalizedData((prev) => {
@@ -787,23 +778,23 @@ const PayrollProcessed = () => {
         let filtered = res.data;
         if (selectedDepartment) {
           filtered = filtered.filter(
-            (record) => record.department === selectedDepartment
+            (record) => record.department === selectedDepartment,
           );
         }
         if (searchTerm) {
           const lowerSearch = searchTerm.toLowerCase();
           filtered = filtered.filter(
             (record) =>
-              (record.name || "").toLowerCase().includes(lowerSearch) ||
-              (record.employeeNumber || "")
+              (record.name || '').toLowerCase().includes(lowerSearch) ||
+              (record.employeeNumber || '')
                 .toString()
                 .toLowerCase()
-                .includes(lowerSearch)
+                .includes(lowerSearch),
           );
         }
         return filtered;
       });
-      alert("Failed to delete record. Please try again.");
+      alert('Failed to delete record. Please try again.');
     }
   };
 
@@ -818,7 +809,7 @@ const PayrollProcessed = () => {
       });
 
       if (hasReleased) {
-        alert("Cannot delete records that are already released.");
+        alert('Cannot delete records that are already released.');
         return;
       }
       // Bulk delete mode
@@ -827,7 +818,7 @@ const PayrollProcessed = () => {
       // Single row delete - check if the record is already released
       const key = getRecordKey(rowOrIds);
       if (releasedIdSet.has(key)) {
-        alert("This record is already released and cannot be deleted.");
+        alert('This record is already released and cannot be deleted.');
         return;
       }
       setSelectedRow(rowOrIds);
@@ -842,23 +833,23 @@ const PayrollProcessed = () => {
 
   const handleConfidentialPasswordSubmit = async () => {
     if (!confidentialPasswordInput) {
-      setSnackbarMessage("Please enter the confidential password.");
+      setSnackbarMessage('Please enter the confidential password.');
       setSnackbarOpen(true);
       return;
     }
 
     try {
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem('token');
       const response = await axios.post(
         `${API_BASE_URL}/api/confidential-password/verify`,
         { password: confidentialPasswordInput },
-        getAuthHeaders()
+        getAuthHeaders(),
       );
 
       if (response.data.verified) {
         // Password verified, proceed with deletion
         setOpenConfidentialPassword(false);
-        setConfidentialPasswordInput("");
+        setConfidentialPasswordInput('');
         setOverlayLoading(true);
 
         try {
@@ -866,7 +857,7 @@ const PayrollProcessed = () => {
             // Guard again in case state changed - filter out released records
             const deletableIds = selectedRow.ids.filter((id) => {
               const record = filteredFinalizedData.find(
-                (item) => item.id === id
+                (item) => item.id === id,
               );
               if (!record) return false;
               const key = getRecordKey(record);
@@ -876,59 +867,32 @@ const PayrollProcessed = () => {
             if (deletableIds.length === 0) {
               setOverlayLoading(false);
               alert(
-                "All selected records are already released and cannot be deleted."
+                'All selected records are already released and cannot be deleted.',
               );
               return;
             }
             // Bulk delete
             setFinalizedData((prev) =>
-              prev.filter((item) => !deletableIds.includes(item.id))
+              prev.filter((item) => !deletableIds.includes(item.id)),
             );
             setFilteredFinalizedData((prev) =>
-              prev.filter((item) => !deletableIds.includes(item.id))
+              prev.filter((item) => !deletableIds.includes(item.id)),
             );
-
-            // Get records to be deleted for status update
-            const recordsToDelete = deletableIds.map((id) =>
-              filteredFinalizedData.find((item) => item.id === id)
-            ).filter(Boolean);
 
             // Delete from payroll-processed
             await Promise.all(
               deletableIds.map((id) =>
                 axios.delete(
                   `${API_BASE_URL}/PayrollRoute/payroll-processed/${id}`,
-                  getAuthHeaders()
-                )
-              )
+                  getAuthHeaders(),
+                ),
+              ),
             );
-
-            // Update status in payroll-with-remittance from Processed to Unprocessed
-            try {
-              await Promise.all(
-                recordsToDelete.map((record) => {
-                  if (record.employeeNumber) {
-                    return axios.put(
-                      `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${record.employeeNumber}`,
-                      {
-                        ...record,
-                        status: "Unprocessed",
-                      },
-                      getAuthHeaders()
-                    );
-                  }
-                  return Promise.resolve();
-                })
-              );
-            } catch (updateError) {
-              console.error("Error updating payroll status:", updateError);
-              // Continue even if status update fails - the deletion was successful
-            }
 
             // Show loading for 2-3 seconds, then success overlay
             setTimeout(() => {
               setOverlayLoading(false);
-              setSuccessAction("delete");
+              setSuccessAction('delete');
               setSuccessOpen(true);
               setTimeout(() => setSuccessOpen(false), 2500);
             }, 2500);
@@ -938,16 +902,16 @@ const PayrollProcessed = () => {
             const key = getRecordKey(selectedRow);
             if (releasedIdSet.has(key)) {
               setOverlayLoading(false);
-              alert("This record is already released and cannot be deleted.");
+              alert('This record is already released and cannot be deleted.');
               return;
             }
 
             // Single delete (existing logic)
             setFinalizedData((prev) =>
-              prev.filter((item) => item.id !== selectedRow.id)
+              prev.filter((item) => item.id !== selectedRow.id),
             );
             setFilteredFinalizedData((prev) =>
-              prev.filter((item) => item.id !== selectedRow.id)
+              prev.filter((item) => item.id !== selectedRow.id),
             );
 
             // Delete from payroll-processed
@@ -959,77 +923,60 @@ const PayrollProcessed = () => {
                   employeeNumber: selectedRow.employeeNumber,
                   name: selectedRow.name,
                 },
-              }
+              },
             );
-
-            // Update status in payroll-with-remittance from Processed to Unprocessed
-            try {
-              if (selectedRow.employeeNumber) {
-                await axios.put(
-                  `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${selectedRow.employeeNumber}`,
-                  {
-                    ...selectedRow,
-                    status: "Unprocessed",
-                  },
-                  getAuthHeaders()
-                );
-              }
-            } catch (updateError) {
-              console.error("Error updating payroll status:", updateError);
-              // Continue even if status update fails - the deletion was successful
-            }
 
             // Show loading for 2-3 seconds, then success overlay
             setTimeout(() => {
               setOverlayLoading(false);
-              setSuccessAction("delete");
+              setSuccessAction('delete');
               setSuccessOpen(true);
               setTimeout(() => setSuccessOpen(false), 2500);
             }, 2500);
           }
         } catch (error) {
-          console.error("Error deleting record:", error);
+          console.error('Error deleting record:', error);
           setOverlayLoading(false);
           // Revert UI changes on error
           const res = await axios.get(
             `${API_BASE_URL}/PayrollRoute/payroll-processed`,
-            getAuthHeaders()
+            getAuthHeaders(),
           );
           // Filter for Regular employees only
           const regularData = res.data.filter(
-            (item) => item.employmentCategory === 1
+            (item) => item.employmentCategory === 1,
           );
           setFinalizedData(regularData);
           applyFilters(selectedDepartment, searchTerm, selectedDate);
-          alert("Failed to delete record(s). Please try again.");
+          alert('Failed to delete record(s). Please try again.');
         } finally {
           setSelectedRow(null);
         }
       } else {
-        setSnackbarMessage("Password verification failed. Please try again.");
+        setSnackbarMessage('Password verification failed. Please try again.');
         setSnackbarOpen(true);
-        setConfidentialPasswordInput("");
+        setConfidentialPasswordInput('');
       }
     } catch (error) {
-      console.error("Error verifying confidential password:", error);
+      console.error('Error verifying confidential password:', error);
       setSnackbarMessage(
         error.response?.data?.error ||
-          "Failed to verify password. Please try again."
+          'Failed to verify password. Please try again.',
       );
       setSnackbarOpen(true);
-      setConfidentialPasswordInput("");
+      setConfidentialPasswordInput('');
     }
   };
 
   const handleConfidentialPasswordCancel = () => {
     setOpenConfidentialPassword(false);
-    setConfidentialPasswordInput("");
+    setConfidentialPasswordInput('');
     setSelectedRow(null);
   };
 
   const handleReleasePayroll = async () => {
     if (selectedRows.length === 0) {
-      alert("Please select payroll records to release.");
+      alert('Please select payroll records to release.');
       return;
     }
 
@@ -1051,7 +998,7 @@ const PayrollProcessed = () => {
       });
 
       if (unreleasedSelectedIds.length === 0) {
-        alert("All selected records are already released.");
+        alert('All selected records are already released.');
         setOverlayLoading(false);
         return;
       }
@@ -1071,18 +1018,18 @@ const PayrollProcessed = () => {
         `${API_BASE_URL}/PayrollReleasedRoute/release-payroll`,
         {
           payrollIds: unreleasedSelectedIds,
-          releasedBy: localStorage.getItem("username") || "System",
+          releasedBy: localStorage.getItem('username') || 'System',
         },
-        getAuthHeaders()
+        getAuthHeaders(),
       );
 
       if (response.data) {
         // Remove released records from the current view
         setFinalizedData((prev) =>
-          prev.filter((item) => !unreleasedSelectedIds.includes(item.id))
+          prev.filter((item) => !unreleasedSelectedIds.includes(item.id)),
         );
         setFilteredFinalizedData((prev) =>
-          prev.filter((item) => !unreleasedSelectedIds.includes(item.id))
+          prev.filter((item) => !unreleasedSelectedIds.includes(item.id)),
         );
 
         // Mark these composite keys as released to immediately disable any related actions
@@ -1091,37 +1038,37 @@ const PayrollProcessed = () => {
             new Set([
               ...(prev instanceof Set ? Array.from(prev) : []),
               ...keysToAdd,
-            ])
+            ]),
         );
 
         // Remove only the ones we released from selection; keep others if any
         setSelectedRows((prev) =>
-          prev.filter((id) => !unreleasedSelectedIds.includes(id))
+          prev.filter((id) => !unreleasedSelectedIds.includes(id)),
         );
 
         // Show loading for 2-3 seconds, then success overlay, then navigate
         setTimeout(() => {
           setOverlayLoading(false);
-          setSuccessAction("release");
+          setSuccessAction('release');
           setSuccessOpen(true);
 
           // Navigate to payroll-released after success overlay is shown
           setTimeout(() => {
             setSuccessOpen(false);
-            window.location.href = "/payroll-released";
+            window.location.href = '/payroll-released';
           }, 2500);
         }, 2500);
       }
     } catch (error) {
-      console.error("Error releasing payroll:", error);
+      console.error('Error releasing payroll:', error);
       setOverlayLoading(false);
-      alert("Failed to release payroll records. Please try again.");
+      alert('Failed to release payroll records. Please try again.');
     }
   };
 
   const initiateRelease = () => {
     if (selectedRows.length === 0) {
-      alert("Please select payroll records to release.");
+      alert('Please select payroll records to release.');
       return;
     }
     setOpenReleaseConfirm(true);
@@ -1134,13 +1081,13 @@ const PayrollProcessed = () => {
       <Container maxWidth="md" sx={{ py: 8 }}>
         <Box
           sx={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
           }}
         >
-          <CircularProgress sx={{ color: "#6d2323", mb: 2 }} />
-          <Typography variant="h6" sx={{ color: "#6d2323" }}>
+          <CircularProgress sx={{ color: '#6d2323', mb: 2 }} />
+          <Typography variant="h6" sx={{ color: '#6d2323' }}>
             Loading access information...
           </Typography>
         </Box>
@@ -1164,18 +1111,18 @@ const PayrollProcessed = () => {
     <Box
       sx={{
         py: 4,
-        borderRadius: "14px",
-        width: "100%",
-        mx: "auto",
-        maxWidth: "100%",
-        overflow: "hidden",
-        position: "relative",
-        left: "50%",
-        transform: "translateX(-50%)",
+        borderRadius: '14px',
+        width: '100%',
+        mx: 'auto',
+        maxWidth: '100%',
+        overflow: 'hidden',
+        position: 'relative',
+        left: '50%',
+        transform: 'translateX(-50%)',
       }}
     >
       {/* Container with fixed width */}
-      <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
+      <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
         {/* Header */}
         <Fade in timeout={500}>
           <Box sx={{ mb: 4 }}>
@@ -1184,7 +1131,7 @@ const PayrollProcessed = () => {
                 background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
                 boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
                 border: `1px solid ${alpha(accentColor, 0.1)}`,
-                "&:hover": {
+                '&:hover': {
                   boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
                 },
               }}
@@ -1194,31 +1141,31 @@ const PayrollProcessed = () => {
                   p: 5,
                   background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                   color: textPrimaryColor,
-                  position: "relative",
-                  overflow: "hidden",
+                  position: 'relative',
+                  overflow: 'hidden',
                 }}
               >
                 {/* Decorative elements */}
                 <Box
                   sx={{
-                    position: "absolute",
+                    position: 'absolute',
                     top: -50,
                     right: -50,
                     width: 200,
                     height: 200,
                     background:
-                      "radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)",
+                      'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)',
                   }}
                 />
                 <Box
                   sx={{
-                    position: "absolute",
+                    position: 'absolute',
                     bottom: -30,
-                    left: "30%",
+                    left: '30%',
                     width: 150,
                     height: 150,
                     background:
-                      "radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)",
+                      'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
                   }}
                 />
 
@@ -1233,11 +1180,11 @@ const PayrollProcessed = () => {
                   <Box display="flex" alignItems="center">
                     <Avatar
                       sx={{
-                        bgcolor: "rgba(109,35,35,0.15)",
+                        bgcolor: 'rgba(109,35,35,0.15)',
                         mr: 4,
                         width: 64,
                         height: 64,
-                        boxShadow: "0 8px 24px rgba(109,35,35,0.15)",
+                        boxShadow: '0 8px 24px rgba(109,35,35,0.15)',
                       }}
                     >
                       <Payment sx={{ color: textPrimaryColor, fontSize: 32 }} />
@@ -1275,7 +1222,7 @@ const PayrollProcessed = () => {
                         bgcolor: alpha(accentColor, 0.15),
                         color: textPrimaryColor,
                         fontWeight: 500,
-                        "& .MuiChip-label": { px: 1 },
+                        '& .MuiChip-label': { px: 1 },
                       }}
                     />
                     <Tooltip title="Refresh Data">
@@ -1283,7 +1230,7 @@ const PayrollProcessed = () => {
                         onClick={() => window.location.reload()}
                         sx={{
                           bgcolor: alpha(accentColor, 0.1),
-                          "&:hover": { bgcolor: alpha(accentColor, 0.2) },
+                          '&:hover': { bgcolor: alpha(accentColor, 0.2) },
                           color: textPrimaryColor,
                           width: 48,
                           height: 48,
@@ -1298,10 +1245,10 @@ const PayrollProcessed = () => {
                 {/* Summary Cards */}
                 <Box
                   sx={{
-                    display: "flex",
+                    display: 'flex',
                     gap: 2,
-                    flexWrap: "wrap",
-                    position: "relative",
+                    flexWrap: 'wrap',
+                    position: 'relative',
                     zIndex: 1,
                   }}
                 >
@@ -1312,14 +1259,14 @@ const PayrollProcessed = () => {
                       border: `1px solid ${alpha(accentColor, 0.1)}`,
                       background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
                       boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
-                      "&:hover": {
+                      '&:hover': {
                         boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
-                        transform: "translateY(-2px)",
+                        transform: 'translateY(-2px)',
                       },
-                      transition: "all 0.3s ease",
+                      transition: 'all 0.3s ease',
                     }}
                   >
-                    <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
                       <Box
                         display="flex"
                         alignItems="center"
@@ -1356,14 +1303,14 @@ const PayrollProcessed = () => {
                       border: `1px solid ${alpha(accentColor, 0.1)}`,
                       background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
                       boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
-                      "&:hover": {
+                      '&:hover': {
                         boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
-                        transform: "translateY(-2px)",
+                        transform: 'translateY(-2px)',
                       },
-                      transition: "all 0.3s ease",
+                      transition: 'all 0.3s ease',
                     }}
                   >
-                    <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
                       <Box
                         display="flex"
                         alignItems="center"
@@ -1383,13 +1330,13 @@ const PayrollProcessed = () => {
                           <Typography
                             variant="h6"
                             fontWeight="bold"
-                            sx={{ color: "#4caf50" }}
+                            sx={{ color: '#4caf50' }}
                           >
                             {summaryData.processedEmployees}
                           </Typography>
                         </Box>
                         <CheckCircleIcon
-                          sx={{ color: "#4caf50", fontSize: 32 }}
+                          sx={{ color: '#4caf50', fontSize: 32 }}
                         />
                       </Box>
                     </CardContent>
@@ -1402,14 +1349,14 @@ const PayrollProcessed = () => {
                       border: `1px solid ${alpha(accentColor, 0.1)}`,
                       background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
                       boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
-                      "&:hover": {
+                      '&:hover': {
                         boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
-                        transform: "translateY(-2px)",
+                        transform: 'translateY(-2px)',
                       },
-                      transition: "all 0.3s ease",
+                      transition: 'all 0.3s ease',
                     }}
                   >
-                    <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
                       <Box
                         display="flex"
                         alignItems="center"
@@ -1431,7 +1378,7 @@ const PayrollProcessed = () => {
                             fontWeight="bold"
                             sx={{ color: textPrimaryColor }}
                           >
-                            {summaryData.totalReleased.toLocaleString("en-US")}
+                            {summaryData.totalReleased.toLocaleString('en-US')}
                           </Typography>
                         </Box>
                         <TrendingUpIcon
@@ -1448,14 +1395,14 @@ const PayrollProcessed = () => {
                       border: `1px solid ${alpha(accentColor, 0.1)}`,
                       background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
                       boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
-                      "&:hover": {
+                      '&:hover': {
                         boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
-                        transform: "translateY(-2px)",
+                        transform: 'translateY(-2px)',
                       },
-                      transition: "all 0.3s ease",
+                      transition: 'all 0.3s ease',
                     }}
                   >
-                    <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
                       <Box
                         display="flex"
                         alignItems="center"
@@ -1479,11 +1426,11 @@ const PayrollProcessed = () => {
                           >
                             ₱
                             {summaryData.totalNetSalary.toLocaleString(
-                              "en-US",
+                              'en-US',
                               {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
-                              }
+                              },
                             )}
                           </Typography>
                         </Box>
@@ -1507,7 +1454,7 @@ const PayrollProcessed = () => {
               background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
               boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
               border: `1px solid ${alpha(accentColor, 0.1)}`,
-              "&:hover": {
+              '&:hover': {
                 boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
               },
             }}
@@ -1543,13 +1490,13 @@ const PayrollProcessed = () => {
                       label="Department"
                       sx={{
                         color: textPrimaryColor,
-                        "& .MuiOutlinedInput-notchedOutline": {
+                        '& .MuiOutlinedInput-notchedOutline': {
                           borderColor: alpha(accentColor, 0.3),
                         },
-                        "&:hover .MuiOutlinedInput-notchedOutline": {
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
                           borderColor: alpha(accentColor, 0.5),
                         },
-                        "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
                           borderColor: accentColor,
                         },
                       }}
@@ -1578,15 +1525,15 @@ const PayrollProcessed = () => {
                       shrink: true,
                     }}
                     sx={{
-                      "& .MuiOutlinedInput-root": {
+                      '& .MuiOutlinedInput-root': {
                         color: textPrimaryColor,
-                        "& .MuiOutlinedInput-notchedOutline": {
+                        '& .MuiOutlinedInput-notchedOutline': {
                           borderColor: alpha(accentColor, 0.3),
                         },
-                        "&:hover .MuiOutlinedInput-notchedOutline": {
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
                           borderColor: alpha(accentColor, 0.5),
                         },
-                        "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
                           borderColor: accentColor,
                         },
                       },
@@ -1605,13 +1552,13 @@ const PayrollProcessed = () => {
                       label="Month"
                       sx={{
                         color: textPrimaryColor,
-                        "& .MuiOutlinedInput-notchedOutline": {
+                        '& .MuiOutlinedInput-notchedOutline': {
                           borderColor: alpha(accentColor, 0.3),
                         },
-                        "&:hover .MuiOutlinedInput-notchedOutline": {
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
                           borderColor: alpha(accentColor, 0.5),
                         },
-                        "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
                           borderColor: accentColor,
                         },
                       }}
@@ -1636,13 +1583,13 @@ const PayrollProcessed = () => {
                       label="Year"
                       sx={{
                         color: textPrimaryColor,
-                        "& .MuiOutlinedInput-notchedOutline": {
+                        '& .MuiOutlinedInput-notchedOutline': {
                           borderColor: alpha(accentColor, 0.3),
                         },
-                        "&:hover .MuiOutlinedInput-notchedOutline": {
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
                           borderColor: alpha(accentColor, 0.5),
                         },
-                        "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
                           borderColor: accentColor,
                         },
                       }}
@@ -1674,15 +1621,15 @@ const PayrollProcessed = () => {
                       ),
                     }}
                     sx={{
-                      "& .MuiOutlinedInput-root": {
+                      '& .MuiOutlinedInput-root': {
                         color: textPrimaryColor,
-                        "& .MuiOutlinedInput-notchedOutline": {
+                        '& .MuiOutlinedInput-notchedOutline': {
                           borderColor: alpha(accentColor, 0.3),
                         },
-                        "&:hover .MuiOutlinedInput-notchedOutline": {
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
                           borderColor: alpha(accentColor, 0.5),
                         },
-                        "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
                           borderColor: accentColor,
                         },
                       },
@@ -1702,7 +1649,7 @@ const PayrollProcessed = () => {
               sx={{
                 mb: 3,
                 borderRadius: 3,
-                "& .MuiAlert-message": { fontWeight: 500 },
+                '& .MuiAlert-message': { fontWeight: 500 },
               }}
               icon={<Error />}
             >
@@ -1719,8 +1666,8 @@ const PayrollProcessed = () => {
               background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
               boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
               border: `1px solid ${alpha(accentColor, 0.1)}`,
-              overflow: "visible",
-              "&:hover": {
+              overflow: 'visible',
+              '&:hover': {
                 boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
               },
             }}
@@ -1732,9 +1679,9 @@ const PayrollProcessed = () => {
                 background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                 color: textPrimaryColor,
                 borderBottom: `1px solid ${alpha(accentColor, 0.1)}`,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
               }}
             >
               <Box>
@@ -1743,8 +1690,8 @@ const PayrollProcessed = () => {
                   sx={{
                     opacity: 0.8,
                     mb: 1,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.1em",
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.1em',
                     color: textPrimaryColor,
                   }}
                 >
@@ -1777,7 +1724,7 @@ const PayrollProcessed = () => {
                     sx={{
                       borderColor: accentColor,
                       color: textPrimaryColor,
-                      "&:hover": {
+                      '&:hover': {
                         borderColor: accentDark,
                         backgroundColor: alpha(accentColor, 0.1),
                       },
@@ -1797,26 +1744,26 @@ const PayrollProcessed = () => {
               <Box>
                 {/* Table with Fixed Actions Column */}
                 <Box
-                  sx={{ display: "flex", width: "100%", position: "relative" }}
+                  sx={{ display: 'flex', width: '100%', position: 'relative' }}
                 >
                   {/* Scrollable Table Content */}
                   <Box
                     sx={{
-                      overflowX: "auto",
-                      overflowY: "visible",
+                      overflowX: 'auto',
+                      overflowY: 'visible',
                       flex: 1,
                       minWidth: 0,
-                      "&::-webkit-scrollbar": {
-                        height: "10px",
+                      '&::-webkit-scrollbar': {
+                        height: '10px',
                       },
-                      "&::-webkit-scrollbar-track": {
+                      '&::-webkit-scrollbar-track': {
                         background: alpha(accentColor, 0.1),
-                        borderRadius: "4px",
+                        borderRadius: '4px',
                       },
-                      "&::-webkit-scrollbar-thumb": {
+                      '&::-webkit-scrollbar-thumb': {
                         background: alpha(accentColor, 0.4),
-                        borderRadius: "4px",
-                        "&:hover": {
+                        borderRadius: '4px',
+                        '&:hover': {
                           background: alpha(accentColor, 0.6),
                         },
                       },
@@ -1826,14 +1773,14 @@ const PayrollProcessed = () => {
                       sx={{
                         boxShadow: `0 4px 24px ${alpha(accentColor, 0.06)}`,
                         border: `1px solid ${alpha(accentColor, 0.08)}`,
-                        overflowX: "auto",
-                        overflowY: "visible",
-                        width: "max-content",
-                        minWidth: "100%",
+                        overflowX: 'auto',
+                        overflowY: 'visible',
+                        width: 'max-content',
+                        minWidth: '100%',
                       }}
                     >
                       <Table
-                        sx={{ minWidth: "max-content", tableLayout: "auto" }}
+                        sx={{ minWidth: 'max-content', tableLayout: 'auto' }}
                       >
                         <TableHead sx={{ bgcolor: alpha(primaryColor, 0.7) }}>
                           <TableRow>
@@ -1844,31 +1791,31 @@ const PayrollProcessed = () => {
                             >
                               <Checkbox
                                 sx={{
-                                  color: "white",
-                                  "&.Mui-checked": {
-                                    color: "white",
+                                  color: 'white',
+                                  '&.Mui-checked': {
+                                    color: 'white',
                                   },
-                                  "&:hover": {
-                                    color: "#F5F5F5",
+                                  '&:hover': {
+                                    color: '#F5F5F5',
                                   },
-                                  "&.MuiCheckbox-indeterminate": {
-                                    color: "white",
+                                  '&.MuiCheckbox-indeterminate': {
+                                    color: 'white',
                                   },
                                 }}
                                 indeterminate={(() => {
                                   const currentPageRows =
                                     filteredFinalizedData.slice(
                                       page * rowsPerPage,
-                                      page * rowsPerPage + rowsPerPage
+                                      page * rowsPerPage + rowsPerPage,
                                     );
                                   const selectableIds = currentPageRows
                                     .filter(
                                       (row) =>
-                                        !releasedIdSet.has(getRecordKey(row))
+                                        !releasedIdSet.has(getRecordKey(row)),
                                     )
                                     .map((row) => row.id);
                                   const selectedOnPage = selectedRows.filter(
-                                    (id) => selectableIds.includes(id)
+                                    (id) => selectableIds.includes(id),
                                   );
                                   return (
                                     selectedOnPage.length > 0 &&
@@ -1879,29 +1826,29 @@ const PayrollProcessed = () => {
                                   const currentPageRows =
                                     filteredFinalizedData.slice(
                                       page * rowsPerPage,
-                                      page * rowsPerPage + rowsPerPage
+                                      page * rowsPerPage + rowsPerPage,
                                     );
                                   const selectableIds = currentPageRows
                                     .filter(
                                       (row) =>
-                                        !releasedIdSet.has(getRecordKey(row))
+                                        !releasedIdSet.has(getRecordKey(row)),
                                     )
                                     .map((row) => row.id);
                                   if (selectableIds.length === 0) return false;
                                   return selectableIds.every((id) =>
-                                    selectedRows.includes(id)
+                                    selectedRows.includes(id),
                                   );
                                 })()}
                                 onChange={(e) => {
                                   const currentPageRows =
                                     filteredFinalizedData.slice(
                                       page * rowsPerPage,
-                                      page * rowsPerPage + rowsPerPage
+                                      page * rowsPerPage + rowsPerPage,
                                     );
                                   const selectableIds = currentPageRows
                                     .filter(
                                       (row) =>
-                                        !releasedIdSet.has(getRecordKey(row))
+                                        !releasedIdSet.has(getRecordKey(row)),
                                     )
                                     .map((row) => row.id);
                                   if (e.target.checked) {
@@ -1911,8 +1858,8 @@ const PayrollProcessed = () => {
                                   } else {
                                     setSelectedRows((prev) =>
                                       prev.filter(
-                                        (id) => !selectableIds.includes(id)
-                                      )
+                                        (id) => !selectableIds.includes(id),
+                                      ),
                                     );
                                   }
                                 }}
@@ -2002,7 +1949,19 @@ const PayrollProcessed = () => {
                               isHeader
                               sx={{ color: textPrimaryColor }}
                             >
-                              <b>Rendered Days &</b>
+                              TEVL
+                            </PremiumTableCell>
+                            <PremiumTableCell
+                              isHeader
+                              sx={{ color: textPrimaryColor }}
+                            >
+                              DVLT
+                            </PremiumTableCell>
+                            <PremiumTableCell
+                              isHeader
+                              sx={{ color: textPrimaryColor }}
+                            >
+                              VLB
                             </PremiumTableCell>
                             <PremiumTableCell
                               isHeader
@@ -2110,7 +2069,7 @@ const PayrollProcessed = () => {
                               isHeader
                               sx={{
                                 color: textPrimaryColor,
-                                borderLeft: "2px solid black",
+                                borderLeft: '2px solid black',
                               }}
                             >
                               Pay1st Compute
@@ -2125,7 +2084,7 @@ const PayrollProcessed = () => {
                               isHeader
                               sx={{
                                 color: textPrimaryColor,
-                                borderLeft: "2px solid black",
+                                borderLeft: '2px solid black',
                               }}
                             >
                               No.
@@ -2288,19 +2247,19 @@ const PayrollProcessed = () => {
                             filteredFinalizedData
                               .slice(
                                 page * rowsPerPage,
-                                page * rowsPerPage + rowsPerPage
+                                page * rowsPerPage + rowsPerPage,
                               )
                               .map((row, index) => {
                                 const key = getRecordKey(row);
                                 const isRowReleased = releasedIdSet.has(key);
                                 const isSelected = selectedRows.includes(
-                                  row.id
+                                  row.id,
                                 );
                                 const shouldDisable = isSelected
                                   ? selectedRows.some((id) => {
                                       const selectedRecord =
                                         filteredFinalizedData.find(
-                                          (item) => item.id === id
+                                          (item) => item.id === id,
                                         );
                                       if (!selectedRecord) return false;
                                       const selectedKey =
@@ -2313,22 +2272,22 @@ const PayrollProcessed = () => {
                                   <TableRow
                                     key={row.id}
                                     sx={{
-                                      "&:nth-of-type(even)": {
+                                      '&:nth-of-type(even)': {
                                         bgcolor: alpha(primaryColor, 0.3),
                                       },
-                                      "&:hover": {
+                                      '&:hover': {
                                         backgroundColor:
                                           alpha(accentColor, 0.05) +
-                                          " !important",
+                                          ' !important',
                                       },
-                                      transition: "all 0.2s ease",
+                                      transition: 'all 0.2s ease',
                                     }}
                                   >
                                     <PremiumTableCell padding="checkbox">
                                       <Checkbox
                                         checked={selectedRows.includes(row.id)}
                                         disabled={releasedIdSet.has(
-                                          getRecordKey(row)
+                                          getRecordKey(row),
                                         )}
                                         onChange={(e) => {
                                           e.stopPropagation();
@@ -2338,7 +2297,9 @@ const PayrollProcessed = () => {
                                             return;
                                           if (selectedRows.includes(row.id)) {
                                             setSelectedRows((prev) =>
-                                              prev.filter((id) => id !== row.id)
+                                              prev.filter(
+                                                (id) => id !== row.id,
+                                              ),
                                             );
                                           } else {
                                             setSelectedRows((prev) => [
@@ -2371,264 +2332,254 @@ const PayrollProcessed = () => {
                                     <ExcelTableCell>
                                       {row.rateNbc584
                                         ? Number(row.rateNbc584).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.nbc594
                                         ? Number(row.nbc594).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.rateNbc594
                                         ? Number(row.rateNbc594).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.nbcDiffl597
                                         ? Number(
-                                            row.nbcDiffl597
-                                          ).toLocaleString("en-US", {
+                                            row.nbcDiffl597,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.increment
                                         ? Number(row.increment).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.grossSalary
                                         ? Number(
-                                            row.grossSalary
-                                          ).toLocaleString("en-US", {
+                                            row.grossSalary,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
-                                    <ExcelTableCell>
-                                      {row.rh
-                                        ? (() => {
-                                            const totalHours = Number(row.rh);
-                                            const days = Math.floor(
-                                              totalHours / 8
-                                            );
-                                            const hours = totalHours % 8;
-                                            return `${days} days ${
-                                              hours > 0 ? `& ${hours} hrs` : ""
-                                            }`.trim();
-                                          })()
-                                        : ""}
-                                    </ExcelTableCell>
+                                    {/* Rendered days removed in processed view (JO-only) */}
+                                    <ExcelTableCell>{row.tevl}</ExcelTableCell>
+                                    <ExcelTableCell>{row.dvlt}</ExcelTableCell>
+                                    <ExcelTableCell>{row.vlb}</ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.abs
                                         ? Number(row.abs).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>{row.h}</ExcelTableCell>
                                     <ExcelTableCell>{row.m}</ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.sss
                                         ? Number(row.sss).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.withholdingTax
                                         ? Number(
-                                            row.withholdingTax
-                                          ).toLocaleString("en-US", {
+                                            row.withholdingTax,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.totalGsisDeds
                                         ? Number(
-                                            row.totalGsisDeds
-                                          ).toLocaleString("en-US", {
+                                            row.totalGsisDeds,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.totalPagibigDeds
                                         ? Number(
-                                            row.totalPagibigDeds
-                                          ).toLocaleString("en-US", {
+                                            row.totalPagibigDeds,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.PhilHealthContribution
                                         ? Number(
-                                            row.PhilHealthContribution
-                                          ).toLocaleString("en-US", {
+                                            row.PhilHealthContribution,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.totalOtherDeds
                                         ? Number(
-                                            row.totalOtherDeds
-                                          ).toLocaleString("en-US", {
+                                            row.totalOtherDeds,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.totalDeductions
                                         ? Number(
-                                            row.totalDeductions
-                                          ).toLocaleString("en-US", {
+                                            row.totalDeductions,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell
-                                      sx={{ color: "red", fontWeight: "bold" }}
+                                      sx={{ color: 'red', fontWeight: 'bold' }}
                                     >
                                       {row.pay1st
                                         ? Number(row.pay1st).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}{" "}
+                                        : ''}{' '}
                                     </ExcelTableCell>
                                     <ExcelTableCell
-                                      sx={{ color: "red", fontWeight: "bold" }}
+                                      sx={{ color: 'red', fontWeight: 'bold' }}
                                     >
                                       {row.pay2nd
                                         ? Number(row.pay2nd).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>{index + 1}</ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.rtIns
                                         ? Number(row.rtIns).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.ec
                                         ? Number(row.ec).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.PhilHealthContribution
                                         ? Number(
-                                            row.PhilHealthContribution
-                                          ).toLocaleString("en-US", {
+                                            row.PhilHealthContribution,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.pagibigFundCont
                                         ? Number(
-                                            row.pagibigFundCont
-                                          ).toLocaleString("en-US", {
+                                            row.pagibigFundCont,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell
                                       sx={{
-                                        borderLeft: "2px solid black",
-                                        color: "red",
-                                        fontWeight: "bold",
+                                        borderLeft: '2px solid black',
+                                        color: 'red',
+                                        fontWeight: 'bold',
                                       }}
                                     >
                                       {row.pay1stCompute
                                         ? Number(
-                                            row.pay1stCompute
-                                          ).toLocaleString("en-US", {
+                                            row.pay1stCompute,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell
-                                      sx={{ color: "red", fontWeight: "bold" }}
+                                      sx={{ color: 'red', fontWeight: 'bold' }}
                                     >
                                       {row.pay2ndCompute
                                         ? Number(
-                                            row.pay2ndCompute
-                                          ).toLocaleString("en-US", {
+                                            row.pay2ndCompute,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell
-                                      sx={{ borderLeft: "2px solid black" }}
+                                      sx={{ borderLeft: '2px solid black' }}
                                     >
                                       {index + 1}
                                     </ExcelTableCell>
@@ -2639,232 +2590,232 @@ const PayrollProcessed = () => {
                                     <ExcelTableCell>
                                       {row.withholdingTax
                                         ? Number(
-                                            row.withholdingTax
-                                          ).toLocaleString("en-US", {
+                                            row.withholdingTax,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.personalLifeRetIns
                                         ? Number(
-                                            row.personalLifeRetIns
-                                          ).toLocaleString("en-US", {
+                                            row.personalLifeRetIns,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.gsisSalaryLoan
                                         ? Number(
-                                            row.gsisSalaryLoan
-                                          ).toLocaleString("en-US", {
+                                            row.gsisSalaryLoan,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.gsisPolicyLoan
                                         ? Number(
-                                            row.gsisPolicyLoan
-                                          ).toLocaleString("en-US", {
+                                            row.gsisPolicyLoan,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.gsisArrears
                                         ? Number(
-                                            row.gsisArrears
-                                          ).toLocaleString("en-US", {
+                                            row.gsisArrears,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.cpl
                                         ? Number(row.cpl).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.mpl
                                         ? Number(row.mpl).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.eal
                                         ? Number(row.eal).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.mplLite
                                         ? Number(row.mplLite).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.emergencyLoan
                                         ? Number(
-                                            row.emergencyLoan
-                                          ).toLocaleString("en-US", {
+                                            row.emergencyLoan,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.totalGsisDeds
                                         ? Number(
-                                            row.totalGsisDeds
-                                          ).toLocaleString("en-US", {
+                                            row.totalGsisDeds,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.pagibigFundCont
                                         ? Number(
-                                            row.pagibigFundCont
-                                          ).toLocaleString("en-US", {
+                                            row.pagibigFundCont,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.pagibig2
                                         ? Number(row.pagibig2).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.multiPurpLoan
                                         ? Number(
-                                            row.multiPurpLoan
-                                          ).toLocaleString("en-US", {
+                                            row.multiPurpLoan,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.totalPagibigDeds
                                         ? Number(
-                                            row.totalPagibigDeds
-                                          ).toLocaleString("en-US", {
+                                            row.totalPagibigDeds,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.PhilHealthContribution
                                         ? Number(
-                                            row.PhilHealthContribution
-                                          ).toLocaleString("en-US", {
+                                            row.PhilHealthContribution,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.liquidatingCash
                                         ? Number(
-                                            row.liquidatingCash
-                                          ).toLocaleString("en-US", {
+                                            row.liquidatingCash,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.landbankSalaryLoan
                                         ? Number(
-                                            row.landbankSalaryLoan
-                                          ).toLocaleString("en-US", {
+                                            row.landbankSalaryLoan,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.earistCreditCoop
                                         ? Number(
-                                            row.earistCreditCoop
-                                          ).toLocaleString("en-US", {
+                                            row.earistCreditCoop,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.feu
                                         ? Number(row.feu).toLocaleString(
-                                            "en-US",
+                                            'en-US',
                                             {
                                               minimumFractionDigits: 2,
                                               maximumFractionDigits: 2,
-                                            }
+                                            },
                                           )
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.totalOtherDeds
                                         ? Number(
-                                            row.totalOtherDeds
-                                          ).toLocaleString("en-US", {
+                                            row.totalOtherDeds,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.totalDeductions
                                         ? Number(
-                                            row.totalDeductions
-                                          ).toLocaleString("en-US", {
+                                            row.totalDeductions,
+                                          ).toLocaleString('en-US', {
                                             minimumFractionDigits: 2,
                                             maximumFractionDigits: 2,
                                           })
-                                        : ""}
+                                        : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
                                       {new Date(
-                                        row.dateCreated
+                                        row.dateCreated,
                                       ).toLocaleString()}
                                     </ExcelTableCell>
                                   </TableRow>
@@ -2877,7 +2828,7 @@ const PayrollProcessed = () => {
                                 align="center"
                                 sx={{ py: 8 }}
                               >
-                                <Box sx={{ textAlign: "center" }}>
+                                <Box sx={{ textAlign: 'center' }}>
                                   <Info
                                     sx={{
                                       fontSize: 80,
@@ -2914,11 +2865,11 @@ const PayrollProcessed = () => {
                   {/* Fixed Actions Column */}
                   <Box
                     sx={{
-                      width: "120px",
-                      minWidth: "120px",
+                      width: '120px',
+                      minWidth: '120px',
                       borderLeft: `2px solid ${alpha(accentColor, 0.2)}`,
                       backgroundColor: alpha(primaryColor, 0.3),
-                      position: "sticky",
+                      position: 'sticky',
                       right: 0,
                       zIndex: 1,
                       boxShadow: `-2px 0 5px ${alpha(accentColor, 0.1)}`,
@@ -2926,18 +2877,18 @@ const PayrollProcessed = () => {
                   >
                     <Table
                       size="small"
-                      sx={{ tableLayout: "fixed", width: "100%" }}
+                      sx={{ tableLayout: 'fixed', width: '100%' }}
                     >
                       <TableHead>
                         <TableRow>
                           <TableCell
                             sx={{
                               backgroundColor: alpha(primaryColor, 0.7),
-                              fontWeight: "bold",
-                              textAlign: "center",
+                              fontWeight: 'bold',
+                              textAlign: 'center',
                               borderBottom: `1px solid ${alpha(accentColor, 0.1)}`,
-                              padding: "8px",
-                              position: "sticky",
+                              padding: '8px',
+                              position: 'sticky',
                               paddingTop: 3.5,
                               paddingBottom: 3.5,
                               zIndex: 2,
@@ -2953,7 +2904,7 @@ const PayrollProcessed = () => {
                           filteredFinalizedData
                             .slice(
                               page * rowsPerPage,
-                              page * rowsPerPage + rowsPerPage
+                              page * rowsPerPage + rowsPerPage,
                             )
                             .map((row, index) => {
                               const key = getRecordKey(row);
@@ -2965,31 +2916,31 @@ const PayrollProcessed = () => {
                                 <TableRow
                                   key={`actions-${row.id}`}
                                   sx={{
-                                    "&:nth-of-type(even)": {
+                                    '&:nth-of-type(even)': {
                                       bgcolor: alpha(primaryColor, 0.3),
                                     },
-                                    "&:hover": {
+                                    '&:hover': {
                                       backgroundColor:
                                         alpha(accentColor, 0.05) +
-                                        " !important",
+                                        ' !important',
                                     },
-                                    transition: "all 0.2s ease",
+                                    transition: 'all 0.2s ease',
                                   }}
                                 >
                                   <TableCell
                                     sx={{
-                                      padding: "8px",
-                                      textAlign: "center",
+                                      padding: '8px',
+                                      textAlign: 'center',
                                       borderBottom: `1px solid ${alpha(
                                         accentColor,
-                                        0.06
+                                        0.06,
                                       )}`,
                                     }}
                                   >
                                     <Box
                                       sx={{
-                                        display: "flex",
-                                        justifyContent: "center",
+                                        display: 'flex',
+                                        justifyContent: 'center',
                                         gap: 0.5,
                                         paddingTop: 2,
                                         paddingBottom: 2,
@@ -3008,18 +2959,18 @@ const PayrollProcessed = () => {
                                           disabled={shouldDisable}
                                           sx={{
                                             color: shouldDisable
-                                              ? "#ccc"
-                                              : "#d32f2f",
+                                              ? '#ccc'
+                                              : '#d32f2f',
                                             backgroundColor: shouldDisable
-                                              ? "#f5f5f5"
-                                              : "white",
-                                            border: "1px solid #d32f2f",
-                                            "&:hover": {
+                                              ? '#f5f5f5'
+                                              : 'white',
+                                            border: '1px solid #d32f2f',
+                                            '&:hover': {
                                               backgroundColor: shouldDisable
-                                                ? "#f5f5f5"
-                                                : "rgba(211, 47, 47, 0.1)",
+                                                ? '#f5f5f5'
+                                                : 'rgba(211, 47, 47, 0.1)',
                                             },
-                                            padding: "4px",
+                                            padding: '4px',
                                           }}
                                         >
                                           <DeleteIcon fontSize="small" />
@@ -3034,12 +2985,12 @@ const PayrollProcessed = () => {
                           <TableRow>
                             <TableCell
                               sx={{
-                                textAlign: "center",
+                                textAlign: 'center',
                                 borderBottom: `1px solid ${alpha(
                                   accentColor,
-                                  0.06
+                                  0.06,
                                 )}`,
-                                padding: "8px",
+                                padding: '8px',
                               }}
                             >
                               No actions
@@ -3054,25 +3005,25 @@ const PayrollProcessed = () => {
                 {/* Table Footer */}
                 <Box
                   sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
                     borderTop: `1px solid ${alpha(accentColor, 0.1)}`,
                     px: 4,
                     py: 2,
                     bgcolor: alpha(primaryColor, 0.5),
                   }}
                 >
-                  <Box sx={{ display: "flex", gap: 3, alignItems: "center" }}>
+                  <Box sx={{ display: 'flex', gap: 3, alignItems: 'center' }}>
                     <Typography
                       variant="body2"
-                      sx={{ fontWeight: "bold", color: textPrimaryColor }}
+                      sx={{ fontWeight: 'bold', color: textPrimaryColor }}
                     >
                       Total Records: {filteredFinalizedData.length}
                     </Typography>
                     <Typography
                       variant="body2"
-                      sx={{ fontWeight: "bold", color: textPrimaryColor }}
+                      sx={{ fontWeight: 'bold', color: textPrimaryColor }}
                     >
                       Selected: {selectedRows.length}
                     </Typography>
@@ -3086,30 +3037,30 @@ const PayrollProcessed = () => {
                     onRowsPerPageChange={handleChangeRowsPerPage}
                     rowsPerPageOptions={[10, 25, 50, 100]}
                     sx={{
-                      "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows":
+                      '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows':
                         {
                           color: textPrimaryColor,
                         },
-                      "& .MuiIconButton-root": {
+                      '& .MuiIconButton-root': {
                         color: textPrimaryColor,
                       },
                     }}
                   />
-                <Tooltip title="Save current view to Excel">
-                  <IconButton
-                    onClick={handleExportToExcel}
-                    sx={{
-                      bgcolor: alpha(accentColor, 0.1),
-                      "&:hover": { bgcolor: alpha(accentColor, 0.2) },
-                      color: textPrimaryColor,
-                      width: 48,
-                      height: 48,
-                    }}
-                    disabled={filteredFinalizedData.length === 0}
-                  >
-                    <CloudUpload />
-                  </IconButton>
-                </Tooltip>
+                  <Tooltip title="Save current view to Excel">
+                    <IconButton
+                      onClick={handleExportToExcel}
+                      sx={{
+                        bgcolor: alpha(accentColor, 0.1),
+                        '&:hover': { bgcolor: alpha(accentColor, 0.2) },
+                        color: textPrimaryColor,
+                        width: 48,
+                        height: 48,
+                      }}
+                      disabled={filteredFinalizedData.length === 0}
+                    >
+                      <CloudUpload />
+                    </IconButton>
+                  </Tooltip>
                 </Box>
               </Box>
             )}
@@ -3118,16 +3069,16 @@ const PayrollProcessed = () => {
 
         {/* Action Buttons */}
         <Box
-          sx={{ display: "flex", justifyContent: "flex-end", gap: 2, mt: 3 }}
+          sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 3 }}
         >
           <ProfessionalButton
             variant="outlined"
-            onClick={() => (window.location.href = "/payroll-table")}
+            onClick={() => (window.location.href = '/payroll-table')}
             size="large"
             sx={{
               borderColor: accentColor,
               color: textPrimaryColor,
-              "&:hover": {
+              '&:hover': {
                 borderColor: accentDark,
                 backgroundColor: alpha(accentColor, 0.1),
               },
@@ -3139,12 +3090,12 @@ const PayrollProcessed = () => {
 
           <ProfessionalButton
             variant="outlined"
-            onClick={() => (window.location.href = "/payroll-released")}
+            onClick={() => (window.location.href = '/payroll-released')}
             size="large"
             sx={{
               borderColor: accentColor,
               color: textPrimaryColor,
-              "&:hover": {
+              '&:hover': {
                 borderColor: accentDark,
                 backgroundColor: alpha(accentColor, 0.1),
               },
@@ -3163,8 +3114,8 @@ const PayrollProcessed = () => {
             sx={{
               backgroundColor: accentColor,
               color: textSecondaryColor,
-              "&:hover": { backgroundColor: accentDark },
-              "&:disabled": {
+              '&:hover': { backgroundColor: accentDark },
+              '&:disabled': {
                 backgroundColor: alpha(accentColor, 0.3),
                 color: alpha(textSecondaryColor, 0.5),
               },
@@ -3179,9 +3130,9 @@ const PayrollProcessed = () => {
           onClose={() => setOpenConfirm(false)}
           BackdropProps={{
             sx: {
-              backgroundColor: "rgba(0, 0, 0, 0.7)",
-              backdropFilter: "blur(4px)",
-              position: "fixed",
+              backgroundColor: 'rgba(0, 0, 0, 0.7)',
+              backdropFilter: 'blur(4px)',
+              position: 'fixed',
               top: 0,
               left: 0,
               right: 0,
@@ -3190,7 +3141,7 @@ const PayrollProcessed = () => {
             },
           }}
           sx={{
-            position: "fixed",
+            position: 'fixed',
             top: 0,
             left: 0,
             right: 0,
@@ -3201,16 +3152,16 @@ const PayrollProcessed = () => {
           <Box
             onClick={(e) => e.stopPropagation()}
             sx={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              width: { xs: "90%", sm: 500 },
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: { xs: '90%', sm: 500 },
               maxWidth: 900,
-              bgcolor: "white",
+              bgcolor: 'white',
               borderRadius: 3,
-              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-              overflow: "hidden",
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+              overflow: 'hidden',
               border: `2px solid ${accentColor}`,
               zIndex: 1301,
             }}
@@ -3220,8 +3171,8 @@ const PayrollProcessed = () => {
               sx={{
                 p: 3,
                 background: `linear-gradient(135deg, ${settings.secondaryColor || accentColor} 0%, ${settings.deleteButtonHoverColor || accentDark} 100%)`,
-                display: "flex",
-                alignItems: "center",
+                display: 'flex',
+                alignItems: 'center',
                 gap: 2,
                 position: 'sticky',
                 top: 0,
@@ -3231,7 +3182,10 @@ const PayrollProcessed = () => {
             >
               <Avatar
                 sx={{
-                  bgcolor: alpha(settings.accentColor || textSecondaryColor, 0.2),
+                  bgcolor: alpha(
+                    settings.accentColor || textSecondaryColor,
+                    0.2,
+                  ),
                   color: settings.accentColor || textSecondaryColor,
                   width: 56,
                   height: 56,
@@ -3242,18 +3196,27 @@ const PayrollProcessed = () => {
               <Box>
                 <Typography
                   variant="h5"
-                  sx={{ fontWeight: "bold", color: settings.accentColor || textSecondaryColor }}
+                  sx={{
+                    fontWeight: 'bold',
+                    color: settings.accentColor || textSecondaryColor,
+                  }}
                 >
                   Delete Record Confirmation
                 </Typography>
-                <Typography variant="body2" sx={{ color: settings.accentColor || textSecondaryColor, opacity: 0.9 }}>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: settings.accentColor || textSecondaryColor,
+                    opacity: 0.9,
+                  }}
+                >
                   This action cannot be undone
                 </Typography>
               </Box>
             </Box>
 
             {/* Content */}
-            <Box sx={{ p: 4, bgcolor: "white" }}>
+            <Box sx={{ p: 4, bgcolor: 'white' }}>
               <Alert
                 severity="warning"
                 icon={<DeleteForever />}
@@ -3262,7 +3225,7 @@ const PayrollProcessed = () => {
                   borderRadius: 2,
                   bgcolor: alpha(accentColor, 0.05),
                   border: `1px solid ${alpha(accentColor, 0.2)}`,
-                  "& .MuiAlert-icon": {
+                  '& .MuiAlert-icon': {
                     color: accentColor,
                     fontSize: 28,
                   },
@@ -3270,19 +3233,19 @@ const PayrollProcessed = () => {
               >
                 <Typography
                   variant="body1"
-                  sx={{ fontWeight: 600, mb: 1, color: "#333" }}
+                  sx={{ fontWeight: 600, mb: 1, color: '#333' }}
                 >
-                  Delete{" "}
+                  Delete{' '}
                   {selectedRow?.isBulk
                     ? `${selectedRow.ids.length} selected records`
-                    : "this record"}
+                    : 'this record'}
                 </Typography>
-                <Typography variant="body2" sx={{ color: "#666" }}>
-                  Please confirm that you want to delete{" "}
+                <Typography variant="body2" sx={{ color: '#666' }}>
+                  Please confirm that you want to delete{' '}
                   <strong>
                     {selectedRow?.isBulk
                       ? `${selectedRow.ids.length} selected records`
-                      : "this record"}
+                      : 'this record'}
                   </strong>
                   . This action cannot be undone.
                 </Typography>
@@ -3299,12 +3262,16 @@ const PayrollProcessed = () => {
                     px: 3,
                     py: 1.2,
                     fontWeight: 600,
-                    textTransform: "none",
+                    textTransform: 'none',
                     borderRadius: 2,
                     minWidth: 120,
-                    "&:hover": {
-                      borderColor: settings.cancelButtonHoverColor || accentDark,
-                      backgroundColor: alpha(settings.cancelButtonColor || accentColor, 0.08),
+                    '&:hover': {
+                      borderColor:
+                        settings.cancelButtonHoverColor || accentDark,
+                      backgroundColor: alpha(
+                        settings.cancelButtonColor || accentColor,
+                        0.08,
+                      ),
                     },
                   }}
                 >
@@ -3314,16 +3281,22 @@ const PayrollProcessed = () => {
                   variant="contained"
                   onClick={handleConfirm}
                   sx={{
-                    backgroundColor: settings.deleteButtonColor || settings.primaryColor || accentColor,
-                    color: settings.accentColor || "white",
+                    backgroundColor:
+                      settings.deleteButtonColor ||
+                      settings.primaryColor ||
+                      accentColor,
+                    color: settings.accentColor || 'white',
                     px: 4,
                     py: 1.2,
                     fontWeight: 600,
-                    textTransform: "none",
+                    textTransform: 'none',
                     borderRadius: 2,
                     minWidth: 120,
-                    "&:hover": {
-                      backgroundColor: settings.deleteButtonHoverColor || settings.hoverColor || accentDark,
+                    '&:hover': {
+                      backgroundColor:
+                        settings.deleteButtonHoverColor ||
+                        settings.hoverColor ||
+                        accentDark,
                     },
                   }}
                   startIcon={<DeleteForever />}
@@ -3342,16 +3315,16 @@ const PayrollProcessed = () => {
         >
           <Box
             sx={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              width: { xs: "90%", sm: 500 },
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: { xs: '90%', sm: 500 },
               maxWidth: 900,
-              bgcolor: "white",
+              bgcolor: 'white',
               borderRadius: 3,
-              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-              overflow: "hidden",
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+              overflow: 'hidden',
               border: `2px solid ${accentColor}`,
             }}
           >
@@ -3360,8 +3333,8 @@ const PayrollProcessed = () => {
               sx={{
                 p: 3,
                 background: `linear-gradient(135deg, ${settings.secondaryColor || accentColor} 0%, ${settings.deleteButtonHoverColor || accentDark} 100%)`,
-                display: "flex",
-                alignItems: "center",
+                display: 'flex',
+                alignItems: 'center',
                 gap: 2,
                 position: 'sticky',
                 top: 0,
@@ -3371,7 +3344,10 @@ const PayrollProcessed = () => {
             >
               <Avatar
                 sx={{
-                  bgcolor: alpha(settings.accentColor || textSecondaryColor, 0.2),
+                  bgcolor: alpha(
+                    settings.accentColor || textSecondaryColor,
+                    0.2,
+                  ),
                   color: settings.accentColor || textSecondaryColor,
                   width: 56,
                   height: 56,
@@ -3382,19 +3358,28 @@ const PayrollProcessed = () => {
               <Box>
                 <Typography
                   variant="h5"
-                  sx={{ fontWeight: "bold", color: settings.accentColor || textSecondaryColor }}
+                  sx={{
+                    fontWeight: 'bold',
+                    color: settings.accentColor || textSecondaryColor,
+                  }}
                 >
                   Authorization Required
                 </Typography>
-                <Typography variant="body2" sx={{ color: settings.accentColor || textSecondaryColor, opacity: 0.9 }}>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: settings.accentColor || textSecondaryColor,
+                    opacity: 0.9,
+                  }}
+                >
                   Sensitive operation verification
                 </Typography>
               </Box>
             </Box>
 
             {/* Content */}
-            <Box sx={{ p: 4, bgcolor: "white" }}>
-              <Typography variant="body1" sx={{ mb: 3, color: "#666" }}>
+            <Box sx={{ p: 4, bgcolor: 'white' }}>
+              <Typography variant="body1" sx={{ mb: 3, color: '#666' }}>
                 This is a sensitive operation. Please enter the authorized
                 password to proceed with the deletion.
               </Typography>
@@ -3409,13 +3394,13 @@ const PayrollProcessed = () => {
                 value={confidentialPasswordInput}
                 onChange={(e) => setConfidentialPasswordInput(e.target.value)}
                 onKeyPress={(e) => {
-                  if (e.key === "Enter") {
+                  if (e.key === 'Enter') {
                     handleConfidentialPasswordSubmit();
                   }
                 }}
                 sx={{
                   mb: 3,
-                  "& .MuiOutlinedInput-root": {
+                  '& .MuiOutlinedInput-root': {
                     borderRadius: 2,
                   },
                 }}
@@ -3432,12 +3417,16 @@ const PayrollProcessed = () => {
                     px: 3,
                     py: 1.2,
                     fontWeight: 600,
-                    textTransform: "none",
+                    textTransform: 'none',
                     borderRadius: 2,
                     minWidth: 120,
-                    "&:hover": {
-                      borderColor: settings.cancelButtonHoverColor || accentDark,
-                      backgroundColor: alpha(settings.cancelButtonColor || accentColor, 0.08),
+                    '&:hover': {
+                      borderColor:
+                        settings.cancelButtonHoverColor || accentDark,
+                      backgroundColor: alpha(
+                        settings.cancelButtonColor || accentColor,
+                        0.08,
+                      ),
                     },
                   }}
                 >
@@ -3447,16 +3436,22 @@ const PayrollProcessed = () => {
                   onClick={handleConfidentialPasswordSubmit}
                   variant="contained"
                   sx={{
-                    backgroundColor: settings.updateButtonColor || settings.primaryColor || accentColor,
-                    color: settings.accentColor || "white",
+                    backgroundColor:
+                      settings.updateButtonColor ||
+                      settings.primaryColor ||
+                      accentColor,
+                    color: settings.accentColor || 'white',
                     px: 4,
                     py: 1.2,
                     fontWeight: 600,
-                    textTransform: "none",
+                    textTransform: 'none',
                     borderRadius: 2,
                     minWidth: 120,
-                    "&:hover": {
-                      backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || accentDark,
+                    '&:hover': {
+                      backgroundColor:
+                        settings.updateButtonHoverColor ||
+                        settings.hoverColor ||
+                        accentDark,
                     },
                   }}
                   startIcon={<Lock />}
@@ -3475,16 +3470,16 @@ const PayrollProcessed = () => {
         >
           <Box
             sx={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              width: { xs: "90%", sm: 500 },
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: { xs: '90%', sm: 500 },
               maxWidth: 900,
-              bgcolor: "white",
+              bgcolor: 'white',
               borderRadius: 3,
-              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-              overflow: "hidden",
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+              overflow: 'hidden',
               border: `2px solid ${accentColor}`,
             }}
           >
@@ -3492,10 +3487,10 @@ const PayrollProcessed = () => {
             <Box
               sx={{
                 p: 3,
-                bgcolor: "white",
+                bgcolor: 'white',
                 borderBottom: `3px solid ${accentColor}`,
-                display: "flex",
-                alignItems: "center",
+                display: 'flex',
+                alignItems: 'center',
                 gap: 2,
               }}
             >
@@ -3512,18 +3507,18 @@ const PayrollProcessed = () => {
               <Box>
                 <Typography
                   variant="h5"
-                  sx={{ fontWeight: "bold", color: "#333" }}
+                  sx={{ fontWeight: 'bold', color: '#333' }}
                 >
                   Release Payroll Records
                 </Typography>
-                <Typography variant="body2" sx={{ color: "#666" }}>
+                <Typography variant="body2" sx={{ color: '#666' }}>
                   Move records to released module
                 </Typography>
               </Box>
             </Box>
 
             {/* Content */}
-            <Box sx={{ p: 4, bgcolor: "white" }}>
+            <Box sx={{ p: 4, bgcolor: 'white' }}>
               <Alert
                 severity="info"
                 icon={<CloudUpload />}
@@ -3532,7 +3527,7 @@ const PayrollProcessed = () => {
                   borderRadius: 2,
                   bgcolor: alpha(accentColor, 0.05),
                   border: `1px solid ${alpha(accentColor, 0.2)}`,
-                  "& .MuiAlert-icon": {
+                  '& .MuiAlert-icon': {
                     color: accentColor,
                     fontSize: 28,
                   },
@@ -3540,15 +3535,15 @@ const PayrollProcessed = () => {
               >
                 <Typography
                   variant="body1"
-                  sx={{ fontWeight: 600, mb: 1, color: "#333" }}
+                  sx={{ fontWeight: 600, mb: 1, color: '#333' }}
                 >
                   Release {selectedRows.length} Payroll Record
-                  {selectedRows.length > 1 ? "s" : ""}
+                  {selectedRows.length > 1 ? 's' : ''}
                 </Typography>
-                <Typography variant="body2" sx={{ color: "#666" }}>
-                  Please confirm that you want to release{" "}
+                <Typography variant="body2" sx={{ color: '#666' }}>
+                  Please confirm that you want to release{' '}
                   <strong>{selectedRows.length}</strong> selected payroll record
-                  {selectedRows.length > 1 ? "s" : ""}. This action will move
+                  {selectedRows.length > 1 ? 's' : ''}. This action will move
                   them to the <strong>Payroll Released</strong> module, and they
                   will no longer be editable.
                 </Typography>
@@ -3560,12 +3555,12 @@ const PayrollProcessed = () => {
                   sx={{
                     mt: 2,
                     mb: 3,
-                    height: "4px",
-                    width: "100%",
-                    borderRadius: "2px",
+                    height: '4px',
+                    width: '100%',
+                    borderRadius: '2px',
                     background: `linear-gradient(90deg, ${accentColor}, ${textPrimaryColor}, ${accentColor})`,
-                    backgroundSize: "200% 100%",
-                    animation: "pulseLine 1.5s linear infinite",
+                    backgroundSize: '200% 100%',
+                    animation: 'pulseLine 1.5s linear infinite',
                   }}
                 />
               )}
@@ -3582,9 +3577,9 @@ const PayrollProcessed = () => {
                     px: 3,
                     py: 1.2,
                     fontWeight: 600,
-                    textTransform: "none",
+                    textTransform: 'none',
                     borderRadius: 2,
-                    "&:hover": {
+                    '&:hover': {
                       borderColor: accentDark,
                       backgroundColor: alpha(accentColor, 0.08),
                     },
@@ -3598,30 +3593,30 @@ const PayrollProcessed = () => {
                   disabled={releaseLoading}
                   sx={{
                     backgroundColor: accentColor,
-                    color: "white",
+                    color: 'white',
                     px: 4,
                     py: 1.2,
                     fontWeight: 600,
-                    textTransform: "none",
+                    textTransform: 'none',
                     borderRadius: 2,
                     minWidth: 140,
-                    "&:hover": {
+                    '&:hover': {
                       backgroundColor: accentDark,
                     },
-                    "&:disabled": {
-                      backgroundColor: "#e0e0e0",
-                      color: "#9e9e9e",
+                    '&:disabled': {
+                      backgroundColor: '#e0e0e0',
+                      color: '#9e9e9e',
                     },
                   }}
                   startIcon={
                     releaseLoading ? (
-                      <CircularProgress size={18} sx={{ color: "white" }} />
+                      <CircularProgress size={18} sx={{ color: 'white' }} />
                     ) : (
                       <CloudUpload />
                     )
                   }
                 >
-                  {releaseLoading ? "Releasing..." : "Release"}
+                  {releaseLoading ? 'Releasing...' : 'Release'}
                 </Button>
               </Box>
             </Box>
@@ -3641,7 +3636,7 @@ const PayrollProcessed = () => {
         {/* Loading and Success Overlays */}
         <LoadingOverlay
           open={overlayLoading || releaseLoading}
-          message={releaseLoading ? "Releasing..." : "Processing..."}
+          message={releaseLoading ? 'Releasing...' : 'Processing...'}
         />
         <SuccessfulOverlay
           open={successOpen}
@@ -3654,14 +3649,14 @@ const PayrollProcessed = () => {
           open={snackbarOpen}
           autoHideDuration={4000}
           onClose={() => setSnackbarOpen(false)}
-          anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
           sx={{
-            "& .MuiSnackbarContent-root": {
-              backgroundColor: "#d32f2f",
-              color: "white",
+            '& .MuiSnackbarContent-root': {
+              backgroundColor: '#d32f2f',
+              color: 'white',
               fontWeight: 600,
               borderRadius: 2,
-              boxShadow: "0 4px 20px rgba(211, 47, 47, 0.3)",
+              boxShadow: '0 4px 20px rgba(211, 47, 47, 0.3)',
             },
           }}
         >
@@ -3669,14 +3664,14 @@ const PayrollProcessed = () => {
             onClose={() => setSnackbarOpen(false)}
             severity="error"
             sx={{
-              width: "100%",
-              backgroundColor: "#d32f2f",
-              color: "white",
-              "& .MuiAlert-icon": {
-                color: "white",
+              width: '100%',
+              backgroundColor: '#d32f2f',
+              color: 'white',
+              '& .MuiAlert-icon': {
+                color: 'white',
               },
-              "& .MuiAlert-action": {
-                color: "white",
+              '& .MuiAlert-action': {
+                color: 'white',
               },
             }}
           >

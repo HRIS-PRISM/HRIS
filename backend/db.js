@@ -24,6 +24,3 @@ const pool = mysql.createPool({
 });
 
 module.exports = pool;
-
-// For scripts using async/await
-module.exports.promise = () => pool.promise();

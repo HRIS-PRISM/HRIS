@@ -1,3 +1,5 @@
+// Helper to check if a row is processed
+const isRowProcessed = (row) => row.status === 'Processed' || row.status === 1;
 import API_BASE_URL from '../../apiConfig';
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
@@ -93,7 +95,7 @@ const hexToRgb = (hex) => {
   return result
     ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(
         result[3],
-        16
+        16,
       )}`
     : '109, 35, 35';
 };
@@ -128,7 +130,7 @@ const ProfessionalButton = styled(Button)(
     '&:active': {
       transform: 'translateY(0)',
     },
-  })
+  }),
 );
 
 const ModernTextField = styled(TextField)(({ theme }) => ({
@@ -176,10 +178,10 @@ const ExcelCell = styled(TableCell)(
     backgroundColor: isHeader
       ? '#F0F0F0'
       : isSelected
-      ? '#E6F7FF'
-      : isHighlighted
-      ? '#FFEB3B'
-      : '#FFFFFF', // Bright yellow for better visibility
+        ? '#E6F7FF'
+        : isHighlighted
+          ? '#FFEB3B'
+          : '#FFFFFF', // Bright yellow for better visibility
     fontWeight: isHeader ? 'bold' : isHighlighted ? 'bold' : 'normal',
     whiteSpace: 'nowrap',
     fontSize: '0.85rem',
@@ -190,8 +192,8 @@ const ExcelCell = styled(TableCell)(
       backgroundColor: isHeader
         ? '#F0F0F0'
         : isHighlighted
-        ? '#FFEB3B'
-        : '#F5F5F5',
+          ? '#FFEB3B'
+          : '#F5F5F5',
       cursor: 'pointer',
     },
     '&:after': {
@@ -212,7 +214,7 @@ const ExcelCell = styled(TableCell)(
       width: '1px',
       backgroundColor: '#D0D0D0',
     },
-  })
+  }),
 );
 
 // Custom styled TableCell for Excel-like appearance
@@ -310,7 +312,10 @@ const PayrollProcess = () => {
 
   // New state for bulk save
   const [isBulkSaving, setIsBulkSaving] = useState(false);
-  const [bulkSaveProgress, setBulkSaveProgress] = useState({ current: 0, total: 0 });
+  const [bulkSaveProgress, setBulkSaveProgress] = useState({
+    current: 0,
+    total: 0,
+  });
   const [bulkSaveOpen, setBulkSaveOpen] = useState(false);
 
   // [All existing functions remain the same]
@@ -390,7 +395,7 @@ const PayrollProcess = () => {
     try {
       const res = await axios.get(
         `${API_BASE_URL}/PayrollRoute/test-auth`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       console.log('Auth test successful:', res.data);
     } catch (error) {
@@ -402,7 +407,7 @@ const PayrollProcess = () => {
     try {
       const res = await axios.get(
         `${API_BASE_URL}/PayrollRoute/finalized-payroll`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setFinalizedPayroll(res.data);
     } catch (err) {
@@ -419,25 +424,25 @@ const PayrollProcess = () => {
       (fp) =>
         fp.employeeNumber === fd.employeeNumber &&
         fp.startDate === fd.startDate &&
-        fp.endDate === fd.endDate
-    )
+        fp.endDate === fd.endDate,
+    ),
   );
 
   const computeSummaryForRows = (rows) => {
     const processedEmployees = rows.filter(
-      (item) => item.status === 'Processed' || item.status === 1
+      (item) => item.status === 'Processed' || item.status === 1,
     ).length;
     const unprocessedEmployees = rows.filter(
-      (item) => item.status !== 'Processed' && item.status !== 1
+      (item) => item.status !== 'Processed' && item.status !== 1,
     ).length;
 
     const totalGrossSalary = rows.reduce(
       (sum, item) => sum + parseFloat(item.grossSalary || 0),
-      0
+      0,
     );
     const totalNetSalary = rows.reduce(
       (sum, item) => sum + parseFloat(item.netSalary || 0),
-      0
+      0,
     );
 
     return {
@@ -452,17 +457,13 @@ const PayrollProcess = () => {
   const getFilteredRows = (baseRows, department, status, month, year) => {
     let filtered = [...baseRows];
 
-    // Apply status filter
-    // If no status is selected, default to showing only unprocessed items
-    // This ensures PayrollProcessing only shows unprocessed items by default
+    // Apply status filter only if explicitly selected
     if (status && status !== '') {
       filtered = filtered.filter((record) => record.status === status);
-    } else {
-      // Default: filter out processed items
-      filtered = filtered.filter(
-        (record) => record.status !== 'Processed' && record.status !== 1
-      );
     }
+    // Helper to check if a row is processed
+    const isRowProcessed = (row) =>
+      row.status === 'Processed' || row.status === 1;
 
     // Apply department filter
     if (department && department !== '') {
@@ -474,7 +475,10 @@ const PayrollProcess = () => {
       filtered = filtered.filter((record) => {
         if (record.startDate) {
           const recordDate = new Date(record.startDate);
-          const recordMonth = String(recordDate.getMonth() + 1).padStart(2, '0');
+          const recordMonth = String(recordDate.getMonth() + 1).padStart(
+            2,
+            '0',
+          );
           return recordMonth === month;
         }
         return false;
@@ -524,6 +528,7 @@ const PayrollProcess = () => {
         // Ensure all remittance fields have fallback values to prevent miscalculations
         const normalizedItem = {
           ...item,
+          tevl: Number(item.tevl) || 0,
           // Remittance fields with fallback to 0 if NULL/undefined
           increment: item.increment ?? 0,
           gsisSalaryLoan: item.gsisSalaryLoan ?? 0,
@@ -573,7 +578,7 @@ const PayrollProcess = () => {
         selectedDepartment,
         selectedStatus,
         selectedMonth,
-        selectedYear
+        selectedYear,
       );
       setFilteredData(filtered);
       setSummaryData(computeSummaryForRows(filtered));
@@ -591,7 +596,7 @@ const PayrollProcess = () => {
     try {
       const response = await axios.get(
         `${API_BASE_URL}/api/department-table`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setDepartments(response.data);
     } catch (err) {
@@ -630,7 +635,7 @@ const PayrollProcess = () => {
       searchTerm,
       selectedStatus,
       selectedMonth,
-      selectedYear
+      selectedYear,
     );
   };
 
@@ -642,7 +647,7 @@ const PayrollProcess = () => {
       searchTerm,
       selectedStatusValue,
       selectedMonth,
-      selectedYear
+      selectedYear,
     );
   };
 
@@ -654,7 +659,7 @@ const PayrollProcess = () => {
       searchTerm,
       selectedStatus,
       selectedMonthValue,
-      selectedYear
+      selectedYear,
     );
   };
 
@@ -666,7 +671,7 @@ const PayrollProcess = () => {
       searchTerm,
       selectedStatus,
       selectedMonth,
-      selectedYearValue
+      selectedYearValue,
     );
   };
 
@@ -688,7 +693,7 @@ const PayrollProcess = () => {
         '',
         selectedStatus,
         selectedMonth,
-        selectedYear
+        selectedYear,
       );
       return;
     }
@@ -711,12 +716,10 @@ const PayrollProcess = () => {
 
   const handleSubmitPayroll = async () => {
     try {
-      // Use formula-based calculation for all items
+      // Step 1: Recalculate all payroll values
       const updatedData = filteredData.map((item) => {
-        // Calculate all fields using formulas
         const calculatedItem = calculatePayroll(item) || item;
 
-        // Format values for database storage (use .toFixed for precision)
         return {
           ...calculatedItem,
           totalGsisDeds: (parseFloat(calculatedItem.totalGsisDeds) || 0).toFixed(2),
@@ -737,7 +740,45 @@ const PayrollProcess = () => {
         };
       });
 
-      // Filter only selected AND not already finalized rows
+      // Helper functions
+      const toInt = (v) => {
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) ? n : 0;
+      };
+
+      const toSecondsFromHMS = (h, m, s) =>
+        toInt(h) * 3600 + toInt(m) * 60 + toInt(s);
+
+      const secondsToHMS = (totalSeconds) => {
+        const sec = Math.max(0, totalSeconds);
+        const hh = Math.floor(sec / 3600);
+        const mm = Math.floor((sec % 3600) / 60);
+        const ss = sec % 60;
+        const pad = (n) => String(n).padStart(2, '0');
+
+        return {
+          h: hh,
+          m: mm,
+          s: ss,
+          text: `${pad(hh)}:${pad(mm)}:${pad(ss)}`,
+        };
+      };
+
+      const computeVLTimeOffset = (item) => {
+        const tevl = toInt(item.tevl) + 10
+        const tevlSeconds = toInt(tevl) * 3600;
+        const tardySeconds = toSecondsFromHMS(item.h, item.m, item.s);
+
+        const dvltSeconds = Math.min(tevlSeconds, tardySeconds);
+        const vlbSeconds = tevlSeconds - dvltSeconds;
+
+        return {
+          dvlt: secondsToHMS(dvltSeconds).text,
+          vlb: secondsToHMS(vlbSeconds).text,
+        };
+      };
+
+      // Step 2: Filter selected & not finalized
       const rowsToSubmit = updatedData.filter(
         (item) =>
           selectedRows.includes(item.employeeNumber) &&
@@ -745,144 +786,100 @@ const PayrollProcess = () => {
             (fp) =>
               fp.employeeNumber === item.employeeNumber &&
               fp.startDate === item.startDate &&
-              fp.endDate === item.endDate
-          )
+              fp.endDate === item.endDate,
+          ),
       );
 
-      // Ensure all required fields are present and have correct data types
-      const processedRowsToSubmit = rowsToSubmit.map((item) => ({
-        ...item,
-        // Ensure numeric fields are properly formatted
-        grossSalary: parseFloat(item.grossSalary) || 0,
-        abs: parseFloat(item.abs) || 0,
-        h: parseInt(item.h) || 0,
-        m: parseInt(item.m) || 0,
-        s: parseInt(item.s) || 0,
-        netSalary: parseFloat(item.netSalary) || 0,
-        withholdingTax: parseFloat(item.withholdingTax) || 0,
-        personalLifeRetIns: parseFloat(item.personalLifeRetIns) || 0,
-        totalGsisDeds: parseFloat(item.totalGsisDeds) || 0,
-        totalPagibigDeds: parseFloat(item.totalPagibigDeds) || 0,
-        totalOtherDeds: parseFloat(item.totalOtherDeds) || 0,
-        totalDeductions: parseFloat(item.totalDeductions) || 0,
-        pay1st: parseFloat(item.pay1st) || 0,
-        pay2nd: parseFloat(item.pay2nd) || 0,
-        pay1stCompute: parseFloat(item.pay1stCompute) || 0,
-        pay2ndCompute: parseFloat(item.pay2ndCompute) || 0,
-        rtIns: parseFloat(item.rtIns) || 0,
-        ec: parseFloat(item.ec) || 0,
-        // Ensure all other numeric fields are properly formatted
-        rateNbc584: parseFloat(item.rateNbc584) || 0,
-        nbc594: parseFloat(item.nbc594) || 0,
-        rateNbc594: parseFloat(item.rateNbc594) || 0,
-        nbcDiffl597: parseFloat(item.nbcDiffl597) || 0,
-        increment: parseFloat(item.increment) || 0,
-        gsisSalaryLoan: parseFloat(item.gsisSalaryLoan) || 0,
-        gsisPolicyLoan: parseFloat(item.gsisPolicyLoan) || 0,
-        gsisArrears: parseFloat(item.gsisArrears) || 0,
-        cpl: parseFloat(item.cpl) || 0,
-        mpl: parseFloat(item.mpl) || 0,
-        eal: parseFloat(item.eal) || 0,
-        mplLite: parseFloat(item.mplLite) || 0,
-        emergencyLoan: parseFloat(item.emergencyLoan) || 0,
-        pagibigFundCont: parseFloat(item.pagibigFundCont) || 0,
-        pagibig2: parseFloat(item.pagibig2) || 0,
-        multiPurpLoan: parseFloat(item.multiPurpLoan) || 0,
-        liquidatingCash: parseFloat(item.liquidatingCash) || 0,
-        landbankSalaryLoan: parseFloat(item.landbankSalaryLoan) || 0,
-        earistCreditCoop: parseFloat(item.earistCreditCoop) || 0,
-        feu: parseFloat(item.feu) || 0,
-        PhilHealthContribution: parseFloat(item.PhilHealthContribution) || 0,
-      }));
+      // Step 3: Prepare clean payload (DO NOT MODIFY h,m,s)
+      const processedRowsToSubmit = rowsToSubmit.map((item) => {
+        const { dvlt, vlb } = computeVLTimeOffset(item);
 
-      console.log('Submitting payroll data:', processedRowsToSubmit);
+        return {
+          ...item,
 
-      // Check if we have any data to submit
+          // KEEP ORIGINAL TIME
+          h: toInt(item.h),
+          m: toInt(item.m),
+          s: toInt(item.s),
+
+          tevl: toInt(item.tevl) + 10,
+          dvlt,
+          vlb,
+          grossSalary: parseFloat(item.grossSalary) || 0,
+          abs: parseFloat(item.abs) || 0,
+          netSalary: parseFloat(item.netSalary) || 0,
+          withholdingTax: parseFloat(item.withholdingTax) || 0,
+          personalLifeRetIns: parseFloat(item.personalLifeRetIns) || 0,
+          totalGsisDeds: parseFloat(item.totalGsisDeds) || 0,
+          totalPagibigDeds: parseFloat(item.totalPagibigDeds) || 0,
+          totalOtherDeds: parseFloat(item.totalOtherDeds) || 0,
+          totalDeductions: parseFloat(item.totalDeductions) || 0,
+          pay1st: parseFloat(item.pay1st) || 0,
+          pay2nd: parseFloat(item.pay2nd) || 0,
+          pay1stCompute: parseFloat(item.pay1stCompute) || 0,
+          pay2ndCompute: parseFloat(item.pay2ndCompute) || 0,
+          rtIns: parseFloat(item.rtIns) || 0,
+          ec: parseFloat(item.ec) || 0,
+          rateNbc584: parseFloat(item.rateNbc584) || 0,
+          nbc594: parseFloat(item.nbc594) || 0,
+          rateNbc594: parseFloat(item.rateNbc594) || 0,
+          nbcDiffl597: parseFloat(item.nbcDiffl597) || 0,
+          increment: parseFloat(item.increment) || 0,
+          gsisSalaryLoan: parseFloat(item.gsisSalaryLoan) || 0,
+          gsisPolicyLoan: parseFloat(item.gsisPolicyLoan) || 0,
+          gsisArrears: parseFloat(item.gsisArrears) || 0,
+          cpl: parseFloat(item.cpl) || 0,
+          mpl: parseFloat(item.mpl) || 0,
+          eal: parseFloat(item.eal) || 0,
+          mplLite: parseFloat(item.mplLite) || 0,
+          emergencyLoan: parseFloat(item.emergencyLoan) || 0,
+          pagibigFundCont: parseFloat(item.pagibigFundCont) || 0,
+          pagibig2: parseFloat(item.pagibig2) || 0,
+          multiPurpLoan: parseFloat(item.multiPurpLoan) || 0,
+          liquidatingCash: parseFloat(item.liquidatingCash) || 0,
+          landbankSalaryLoan: parseFloat(item.landbankSalaryLoan) || 0,
+          earistCreditCoop: parseFloat(item.earistCreditCoop) || 0,
+          feu: parseFloat(item.feu) || 0,
+          PhilHealthContribution: parseFloat(item.PhilHealthContribution) || 0,
+        };
+      });
+
       if (processedRowsToSubmit.length === 0) {
-        setLoading(false);
         alert('No payroll records selected for submission.');
         return;
       }
 
-      // Update main payroll database (payroll-with-remittance)
-      const updateErrors = [];
-      for (const item of processedRowsToSubmit) {
-        try {
-          await axios.put(
-            `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${item.employeeNumber}`,
-            item,
-            getAuthHeaders()
-          );
-        } catch (error) {
-          console.error(
-            `Error updating payroll for ${item.employeeNumber}:`,
-            error
-          );
-          updateErrors.push(
-            `${item.employeeNumber}: ${
-              error.response?.data?.error || error.message
-            }`
-          );
-        }
+      // Step 4: Update payroll-with-remittance
+      for (const item of updatedData) {
+        await axios.put(
+          `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${item.employeeNumber}/${item.startDate}/${item.endDate}`,
+          item,
+          getAuthHeaders(),
+        );
       }
 
-      if (updateErrors.length > 0) {
-        console.warn('Some payroll updates failed:', updateErrors);
-        // Continue with finalized payroll submission even if some updates failed
-      }
-
-      // Update finalized payroll database (finalized-payroll)
-      console.log('Submitting to finalized payroll with audit logging...');
-      const finalizedResponse = await axios.post(
+      // Step 5: Send to finalized payroll
+      await axios.post(
         `${API_BASE_URL}/PayrollRoute/finalized-payroll`,
         processedRowsToSubmit,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
-      console.log('Finalized payroll response:', finalizedResponse.data);
 
-      // Update UI state with new data - remove processed items since they should move to PayrollProcessed
-      const updatedFilteredData = filteredData
-        .map((row) => {
-          const match = processedRowsToSubmit.find(
-            (item) => item.employeeNumber === row.employeeNumber
-          );
-          return match ? { ...row, status: 'Processed' } : row;
-        })
-        .filter((row) => row.status !== 'Processed' && row.status !== 1); // Remove processed items
-
-      // Update data state (keep all data for filtering, but update statuses)
-      const updatedDataState = data.map((row) => {
-        const match = processedRowsToSubmit.find(
-          (item) => item.employeeNumber === row.employeeNumber
-        );
-        return match ? { ...row, status: 'Processed' } : row;
-      });
-
-      setFilteredData(updatedFilteredData);
-      setData(updatedDataState);
-      setIsPayrollProcessed(updatedFilteredData.length === 0);
-
-      // Refresh finalizedPayroll from backend
-      const res = await axios.get(
-        `${API_BASE_URL}/PayrollRoute/finalized-payroll`,
-        getAuthHeaders()
-      );
-      setFinalizedPayroll(res.data);
     } catch (error) {
       console.error('Error submitting payroll:', error);
-      const errorMessage =
+      alert(
         error.response?.data?.error ||
-        error.message ||
-        'An error occurred while submitting payroll data.';
-      alert(`Error: ${errorMessage}`);
+          error.message ||
+          'An error occurred while submitting payroll.',
+      );
     }
-  };
+  };  
 
   const handleDelete = async (rowId, employeeNumber) => {
     try {
       await axios.delete(
         `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${rowId}/${employeeNumber}`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       const newData = filteredData.filter((item) => item.id !== rowId);
       setFilteredData(newData);
@@ -958,7 +955,8 @@ const PayrollProcess = () => {
       };
 
       // Calculate all fields using formulas
-      const calculatedRow = calculatePayroll(normalizedEditRow) || normalizedEditRow;
+      const calculatedRow =
+        calculatePayroll(normalizedEditRow) || normalizedEditRow;
 
       const updatedRow = {
         ...calculatedRow,
@@ -968,7 +966,8 @@ const PayrollProcess = () => {
         m: parseInt(calculatedRow.m) || 0,
         grossSalary: parseFloat(calculatedRow.grossSalary) || 0,
         abs: parseFloat(calculatedRow.abs) || 0,
-        PhilHealthContribution: parseFloat(calculatedRow.PhilHealthContribution) || 0,
+        PhilHealthContribution:
+          parseFloat(calculatedRow.PhilHealthContribution) || 0,
         personalLifeRetIns: parseFloat(calculatedRow.personalLifeRetIns) || 0,
         netSalary: parseFloat(calculatedRow.netSalary) || 0,
         totalGsisDeds: parseFloat(calculatedRow.totalGsisDeds) || 0,
@@ -983,9 +982,9 @@ const PayrollProcess = () => {
       };
 
       const response = await axios.put(
-        `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${editRow.employeeNumber}`,
+        `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${editRow.employeeNumber}/${editRow.startDate}/${editRow.endDate}`,
         updatedRow,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
 
       console.log('Payroll record updated successfully:', response.data);
@@ -996,19 +995,15 @@ const PayrollProcess = () => {
 
       setFilteredData((prevData) =>
         prevData.map((item) =>
-          item.id === updatedRow.id
-            ? { ...item, ...recalculatedRow }
-            : item
-        )
+          item.id === updatedRow.id ? { ...item, ...recalculatedRow } : item,
+        ),
       );
 
       // Also update the main data array
       setData((prevData) =>
         prevData.map((item) =>
-          item.id === updatedRow.id
-            ? { ...item, ...recalculatedRow }
-            : item
-        )
+          item.id === updatedRow.id ? { ...item, ...recalculatedRow } : item,
+        ),
       );
 
       // Show loading for 2-3 seconds, then success overlay
@@ -1017,7 +1012,7 @@ const PayrollProcess = () => {
         setSuccessAction('edit');
         setSuccessOpen(true);
         setTimeout(() => setSuccessOpen(false), 2500);
-      }, 2500);
+      }, 1000);
     } catch (error) {
       console.error('Error updating payroll:', error);
       setLoading(false);
@@ -1033,6 +1028,7 @@ const PayrollProcess = () => {
     'startDate',
     'endDate',
   ];
+
   const salaryRateandAdjustments = [
     'rateNbc584',
     'nbc594',
@@ -1040,7 +1036,9 @@ const PayrollProcess = () => {
     'nbcDiffl597',
     'increment',
   ];
-  const SalaryComputation = ['dvlt', 'vlb', 'abs', 'h', 'm'];
+  
+  const SalaryComputation = ['tevl', 'abs', 'h', 'm'];
+  
   const MandatoryDeductions = [
     'withholdingTax',
     'totalGsisDeds',
@@ -1049,6 +1047,7 @@ const PayrollProcess = () => {
     'totalOtherDeds',
     'totalDeductions',
   ];
+
   const PayrollDisbursement = ['pay1st', 'pay2nd', 'ec'];
 
   const GsisDeductions = [
@@ -1083,55 +1082,74 @@ const PayrollProcess = () => {
       ...calculatedItem,
       h: calculatedItem.h || 0,
       m: calculatedItem.m || 0,
-      totalGsisDeds: (parseFloat(calculatedItem.totalGsisDeds) || 0).toLocaleString('en-US', {
+      totalGsisDeds: (
+        parseFloat(calculatedItem.totalGsisDeds) || 0
+      ).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      totalPagibigDeds: (parseFloat(calculatedItem.totalPagibigDeds) || 0).toLocaleString('en-US', {
+      totalPagibigDeds: (
+        parseFloat(calculatedItem.totalPagibigDeds) || 0
+      ).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      totalOtherDeds: (parseFloat(calculatedItem.totalOtherDeds) || 0).toLocaleString('en-US', {
+      totalOtherDeds: (
+        parseFloat(calculatedItem.totalOtherDeds) || 0
+      ).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      grossSalary: (parseFloat(calculatedItem.grossSalary) || 0).toLocaleString('en-US', {
+      grossSalary: (parseFloat(calculatedItem.grossSalary) || 0).toLocaleString(
+        'en-US',
+        {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        },
+      ),
+      tevl: (parseFloat(calculatedItem.tevl) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      dvlt: (parseFloat(calculatedItem.dvlt) || 0).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-      vlb: (parseFloat(calculatedItem.vlb) || 0).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
+
       abs: (parseFloat(calculatedItem.abs) || 0).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      netSalary: (parseFloat(calculatedItem.netSalary) || 0).toLocaleString('en-US', {
+      netSalary: (parseFloat(calculatedItem.netSalary) || 0).toLocaleString(
+        'en-US',
+        {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        },
+      ),
+      totalDeductions: (
+        parseFloat(calculatedItem.totalDeductions) || 0
+      ).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      totalDeductions: (parseFloat(calculatedItem.totalDeductions) || 0).toLocaleString('en-US', {
+      PhilHealthContribution: (
+        parseFloat(calculatedItem.PhilHealthContribution) || 0
+      ).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      PhilHealthContribution: (parseFloat(calculatedItem.PhilHealthContribution) || 0).toLocaleString('en-US', {
+      personalLifeRetIns: (
+        parseFloat(calculatedItem.personalLifeRetIns) || 0
+      ).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      personalLifeRetIns: (parseFloat(calculatedItem.personalLifeRetIns) || 0).toLocaleString('en-US', {
+      pay1stCompute: (
+        parseFloat(calculatedItem.pay1stCompute) || 0
+      ).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      pay1stCompute: (parseFloat(calculatedItem.pay1stCompute) || 0).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-      pay2ndCompute: (parseFloat(calculatedItem.pay2ndCompute) || 0).toLocaleString('en-US', {
+      pay2ndCompute: (
+        parseFloat(calculatedItem.pay2ndCompute) || 0
+      ).toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
@@ -1182,8 +1200,7 @@ const PayrollProcess = () => {
         row.nbcDiffl597,
         row.increment,
         row.grossSalary,
-        row.dvlt,
-        row.vlb,
+
         row.abs,
         row.h,
         row.m,
@@ -1221,9 +1238,9 @@ const PayrollProcess = () => {
           (r) =>
             r.employeeNumber === filteredRow.employeeNumber &&
             r.startDate === filteredRow.startDate &&
-            r.endDate === filteredRow.endDate
-        )
-      )
+            r.endDate === filteredRow.endDate,
+        ),
+      ),
     );
 
     // Highlight cells in filtered rows
@@ -1232,7 +1249,7 @@ const PayrollProcess = () => {
         (r) =>
           r.employeeNumber === row.employeeNumber &&
           r.startDate === row.startDate &&
-          r.endDate === row.endDate
+          r.endDate === row.endDate,
       );
 
       // Map columns to their actual indices in the table
@@ -1249,20 +1266,20 @@ const PayrollProcess = () => {
         { value: row.nbcDiffl597, colIndex: 9 },
         { value: row.increment, colIndex: 10 },
         { value: row.grossSalary, colIndex: 11 },
-        { value: row.dvlt, colIndex: 12 },
-        { value: row.vlb, colIndex: 13 },
-        { value: row.abs, colIndex: 14 },
-        { value: row.h, colIndex: 15 },
-        { value: row.m, colIndex: 16 },
-        { value: row.netSalary, colIndex: 17 },
-        { value: row.withholdingTax, colIndex: 18 },
-        { value: row.totalGsisDeds, colIndex: 19 },
-        { value: row.totalPagibigDeds, colIndex: 20 },
-        { value: row.PhilHealthContribution, colIndex: 21 },
-        { value: row.totalOtherDeds, colIndex: 22 },
-        { value: row.totalDeductions, colIndex: 23 },
-        { value: row.pay1st, colIndex: 24 },
-        { value: row.pay2nd, colIndex: 25 },
+        { value: row.tevl, colIndex: 12 },
+
+        { value: row.abs, colIndex: 15 },
+        { value: row.h, colIndex: 16 },
+        { value: row.m, colIndex: 17 },
+        { value: row.netSalary, colIndex: 18 },
+        { value: row.withholdingTax, colIndex: 19 },
+        { value: row.totalGsisDeds, colIndex: 20 },
+        { value: row.totalPagibigDeds, colIndex: 21 },
+        { value: row.PhilHealthContribution, colIndex: 22 },
+        { value: row.totalOtherDeds, colIndex: 23 },
+        { value: row.totalDeductions, colIndex: 24 },
+        { value: row.pay1st, colIndex: 25 },
+        { value: row.pay2nd, colIndex: 26 },
       ];
 
       columnData.forEach(({ value, colIndex }) => {
@@ -1277,7 +1294,7 @@ const PayrollProcess = () => {
 
   const isCellHighlighted = (rowIndex, colIndex) => {
     return highlightedCells.some(
-      (cell) => cell.row === rowIndex && cell.col === colIndex
+      (cell) => cell.row === rowIndex && cell.col === colIndex,
     );
   };
 
@@ -1303,7 +1320,7 @@ const PayrollProcess = () => {
       // Process all filtered data
       for (let i = 0; i < filteredData.length; i++) {
         const item = filteredData[i];
-        
+
         try {
           // Normalize data
           const normalizedItem = {
@@ -1333,7 +1350,8 @@ const PayrollProcess = () => {
           };
 
           // Calculate all fields using formulas
-          const calculatedItem = calculatePayroll(normalizedItem) || normalizedItem;
+          const calculatedItem =
+            calculatePayroll(normalizedItem) || normalizedItem;
 
           // Prepare data for database
           const updatedRow = {
@@ -1343,8 +1361,10 @@ const PayrollProcess = () => {
             m: parseInt(calculatedItem.m) || 0,
             grossSalary: parseFloat(calculatedItem.grossSalary) || 0,
             abs: parseFloat(calculatedItem.abs) || 0,
-            PhilHealthContribution: parseFloat(calculatedItem.PhilHealthContribution) || 0,
-            personalLifeRetIns: parseFloat(calculatedItem.personalLifeRetIns) || 0,
+            PhilHealthContribution:
+              parseFloat(calculatedItem.PhilHealthContribution) || 0,
+            personalLifeRetIns:
+              parseFloat(calculatedItem.personalLifeRetIns) || 0,
             netSalary: parseFloat(calculatedItem.netSalary) || 0,
             totalGsisDeds: parseFloat(calculatedItem.totalGsisDeds) || 0,
             totalPagibigDeds: parseFloat(calculatedItem.totalPagibigDeds) || 0,
@@ -1363,24 +1383,33 @@ const PayrollProcess = () => {
           };
 
           // Update database
-          await axios.put(
-            `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${item.employeeNumber}`,
-            updatedRow,
-            getAuthHeaders()
-          );
+          if (item.startDate && item.endDate) {
+            await axios.put(
+              `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${item.employeeNumber}/${item.startDate}/${item.endDate}`,
+              updatedRow,
+              getAuthHeaders(),
+            );
+          } else {
+            console.warn(
+              'Skipping update: missing startDate/endDate for',
+              item.employeeNumber,
+            );
+          }
 
           successCount.count++;
           setBulkSaveProgress({ current: i + 1, total: filteredData.length });
         } catch (error) {
           console.error(`Error saving ${item.employeeNumber}:`, error);
           errorCount.count++;
-          errors.push(`${item.name} (${item.employeeNumber}): ${error.response?.data?.error || error.message}`);
+          errors.push(
+            `${item.name} (${item.employeeNumber}): ${error.response?.data?.error || error.message}`,
+          );
         }
       }
 
       // Refresh data from database
       await fetchPayrollData();
-      
+
       setSuccessAction('bulkSave');
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2500);
@@ -1440,7 +1469,7 @@ const PayrollProcess = () => {
       }}
     >
       {/* Wider Container */}
-      <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
+      <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
         {/* Header */}
         <Fade in timeout={500}>
           <Box sx={{ mb: 4 }}>
@@ -1746,7 +1775,7 @@ const PayrollProcess = () => {
                               {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
-                              }
+                              },
                             )}
                           </Typography>
                         </Box>
@@ -1994,10 +2023,12 @@ const PayrollProcess = () => {
               icon={<Warning />}
             >
               Duplicate record(s) found:{' '}
-              {duplicateEmployeeNumbers.map(key => {
-                const [name, empNum, startDate, endDate] = key.split('|');
-                return `${name} (${empNum}) [${startDate} - ${endDate}]`;
-              }).join(', ')}
+              {duplicateEmployeeNumbers
+                .map((key) => {
+                  const [name, empNum, startDate, endDate] = key.split('|');
+                  return `${name} (${empNum}) [${startDate} - ${endDate}]`;
+                })
+                .join(', ')}
             </Alert>
           </Fade>
         )}
@@ -2162,8 +2193,8 @@ const PayrollProcess = () => {
                                         fp.employeeNumber ===
                                           row.employeeNumber &&
                                         fp.startDate === row.startDate &&
-                                        fp.endDate === row.endDate
-                                    )
+                                        fp.endDate === row.endDate,
+                                    ),
                                 ).length
                             }
                             checked={
@@ -2175,8 +2206,8 @@ const PayrollProcess = () => {
                                       fp.employeeNumber ===
                                         row.employeeNumber &&
                                       fp.startDate === row.startDate &&
-                                      fp.endDate === row.endDate
-                                  )
+                                      fp.endDate === row.endDate,
+                                  ),
                               ).length
                             }
                             onChange={(e) => {
@@ -2190,10 +2221,10 @@ const PayrollProcess = () => {
                                             fp.employeeNumber ===
                                               row.employeeNumber &&
                                             fp.startDate === row.startDate &&
-                                            fp.endDate === row.endDate
-                                        )
+                                            fp.endDate === row.endDate,
+                                        ),
                                     )
-                                    .map((row) => row.employeeNumber)
+                                    .map((row) => row.employeeNumber),
                                 );
                               } else {
                                 setSelectedRows([]);
@@ -2278,14 +2309,9 @@ const PayrollProcess = () => {
                           isHeader
                           sx={{ color: textPrimaryColor }}
                         >
-                          <b>DVLT</b>
+                          <b>TEVL</b>
                         </PremiumTableCell>
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <b>VLB</b>
-                        </PremiumTableCell>
+
                         <PremiumTableCell
                           isHeader
                           sx={{ color: textPrimaryColor }}
@@ -2564,19 +2590,22 @@ const PayrollProcess = () => {
                         computedRows
                           .slice(
                             page * rowsPerPage,
-                            page * rowsPerPage + rowsPerPage
+                            page * rowsPerPage + rowsPerPage,
                           )
                           .map((row, index) => {
                             const isFinalized = finalizedPayroll.some(
                               (fp) =>
                                 fp.employeeNumber === row.employeeNumber &&
                                 fp.startDate === row.startDate &&
-                                fp.endDate === row.endDate
+                                fp.endDate === row.endDate,
                             );
 
                             return (
                               <TableRow
-                                key={`${row.employeeNumber}-${row.dateCreated}`}
+                                key={
+                                  row.id ??
+                                  `${row.employeeNumber}-${row.startDate}-${row.endDate}`
+                                }
                                 sx={{
                                   '&:nth-of-type(even)': {
                                     bgcolor: alpha(primaryColor, 0.3),
@@ -2587,7 +2616,7 @@ const PayrollProcess = () => {
                                   },
                                   backgroundColor:
                                     duplicateEmployeeNumbers.includes(
-                                      `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`
+                                      `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`,
                                     )
                                       ? 'rgba(255, 0, 0, 0.1)'
                                       : 'inherit',
@@ -2597,18 +2626,18 @@ const PayrollProcess = () => {
                                 <PremiumTableCell padding="checkbox">
                                   <Checkbox
                                     checked={selectedRows.includes(
-                                      row.employeeNumber
+                                      row.employeeNumber,
                                     )}
                                     onChange={() => {
                                       if (
                                         selectedRows.includes(
-                                          row.employeeNumber
+                                          row.employeeNumber,
                                         )
                                       ) {
                                         setSelectedRows((prev) =>
                                           prev.filter(
-                                            (id) => id !== row.employeeNumber
-                                          )
+                                            (id) => id !== row.employeeNumber,
+                                          ),
                                         );
                                       } else {
                                         setSelectedRows((prev) => [
@@ -2617,7 +2646,7 @@ const PayrollProcess = () => {
                                         ]);
                                       }
                                     }}
-                                    disabled={isFinalized}
+                                    disabled={isRowProcessed(row)}
                                   />
                                 </PremiumTableCell>
 
@@ -2666,7 +2695,7 @@ const PayrollProcess = () => {
                                         {
                                           minimumFractionDigits: 2,
                                           maximumFractionDigits: 2,
-                                        }
+                                        },
                                       )
                                     : ''}
                                 </ExcelTableCell>
@@ -2677,7 +2706,7 @@ const PayrollProcess = () => {
                                         {
                                           minimumFractionDigits: 2,
                                           maximumFractionDigits: 2,
-                                        }
+                                        },
                                       )
                                     : ''}
                                 </ExcelTableCell>
@@ -2688,7 +2717,7 @@ const PayrollProcess = () => {
                                         {
                                           minimumFractionDigits: 2,
                                           maximumFractionDigits: 2,
-                                        }
+                                        },
                                       )
                                     : ''}
                                 </ExcelTableCell>
@@ -2696,11 +2725,9 @@ const PayrollProcess = () => {
                                   {row.grossSalary}
                                 </ExcelTableCell>
                                 <ExcelTableCell>
-                                  <b>{row.dvlt}</b>
+                                  <b>{row.tevl}</b>
                                 </ExcelTableCell>
-                                <ExcelTableCell>
-                                  <b>{row.vlb}</b>
-                                </ExcelTableCell>
+
                                 <ExcelTableCell>
                                   <b>{row.abs}</b>
                                 </ExcelTableCell>
@@ -2772,7 +2799,7 @@ const PayrollProcess = () => {
                                         {
                                           minimumFractionDigits: 2,
                                           maximumFractionDigits: 2,
-                                        }
+                                        },
                                       )
                                     : ''}
                                 </ExcelTableCell>
@@ -2786,7 +2813,7 @@ const PayrollProcess = () => {
                                         {
                                           minimumFractionDigits: 2,
                                           maximumFractionDigits: 2,
-                                        }
+                                        },
                                       )
                                     : ''}
                                 </ExcelTableCell>
@@ -2797,7 +2824,7 @@ const PayrollProcess = () => {
                                         {
                                           minimumFractionDigits: 2,
                                           maximumFractionDigits: 2,
-                                        }
+                                        },
                                       )
                                     : ''}
                                 </ExcelTableCell>
@@ -2808,7 +2835,7 @@ const PayrollProcess = () => {
                                         {
                                           minimumFractionDigits: 2,
                                           maximumFractionDigits: 2,
-                                        }
+                                        },
                                       )
                                     : ''}
                                 </ExcelTableCell>
@@ -2843,7 +2870,7 @@ const PayrollProcess = () => {
                                         {
                                           minimumFractionDigits: 2,
                                           maximumFractionDigits: 2,
-                                        }
+                                        },
                                       )
                                     : ''}
                                 </ExcelTableCell>
@@ -2854,7 +2881,7 @@ const PayrollProcess = () => {
                                         {
                                           minimumFractionDigits: 2,
                                           maximumFractionDigits: 2,
-                                        }
+                                        },
                                       )
                                     : ''}
                                 </ExcelTableCell>
@@ -2864,7 +2891,7 @@ const PayrollProcess = () => {
                                 <ExcelTableCell>
                                   {row.pagibigFundCont
                                     ? Number(
-                                        row.pagibigFundCont
+                                        row.pagibigFundCont,
                                       ).toLocaleString('en-US', {
                                         minimumFractionDigits: 2,
                                         maximumFractionDigits: 2,
@@ -2878,7 +2905,7 @@ const PayrollProcess = () => {
                                         {
                                           minimumFractionDigits: 2,
                                           maximumFractionDigits: 2,
-                                        }
+                                        },
                                       )
                                     : ''}
                                 </ExcelTableCell>
@@ -2889,7 +2916,7 @@ const PayrollProcess = () => {
                                         {
                                           minimumFractionDigits: 2,
                                           maximumFractionDigits: 2,
-                                        }
+                                        },
                                       )
                                     : ''}
                                 </ExcelTableCell>
@@ -2902,7 +2929,7 @@ const PayrollProcess = () => {
                                 <ExcelTableCell>
                                   {row.liquidatingCash
                                     ? Number(
-                                        row.liquidatingCash
+                                        row.liquidatingCash,
                                       ).toLocaleString('en-US', {
                                         minimumFractionDigits: 2,
                                         maximumFractionDigits: 2,
@@ -2912,7 +2939,7 @@ const PayrollProcess = () => {
                                 <ExcelTableCell>
                                   {row.landbankSalaryLoan
                                     ? Number(
-                                        row.landbankSalaryLoan
+                                        row.landbankSalaryLoan,
                                       ).toLocaleString('en-US', {
                                         minimumFractionDigits: 2,
                                         maximumFractionDigits: 2,
@@ -2922,7 +2949,7 @@ const PayrollProcess = () => {
                                 <ExcelTableCell>
                                   {row.earistCreditCoop
                                     ? Number(
-                                        row.earistCreditCoop
+                                        row.earistCreditCoop,
                                       ).toLocaleString('en-US', {
                                         minimumFractionDigits: 2,
                                         maximumFractionDigits: 2,
@@ -3029,19 +3056,23 @@ const PayrollProcess = () => {
                       computedRows
                         .slice(
                           page * rowsPerPage,
-                          page * rowsPerPage + rowsPerPage
+                          page * rowsPerPage + rowsPerPage,
                         )
                         .map((row, index) => {
                           const isFinalized = finalizedPayroll.some(
                             (fp) =>
                               fp.employeeNumber === row.employeeNumber &&
                               fp.startDate === row.startDate &&
-                              fp.endDate === row.endDate
+                              fp.endDate === row.endDate,
                           );
 
                           return (
                             <TableRow
-                              key={`status-${row.employeeNumber}-${row.dateCreated}`}
+                              key={
+                                row.id
+                                  ? `status-${row.id}`
+                                  : `status-${row.employeeNumber}-${row.startDate}-${row.endDate}`
+                              }
                               sx={{
                                 '&:nth-of-type(even)': {
                                   bgcolor: alpha(primaryColor, 0.3),
@@ -3052,7 +3083,7 @@ const PayrollProcess = () => {
                                 },
                                 backgroundColor:
                                   duplicateEmployeeNumbers.includes(
-                                    `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`
+                                    `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`,
                                   )
                                     ? 'rgba(255, 0, 0, 0.1)'
                                     : 'inherit',
@@ -3065,7 +3096,7 @@ const PayrollProcess = () => {
                                   textAlign: 'center',
                                   borderBottom: `1px solid ${alpha(
                                     accentColor,
-                                    0.06
+                                    0.06,
                                   )}`,
                                   pt: 3.4,
                                   pb: 3.4,
@@ -3100,7 +3131,7 @@ const PayrollProcess = () => {
                             textAlign: 'center',
                             borderBottom: `1px solid ${alpha(
                               accentColor,
-                              0.06
+                              0.06,
                             )}`,
                             padding: '8px',
                           }}
@@ -3155,19 +3186,23 @@ const PayrollProcess = () => {
                       computedRows
                         .slice(
                           page * rowsPerPage,
-                          page * rowsPerPage + rowsPerPage
+                          page * rowsPerPage + rowsPerPage,
                         )
                         .map((row, index) => {
                           const isFinalized = finalizedPayroll.some(
                             (fp) =>
                               fp.employeeNumber === row.employeeNumber &&
                               fp.startDate === row.startDate &&
-                              fp.endDate === row.endDate
+                              fp.endDate === row.endDate,
                           );
 
                           return (
                             <TableRow
-                              key={`actions-${row.employeeNumber}-${row.dateCreated}`}
+                              key={
+                                row.id
+                                  ? `actions-${row.id}`
+                                  : `actions-${row.employeeNumber}-${row.startDate}-${row.endDate}`
+                              }
                               sx={{
                                 '&:nth-of-type(even)': {
                                   bgcolor: alpha(primaryColor, 0.3),
@@ -3178,7 +3213,7 @@ const PayrollProcess = () => {
                                 },
                                 backgroundColor:
                                   duplicateEmployeeNumbers.includes(
-                                    `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`
+                                    `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`,
                                   )
                                     ? 'rgba(255, 0, 0, 0.1)'
                                     : 'inherit',
@@ -3191,7 +3226,7 @@ const PayrollProcess = () => {
                                   textAlign: 'center',
                                   borderBottom: `1px solid ${alpha(
                                     accentColor,
-                                    0.06
+                                    0.06,
                                   )}`,
                                 }}
                               >
@@ -3208,7 +3243,7 @@ const PayrollProcess = () => {
                                     <IconButton
                                       size="small"
                                       onClick={() => handleEdit(row.id)}
-                                      disabled={isFinalized}
+                                      disabled={isRowProcessed(row)}
                                       sx={{
                                         color: isFinalized
                                           ? '#ccc'
@@ -3234,7 +3269,7 @@ const PayrollProcess = () => {
                                       onClick={() =>
                                         handleDelete(row.id, row.employeeNumber)
                                       }
-                                      disabled={isFinalized}
+                                      disabled={isRowProcessed(row)}
                                       sx={{
                                         color: isFinalized ? '#ccc' : '#d32f2f',
                                         backgroundColor: isFinalized
@@ -3264,7 +3299,7 @@ const PayrollProcess = () => {
                             textAlign: 'center',
                             borderBottom: `1px solid ${alpha(
                               accentColor,
-                              0.06
+                              0.06,
                             )}`,
                             padding: '8px',
                           }}
@@ -3327,7 +3362,14 @@ const PayrollProcess = () => {
         </Fade>
 
         {/* Action Buttons */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, mt: 3 }}>
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 2,
+            mt: 3,
+          }}
+        >
           <Box sx={{ display: 'flex', gap: 2 }}>
             <ProfessionalButton
               variant="contained"
@@ -3343,9 +3385,17 @@ const PayrollProcess = () => {
                   color: alpha('#fff', 0.5),
                 },
               }}
-              startIcon={isBulkSaving ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
+              startIcon={
+                isBulkSaving ? (
+                  <CircularProgress size={20} color="inherit" />
+                ) : (
+                  <SaveIcon />
+                )
+              }
             >
-              {isBulkSaving ? 'Saving...' : `Recalculate & Save All (${filteredData.length})`}
+              {isBulkSaving
+                ? 'Saving...'
+                : `Recalculate & Save All (${filteredData.length})`}
             </ProfessionalButton>
           </Box>
 
@@ -3422,12 +3472,21 @@ const PayrollProcess = () => {
                     flexShrink: 0,
                   }}
                 >
-                  <Typography variant="h5" fontWeight="bold" sx={{ color: settings.accentColor || textSecondaryColor }}>
+                  <Typography
+                    variant="h5"
+                    fontWeight="bold"
+                    sx={{ color: settings.accentColor || textSecondaryColor }}
+                  >
                     Edit Payroll Record - {editRow.name}
                   </Typography>
                   <Typography
                     variant="body2"
-                    sx={{ opacity: 0.9, mt: 0.5, fontWeight: 'bold', color: settings.accentColor || textSecondaryColor }}
+                    sx={{
+                      opacity: 0.9,
+                      mt: 0.5,
+                      fontWeight: 'bold',
+                      color: settings.accentColor || textSecondaryColor,
+                    }}
                   >
                     Employee Number: {editRow.employeeNumber}
                   </Typography>
@@ -3608,20 +3667,13 @@ const PayrollProcess = () => {
                       <Grid container spacing={2}>
                         <Grid item xs={4}>
                           <Typography variant="caption" color="text.secondary">
-                            DVLT
+                            TEVL
                           </Typography>
                           <Typography variant="body2" fontWeight="500">
-                            {editRow.dvlt || '0.00'}
+                            {editRow.tevl || '0.00'}
                           </Typography>
                         </Grid>
-                        <Grid item xs={4}>
-                          <Typography variant="caption" color="text.secondary">
-                            VLB
-                          </Typography>
-                          <Typography variant="body2" fontWeight="500">
-                            {editRow.vlb || '0.00'}
-                          </Typography>
-                        </Grid>
+
                         <Grid item xs={4}>
                           <Typography variant="caption" color="text.secondary">
                             ABS
@@ -4126,23 +4178,14 @@ const PayrollProcess = () => {
                         <Grid item xs={4}>
                           <TextField
                             fullWidth
-                            label="DVLT"
-                            name="dvlt"
-                            value={editRow.dvlt || ''}
+                            label="TEVL"
+                            name="tevl"
+                            value={editRow.tevl || ''}
                             onChange={handleModalChange}
                             size="small"
                           />
                         </Grid>
-                        <Grid item xs={4}>
-                          <TextField
-                            fullWidth
-                            label="VLB"
-                            name="vlb"
-                            value={editRow.vlb || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
+
                         <Grid item xs={4}>
                           <TextField
                             fullWidth
@@ -4735,7 +4778,7 @@ const PayrollProcess = () => {
                                 {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                }
+                                },
                               )
                             : '0.00'}
                         </Typography>
@@ -4768,7 +4811,7 @@ const PayrollProcess = () => {
                                 {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                }
+                                },
                               )
                             : '0.00'}
                         </Typography>
@@ -4784,7 +4827,7 @@ const PayrollProcess = () => {
                                 {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                }
+                                },
                               )
                             : '0.00'}
                         </Typography>
@@ -4800,7 +4843,7 @@ const PayrollProcess = () => {
                                 {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                }
+                                },
                               )
                             : '0.00'}
                         </Typography>
@@ -4833,20 +4876,13 @@ const PayrollProcess = () => {
                     <Grid container spacing={2}>
                       <Grid item xs={4}>
                         <Typography variant="caption" color="text.secondary">
-                          DVLT
+                          TEVL
                         </Typography>
                         <Typography variant="body2" fontWeight="500">
-                          {viewRow.dvlt || '0.00'}
+                          {viewRow.tevl || '0'}
                         </Typography>
                       </Grid>
-                      <Grid item xs={4}>
-                        <Typography variant="caption" color="text.secondary">
-                          VLB
-                        </Typography>
-                        <Typography variant="body2" fontWeight="500">
-                          {viewRow.vlb || '0.00'}
-                        </Typography>
-                      </Grid>
+
                       <Grid item xs={4}>
                         <Typography variant="caption" color="text.secondary">
                           ABS
@@ -4970,7 +5006,7 @@ const PayrollProcess = () => {
                                 {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                }
+                                },
                               )
                             : '0.00'}
                         </Typography>
@@ -4986,7 +5022,7 @@ const PayrollProcess = () => {
                                 {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                }
+                                },
                               )
                             : '0.00'}
                         </Typography>
@@ -5002,7 +5038,7 @@ const PayrollProcess = () => {
                                 {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                }
+                                },
                               )
                             : '0.00'}
                         </Typography>
@@ -5070,7 +5106,7 @@ const PayrollProcess = () => {
                                 {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                }
+                                },
                               )
                             : '0.00'}
                         </Typography>
@@ -5112,7 +5148,7 @@ const PayrollProcess = () => {
                                 {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                }
+                                },
                               )
                             : '0.00'}
                         </Typography>
@@ -5128,7 +5164,7 @@ const PayrollProcess = () => {
                                 {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                }
+                                },
                               )
                             : '0.00'}
                         </Typography>
@@ -5183,7 +5219,7 @@ const PayrollProcess = () => {
                                 {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                }
+                                },
                               )
                             : '0.00'}
                         </Typography>
@@ -5199,7 +5235,7 @@ const PayrollProcess = () => {
                                 {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                }
+                                },
                               )
                             : '0.00'}
                         </Typography>
@@ -5228,7 +5264,7 @@ const PayrollProcess = () => {
                                 {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                }
+                                },
                               )
                             : '0.00'}
                         </Typography>
@@ -5277,7 +5313,7 @@ const PayrollProcess = () => {
                                 {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                }
+                                },
                               )
                             : '0.00'}
                         </Typography>
@@ -5549,13 +5585,13 @@ const PayrollProcess = () => {
                         setTimeout(() => {
                           setSuccessOpen(false);
                           window.location.href = '/payroll-processed';
-                        }, 2500);
-                      }, 2500);
+                        }, 1000);
+                      }, 1000);
                     } catch (error) {
                       console.error('Error exporting payroll:', error);
                       setLoading(false);
                       alert(
-                        'Failed to export payroll records. Please try again.'
+                        'Failed to export payroll records. Please try again.',
                       );
                     }
                   }}
@@ -5835,12 +5871,7 @@ const PayrollProcess = () => {
                       <ExcelCell isHeader sx={{ width: 100 }}>
                         Gross Salary
                       </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 80 }}>
-                        DVLT
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 80 }}>
-                        VLB
-                      </ExcelCell>
+
                       <ExcelCell isHeader sx={{ width: 60 }}>
                         ABS
                       </ExcelCell>
@@ -5934,12 +5965,15 @@ const PayrollProcess = () => {
                           (fp) =>
                             fp.employeeNumber === row.employeeNumber &&
                             fp.startDate === row.startDate &&
-                            fp.endDate === row.endDate
+                            fp.endDate === row.endDate,
                         );
 
                         return (
                           <TableRow
-                            key={`${row.employeeNumber}-${row.dateCreated}`}
+                            key={
+                              row.id ??
+                              `${row.employeeNumber}-${row.startDate}-${row.endDate}`
+                            }
                           >
                             <ExcelCell
                               isSelected={isCellSelected(displayIndex, 0)}
@@ -6033,7 +6067,7 @@ const PayrollProcess = () => {
                               isSelected={isCellSelected(displayIndex, 10)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                10
+                                10,
                               )}
                               onClick={() => handleCellClick(displayIndex, 10)}
                             >
@@ -6043,7 +6077,7 @@ const PayrollProcess = () => {
                               isSelected={isCellSelected(displayIndex, 11)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                11
+                                11,
                               )}
                               onClick={() => handleCellClick(displayIndex, 11)}
                             >
@@ -6053,29 +6087,25 @@ const PayrollProcess = () => {
                               isSelected={isCellSelected(displayIndex, 12)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                12
+                                12,
                               )}
                               onClick={() => handleCellClick(displayIndex, 12)}
                               sx={{ fontWeight: 'bold' }}
-                            >
-                              {row.dvlt}
-                            </ExcelCell>
+                            ></ExcelCell>
                             <ExcelCell
                               isSelected={isCellSelected(displayIndex, 13)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                13
+                                13,
                               )}
                               onClick={() => handleCellClick(displayIndex, 13)}
                               sx={{ fontWeight: 'bold' }}
-                            >
-                              {row.vlb}
-                            </ExcelCell>
+                            ></ExcelCell>
                             <ExcelCell
                               isSelected={isCellSelected(displayIndex, 14)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                14
+                                14,
                               )}
                               onClick={() => handleCellClick(displayIndex, 14)}
                               sx={{ fontWeight: 'bold' }}
@@ -6086,7 +6116,7 @@ const PayrollProcess = () => {
                               isSelected={isCellSelected(displayIndex, 15)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                15
+                                15,
                               )}
                               onClick={() => handleCellClick(displayIndex, 15)}
                             >
@@ -6096,7 +6126,7 @@ const PayrollProcess = () => {
                               isSelected={isCellSelected(displayIndex, 16)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                16
+                                16,
                               )}
                               onClick={() => handleCellClick(displayIndex, 16)}
                             >
@@ -6106,7 +6136,7 @@ const PayrollProcess = () => {
                               isSelected={isCellSelected(displayIndex, 17)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                17
+                                17,
                               )}
                               onClick={() => handleCellClick(displayIndex, 17)}
                             >
@@ -6116,7 +6146,7 @@ const PayrollProcess = () => {
                               isSelected={isCellSelected(displayIndex, 18)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                18
+                                18,
                               )}
                               onClick={() => handleCellClick(displayIndex, 18)}
                             >
@@ -6126,7 +6156,7 @@ const PayrollProcess = () => {
                               isSelected={isCellSelected(displayIndex, 19)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                19
+                                19,
                               )}
                               onClick={() => handleCellClick(displayIndex, 19)}
                             >
@@ -6136,7 +6166,7 @@ const PayrollProcess = () => {
                               isSelected={isCellSelected(displayIndex, 20)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                20
+                                20,
                               )}
                               onClick={() => handleCellClick(displayIndex, 20)}
                             >
@@ -6146,7 +6176,7 @@ const PayrollProcess = () => {
                               isSelected={isCellSelected(displayIndex, 21)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                21
+                                21,
                               )}
                               onClick={() => handleCellClick(displayIndex, 21)}
                             >
@@ -6156,7 +6186,7 @@ const PayrollProcess = () => {
                               isSelected={isCellSelected(displayIndex, 22)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                22
+                                22,
                               )}
                               onClick={() => handleCellClick(displayIndex, 22)}
                             >
@@ -6166,7 +6196,7 @@ const PayrollProcess = () => {
                               isSelected={isCellSelected(displayIndex, 23)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                23
+                                23,
                               )}
                               onClick={() => handleCellClick(displayIndex, 23)}
                             >
@@ -6176,7 +6206,7 @@ const PayrollProcess = () => {
                               isSelected={isCellSelected(displayIndex, 24)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                24
+                                24,
                               )}
                               onClick={() => handleCellClick(displayIndex, 24)}
                               sx={{ color: 'red', fontWeight: 'bold' }}
@@ -6187,7 +6217,7 @@ const PayrollProcess = () => {
                               isSelected={isCellSelected(displayIndex, 25)}
                               isHighlighted={isCellHighlighted(
                                 displayIndex,
-                                25
+                                25,
                               )}
                               onClick={() => handleCellClick(displayIndex, 25)}
                               sx={{ color: 'red', fontWeight: 'bold' }}
@@ -6222,11 +6252,18 @@ const PayrollProcess = () => {
               border: `3px solid ${accentColor}`,
             }}
           >
-            <Typography variant="h5" sx={{ mb: 3, fontWeight: 'bold', color: accentColor }}>
+            <Typography
+              variant="h5"
+              sx={{ mb: 3, fontWeight: 'bold', color: accentColor }}
+            >
               Saving Records to Database
             </Typography>
             <Box sx={{ mb: 3 }}>
-              <CircularProgress size={60} thickness={4} sx={{ color: accentColor }} />
+              <CircularProgress
+                size={60}
+                thickness={4}
+                sx={{ color: accentColor }}
+              />
             </Box>
             <Typography variant="h6" sx={{ mb: 2, color: textPrimaryColor }}>
               {bulkSaveProgress.current} / {bulkSaveProgress.total}
