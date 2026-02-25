@@ -1406,7 +1406,7 @@ function App() {
   path="/leave-request-user"
   element={
     <ProtectedRoute
-      allowedRoles={["administrator", "superadmin", "technical"]}
+      allowedRoles={["administrator", "superadmin", "technical", "staff"]}
     >
       <LeaveRequestUser />
     </ProtectedRoute>
