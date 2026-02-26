@@ -170,72 +170,14 @@ const PremiumTableCell = styled(TableCell)(({ theme, isHeader = false }) => ({
   letterSpacing: '0.025em',
 }));
 
-// Excel-like table cell styling
-const ExcelCell = styled(TableCell)(
-  ({ theme, isHeader = false, isSelected = false, isHighlighted = false }) => ({
-    border: '1px solid #D0D0D0',
-    padding: '8px',
-    backgroundColor: isHeader
-      ? '#F0F0F0'
-      : isSelected
-        ? '#E6F7FF'
-        : isHighlighted
-          ? '#FFEB3B'
-          : '#FFFFFF', // Bright yellow for better visibility
-    fontWeight: isHeader ? 'bold' : isHighlighted ? 'bold' : 'normal',
-    whiteSpace: 'nowrap',
-    fontSize: '0.85rem',
-    fontFamily: 'Arial, sans-serif',
-    position: 'relative',
-    transition: 'background-color 0.2s ease',
-    '&:hover': {
-      backgroundColor: isHeader
-        ? '#F0F0F0'
-        : isHighlighted
-          ? '#FFEB3B'
-          : '#F5F5F5',
-      cursor: 'pointer',
-    },
-    '&:after': {
-      content: '""',
-      position: 'absolute',
-      right: 0,
-      top: 0,
-      bottom: 0,
-      width: '1px',
-      backgroundColor: '#D0D0D0',
-    },
-    '&:before': {
-      content: '""',
-      position: 'absolute',
-      left: 0,
-      top: 0,
-      bottom: 0,
-      width: '1px',
-      backgroundColor: '#D0D0D0',
-    },
-  }),
-);
-
-// Custom styled TableCell for Excel-like appearance
+// Simple ExcelTableCell alias (Excel view removed but many cells use this component)
 const ExcelTableCell = ({ children, header, ...props }) => (
-  <TableCell
-    {...props}
-    sx={{
-      border: '1px solid #E0E0E0',
-      padding: '8px',
-      backgroundColor: header ? '#F5F5F5' : 'inherit',
-      fontWeight: header ? 'bold' : 'normal',
-      whiteSpace: 'nowrap',
-      '&:hover': {
-        backgroundColor: header ? '#F5F5F5' : '#F8F8F8',
-      },
-      ...props.sx,
-    }}
-  >
+  <TableCell {...props} sx={{ whiteSpace: 'nowrap', ...props.sx }}>
     {children}
   </TableCell>
 );
+
+// (Excel view removed)
 
 const PayrollProcess = () => {
   // System Settings Hook
@@ -302,13 +244,7 @@ const PayrollProcess = () => {
     totalNetSalary: 0,
   });
 
-  // New state for Excel modal
-  const [openExcelModal, setOpenExcelModal] = useState(false);
-  const [excelZoom, setExcelZoom] = useState(1);
-  const [selectedCell, setSelectedCell] = useState({ row: null, col: null });
-  const [highlightedCells, setHighlightedCells] = useState([]);
-  const [searchInExcel, setSearchInExcel] = useState('');
-  const excelTableRef = useRef(null);
+  // Excel view removed: related state and refs removed
 
   // New state for bulk save
   const [isBulkSaving, setIsBulkSaving] = useState(false);
@@ -1167,140 +1103,7 @@ const PayrollProcess = () => {
     };
   });
 
-  // New functions for Excel modal
-  const handleCellClick = (rowIndex, colIndex) => {
-    setSelectedCell({ row: rowIndex, col: colIndex });
-  };
-
-  const handleZoomIn = () => {
-    setExcelZoom((prev) => Math.min(prev + 0.1, 2));
-  };
-
-  const handleZoomOut = () => {
-    setExcelZoom((prev) => Math.max(prev - 0.1, 0.5));
-  };
-
-  // Filter rows for Excel view based on search
-  const getFilteredExcelRows = () => {
-    if (!searchInExcel || !searchInExcel.trim()) {
-      return computedRows;
-    }
-
-    const searchTerm = searchInExcel.toLowerCase().trim();
-    return computedRows.filter((row) => {
-      // Search through all relevant fields
-      const searchableText = [
-        row.department,
-        row.employeeNumber,
-        row.startDate,
-        row.endDate,
-        row.name,
-        row.position,
-        row.rateNbc594,
-        row.nbcDiffl597,
-        row.increment,
-        row.grossSalary,
-
-        row.abs,
-        row.h,
-        row.m,
-        row.netSalary,
-        row.withholdingTax,
-        row.totalGsisDeds,
-        row.totalPagibigDeds,
-        row.PhilHealthContribution,
-        row.totalOtherDeds,
-        row.totalDeductions,
-        row.pay1st,
-        row.pay2nd,
-      ]
-        .join(' ')
-        .toLowerCase();
-
-      return searchableText.includes(searchTerm);
-    });
-  };
-
-  const handleSearchInExcel = () => {
-    if (!searchInExcel || !searchInExcel.trim()) {
-      setHighlightedCells([]);
-      return;
-    }
-
-    const searchTerm = searchInExcel.toLowerCase().trim();
-    const filteredRows = getFilteredExcelRows();
-    const newHighlightedCells = [];
-
-    // Find original indices of filtered rows
-    const filteredRowIndices = new Set(
-      filteredRows.map((filteredRow) =>
-        computedRows.findIndex(
-          (r) =>
-            r.employeeNumber === filteredRow.employeeNumber &&
-            r.startDate === filteredRow.startDate &&
-            r.endDate === filteredRow.endDate,
-        ),
-      ),
-    );
-
-    // Highlight cells in filtered rows
-    filteredRows.forEach((row, displayIndex) => {
-      const originalIndex = computedRows.findIndex(
-        (r) =>
-          r.employeeNumber === row.employeeNumber &&
-          r.startDate === row.startDate &&
-          r.endDate === row.endDate,
-      );
-
-      // Map columns to their actual indices in the table
-      const columnData = [
-        { value: displayIndex + 1, colIndex: 0 }, // No. (display index)
-        { value: '', colIndex: 1 }, // View (skip)
-        { value: row.department, colIndex: 2 },
-        { value: row.employeeNumber, colIndex: 3 },
-        { value: row.startDate, colIndex: 4 },
-        { value: row.endDate, colIndex: 5 },
-        { value: row.name, colIndex: 6 },
-        { value: row.position, colIndex: 7 },
-        { value: row.rateNbc594, colIndex: 8 },
-        { value: row.nbcDiffl597, colIndex: 9 },
-        { value: row.increment, colIndex: 10 },
-        { value: row.grossSalary, colIndex: 11 },
-        { value: row.tevl, colIndex: 12 },
-
-        { value: row.abs, colIndex: 15 },
-        { value: row.h, colIndex: 16 },
-        { value: row.m, colIndex: 17 },
-        { value: row.netSalary, colIndex: 18 },
-        { value: row.withholdingTax, colIndex: 19 },
-        { value: row.totalGsisDeds, colIndex: 20 },
-        { value: row.totalPagibigDeds, colIndex: 21 },
-        { value: row.PhilHealthContribution, colIndex: 22 },
-        { value: row.totalOtherDeds, colIndex: 23 },
-        { value: row.totalDeductions, colIndex: 24 },
-        { value: row.pay1st, colIndex: 25 },
-        { value: row.pay2nd, colIndex: 26 },
-      ];
-
-      columnData.forEach(({ value, colIndex }) => {
-        if (value && value.toString().toLowerCase().includes(searchTerm)) {
-          newHighlightedCells.push({ row: displayIndex, col: colIndex });
-        }
-      });
-    });
-
-    setHighlightedCells(newHighlightedCells);
-  };
-
-  const isCellHighlighted = (rowIndex, colIndex) => {
-    return highlightedCells.some(
-      (cell) => cell.row === rowIndex && cell.col === colIndex,
-    );
-  };
-
-  const isCellSelected = (rowIndex, colIndex) => {
-    return selectedCell.row === rowIndex && selectedCell.col === colIndex;
-  };
+  // Excel view helpers removed
 
   // Bulk Recalculate and Save All function
   const handleRecalculateAndSaveAll = async () => {
@@ -1822,25 +1625,7 @@ const PayrollProcess = () => {
                   </Typography>
                 </Box>
 
-                {/* Excel View and Export Buttons */}
-                <Box display="flex" alignItems="center" gap={2}>
-                  <ProfessionalButton
-                    variant="outlined"
-                    size="small"
-                    startIcon={<GridOn />}
-                    onClick={() => setOpenExcelModal(true)}
-                    sx={{
-                      borderColor: accentColor,
-                      color: textPrimaryColor,
-                      '&:hover': {
-                        borderColor: accentDark,
-                        backgroundColor: alpha(accentColor, 0.1),
-                      },
-                    }}
-                  >
-                    Excel View
-                  </ProfessionalButton>
-                </Box>
+                {/* Excel View removed */}
               </Box>
 
               <Grid container spacing={2} alignItems="center">
@@ -2309,7 +2094,9 @@ const PayrollProcess = () => {
                           isHeader
                           sx={{ color: textPrimaryColor }}
                         >
-                          <b>TEVL</b>
+                          <Tooltip title="Total Earned Vacation Leave" arrow>
+                            <b>TEVL</b>
+                          </Tooltip>
                         </PremiumTableCell>
 
                         <PremiumTableCell
@@ -3666,9 +3453,11 @@ const PayrollProcess = () => {
                       </Typography>
                       <Grid container spacing={2}>
                         <Grid item xs={4}>
-                          <Typography variant="caption" color="text.secondary">
-                            TEVL
-                          </Typography>
+                          <Tooltip title="Total Earned Vacation Leave" arrow>
+                            <Typography variant="caption" color="text.secondary">
+                              TEVL
+                            </Typography>
+                          </Tooltip>
                           <Typography variant="body2" fontWeight="500">
                             {editRow.tevl || '0.00'}
                           </Typography>
@@ -4176,14 +3965,16 @@ const PayrollProcess = () => {
                       </Typography>
                       <Grid container spacing={2}>
                         <Grid item xs={4}>
-                          <TextField
-                            fullWidth
-                            label="TEVL"
-                            name="tevl"
-                            value={editRow.tevl || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
+                          <Tooltip title="Total Earned Vacation Leave" arrow>
+                            <TextField
+                              fullWidth
+                              label="TEVL"
+                              name="tevl"
+                              value={editRow.tevl || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Tooltip>
                         </Grid>
 
                         <Grid item xs={4}>
@@ -4875,9 +4666,11 @@ const PayrollProcess = () => {
                     </Typography>
                     <Grid container spacing={2}>
                       <Grid item xs={4}>
-                        <Typography variant="caption" color="text.secondary">
-                          TEVL
-                        </Typography>
+                        <Tooltip title="Total Earned Vacation Leave" arrow>
+                          <Typography variant="caption" color="text.secondary">
+                            TEVL
+                          </Typography>
+                        </Tooltip>
                         <Typography variant="body2" fontWeight="500">
                           {viewRow.tevl || '0'}
                         </Typography>
@@ -5621,619 +5414,7 @@ const PayrollProcess = () => {
         </Modal>
 
         {/* Loading and Success Overlays */}
-        {/* Excel-like Modal */}
-        <Modal
-          open={openExcelModal}
-          onClose={() => setOpenExcelModal(false)}
-          aria-labelledby="excel-modal-title"
-          aria-describedby="excel-modal-description"
-        >
-          <Box
-            sx={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              width: '95vw',
-              maxWidth: '1800px',
-              height: '90vh',
-              bgcolor: 'background.paper',
-              borderRadius: 3,
-              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column',
-              border: `3px solid ${accentColor}`,
-              '&::before': {
-                content: '""',
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                height: '4px',
-                background: `linear-gradient(90deg, ${accentColor} 0%, ${accentDark} 100%)`,
-              },
-            }}
-          >
-            {/* Excel Modal Header */}
-            <Box
-              sx={{
-                p: 3,
-                bgcolor: accentColor,
-                color: textPrimaryColor,
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: 2,
-                borderBottom: `2px solid ${alpha(textPrimaryColor, 0.2)}`,
-                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-              }}
-            >
-              <Box>
-                <Typography
-                  variant="h5"
-                  component="h2"
-                  sx={{ color: textPrimaryColor, fontWeight: 'bold', mb: 0.5 }}
-                >
-                  Payroll Records - Excel View
-                </Typography>
-                <Typography
-                  variant="caption"
-                  sx={{ color: textPrimaryColor, opacity: 0.9 }}
-                >
-                  Professional spreadsheet view for HR payroll management
-                </Typography>
-              </Box>
-              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                <TextField
-                  size="small"
-                  placeholder="Search in table..."
-                  value={searchInExcel}
-                  onChange={(e) => {
-                    setSearchInExcel(e.target.value);
-                    // Auto-filter and highlight as user types
-                    if (e.target.value.trim()) {
-                      handleSearchInExcel();
-                    } else {
-                      setHighlightedCells([]);
-                    }
-                  }}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter') {
-                      handleSearchInExcel();
-                    }
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <FindInPage sx={{ color: '#666', fontSize: '20px' }} />
-                      </InputAdornment>
-                    ),
-                    endAdornment: searchInExcel ? (
-                      <InputAdornment position="end">
-                        <IconButton
-                          size="small"
-                          onClick={() => {
-                            setSearchInExcel('');
-                            setHighlightedCells([]);
-                          }}
-                          sx={{ color: '#666', '&:hover': { color: '#333' } }}
-                        >
-                          <Close />
-                        </IconButton>
-                      </InputAdornment>
-                    ) : null,
-                  }}
-                  sx={{
-                    mr: 2,
-                    width: { xs: '100%', sm: 300 },
-                    '& .MuiOutlinedInput-root': {
-                      backgroundColor: 'white',
-                      color: '#333',
-                      '&:hover': {
-                        backgroundColor: 'white',
-                      },
-                      '&.Mui-focused': {
-                        backgroundColor: 'white',
-                      },
-                    },
-                    '& .MuiInputBase-input': {
-                      color: '#333',
-                    },
-                    '& .MuiInputBase-input::placeholder': {
-                      color: '#999',
-                      opacity: 1,
-                    },
-                  }}
-                />
-                {highlightedCells.length > 0 && (
-                  <Chip
-                    label={`${highlightedCells.length} matches`}
-                    size="small"
-                    sx={{
-                      backgroundColor: textPrimaryColor,
-                      color: accentColor,
-                      fontWeight: 'bold',
-                    }}
-                  />
-                )}
-                <IconButton
-                  onClick={handleZoomOut}
-                  title="Zoom Out"
-                  sx={{
-                    color: textPrimaryColor,
-                    '&:hover': {
-                      backgroundColor: alpha(textPrimaryColor, 0.1),
-                      color: textPrimaryColor,
-                    },
-                  }}
-                >
-                  <ZoomOut fontSize="medium" />
-                </IconButton>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    mx: 1,
-                    minWidth: 40,
-                    color: textPrimaryColor,
-                    fontWeight: 'bold',
-                  }}
-                >
-                  {Math.round(excelZoom * 100)}%
-                </Typography>
-                <IconButton
-                  onClick={handleZoomIn}
-                  title="Zoom In"
-                  sx={{
-                    color: textPrimaryColor,
-                    '&:hover': {
-                      backgroundColor: alpha(textPrimaryColor, 0.1),
-                      color: textPrimaryColor,
-                    },
-                  }}
-                >
-                  <ZoomIn fontSize="medium" />
-                </IconButton>
-                <IconButton
-                  onClick={() => setOpenExcelModal(false)}
-                  title="Close"
-                  sx={{
-                    color: textPrimaryColor,
-                    '&:hover': {
-                      backgroundColor: alpha(textPrimaryColor, 0.1),
-                      color: textPrimaryColor,
-                    },
-                  }}
-                >
-                  <Close fontSize="medium" />
-                </IconButton>
-              </Box>
-            </Box>
-
-            {/* Excel Table Container */}
-            <Box
-              sx={{
-                flex: 1,
-                overflow: 'auto',
-                p: 1,
-                bgcolor: '#f5f5f5',
-              }}
-              ref={excelTableRef}
-            >
-              <Box
-                sx={{
-                  transform: `scale(${excelZoom})`,
-                  transformOrigin: 'top left',
-                  minWidth: '100%',
-                }}
-              >
-                <Table
-                  size="small"
-                  sx={{ borderCollapse: 'separate', borderSpacing: 0 }}
-                >
-                  {/* Column Headers */}
-                  <TableHead>
-                    <TableRow>
-                      <ExcelCell isHeader sx={{ width: 50 }}>
-                        No.
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 80 }}>
-                        View
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 120 }}>
-                        Department
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 120 }}>
-                        Employee Number
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 100 }}>
-                        Start Date
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 100 }}>
-                        End Date
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 150 }}>
-                        Name
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 150 }}>
-                        Position
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 100 }}>
-                        Rate NBC 594
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 100 }}>
-                        NBC DIFF'L 597
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 80 }}>
-                        Increment
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 100 }}>
-                        Gross Salary
-                      </ExcelCell>
-
-                      <ExcelCell isHeader sx={{ width: 60 }}>
-                        ABS
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 40 }}>
-                        H
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 40 }}>
-                        M
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 100 }}>
-                        Net Salary
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 100 }}>
-                        Withholding Tax
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 120 }}>
-                        Total GSIS Deductions
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 140 }}>
-                        Total Pag-ibig Deductions
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 100 }}>
-                        PhilHealth
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 120 }}>
-                        Total Other Deductions
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 100 }}>
-                        Total Deductions
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 80 }}>
-                        1st Pay
-                      </ExcelCell>
-                      <ExcelCell isHeader sx={{ width: 80 }}>
-                        2nd Pay
-                      </ExcelCell>
-                    </TableRow>
-                  </TableHead>
-
-                  {/* Table Body */}
-                  <TableBody>
-                    {getFilteredExcelRows().length === 0 ? (
-                      <TableRow>
-                        <ExcelCell
-                          colSpan={26}
-                          sx={{ textAlign: 'center', py: 8 }}
-                        >
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              gap: 2,
-                            }}
-                          >
-                            <SearchIcon sx={{ fontSize: 64, color: '#ccc' }} />
-                            <Typography
-                              variant="h6"
-                              sx={{ color: '#666', fontWeight: 'bold' }}
-                            >
-                              No Records Found
-                            </Typography>
-                            <Typography
-                              variant="body2"
-                              sx={{ color: '#999', maxWidth: 400 }}
-                            >
-                              {searchInExcel
-                                ? `No payroll records match your search "${searchInExcel}". Try adjusting your search criteria.`
-                                : 'No payroll records available to display.'}
-                            </Typography>
-                            {searchInExcel && (
-                              <Button
-                                variant="outlined"
-                                size="small"
-                                onClick={() => {
-                                  setSearchInExcel('');
-                                  setHighlightedCells([]);
-                                }}
-                                startIcon={<Close />}
-                                sx={{ mt: 1 }}
-                              >
-                                Clear Search
-                              </Button>
-                            )}
-                          </Box>
-                        </ExcelCell>
-                      </TableRow>
-                    ) : (
-                      getFilteredExcelRows().map((row, displayIndex) => {
-                        const isFinalized = finalizedPayroll.some(
-                          (fp) =>
-                            fp.employeeNumber === row.employeeNumber &&
-                            fp.startDate === row.startDate &&
-                            fp.endDate === row.endDate,
-                        );
-
-                        return (
-                          <TableRow
-                            key={
-                              row.id ??
-                              `${row.employeeNumber}-${row.startDate}-${row.endDate}`
-                            }
-                          >
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 0)}
-                              isHighlighted={isCellHighlighted(displayIndex, 0)}
-                              onClick={() => handleCellClick(displayIndex, 0)}
-                            >
-                              {displayIndex + 1}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 1)}
-                              isHighlighted={isCellHighlighted(displayIndex, 1)}
-                              onClick={() => handleCellClick(displayIndex, 1)}
-                            >
-                              <IconButton
-                                size="small"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleView(row.id);
-                                }}
-                                sx={{
-                                  minWidth: 'auto',
-                                  p: 0.5,
-                                  color: '#1976d2',
-                                  '&:hover': {
-                                    backgroundColor: alpha('#1976d2', 0.1),
-                                    color: '#1565c0',
-                                  },
-                                }}
-                                title="View Record"
-                              >
-                                <Visibility fontSize="small" />
-                              </IconButton>
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 2)}
-                              isHighlighted={isCellHighlighted(displayIndex, 2)}
-                              onClick={() => handleCellClick(displayIndex, 2)}
-                            >
-                              {row.department}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 3)}
-                              isHighlighted={isCellHighlighted(displayIndex, 3)}
-                              onClick={() => handleCellClick(displayIndex, 3)}
-                            >
-                              {row.employeeNumber}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 4)}
-                              isHighlighted={isCellHighlighted(displayIndex, 4)}
-                              onClick={() => handleCellClick(displayIndex, 4)}
-                            >
-                              {row.startDate}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 5)}
-                              isHighlighted={isCellHighlighted(displayIndex, 5)}
-                              onClick={() => handleCellClick(displayIndex, 5)}
-                            >
-                              {row.endDate}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 6)}
-                              isHighlighted={isCellHighlighted(displayIndex, 6)}
-                              onClick={() => handleCellClick(displayIndex, 6)}
-                            >
-                              {row.name}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 7)}
-                              isHighlighted={isCellHighlighted(displayIndex, 7)}
-                              onClick={() => handleCellClick(displayIndex, 7)}
-                            >
-                              {row.position}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 8)}
-                              isHighlighted={isCellHighlighted(displayIndex, 8)}
-                              onClick={() => handleCellClick(displayIndex, 8)}
-                            >
-                              {row.rateNbc594}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 9)}
-                              isHighlighted={isCellHighlighted(displayIndex, 9)}
-                              onClick={() => handleCellClick(displayIndex, 9)}
-                            >
-                              {row.nbcDiffl597}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 10)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                10,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 10)}
-                            >
-                              {row.increment}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 11)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                11,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 11)}
-                            >
-                              {row.grossSalary}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 12)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                12,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 12)}
-                              sx={{ fontWeight: 'bold' }}
-                            ></ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 13)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                13,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 13)}
-                              sx={{ fontWeight: 'bold' }}
-                            ></ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 14)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                14,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 14)}
-                              sx={{ fontWeight: 'bold' }}
-                            >
-                              {row.abs}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 15)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                15,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 15)}
-                            >
-                              {row.h}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 16)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                16,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 16)}
-                            >
-                              {row.m}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 17)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                17,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 17)}
-                            >
-                              {row.netSalary}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 18)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                18,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 18)}
-                            >
-                              {row.withholdingTax}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 19)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                19,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 19)}
-                            >
-                              {row.totalGsisDeds}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 20)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                20,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 20)}
-                            >
-                              {row.totalPagibigDeds}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 21)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                21,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 21)}
-                            >
-                              {row.PhilHealthContribution}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 22)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                22,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 22)}
-                            >
-                              {row.totalOtherDeds}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 23)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                23,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 23)}
-                            >
-                              {row.totalDeductions}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 24)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                24,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 24)}
-                              sx={{ color: 'red', fontWeight: 'bold' }}
-                            >
-                              {row.pay1st}
-                            </ExcelCell>
-                            <ExcelCell
-                              isSelected={isCellSelected(displayIndex, 25)}
-                              isHighlighted={isCellHighlighted(
-                                displayIndex,
-                                25,
-                              )}
-                              onClick={() => handleCellClick(displayIndex, 25)}
-                              sx={{ color: 'red', fontWeight: 'bold' }}
-                            >
-                              {row.pay2nd}
-                            </ExcelCell>
-                          </TableRow>
-                        );
-                      })
-                    )}
-                  </TableBody>
-                </Table>
-              </Box>
-            </Box>
-          </Box>
-        </Modal>
+        {/* Excel view removed */}
 
         {/* Bulk Save Progress Dialog */}
         <Modal open={bulkSaveOpen} onClose={() => {}}>

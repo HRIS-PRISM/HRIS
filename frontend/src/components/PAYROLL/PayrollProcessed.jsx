@@ -1949,19 +1949,25 @@ const PayrollProcessed = () => {
                               isHeader
                               sx={{ color: textPrimaryColor }}
                             >
-                              TEVL
+                              <Tooltip title="Total Earned Vacation Leave" arrow>
+                                TEVL
+                              </Tooltip>
                             </PremiumTableCell>
                             <PremiumTableCell
                               isHeader
                               sx={{ color: textPrimaryColor }}
                             >
-                              DVLT
+                              <Tooltip title="Deducted Vacation Leave Tardiness" arrow>
+                                DVLT
+                              </Tooltip>
                             </PremiumTableCell>
                             <PremiumTableCell
                               isHeader
                               sx={{ color: textPrimaryColor }}
                             >
-                              VLB
+                              <Tooltip title="Vacation Leave Balance" arrow>
+                                VLB
+                              </Tooltip>
                             </PremiumTableCell>
                             <PremiumTableCell
                               isHeader
