@@ -1,9 +1,145 @@
-import React from "react";
+import React, { useRef, useState } from "react";
 import logo from './logo.png';
+import Button from '@mui/material/Button';
+import PrintIcon from '@mui/icons-material/Print';
+import DownloadIcon from '@mui/icons-material/Download';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
+import LoadingOverlay from '../LoadingOverlay';
 
 const Leave = () => {
+	const printRef = useRef(null);
+	const [capturing, setCapturing] = useState(false);
+
+	const ensureCaptureStyles = (el) => {
+		if (!el) return {};
+		const orig = {
+			backgroundColor: el.style.backgroundColor,
+			width: el.style.width,
+			visibility: el.style.visibility,
+			display: el.style.display,
+			position: el.style.position,
+			left: el.style.left,
+			zIndex: el.style.zIndex,
+			opacity: el.style.opacity,
+		};
+		el.style.backgroundColor = '#ffffff';
+		el.style.width = '8.27in';
+		el.style.visibility = 'visible';
+		el.style.display = 'block';
+		el.style.position = 'fixed';
+		el.style.left = '-9999px';
+		el.style.zIndex = '10000';
+		el.style.opacity = '1';
+		return orig;
+	};
+
+	const restoreCaptureStyles = (el, orig) => {
+		if (!el || !orig) return;
+		el.style.backgroundColor = orig.backgroundColor || '';
+		el.style.width = orig.width || '';
+		el.style.visibility = orig.visibility || '';
+		el.style.display = orig.display || '';
+		el.style.position = orig.position || '';
+		el.style.left = orig.left || '';
+		el.style.zIndex = orig.zIndex || '';
+		el.style.opacity = orig.opacity || '';
+	};
+
+	const printPage = async () => {
+		if (!printRef.current || capturing) return;
+
+		let orig;
+		try {
+			setCapturing(true);
+			const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
+			orig = ensureCaptureStyles(printRef.current);
+			await new Promise((resolve) => setTimeout(resolve, 100));
+
+			const canvas = await html2canvas(printRef.current, {
+				scale: 2,
+				useCORS: true,
+				backgroundColor: '#ffffff',
+				logging: false,
+			});
+
+			const imgData = canvas.toDataURL('image/png');
+			const formWidth = 8.27;
+			const formHeight = 11.69;
+			const pageWidth = pdf.internal.pageSize.getWidth();
+			const pageHeight = pdf.internal.pageSize.getHeight();
+			const xOffset = (pageWidth - formWidth) / 2;
+			const yOffset = (pageHeight - formHeight) / 2;
+
+			pdf.addImage(imgData, 'PNG', xOffset, yOffset, formWidth, formHeight);
+			pdf.autoPrint();
+			const blobUrl = pdf.output('bloburl');
+			window.open(blobUrl, '_blank');
+		} catch (error) {
+			console.error('Error generating print view:', error);
+		} finally {
+			restoreCaptureStyles(printRef.current, orig);
+			setCapturing(false);
+		}
+	};
+
+	const downloadPDF = async () => {
+		if (!printRef.current || capturing) return;
+
+		let orig;
+		try {
+			setCapturing(true);
+			const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
+			orig = ensureCaptureStyles(printRef.current);
+			await new Promise((resolve) => setTimeout(resolve, 100));
+
+			const canvas = await html2canvas(printRef.current, {
+				scale: 2,
+				useCORS: true,
+				backgroundColor: '#ffffff',
+				logging: false,
+			});
+
+			const imgData = canvas.toDataURL('image/png');
+			const formWidth = 8.27;
+			const formHeight = 11.69;
+			const pageWidth = pdf.internal.pageSize.getWidth();
+			const pageHeight = pdf.internal.pageSize.getHeight();
+			const xOffset = (pageWidth - formWidth) / 2;
+			const yOffset = (pageHeight - formHeight) / 2;
+
+			pdf.addImage(imgData, 'PNG', xOffset, yOffset, formWidth, formHeight);
+			const fileName = `Leave-${new Date().toISOString().split('T')[0]}.pdf`;
+			pdf.save(fileName);
+		} catch (error) {
+			console.error('Error generating PDF:', error);
+		} finally {
+			restoreCaptureStyles(printRef.current, orig);
+			setCapturing(false);
+		}
+	};
+
 	return (
-		<div style= {{
+		<div>
+		<div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '16px' }}>
+			<Button
+				variant="contained"
+				startIcon={<PrintIcon />}
+				onClick={printPage}
+				disabled={capturing}
+			>
+				Print
+			</Button>
+			<Button
+				variant="contained"
+				startIcon={<DownloadIcon />}
+				onClick={downloadPDF}
+				disabled={capturing}
+			>
+				Download PDF
+			</Button>
+		</div>
+		<div ref={printRef} style= {{
 			padding: "0.35in",
 			width: "100%",
 			maxWidth: "8.27in",
@@ -53,9 +189,9 @@ const Leave = () => {
 						border: '1px dotted black',
 						padding: '0.1in 0.2in',
 						scale: '0.7',
-						letterSpacing: '-0.5px',
+						letterSpacing: '1px',
 						wordSpacing: '1px'}}> 
-						<font size="2">Stamp of Date of Receipt</font>
+						<font size="1">Stamp of Date of Receipt</font>
 					</div>
 				</div>
 			</div>
@@ -63,7 +199,7 @@ const Leave = () => {
 				<font>APPLICATION FOR LEAVE</font>
 			</div>
 			<table style={{border: '1px solid black', borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed'}}>
-				<tr style={{border: '1px solid black'}}>
+				<tr>
 					<td colSpan="1" style={{height: '0.45in', fontSize: '80%', border: '0px', verticalAlign: 'top', paddingTop: "6px"}}>
 						1.
 					</td>
@@ -83,7 +219,7 @@ const Leave = () => {
 						(Middle)
 					</td>
 				</tr>
-				<tr style={{border: '1px solid black'}}>
+				<tr style={{borderTop: '1px solid black'}}>
 					<td colSpan="1" style={{height: '0.35in', fontSize: '80%', border: '0px', paddingTop: "6px"}}>
 						3.
 					</td>
@@ -97,10 +233,10 @@ const Leave = () => {
 						5. SALARY:
 					</td>
 				</tr>
-				<tr style={{border: '1px solid black'}}>
-					<td colSpan="24" style={{height: '0.25in', fontSize: '80%', border: '0px', textAlign: 'center'}}>
+				<tr style={{borderTop: '0.5px solid black', borderBottom: '0.5px solid black'}}>
+					<td colSpan="24" style={{height: '0.25in', fontSize: '80%', border: 'none', textAlign: 'center'}}>
 						<div style={{borderTop: "1px solid black",}}></div>
-						<div style={{margin: "6px 0px", fontWeight: "600"}}>6. DETAILS OF APPLICATION</div>
+						<div style={{margin: "0px 0px", fontWeight: "600"}}>6. DETAILS OF APPLICATION</div>
 						<div style={{borderTop: "1px solid black"}}></div>
 					</td>
 				</tr>
@@ -418,10 +554,10 @@ const Leave = () => {
 						</div>
 					</td>
 				</tr>
-				<tr style={{border: '1px solid black'}}>
+				<tr style={{borderTop: '1px solid black', borderBottom: '1px solid black'}}>
 					<td colSpan="24" style={{height: '0.25in', fontSize: '80%', border: '0px', textAlign: 'center'}}>
 						<div style={{borderTop: "1px solid black",}}></div>
-						<div style={{margin: "6px 0px", fontWeight: "600"}}>7. DETAILS OF ACTION ON APPLICATION</div>
+						<div style={{ fontWeight: "600"}}>7. DETAILS OF ACTION ON APPLICATION</div>
 						<div style={{borderTop: "1px solid black"}}></div>
 					</td>
 				</tr>
@@ -445,46 +581,46 @@ const Leave = () => {
 						<div style={{width: '3.5in', marginTop: "6px"}}>
 							<table style={{border: '1px solid black', borderCollapse: 'collapse', width: '3.9in', tableLayout: 'fixed'}}>
 								<tr>
-									<td style={{height: '0.1in', fontSize: '75%', border: '1px solid black', textAlign: 'center'}}>
+									<td style={{height: '0.1in', fontSize: '75%', borderBottom: '1px solid black', borderRight: '1px solid black', textAlign: 'center'}}>
 									&nbsp;
 									</td>
-									<td style={{height: '0.1in', fontSize: '75%', border: '1px solid black', textAlign: 'center'}}>
-									Vacation Leave
+									<td style={{padding: '0.05in', fontSize: '75%', borderBottom: '1px solid black', borderRight: '1px solid black'}}>
+										Vacation Leave
 									</td>
-									<td style={{height: '0.1in', fontSize: '75%', border: '1px solid black', textAlign: 'center'}}>
+									<td style={{height: '0.1in', fontSize: '75%', borderBottom: '1px solid black', textAlign: 'center'}}>
 									Sick Leave
 									</td>
 								</tr>
 								<tr>
-									<td style={{height: '0.1in', fontSize: '75%', border: '1px solid black', textAlign: 'center'}}>
+									<td style={{height: '0.1in', fontSize: '75%', borderBottom: '1px solid black', borderRight: '1px solid black', textAlign: 'center'}}>
 									<i>Total Earned</i>
 									</td>
-									<td style={{height: '0.1in', fontSize: '75%', border: '1px solid black', textAlign: 'center'}}>
+									<td style={{height: '0.1in', fontSize: '75%', borderBottom: '1px solid black', borderRight: '1px solid black', textAlign: 'center'}}>
 									&nbsp;
 									</td>
-									<td style={{height: '0.1in', fontSize: '75%', border: '1px solid black', textAlign: 'center'}}>
+									<td style={{height: '0.1in', fontSize: '75%', borderBottom: '1px solid black', textAlign: 'center'}}>
 									&nbsp;
 									</td>
 								</tr>
 								<tr>
-									<td style={{height: '0.1in', fontSize: '75%', border: '1px solid black', textAlign: 'center'}}>
+									<td style={{height: '0.1in', fontSize: '75%', borderBottom: '1px solid black', borderRight: '1px solid black', textAlign: 'center'}}>
 									<i>Less this application</i>
 									</td>
-									<td style={{height: '0.1in', fontSize: '75%', border: '1px solid black', textAlign: 'center'}}>
+									<td style={{height: '0.1in', fontSize: '75%', borderBottom: '1px solid black', borderRight: '1px solid black', textAlign: 'center'}}>
 									&nbsp;
 									</td>
-									<td style={{height: '0.1in', fontSize: '75%', border: '1px solid black', textAlign: 'center'}}>
+									<td style={{height: '0.1in', fontSize: '75%', borderBottom: '1px solid black', textAlign: 'center'}}>
 									&nbsp;
 									</td>
 								</tr>
 								<tr>
-									<td style={{height: '0.1in', fontSize: '75%', border: '1px solid black', textAlign: 'center'}}>
+									<td style={{height: '0.1in',borderRight: '1px solid black', fontSize: '75%',textAlign: 'center'}}>
 									<i>Balance</i>
 									</td>
-									<td style={{height: '0.1in', fontSize: '75%', border: '1px solid black', textAlign: 'center'}}>
+									<td style={{height: '0.1in',borderRight: '1px solid black', fontSize: '75%',textAlign: 'center'}}>
 									&nbsp;
 									</td>
-									<td style={{height: '0.1in', fontSize: '75%', border: '1px solid black', textAlign: 'center'}}>
+									<td style={{height: '0.1in', fontSize: '75%', textAlign: 'center'}}>
 									&nbsp;
 									</td>
 								</tr>
@@ -576,6 +712,8 @@ const Leave = () => {
 				</tr>
 			</table>
 
+		</div>
+		<LoadingOverlay open={capturing} message="Capturing form for print/PDF..." />
 		</div>
 	);
 };

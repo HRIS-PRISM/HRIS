@@ -175,7 +175,7 @@ router.get('/api/attendance', authenticateToken, (req, res) => {
     logAudit(
       req.user,
       'view',
-      'Attendance Module',
+      'attendance-module',
       `${startDate} && ${endDate}`,
       personId,
     );
