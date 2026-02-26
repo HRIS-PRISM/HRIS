@@ -1,12 +1,126 @@
-import React from "react";
+import React, { useRef } from "react";
 import logo from "./logo.png";
+import Button from '@mui/material/Button';
+import PrintIcon from '@mui/icons-material/Print';
+import DownloadIcon from '@mui/icons-material/Download';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 
 
 const HrmsRequestForms = () => {
+  const printRef = useRef(null);
 
+  const ensureCaptureStyles = (el) => {
+    if (!el) return {};
+    const orig = {
+      backgroundColor: el.style.backgroundColor,
+      width: el.style.width,
+      visibility: el.style.visibility,
+      display: el.style.display,
+      position: el.style.position,
+      left: el.style.left,
+      zIndex: el.style.zIndex,
+      opacity: el.style.opacity,
+    };
+    el.style.backgroundColor = '#ffffff';
+    el.style.width = '8.27in';
+    el.style.visibility = 'visible';
+    el.style.display = 'block';
+    el.style.position = 'fixed';
+    el.style.left = '-9999px';
+    el.style.zIndex = '10000';
+    el.style.opacity = '1';
+    return orig;
+  };
+
+  const restoreCaptureStyles = (el, orig) => {
+    if (!el || !orig) return;
+    el.style.backgroundColor = orig.backgroundColor || '';
+    el.style.width = orig.width || '';
+    el.style.visibility = orig.visibility || '';
+    el.style.display = orig.display || '';
+    el.style.position = orig.position || '';
+    el.style.left = orig.left || '';
+    el.style.zIndex = orig.zIndex || '';
+    el.style.opacity = orig.opacity || '';
+  };
+
+  const printPage = async () => {
+    if (!printRef.current) return;
+
+    try {
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
+      const orig = ensureCaptureStyles(printRef.current);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const canvas = await html2canvas(printRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      });
+      restoreCaptureStyles(printRef.current, orig);
+
+      const imgData = canvas.toDataURL('image/png');
+      const formWidth = 8.27;
+      const formHeight = 11.69;
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const xOffset = (pageWidth - formWidth) / 2;
+      const yOffset = (pageHeight - formHeight) / 2;
+
+      pdf.addImage(imgData, 'PNG', xOffset, yOffset, formWidth, formHeight);
+      pdf.autoPrint();
+      const blobUrl = pdf.output('bloburl');
+      window.open(blobUrl, '_blank');
+    } catch (error) {
+      console.error('Error generating print view:', error);
+    }
+  };
+
+  const downloadPDF = async () => {
+    if (!printRef.current) return;
+
+    try {
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
+      const orig = ensureCaptureStyles(printRef.current);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const canvas = await html2canvas(printRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      });
+      restoreCaptureStyles(printRef.current, orig);
+
+      const imgData = canvas.toDataURL('image/png');
+      const formWidth = 8.27;
+      const formHeight = 11.69;
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const xOffset = (pageWidth - formWidth) / 2;
+      const yOffset = (pageHeight - formHeight) / 2;
+
+      pdf.addImage(imgData, 'PNG', xOffset, yOffset, formWidth, formHeight);
+      const fileName = `HRMS-Request-Form-${new Date().toISOString().split('T')[0]}.pdf`;
+      pdf.save(fileName);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+    }
+  };
 
   return (
 <div>
+      <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '16px' }}>
+        <Button variant="contained" startIcon={<PrintIcon />} onClick={printPage}>
+          Print
+        </Button>
+        <Button variant="contained" startIcon={<DownloadIcon />} onClick={downloadPDF}>
+          Download PDF
+        </Button>
+      </div>
+<div ref={printRef}>
       <div style ={{
 
 
@@ -373,6 +487,7 @@ const HrmsRequestForms = () => {
       </div>
 </div>
 </div>
+ </div>
      
      
 
