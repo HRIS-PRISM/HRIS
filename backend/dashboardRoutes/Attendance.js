@@ -678,6 +678,7 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
     totalRenderedOvertimeTardiness,
     overallRenderedOfficialTime,
     overallRenderedOfficialTimeTardiness,
+    overallTotalOfficialSchedule,
   } = req.body;
 
   const query = `
@@ -688,8 +689,9 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
       totalRenderedHonorarium, totalRenderedHonorariumTardiness,
       totalRenderedServiceCredit, totalRenderedServiceCreditTardiness,
       totalRenderedOvertime, totalRenderedOvertimeTardiness,
-      overallRenderedOfficialTime, overallRenderedOfficialTimeTardiness
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      overallRenderedOfficialTime, overallRenderedOfficialTimeTardiness,
+      overallTotalOfficialSchedule
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   db.query(
@@ -710,6 +712,7 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
       totalRenderedOvertimeTardiness,
       overallRenderedOfficialTime,
       overallRenderedOfficialTimeTardiness,
+      overallTotalOfficialSchedule,
     ],
     (error, results) => {
       if (error) {
@@ -797,6 +800,7 @@ router.put(
       totalRenderedOvertimeTardiness,
       overallRenderedOfficialTime,
       overallRenderedOfficialTimeTardiness,
+      overallTotalOfficialSchedule,
     } = req.body;
 
     const { id } = req.params;
@@ -829,7 +833,8 @@ router.put(
       totalRenderedHonorarium = ?, totalRenderedHonorariumTardiness = ?,
       totalRenderedServiceCredit = ?, totalRenderedServiceCreditTardiness = ?,
       totalRenderedOvertime = ?, totalRenderedOvertimeTardiness = ?,
-      overallRenderedOfficialTime = ?, overallRenderedOfficialTimeTardiness = ?
+      overallRenderedOfficialTime = ?, overallRenderedOfficialTimeTardiness = ?,
+      overallTotalOfficialSchedule = ?
       WHERE id = ?
     `;
 
@@ -851,6 +856,7 @@ router.put(
             totalRenderedOvertimeTardiness,
             overallRenderedOfficialTime,
             overallRenderedOfficialTimeTardiness,
+            overallTotalOfficialSchedule,
             id,
           ],
           (error, results) => {

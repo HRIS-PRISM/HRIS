@@ -4,696 +4,363 @@ import Button from "@mui/material/Button";
 import NavigateNextIcon from "@mui/icons-material/NavigateNext";
 import PrintIcon from '@mui/icons-material/Print';
 import DownloadIcon from '@mui/icons-material/Download';
-import { useNavigate } from "react-router-dom"; // Import useNavigate
+import { useNavigate } from "react-router-dom";
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
 const Clearance = () => {
-    const handleNext = () => {
-        navigate("/clearance-back");
-      };
-   
     const navigate = useNavigate();
     const printRef = useRef(null);
 
+    const handleNext = () => {
+        navigate("/clearance-back");
+    };
+
     const ensureCaptureStyles = (el) => {
-      if (!el) return {};
-      const orig = {
-        backgroundColor: el.style.backgroundColor,
-        width: el.style.width,
-        visibility: el.style.visibility,
-        display: el.style.display,
-        position: el.style.position,
-        left: el.style.left,
-        zIndex: el.style.zIndex,
-        opacity: el.style.opacity,
-      };
-      el.style.backgroundColor = '#ffffff';
-      el.style.width = '8.27in';
-      el.style.visibility = 'visible';
-      el.style.display = 'block';
-      el.style.position = 'fixed';
-      el.style.left = '-9999px';
-      el.style.zIndex = '10000';
-      el.style.opacity = '1';
-      return orig;
+        if (!el) return {};
+        const orig = {
+            backgroundColor: el.style.backgroundColor,
+            width: el.style.width,
+            visibility: el.style.visibility,
+            display: el.style.display,
+            position: el.style.position,
+            left: el.style.left,
+            zIndex: el.style.zIndex,
+            opacity: el.style.opacity,
+        };
+        el.style.backgroundColor = '#ffffff';
+        el.style.width = '8.5in';
+        el.style.visibility = 'visible';
+        el.style.display = 'block';
+        el.style.position = 'fixed';
+        el.style.left = '-9999px';
+        el.style.zIndex = '10000';
+        el.style.opacity = '1';
+        return orig;
     };
 
     const restoreCaptureStyles = (el, orig) => {
-      if (!el || !orig) return;
-      el.style.backgroundColor = orig.backgroundColor || '';
-      el.style.width = orig.width || '';
-      el.style.visibility = orig.visibility || '';
-      el.style.display = orig.display || '';
-      el.style.position = orig.position || '';
-      el.style.left = orig.left || '';
-      el.style.zIndex = orig.zIndex || '';
-      el.style.opacity = orig.opacity || '';
+        if (!el || !orig) return;
+        el.style.backgroundColor = orig.backgroundColor || '';
+        el.style.width = orig.width || '';
+        el.style.visibility = orig.visibility || '';
+        el.style.display = orig.display || '';
+        el.style.position = orig.position || '';
+        el.style.left = orig.left || '';
+        el.style.zIndex = orig.zIndex || '';
+        el.style.opacity = orig.opacity || '';
     };
 
     const printPage = async () => {
-      if (!printRef.current) return;
-
-      try {
-        const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
-        const orig = ensureCaptureStyles(printRef.current);
-        await new Promise((resolve) => setTimeout(resolve, 100));
-
-        const canvas = await html2canvas(printRef.current, {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: '#ffffff',
-          logging: false,
-        });
-        restoreCaptureStyles(printRef.current, orig);
-
-        const imgData = canvas.toDataURL('image/png');
-        const formWidth = 8.27;
-        const formHeight = 11.69;
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const xOffset = (pageWidth - formWidth) / 2;
-        const yOffset = (pageHeight - formHeight) / 2;
-
-        pdf.addImage(imgData, 'PNG', xOffset, yOffset, formWidth, formHeight);
-        pdf.autoPrint();
-        const blobUrl = pdf.output('bloburl');
-        window.open(blobUrl, '_blank');
-      } catch (error) {
-        console.error('Error generating print view:', error);
-      }
+        if (!printRef.current) return;
+        try {
+            const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: [8.5, 13] });
+            const orig = ensureCaptureStyles(printRef.current);
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            const canvas = await html2canvas(printRef.current, {
+                scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false,
+            });
+            restoreCaptureStyles(printRef.current, orig);
+            const imgData = canvas.toDataURL('image/png');
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight);
+            pdf.autoPrint();
+            window.open(pdf.output('bloburl'), '_blank');
+        } catch (error) {
+            console.error('Error generating print view:', error);
+        }
     };
 
     const downloadPDF = async () => {
-      if (!printRef.current) return;
-
-      try {
-        const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
-        const orig = ensureCaptureStyles(printRef.current);
-        await new Promise((resolve) => setTimeout(resolve, 100));
-
-        const canvas = await html2canvas(printRef.current, {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: '#ffffff',
-          logging: false,
-        });
-        restoreCaptureStyles(printRef.current, orig);
-
-        const imgData = canvas.toDataURL('image/png');
-        const formWidth = 8.27;
-        const formHeight = 11.69;
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const xOffset = (pageWidth - formWidth) / 2;
-        const yOffset = (pageHeight - formHeight) / 2;
-
-        pdf.addImage(imgData, 'PNG', xOffset, yOffset, formWidth, formHeight);
-        const fileName = `Clearance-${new Date().toISOString().split('T')[0]}.pdf`;
-        pdf.save(fileName);
-      } catch (error) {
-        console.error('Error generating PDF:', error);
-      }
+        if (!printRef.current) return;
+        try {
+            const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: [8.5, 13] });
+            const orig = ensureCaptureStyles(printRef.current);
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            const canvas = await html2canvas(printRef.current, {
+                scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false,
+            });
+            restoreCaptureStyles(printRef.current, orig);
+            const imgData = canvas.toDataURL('image/png');
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight);
+            pdf.save(`Clearance-${new Date().toISOString().split('T')[0]}.pdf`);
+        } catch (error) {
+            console.error('Error generating PDF:', error);
+        }
     };
-return (
-    <div>
-    <div style={{ display: "flex", justifyContent: "center", gap: "10px", marginTop: "16px" }}>
-      <Button variant="contained" startIcon={<PrintIcon />} onClick={printPage}>
-        Print
-      </Button>
-      <Button variant="contained" startIcon={<DownloadIcon />} onClick={downloadPDF}>
-        Download PDF
-      </Button>
-    </div>
-    <div
-      ref={printRef}
-      style={{
-        padding: "0.25in",
-        width: "8in",
-        height: "15.5in",
-        fontFamily: "Poppins, sans-serif",
-        alignContent:'center',
-        margin: 'auto',
-        marginTop: '50px',
-        marginBottom: '30%',
-        backgroundColor: '#ffffff',
-      }}
-    >
-      <span style={{ fontSize: "12px", fontWeight: "bold", fontStyle: "italic"}}>
-        CS Form No. 7
-        <br />
-        Revised 2018
-      </span>
 
+    /* ── Style helpers ── */
+    const cellBase   = { fontSize: '11px', padding: '3px 5px' };
+    const clearCell  = { ...cellBase, border: '1px solid black' };
+    const noBorder   = { ...cellBase, border: '0px' };
+    const grayHeader = { ...cellBase, backgroundColor: 'lightgray', border: '1px solid black', fontWeight: 'bold' };
+    const divider    = { height: '2px', fontSize: '0%', backgroundColor: 'black', border: '0px', padding: 0 };
 
-      <div style={{ width: "5.25in", margin: "auto" }}>
-        <div style={{ position: "relative", top: "20px", float: "left", left: "-30px" }}>
-          <img src= {logo} alt="Logo" height="90px" />
+    const subRows = [
+        {
+            section: '1', label: 'Administrative Services', items: [
+                { letter: 'a.', name: 'Supply and Property Procurement and Management Services', officer: 'DR. HIROMI T. KIKUCHI' },
+                { letter: 'b.', name: 'Human Resource Welfare & Assistance',                    officer: 'AMPARO M. MORALES' },
+                { letter: 'c.', name: 'Agency-accredited Union/Cooperative',                    officer: 'PERFITA NATAL' },
+            ],
+        },
+        {
+            section: '2', label: 'Library', items: [
+                { letter: 'a.', name: 'Legal Office Library', officer: '' },
+                { letter: 'b.', name: 'Library Services',     officer: 'CARINA ROMAQUIN' },
+            ],
+        },
+        {
+            section: '3', label: 'Finance and Assets Management', items: [
+                { letter: 'a.', name: 'Financial Services',                          officer: 'DR. YOLANDA A. LARA' },
+                { letter: 'b.', name: 'Transaction, Processing & Billing Services',  officer: '' },
+                { letter: 'c.', name: 'Payroll & Services',                          officer: '' },
+            ],
+        },
+        {
+            section: '4', label: 'Professional and Institutional Development', items: [
+                { letter: 'a.', name: 'Scholarship Services', officer: '' },
+            ],
+        },
+    ];
+
+    return (
+        <div>
+            {/* ── Top action buttons (never printed) ── */}
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '16px' }}>
+                <Button variant="contained" startIcon={<PrintIcon />}    onClick={printPage}>Print</Button>
+                <Button variant="contained" startIcon={<DownloadIcon />} onClick={downloadPDF}>Download PDF</Button>
+            </div>
+
+            {/* ══════════════════════════════════════════
+                PRINTABLE AREA  (Next button is OUTSIDE)
+            ══════════════════════════════════════════ */}
+            <div
+                ref={printRef}
+                style={{
+                    width: '8.5in',
+                    minHeight: '13in',
+                    padding: '0.25in 0.3in',
+                    fontFamily: 'Poppins, sans-serif',
+                    fontSize: '11px',
+                    backgroundColor: '#ffffff',
+                    margin: 'auto',
+                    marginTop: '30px',
+                    boxSizing: 'border-box',
+                }}
+            >
+                {/* CS Form label */}
+                <div style={{ fontSize: '10px', fontWeight: 'bold', fontStyle: 'italic', marginBottom: '6px' }}>
+                    CS Form No. 7<br />Revised 2018
+                </div>
+
+                {/* ── Header: logo LEFT + text RIGHT, whole block centered ── */}
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',   /* centers the logo+text unit on the page */
+                    gap: '18px',
+                    marginBottom: '6px',
+                    marginLeft: '-1.1in',  /* ensure left margin for printing */
+                }}>
+                    {/* Logo */}
+                    <img src={logo} alt="Logo" style={{ height: '90px', width: 'auto' }} />
+
+                    {/* Institution text — centered within its column */}
+                    <div style={{ textAlign: 'center', lineHeight: '1.6' }}>
+                        <div style={{ fontSize: '12px' }}>Republic of the Philippines</div>
+                        <div style={{ fontSize: '15px', fontWeight: 'bold' }}>EULOGIO "AMANG" RODRIGUEZ</div>
+                        <div style={{ fontSize: '15px', fontWeight: 'bold' }}>INSTITUTE OF SCIENCE AND TECHNOLOGY</div>
+                        <div style={{ fontSize: '12px' }}>Nagtahan, Sampaloc, Manila</div>
+                    </div>
+                </div>
+
+                {/* Form title */}
+                <div style={{ textAlign: 'center', marginBottom: '6px', lineHeight: '1.5' }}>
+                    <div style={{ fontSize: '16px', fontWeight: 'bold' }}>CLEARANCE FORM</div>
+                    <div style={{ fontSize: '10px', fontStyle: 'italic' }}>(Instructions at the back)</div>
+                </div>
+
+                {/* ── Main table ── */}
+                <table style={{ border: '2px solid black', borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' }}>
+
+                    {/* ── SECTION I ── */}
+                    <tr>
+                        <td colSpan="1"  style={grayHeader}>I</td>
+                        <td colSpan="21" style={grayHeader}>PURPOSE</td>
+                    </tr>
+                    <tr>
+                        <td colSpan="12" style={noBorder}>&nbsp;</td>
+                        <td colSpan="10" style={{ ...noBorder, textAlign: 'center', paddingBottom: '4px' }}>
+                            <span style={{ display: 'inline-block', width: '90%', borderBottom: '1px solid black' }} />
+                            <br />Date of Filing
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colSpan="2" rowSpan="3" style={{ ...noBorder, verticalAlign: 'top' }}>
+                            <br />TO:
+                        </td>
+                        <td colSpan="20" style={noBorder}>
+                            <br />
+                            <b><u>EULOGIO "AMANG" RODRIGUEZ INSTITUTE OF SCIENCE AND TECHNOLOGY</u></b><br />
+                            I hereby request clearance from money, property and work-related accountabilities for:
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colSpan="3" style={{ ...noBorder, verticalAlign: 'top' }}>Purpose:</td>
+                        <td colSpan="4" style={noBorder}>[ ] Transfer<br />[ ] Retirement</td>
+                        <td colSpan="4" style={noBorder}>[ ] Resignation<br />[ ] Leave</td>
+                        <td colSpan="9" style={noBorder}>
+                            [ ] Other Mode of Separation:<br />
+                            &nbsp;&nbsp;&nbsp;Please specify:{' '}
+                            <span style={{ display: 'inline-block', width: '55%', borderBottom: '1px solid black' }} />
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colSpan="20" style={noBorder}>
+                            <br />Date of Effectivity:{' '}
+                            <span style={{ display: 'inline-block', width: '74%', borderBottom: '1px solid black' }} />
+                            <br />
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colSpan="12" style={{ ...clearCell, padding: '7px 6px' }}>
+                            Office of Assignment:{' '}
+                            <span style={{ display: 'inline-block', width: '58%', borderBottom: '1px solid black' }} />
+                            <br /><br />
+                            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Position/SG/Step:{' '}
+                            <span style={{ display: 'inline-block', width: '60%', borderBottom: '1px solid black' }} />
+                        </td>
+                        <td colSpan="10" style={{ ...clearCell, textAlign: 'center', padding: '7px 6px' }}>
+                            <br />
+                            <span style={{ display: 'inline-block', width: '85%', borderBottom: '1px solid black' }} />
+                            <br />Name and Signature of Employee
+                        </td>
+                    </tr>
+                    <tr><td colSpan="22" style={divider}></td></tr>
+
+                    {/* ── SECTION II ── */}
+                    <tr>
+                        <td colSpan="1"  style={grayHeader}>II</td>
+                        <td colSpan="21" style={grayHeader}>CLEARANCE FROM WORK-RELATED ACCOUNTABILITIES</td>
+                    </tr>
+                    <tr>
+                        <td colSpan="22" style={{ ...noBorder, textAlign: 'center', fontSize: '10px' }}>
+                            We hereby certify that this employee is cleared/not cleared of work-related accountabilities from this Unit/Office/Dept.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colSpan="11" style={{ ...noBorder, textAlign: 'center', padding: '10px 4px' }}>
+                            <span style={{ display: 'inline-block', width: '80%', borderBottom: '1px solid black' }} />
+                            <br />Immediate Supervisor
+                        </td>
+                        <td colSpan="11" style={{ ...noBorder, textAlign: 'center', padding: '10px 4px' }}>
+                            <span style={{ display: 'inline-block', width: '80%', borderBottom: '1px solid black' }} />
+                            <br />Head of Office
+                        </td>
+                    </tr>
+                    <tr><td colSpan="22" style={divider}></td></tr>
+
+                    {/* ── SECTION III ── */}
+                    <tr>
+                        <td colSpan="1"  style={grayHeader}>III</td>
+                        <td colSpan="21" style={grayHeader}>CLEARANCE FROM MONEY AND PROPERTY ACCOUNTABILITIES</td>
+                    </tr>
+                    {/* Column headers */}
+                    <tr>
+                        <td colSpan="8"  style={{ ...clearCell, textAlign: 'center', fontSize: '10px' }}>Name of Unit/Office/Department</td>
+                        <td colSpan="2"  style={{ ...clearCell, textAlign: 'center', fontSize: '10px' }}>Cleared</td>
+                        <td colSpan="2"  style={{ ...clearCell, textAlign: 'center', fontSize: '9px'  }}>Not Cleared</td>
+                        <td colSpan="6"  style={{ ...clearCell, textAlign: 'center', fontSize: '10px' }}>Name of Clearing Officer/Official</td>
+                        <td colSpan="4"  style={{ ...clearCell, textAlign: 'center', fontSize: '10px' }}>Signature</td>
+                    </tr>
+
+                    {/* Sub-sections */}
+                    {subRows.map(({ section, label, items }) => (
+                        <React.Fragment key={section}>
+                            <tr>
+                                <td colSpan="1"  style={{ ...grayHeader, fontWeight: 'normal' }}>{section}.</td>
+                                <td colSpan="21" style={{ ...grayHeader, fontWeight: 'normal' }}><i>{label}</i></td>
+                            </tr>
+                            {items.map(({ letter, name, officer }) => (
+                                <tr key={letter}>
+                                    <td colSpan="1" style={noBorder}>&nbsp;</td>
+                                    <td colSpan="1" style={noBorder}>{letter}</td>
+                                    <td colSpan="6" style={{ ...noBorder, fontSize: '10px' }}>{name}</td>
+                                    <td colSpan="2" style={clearCell}>&nbsp;</td>
+                                    <td colSpan="2" style={clearCell}>&nbsp;</td>
+                                    <td colSpan="6" style={{ ...clearCell, textAlign: 'center' }}>
+                                        {officer ? <b>{officer}</b> : <>&nbsp;</>}
+                                    </td>
+                                    <td colSpan="4" style={clearCell}>&nbsp;</td>
+                                </tr>
+                            ))}
+                        </React.Fragment>
+                    ))}
+                    <tr><td colSpan="22" style={divider}></td></tr>
+
+                    {/* ── SECTION IV ── */}
+                    <tr>
+                        <td colSpan="1"  style={grayHeader}>IV</td>
+                        <td colSpan="21" style={grayHeader}>CERTIFICATION OF NO PENDING ADMINISTRATIVE CASE</td>
+                    </tr>
+                    <tr>
+                        <td colSpan="1" style={noBorder}>&nbsp;</td>
+                        <td colSpan="1" style={noBorder}>a.</td>
+                        <td colSpan="6" style={{ ...noBorder, fontSize: '10px' }}>Internal Affairs Office/Legal Affairs Office</td>
+                        <td colSpan="2" style={clearCell}>&nbsp;</td>
+                        <td colSpan="2" style={clearCell}>&nbsp;</td>
+                        <td colSpan="6" style={{ ...clearCell, textAlign: 'center' }}><b>DR. GIOVANNI L. AHUNIN</b></td>
+                        <td colSpan="4" style={clearCell}>&nbsp;</td>
+                    </tr>
+                    <tr>
+                        <td colSpan="4" style={noBorder}>&nbsp;</td>
+                        <td colSpan="18" style={{ ...noBorder, fontSize: '10px', padding: '5px 4px' }}>
+                            [ ]&nbsp;&nbsp;&nbsp;&nbsp;with pending administrative case<br />
+                            [ ]&nbsp;&nbsp;&nbsp;&nbsp;with ongoing investigation (no formal charge yet)
+                        </td>
+                    </tr>
+                    <tr><td colSpan="22" style={divider}></td></tr>
+
+                    {/* ── SECTION V ── */}
+                    <tr>
+                        <td colSpan="1"  style={grayHeader}>V</td>
+                        <td colSpan="21" style={grayHeader}>CERTIFICATION</td>
+                    </tr>
+                    <tr>
+                        <td colSpan="22" style={{ ...noBorder, fontSize: '10px', lineHeight: '1.7', padding: '8px 5px' }}>
+                            I hereby certify that this employee is cleared of work-related, money and property accountabilities from this agency. This certification
+                            includes no pending administrative case from this agency.<br /><br />
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colSpan="22" style={{ ...noBorder, fontSize: '10px', textAlign: 'center', padding: '6px 5px' }}>
+                            <b><u>DR. ROGELIO T. MAMARADLO</u></b><br />
+                            Signature over Printed Name of Agency Head
+                        </td>
+                    </tr>
+
+                </table>
+            </div>
+            {/* ══ END of printable area ══ */}
+
+            {/* Next button is OUTSIDE printRef — never captured */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', width: '8.5in', margin: 'auto', paddingRight: '0.3in', marginBottom: '40px' }}>
+                <Button
+                    variant="contained"
+                    endIcon={<NavigateNextIcon />}
+                    onClick={handleNext}
+                    sx={{ '&:hover': { backgroundColor: 'black', color: 'lightgray' } }}
+                >
+                    Next
+                </Button>
+            </div>
         </div>
-
-
-        <div style={{position: 'relative', top: '15px', textAlign: 'center', float: 'right', left: '-75px'}}>
-            <font size="3">Republic of the Philippines</font><br />
-            <b><font size="4">EULOGIO "AMANG" RODRIGUEZ</font></b><br />
-            <b><font size="4">INSTITUTE OF SCIENCE AND TECHNOLOGY</font></b><br />
-            <font size="3">Nagtahan, Sampaloc, Manila</font>
-        </div>
-      </div>
-      <tbody>
- 
-      <div style={{padding: '0.1in', width: '4in', textAlign: 'center', margin: 'auto'}}>
-        <font size="5">CLEARANCE FORM</font><br />
-        <font size="2"><i>(Instructions at the back)</i></font>
-      </div>
-      <table style={{border:'3px solid black', borderCollapse:'collapse', width:'8in', tableLayout:'fixed'}}>
-          <tr>
-            <td colSpan="1" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px solid black' }}>
-            I
-            </td>
-            <td colSpan="21" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px solid black' }}>
-            PURPOSE
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="12" style={{height: '0.1in', border: '0px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="10" style={{height: '0.1in', border: '0px solid black', textAlign: 'center'}}>
-            <span
-              style={{
-                display: 'inline-block',
-                width: '320px',
-                borderBottom: '1px solid black',
-              }}
-            />
-            <br />
-            Date of Filing
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="2" rowSpan="3" style={{height: '0.1in', border: '0px 0px 1px 0px solid black', verticalAlign: 'top'}}>
-            <br />
-            TO:
-            </td>
-            <td colSpan="20" style={{height: '0.1in', border: '0px 0px 1px 0px solid black'}}>
-            <br />
-            <b><u>EULOGIO "AMANG" RODRIGUEZ INSTITUTE OF SCIENCE AND TECHNOLOGY</u></b><br />
-            I hereby request clearance from money, property and work-related accountabilities for:
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="3" style={{verticalAlign: 'top'}}>
-            Purpose:
-            </td>
-            <td colSpan="4">
-            [ ] Transfer<br />
-            [ ] Retirement
-            </td>
-            <td colSpan="4">
-            [ ] Resignation<br />
-            [ ] Leave
-            </td>
-            <td colSpan="9">
-            [ ] Other Mode of Separation:<br />
-            &nbsp;&nbsp;&nbsp; Please specify:{' '}
-            <span
-              style={{
-                display: 'inline-block',
-                width: '200px',
-                borderBottom: '1px solid black',
-              }}
-            />
-            </td>
-           
-        </tr>
-        <tr>
-            <td colSpan="20" style={{height: '0.1in',}}>
-            <br />
-            Date of Effectivity:{' '}
-            <span
-              style={{
-                display: 'inline-block',
-                width: '80%',
-                borderBottom: '1px solid black',
-              }}
-            />
-            <br />
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="12" style={{height: '0.1in', border: '1px solid black'}}>
-            <br />
-            Office of Assignment:{' '}
-            <span
-              style={{
-                display: 'inline-block',
-                width: '300px',
-                borderBottom: '1px solid black',
-              }}
-            />
-            <br />
-            <br />
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Position/SG/Step:{' '}
-            <span
-              style={{
-                display: 'inline-block',
-                width: '300px',
-                borderBottom: '1px solid black',
-              }}
-            />
-            </td>
-            <td colSpan="10" style={{height: '0.1in', border: '1px solid black', textAlign: 'center'}}>
-            <br />
-            <span
-              style={{
-                display: 'inline-block',
-                width: '300px',
-                borderBottom: '1px solid black',
-              }}
-            />
-            <br />
-            Name and Signature of Employee
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="22" style={{height: '1px',  fontSize: '0%', backgroundColor:'black', border: '0px solid white'}}>          
-            </td>
-        </tr>      
-        <tr>
-            <td colSpan="1" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px solid black'}}>
-            II
-            </td>
-            <td colSpan="21" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px solid black'}}>
-            CLEARANCE FROM WORK-RELATED ACCOUNTABILITIES
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="22" style={{height: '0.1in', fontSize: '85%', border: '0px solid black', textAlign: 'center'}}>
-            We hereby certify that this employee is cleared/not cleared of work-related accountabilities from this Unit/Office/Dept.
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="11" style={{height: '0.1in', border: '0px solid black', textAlign: 'center'}}>
-            <br />
-            <span
-              style={{
-                display: 'inline-block',
-                width: '300px',
-                borderBottom: '1px solid black',
-              }}
-            />
-            <br />
-            Immediate Supervisor
-            </td>
-            <td colSpan="11" style={{height: '0.1in', border: '0px solid black', textAlign: 'center'}}>
-            <br />
-            <span
-              style={{
-                display: 'inline-block',
-                width: '300px',
-                borderBottom: '1px solid black',
-              }}
-            />
-            <br />
-            Head of Office
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="22" style={{height: '1px', fontSize: '0%', backgroundColor:'black', border: '0px solid white'}}>          
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="1" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px solid black'}}>
-            III
-            </td>
-            <td colSpan="21" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px solid black'}}>
-            CLEARANCE FROM MONEY AND PROPERTY ACCOUNTABILITIES
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="8" style={{height: '0.1in', fontSize: '90%', border: '1px solid black', textAlign: 'center'}}>
-            Name of Unit/Office/Department
-            </td>
-            <td colSpan="2" style={{height: '0.1in', fontSize: '90%', border: '1px solid black', textAlign: 'center'}}>
-            Cleared
-            </td>
-            <td colSpan="2" style={{height: '0.1in', fontSize: '75%', border: '1px solid black', textAlign: 'center'}}>
-            Not Cleared
-            </td>
-            <td colSpan="6" style={{height: '0.1in', fontSize: '85%', border: '1px solid black', textAlign: 'center'}}>
-            Name of Clearing Officer/Official
-            </td>
-            <td colSpan="4" style={{height: '0.1in', fontSize: '90%', border: '1px solid black', textAlign: 'center'}}>
-            Signature
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="1" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px 1px 1px 0px solid black'}}>
-            1.
-            </td>
-            <td colSpan="21" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px 0px 1px 1px solid black'}}>
-            <i>Administrative Services</i>
-            </td>
-        </tr>
-        <tr style={{border: '1px solid black'}}>
-            <td colSpan="1" style={{height: '0.1in', fontSize: '90%', border: '0px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="1" style={{height: '0.1in', fontSize: '90%', border: '0px solid black'}}>
-            a.
-            </td>
-            <td colSpan="6" style={{height: '0.1in', fontSize: '75%', border: '0px solid black'}}>
-            Supply and Property Procurement and<br />
-            Management Services
-            </td>
-            <td colSpan="2" style={{height: '0.1in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="2" style={{height: '0.1in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="6" style={{height: '0.1in', fontSize: '90%', border: '1px solid black', textAlign: 'center'}}>
-            <b>DR. HIROMI T. KIKUCHI</b>
-            </td>
-            <td colSpan="4" style={{height: '0.1in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-        </tr>
-        <tr style={{border: '1px solid black'}}>
-            <td colSpan="1" style={{height: '0.1in', fontSize: '90%', border: '0px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="1" style={{height: '0.1in', fontSize: '90%', border: '0px solid black'}}>
-            b.
-            </td>
-            <td colSpan="6" style={{height: '0.1in', fontSize: '75%', border: '0px solid black'}}>
-            Human Resource Welfare & Assistance
-            </td>
-            <td colSpan="2" style={{height: '0.1in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="2" style={{height: '0.1in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="6" style={{height: '0.1in', fontSize: '90%', border: '1px solid black', textAlign: 'center'}}>
-            <b>AMPARO M. MORALES</b>
-            </td>
-            <td colSpan="4" style={{height: '0.1in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-        </tr>
-        <tr style={{border: '1px solid black'}}>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            c.
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '75%', border: '0px solid black'}}>
-            Agency-accredited Union/Cooperative
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '90%', border: '1px solid black', textAlign: 'center'}}>
-            <b>PERFITA NATAL</b>
-            </td>
-            <td colSpan="4" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="1" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px 1px 1px 0px solid black'}}>
-            2.
-            </td>
-            <td colSpan="21" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px 0px 1px 1px solid black'}}>
-            <i>Library</i>
-            </td>
-        </tr>
-        <tr style={{border: '1px solid black'}}>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            a.
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '75%', border: '0px solid black'}}>
-            Legal Office Library
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '90%', border: '1px solid black', textAlign: 'center'}}>
-            &nbsp;
-            </td>
-            <td colSpan="4" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-        </tr>
-        <tr style={{border: '1px solid black'}}>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            b.
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '75%', border: '0px solid black'}}>
-            Library Services
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '90%', border: '1px solid black', textAlign: 'center'}}>
-            <b>CARINA ROMAQUIN</b>
-            </td>
-            <td colSpan="4" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="1" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px 1px 1px 0px solid black'}}>
-            3.
-            </td>
-            <td colSpan="21" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px 0px 1px 1px solid black'}}>
-            <i>Finance and Assets Management</i>
-            </td>
-        </tr>
-        <tr style={{border: '1px solid black'}}>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            a.
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '75%', border: '0px solid black'}}>
-            Financial Services
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '90%', border: '1px solid black', textAlign: 'center'}}>
-            <b>DR. YOLANDA A. LARA</b>
-            </td>
-            <td colSpan="4" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-        </tr>
-        <tr style={{border: '1px solid black'}}>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            b.
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '75%', border: '0px solid black'}}>
-            Transaction, Processing & Billing Services
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '90%', border: '1px solid black', textAlign: 'center'}}>
-            &nbsp;
-            </td>
-            <td colSpan="4" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-        </tr>
-        <tr style={{border: '1px solid black'}}>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            c.
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '75%', border: '0px solid black'}}>
-            Payroll & Services
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '90%', border: '1px solid black', textAlign: 'center'}}>
-            &nbsp;
-            </td>
-            <td colSpan="4" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="1" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px 1px 1px 0px solid black'}}>
-            4.
-            </td>
-            <td colSpan="21" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px 0px 1px 1px solid black'}}>
-            <i>Professional and Institutional Development</i>
-            </td>
-        </tr>
-        <tr style={{border: '1px solid black'}}>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            a.
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '75%', border: '0px solid black'}}>
-            Scholarship Services
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '90%', border: '1px solid black', textAlign: 'center'}}>
-            &nbsp;
-            </td>
-            <td colSpan="4" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="22" style={{height: '1px', fontSize: '0%', backgroundColor:'black', border: '0px solid white'}}>          
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="1" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px solid black'}}>
-            IV
-            </td>
-            <td colSpan="21" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px solid black'}}>
-            CERTIFICATION OF NO PENDING ADMINISTRATIVE CASE
-            </td>
-        </tr>
-        <tr style={{border: '1px solid black'}}>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="1" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            a.
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '75%', border: '0px solid black'}}>
-            Internal Affairs Office/Legal Affairs Office
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="2" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="6" style={{height: '0.3in', fontSize: '90%', border: '1px solid black', textAlign: 'center'}}>
-            <b>DR. GIOVANNI L. AHUNIN</b>
-            </td>
-            <td colSpan="4" style={{height: '0.3in', fontSize: '90%', border: '1px solid black'}}>
-            &nbsp;
-            </td>
-        </tr>
-        <tr style={{border: '1px solid black'}}>
-            <td colSpan="4" style={{height: '0.3in', fontSize: '90%', border: '0px solid black'}}>
-            &nbsp;
-            </td>
-            <td colSpan="18" style={{height: '0.5in', fontSize: '90%', border: '0px solid black'}}>
-            [ ]&nbsp;&nbsp;&nbsp;&nbsp;with pending administrative case<br />
-            [ ]&nbsp;&nbsp;&nbsp;&nbsp;with ongoing investigation (no formal charge yet)<br />
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="22" style={{height: '1px', fontSize: '0%', backgroundColor:'black', border: '0px solid white'}}>          
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="1" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px solid black'}}>
-            V
-            </td>
-            <td colSpan="21" style={{height: '0.1in', backgroundColor:'lightgray', border: '1px solid black'}}>
-            CERTIFICATION
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="22" style={{height: '0.8in', fontSize: '80%'}}>
-            I hereby certify that this employee is cleared of work-related, money and property accountabilities from this agency. This certification<br />
-            includes no pending administrative case from this agency.<br />
-            <br />
-            </td>
-        </tr>
-        <tr>
-            <td colSpan="22" style={{height: '0.4in', fontSize: '80%', textAlign: 'center'}}>
-            <b><u>DR. ROGELIO T. MAMARADLO</u></b><br />
-            Signature over Printed Name of Agency Head
-            </td>
-        </tr>      
-
-
-
-
-      </table>
-      </tbody>
-       {/* Next Button */}
-     <Button
-     variant="contained"
-     endIcon={<NavigateNextIcon />}
-     onClick={handleNext}
-     color="darkgray"
-     sx={{
-        position:'right',
-        marginTop: '10px',
-        marginLeft: '7in',
-        '&:hover': {
-            backgroundColor: 'black',
-            color: 'lightgray'}
-       
-       
-     }}
-   
-   >
-     Next
-   </Button>
-    </div>
-    </div>
-
-
-   
-   
     );
 };
 
-
-   
 export default Clearance;
-
-
-

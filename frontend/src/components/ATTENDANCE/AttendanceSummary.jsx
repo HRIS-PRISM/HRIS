@@ -338,15 +338,12 @@ const OverallAttendance = () => {
   const grayColor = '#6c757d';
 
   //ACCESSING
-  // Dynamic page access control using component identifier
-  // The identifier 'attendance-summary' should match the component_identifier in the pages table
   const {
     hasAccess,
     loading: accessLoading,
     error: accessError,
   } = usePageAccess('attendance-summary');
   
-  // Debug logging (remove in production)
   useEffect(() => {
     if (!accessLoading) {
       console.log('AttendanceSummary Access Check:', {
@@ -1031,7 +1028,6 @@ const OverallAttendance = () => {
   };
 
   // ACCESSING 2
-  // Loading state
   if (accessLoading) {
     return (
       <Container maxWidth="md" sx={{ py: 8 }}>
@@ -1050,8 +1046,6 @@ const OverallAttendance = () => {
       </Container>
     );
   }
-  // Access denied state - Now using the reusable component
-  // Check for both false and null (when not loading and no access)
   if (!accessLoading && hasAccess !== true) {
     return (
       <AccessDenied
@@ -1068,13 +1062,13 @@ const OverallAttendance = () => {
     <Box sx={{ 
       py: 4,
       borderRadius: '14px',
-      width: '100vw', // Full viewport width
-      mx: 'auto', // Center horizontally
-      maxWidth: '100%', // Ensure it doesn't exceed viewport
-      overflow: 'hidden', // Prevent horizontal scroll
+      width: '100vw',
+      mx: 'auto',
+      maxWidth: '100%',
+      overflow: 'hidden',
       position: 'relative',
       left: '50%',
-      transform: 'translateX(-50%)', // Center element
+      transform: 'translateX(-50%)',
     }}>
       {/* Wider Container */}
       <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
@@ -1356,7 +1350,7 @@ const OverallAttendance = () => {
                 <Table 
                   stickyHeader 
                   sx={{ 
-                    minWidth: '2000px', // Set minimum width to ensure horizontal scrolling
+                    minWidth: '1800px', // Adjusted since one column is hidden
                   }}
                 >
                   <TableHead>
@@ -1378,6 +1372,10 @@ const OverallAttendance = () => {
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Overtime Tardiness</PremiumTableCell>
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Overall Official Rendered Time</PremiumTableCell>
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Overall Official Tardiness Time</PremiumTableCell>
+                      {/* Overall Total Official Schedule is intentionally hidden:
+                          It is used internally so that days with Leave, Suspension, or Holidays
+                          do not incorrectly generate tardiness — the official 9-hour time is still
+                          counted as a paid day, so tardiness should be 00:00:00 for those days. */}
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Action</PremiumTableCell>
                     </TableRow>
                   </TableHead>
@@ -1560,6 +1558,9 @@ const OverallAttendance = () => {
                             record.overallRenderedOfficialTimeTardiness
                           )}
                         </PremiumTableCell>
+                        {/* overallTotalOfficialSchedule is kept in record data for backend payroll logic
+                            but intentionally NOT rendered in the UI. It ensures Leave / Suspension /
+                            Holiday days are treated as paid with 00:00:00 tardiness. */}
                         <PremiumTableCell>
                           {editRecord && editRecord.id === record.id ? (
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -1695,189 +1696,188 @@ const OverallAttendance = () => {
           </Fade>
         )}
 
-        {/* Modal */}
-       {/* Confirmation Modal for Regular Payroll Submission */}
-       <Dialog
-         open={showRegularConfirm}
-         onClose={() => {
-           setShowRegularConfirm(false);
-           setConfirmRegularChecked(false);
-         }}
-         maxWidth="sm"
-         fullWidth
-         PaperProps={{
-           sx: {
-             borderRadius: 3,
-             boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-             border: '2px solid #6D2323',
-             overflow: 'hidden',
-           },
-         }}
-       >
-         <DialogTitle
-           sx={{
-             px: 3,
-           pt: 2.5,
-           pb: 2,
-             display: 'flex',
-             alignItems: 'center',
-             gap: 2,
-             borderBottom: '3px solid #6D2323',
-             backgroundColor: '#FFFFFF',
-           }}
-         >
-           <Avatar
-             sx={{
-               bgcolor: 'rgba(109,35,35,0.08)',
-               color: '#6D2323',
-               width: 52,
-               height: 52,
-             }}
-           >
-             <Assignment sx={{ fontSize: 26 }} />
-           </Avatar>
-           <Box>
-             <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#333' }}>
-               Confirm Regular Payroll Submission
-             </Typography>
-             <Typography variant="body2" sx={{ color: '#666' }}>
-               Final confirmation required before submitting to Regular payroll.
-             </Typography>
-           </Box>
-         </DialogTitle>
+        {/* Confirmation Modal for Regular Payroll Submission */}
+        <Dialog
+          open={showRegularConfirm}
+          onClose={() => {
+            setShowRegularConfirm(false);
+            setConfirmRegularChecked(false);
+          }}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: 3,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+              border: '2px solid #6D2323',
+              overflow: 'hidden',
+            },
+          }}
+        >
+          <DialogTitle
+            sx={{
+              px: 3,
+              pt: 2.5,
+              pb: 2,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              borderBottom: '3px solid #6D2323',
+              backgroundColor: '#FFFFFF',
+            }}
+          >
+            <Avatar
+              sx={{
+                bgcolor: 'rgba(109,35,35,0.08)',
+                color: '#6D2323',
+                width: 52,
+                height: 52,
+              }}
+            >
+              <Assignment sx={{ fontSize: 26 }} />
+            </Avatar>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#333' }}>
+                Confirm Regular Payroll Submission
+              </Typography>
+              <Typography variant="body2" sx={{ color: '#666' }}>
+                Final confirmation required before submitting to Regular payroll.
+              </Typography>
+            </Box>
+          </DialogTitle>
 
-         <DialogContent
-           sx={{
-             px: 4,
-             pt: 5,
-             pb: 3,
-             backgroundColor: '#FFFFFF',
-           }}
-         >
-           <Alert
-             severity="info"
-             icon={<InfoIcon />}
-             sx={{
-              mt: 2,
-              mb: 3.5,
-               borderRadius: 2,
-               bgcolor: 'rgba(109,35,35,0.04)',
-               border: '1px solid rgba(109,35,35,0.2)',
-               '& .MuiAlert-icon': {
-                 color: '#6D2323',
-                 fontSize: 24,
-               },
-             }}
-           >
-             <Typography
-               variant="body1"
-               sx={{ fontWeight: 600, mb: 0.5, color: '#333' }}
-             >
-               {attendanceData.length} record(s) will be validated and submitted.
-             </Typography>
-             <Typography variant="body2" sx={{ color: '#555' }}>
-               Please ensure all attendance records are complete and accurate
-               before continuing. This action will forward data to Regular
-               payroll processing.
-             </Typography>
-           </Alert>
+          <DialogContent
+            sx={{
+              px: 4,
+              pt: 5,
+              pb: 3,
+              backgroundColor: '#FFFFFF',
+            }}
+          >
+            <Alert
+              severity="info"
+              icon={<InfoIcon />}
+              sx={{
+                mt: 2,
+                mb: 3.5,
+                borderRadius: 2,
+                bgcolor: 'rgba(109,35,35,0.04)',
+                border: '1px solid rgba(109,35,35,0.2)',
+                '& .MuiAlert-icon': {
+                  color: '#6D2323',
+                  fontSize: 24,
+                },
+              }}
+            >
+              <Typography
+                variant="body1"
+                sx={{ fontWeight: 600, mb: 0.5, color: '#333' }}
+              >
+                {attendanceData.length} record(s) will be validated and submitted.
+              </Typography>
+              <Typography variant="body2" sx={{ color: '#555' }}>
+                Please ensure all attendance records are complete and accurate
+                before continuing. This action will forward data to Regular
+                payroll processing.
+              </Typography>
+            </Alert>
 
-           <Box
-             sx={{
-               p: 2.5,
-               bgcolor: '#f9f9f9',
-               borderRadius: 2,
-               border: `2px solid ${
-                 confirmRegularChecked ? '#6D2323' : '#e0e0e0'
-               }`,
-               display: 'flex',
-               alignItems: 'flex-start',
-               gap: 1.5,
-               transition: 'all 0.2s ease',
-               ...(confirmRegularChecked && {
-                 bgcolor: 'rgba(109,35,35,0.04)',
-               }),
-             }}
-           >
-             <Checkbox
-               checked={confirmRegularChecked}
-               onChange={(e) => setConfirmRegularChecked(e.target.checked)}
-               sx={{
-                 color: '#6D2323',
-                 '&.Mui-checked': {
-                   color: '#6D2323',
-                 },
-                 mt: -0.5,
-               }}
-             />
-             <Box>
-               <Typography
-                 variant="body1"
-                 sx={{ fontWeight: 600, color: '#333', mb: 0.5 }}
-               >
-                 I confirm that I have reviewed all Regular payroll records.
-               </Typography>
-               <Typography variant="body2" sx={{ color: '#666' }}>
-                 All information for Regular employees is accurate and ready for
-                 submission to payroll. I understand this action cannot be
-                 undone.
-               </Typography>
-             </Box>
-           </Box>
-         </DialogContent>
+            <Box
+              sx={{
+                p: 2.5,
+                bgcolor: '#f9f9f9',
+                borderRadius: 2,
+                border: `2px solid ${
+                  confirmRegularChecked ? '#6D2323' : '#e0e0e0'
+                }`,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 1.5,
+                transition: 'all 0.2s ease',
+                ...(confirmRegularChecked && {
+                  bgcolor: 'rgba(109,35,35,0.04)',
+                }),
+              }}
+            >
+              <Checkbox
+                checked={confirmRegularChecked}
+                onChange={(e) => setConfirmRegularChecked(e.target.checked)}
+                sx={{
+                  color: '#6D2323',
+                  '&.Mui-checked': {
+                    color: '#6D2323',
+                  },
+                  mt: -0.5,
+                }}
+              />
+              <Box>
+                <Typography
+                  variant="body1"
+                  sx={{ fontWeight: 600, color: '#333', mb: 0.5 }}
+                >
+                  I confirm that I have reviewed all Regular payroll records.
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#666' }}>
+                  All information for Regular employees is accurate and ready for
+                  submission to payroll. I understand this action cannot be
+                  undone.
+                </Typography>
+              </Box>
+            </Box>
+          </DialogContent>
 
-         <DialogActions
-           sx={{
-             px: 4,
-             py: 3,
-             backgroundColor: '#FFFFFF',
-             borderTop: '1px solid rgba(0,0,0,0.06)',
-             display: 'flex',
-             justifyContent: 'flex-end',
-             gap: 1.5,
-           }}
-         >
-           <ProfessionalButton
-             variant="outlined"
-             onClick={() => {
-               setShowRegularConfirm(false);
-               setConfirmRegularChecked(false);
-             }}
-             sx={{
-               minWidth: 120,
-               borderColor: '#6D2323',
-               color: '#6D2323',
-               fontWeight: 600,
-             }}
-           >
-             Cancel
-           </ProfessionalButton>
-           <ProfessionalButton
-             variant="contained"
-             disabled={!confirmRegularChecked || isSubmitting}
-             onClick={async () => {
-               setShowRegularConfirm(false);
-               setConfirmRegularChecked(false);
-               await submitToPayroll();
-             }}
-             sx={{
-               minWidth: 160,
-               bgcolor: '#6D2323',
-               color: '#FEF9E1',
-               fontWeight: 600,
-               '&:hover': {
-                 bgcolor: '#8B3333',
-               },
-               '&:disabled': {
-                 bgcolor: 'rgba(0,0,0,0.12)',
-                 color: 'rgba(0,0,0,0.4)',
-               },
-             }}
-           >
-             {isSubmitting ? 'Submitting...' : 'Confirm & Submit'}
-           </ProfessionalButton>
-         </DialogActions>
-       </Dialog>
+          <DialogActions
+            sx={{
+              px: 4,
+              py: 3,
+              backgroundColor: '#FFFFFF',
+              borderTop: '1px solid rgba(0,0,0,0.06)',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: 1.5,
+            }}
+          >
+            <ProfessionalButton
+              variant="outlined"
+              onClick={() => {
+                setShowRegularConfirm(false);
+                setConfirmRegularChecked(false);
+              }}
+              sx={{
+                minWidth: 120,
+                borderColor: '#6D2323',
+                color: '#6D2323',
+                fontWeight: 600,
+              }}
+            >
+              Cancel
+            </ProfessionalButton>
+            <ProfessionalButton
+              variant="contained"
+              disabled={!confirmRegularChecked || isSubmitting}
+              onClick={async () => {
+                setShowRegularConfirm(false);
+                setConfirmRegularChecked(false);
+                await submitToPayroll();
+              }}
+              sx={{
+                minWidth: 160,
+                bgcolor: '#6D2323',
+                color: '#FEF9E1',
+                fontWeight: 600,
+                '&:hover': {
+                  bgcolor: '#8B3333',
+                },
+                '&:disabled': {
+                  bgcolor: 'rgba(0,0,0,0.12)',
+                  color: 'rgba(0,0,0,0.4)',
+                },
+              }}
+            >
+              {isSubmitting ? 'Submitting...' : 'Confirm & Submit'}
+            </ProfessionalButton>
+          </DialogActions>
+        </Dialog>
 
         <StyledModal
           open={modal.open}
