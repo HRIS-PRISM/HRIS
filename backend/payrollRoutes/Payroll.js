@@ -1203,16 +1203,15 @@ router.post('/finalized-payroll', authenticateToken, async (req, res) => {
 router.delete('/payroll-processed/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
 
-  // ✅ First fetch the unique identifiers from payroll_processed so we can update ONLY the matching processing row
   const selectQuery = `
-    SELECT employeeNumber, startDate, endDate
+    SELECT employeeNumber, startDate, endDate, tevl
     FROM payroll_processed
     WHERE id = ?
     LIMIT 1
   `;
 
   const deleteQuery = 'DELETE FROM payroll_processed WHERE id = ?';
-  const updateQuery = `
+  const updateStatusQuery = `
     UPDATE payroll_processing
     SET status = 0
     WHERE employeeNumber = ? AND startDate = ? AND endDate = ?
@@ -1224,7 +1223,11 @@ router.delete('/payroll-processed/:id', authenticateToken, (req, res) => {
       return res.status(404).json({ message: 'Payroll record not found' });
     }
 
-    const { employeeNumber, startDate, endDate } = rows[0];
+    const { employeeNumber, startDate, endDate, tevl } = rows[0];
+
+    // tevl in payroll_processed already has +10 added during finalization
+    // So original leave balance = tevl - 10
+    const originalLeaveHours = Math.max(0, (parseFloat(tevl) || 0) - 10);
 
     db.query(deleteQuery, [id], (err, results) => {
       if (err) return res.status(500).json({ error: err.message });
@@ -1232,28 +1235,41 @@ router.delete('/payroll-processed/:id', authenticateToken, (req, res) => {
         return res.status(404).json({ message: 'Payroll record not found' });
       }
 
-      db.query(
-        updateQuery,
-        [employeeNumber, startDate, endDate],
-        (updateErr, updateResult) => {
-          if (updateErr) {
-            return res
-              .status(500)
-              .json({ error: 'Deleted but failed to update status.' });
-          }
+      // Restore leave_assignment back to the original value before finalization
+      const restoreLeaveQuery = `
+        UPDATE leave_assignment
+        SET remaining_hours = ?
+        WHERE employeeNumber = ?
+        AND leave_code = 'VL'
+      `;
 
-          // Audit log
-          logAudit(req.user, 'delete', 'payroll_processed', id, employeeNumber);
+      db.query(restoreLeaveQuery, [originalLeaveHours, employeeNumber], (leaveErr) => {
+        if (leaveErr) {
+          console.error('Error restoring leave balance:', leaveErr);
+        }
 
-          notifyPayrollChanged('deleted', { module: 'payroll-processed', id });
+        db.query(
+          updateStatusQuery,
+          [employeeNumber, startDate, endDate],
+          (updateErr, updateResult) => {
+            if (updateErr) {
+              return res
+                .status(500)
+                .json({ error: 'Deleted but failed to update status.' });
+            }
 
-          res.json({
-            message: 'Deleted and status updated.',
-            deleted: results.affectedRows,
-            updated: updateResult.affectedRows,
-          });
-        },
-      );
+            logAudit(req.user, 'delete', 'payroll_processed', id, employeeNumber);
+            notifyPayrollChanged('deleted', { module: 'payroll-processed', id });
+
+            res.json({
+              message: 'Deleted, status updated, and leave balance restored to original.',
+              deleted: results.affectedRows,
+              updated: updateResult.affectedRows,
+              restoredLeaveHours: originalLeaveHours,
+            });
+          },
+        );
+      });
     });
   });
 });
