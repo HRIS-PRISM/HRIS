@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { jwtDecode } from 'jwt-decode';
 import { AccessTime, CalendarToday, SearchOutlined } from '@mui/icons-material';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import PrintIcon from '@mui/icons-material/Print';
 import {
   Avatar,
@@ -891,15 +892,18 @@ const DailyTimeRecord = () => {
     );
   };
 
-  const cellStyle = {
-    border: '1px solid black',
-    textAlign: 'center',
-    padding: '0 1px',
-    fontFamily: 'Arial, serif',
-    fontSize: '10px',
-    height: '16px',
-    whiteSpace: 'nowrap',
-  };
+const cellStyle = {
+  border: '1px solid black',
+  textAlign: 'center',
+  padding: '0 1px',
+  fontFamily: 'Arial, serif',
+  fontSize: '8px',
+  height: '16px',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  maxWidth: '52px',
+  letterSpacing: '-0.3px',
+};
 
   // Helper function to check if a date falls within a date range
   const isDateInRange = (date, startDate, endDate) => {
@@ -2059,46 +2063,60 @@ const DailyTimeRecord = () => {
           </Paper>
         </Fade>
 
-        <Box
-          sx={{
-            display: 'flex',
-            justifyContent: 'center',
-            gap: 2,
-            mt: 2,
-            mb: 4,
-          }}
-        >
-          <ProfessionalButton
-            variant="contained"
-            onClick={printPage}
-            startIcon={<PrintIcon />}
-            className="no-print"
-            sx={{
-              backgroundColor: accentColor,
-              color: textSecondaryColor,
-              '&:hover': { backgroundColor: accentDark },
-              py: 1.5,
-              px: 4,
-            }}
-          >
-            Print
-          </ProfessionalButton>
-          <ProfessionalButton
-            variant="contained"
-            onClick={downloadPDF}
-            startIcon={<PrintIcon />}
-            className="no-print"
-            sx={{
-              backgroundColor: accentColor,
-              color: textSecondaryColor,
-              '&:hover': { backgroundColor: accentDark },
-              py: 1.5,
-              px: 4,
-            }}
-          >
-            Download PDF
-          </ProfessionalButton>
-        </Box>
+<Box
+  className="no-print"
+  sx={{
+    position: 'fixed',
+    bottom: 60,
+    right: 24,
+    display: 'flex',
+    flexDirection: 'row', // ✅ side by side
+    gap: 1.5,
+    zIndex: 1300,
+  }}
+>
+  <Tooltip title="Print DTR" placement="top">
+    <IconButton
+      onClick={printPage}
+      sx={{
+        backgroundColor: '#ffffff',
+        color: '#6D2323',
+        width: 52,
+        height: 52,
+        border: '1px solid #e0e0e0',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        transition: 'all 0.2s ease',
+        '&:hover': {
+          backgroundColor: '#f5f5f5',
+          transform: 'translateY(-2px)',
+        },
+      }}
+    >
+      <PrintIcon />
+    </IconButton>
+  </Tooltip>
+
+  <Tooltip title="Download PDF" placement="top">
+    <IconButton
+      onClick={downloadPDF}
+      sx={{
+        backgroundColor: '#ffffff',
+        color: '#A31D1D',
+        width: 52,
+        height: 52,
+        border: '1px solid #e0e0e0',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        transition: 'all 0.2s ease',
+        '&:hover': {
+          backgroundColor: '#f5f5f5',
+          transform: 'translateY(-2px)',
+        },
+      }}
+    >
+      <PictureAsPdfIcon />
+    </IconButton>
+  </Tooltip>
+</Box>
       </Box>
     </Container>
   );

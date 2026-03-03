@@ -2024,12 +2024,7 @@ const PayrollProcess = () => {
                         >
                           No.
                         </PremiumTableCell>
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          View
-                        </PremiumTableCell>
+
                         <PremiumTableCell
                           isHeader
                           sx={{ color: textPrimaryColor }}
@@ -2440,30 +2435,7 @@ const PayrollProcess = () => {
                                 <ExcelTableCell>
                                   {page * rowsPerPage + index + 1}
                                 </ExcelTableCell>
-                                <ExcelTableCell>
-                                  <Button
-                                    onClick={() => handleView(row.id)}
-                                    variant="contained"
-                                    size="small"
-                                    sx={{
-                                      bgcolor: '#ffffff',
-                                      color: '#FFFFFF',
-                                      minWidth: '80px',
-                                      border: `1px solid ${accentColor}`,
-                                      width: '32px',
-                                      height: '32px',
-                                      padding: 0,
-                                      '&:hover': {
-                                        bgcolor: accentColor,
-                                        color: textSecondaryColor,
-                                      },
-                                    }}
-                                    title="View Record"
-                                  >
-                                    <Visibility fontSize="small" />
-                                    View
-                                  </Button>
-                                </ExcelTableCell>
+
                                 <ExcelTableCell>
                                   {row.department}
                                 </ExcelTableCell>
@@ -3025,7 +2997,23 @@ const PayrollProcess = () => {
                                     paddingTop: 2,
                                     paddingBottom: 2,
                                   }}
-                                >
+                                ><Tooltip title="View Record">
+  <IconButton
+    size="small"
+    onClick={() => handleView(row.id)}
+    sx={{
+      color: accentColor,
+      backgroundColor: 'white',
+      border: `1px solid ${accentColor}`,
+      '&:hover': {
+        backgroundColor: alpha(accentColor, 0.1),
+      },
+      padding: '4px',
+    }}
+  >
+    <Visibility fontSize="small" />
+  </IconButton>
+</Tooltip>
                                   <Tooltip title="Edit Record">
                                     <IconButton
                                       size="small"
@@ -3467,7 +3455,7 @@ const PayrollProcess = () => {
                           <Typography variant="caption" color="text.secondary">
                             ABS
                           </Typography>
-                          <Typography variant="body2" fontWeight="500">
+                          <Typography variant="body2" fontWeight="500" >
                             {editRow.abs || '0.00'}
                           </Typography>
                         </Grid>
