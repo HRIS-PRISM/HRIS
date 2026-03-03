@@ -286,30 +286,35 @@ const QUICK_ACTIONS = (settings) => [
     label: "Users",
     link: "/users-list",
     icon: <Group />,
+    tooltip: "Users Management",
     gradient: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
   },
   {
     label: "Payroll",
     link: "/payroll-table",
     icon: <PaymentsIcon />,
+    tooltip: "Payroll Processing",
     gradient: `linear-gradient(135deg, ${settings.secondaryColor}, ${settings.primaryColor})`,
   },
   {
     label: "Category",
     link: "/employee-category",
     icon: <CategoryIcon />,
+    tooltip: "Employment Category",
     gradient: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
   },
   {
-    label: "DTRs",
+    label: "O-DTRs",
     link: "/daily_time_record_faculty",
     icon: <AccessTimeIcon />,
+    tooltip: "Overall Daily Time Records",
     gradient: `linear-gradient(135deg, ${settings.secondaryColor}, ${settings.primaryColor})`,
   },
   {
     label: "Announcements",
     link: "/announcement",
     icon: <CampaignIcon />,
+    tooltip: "Announcements/Suspensions/Holidays",
     gradient: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
   },
   // {
@@ -322,6 +327,7 @@ const QUICK_ACTIONS = (settings) => [
     label: "Audit Logs",
     link: "/audit-logs",
     icon: <History />,
+    tooltip: "Audit Logs",
     gradient: `linear-gradient(135deg, ${settings.secondaryColor}, ${settings.primaryColor})`,
     restricted: true, // Mark as restricted
   },
@@ -329,13 +335,22 @@ const QUICK_ACTIONS = (settings) => [
     label: "Registration",
     link: "/registration",
     icon: <PersonAdd />,
+    tooltip: "Registration",
     gradient: `linear-gradient(135deg, ${settings.secondaryColor}, ${settings.primaryColor})`,
   },
   {
     label: "Payslip",
     link: "/distribution-payslip",
     icon: <PersonAdd />,
+    tooltip: "Payslip Distribution",
     gradient: `linear-gradient(135deg, ${settings.secondaryColor}, ${settings.primaryColor})`,
+  },
+  {
+    label: "Leaves Mngt.",
+    link: "/leave-request  ",
+    icon: <EventAvailableIcon />,
+    tooltip: "Leaves Management",
+    gradient: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
   },
 ];
 
@@ -2780,6 +2795,123 @@ const EventsList = ({ settings, employeeNumber }) => {
   );
 };
 
+// New LeaveRequestManager component for admin panel
+const LeaveRequestManager = ({ settings }) => {
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const fetchRequests = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/leave-requests`);
+      if (Array.isArray(res.data)) setRequests(res.data);
+      else setRequests([]);
+    } catch (err) {
+      console.error("Error fetching leave requests:", err);
+      setRequests([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRequests();
+  }, []);
+
+  const updateStatus = async (id, status) => {
+    setActionLoading(true);
+    try {
+      // Endpoint assumed - adjust if backend differs
+      await axios.put(`${API_BASE_URL}/leave-requests/${id}/status`, { status });
+      setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
+      setSelected(null);
+    } catch (err) {
+      console.error("Error updating status:", err);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  return (
+    <Card
+      sx={{
+        background: settings.accentColor,
+        backdropFilter: "blur(15px)",
+        border: `1px solid ${settings.primaryColor}26`,
+        borderRadius: 4,
+        mb: 2,
+        boxShadow: `0 15px 40px ${settings.primaryColor}33`,
+        height: 320,
+      }}
+    >
+      <CardContent sx={{ p: 2, height: "100%", display: "flex", flexDirection: "column" }}>
+        <Typography variant="h6" sx={{ fontWeight: 600, mb: 1.5, color: settings.textPrimaryColor, fontSize: "0.85rem" }}>
+          Leave Requests
+        </Typography>
+        {loading && <LinearProgress sx={{ mb: 1 }} />}
+        <Box sx={{ flex: 1, overflowY: "auto" }}>
+          {Array.isArray(requests) && requests.length > 0 ? (
+            <List dense sx={{ p: 0 }}>
+              {requests.map((req) => (
+                <ListItem key={req.id} sx={{ p: 0, mb: 1, display: "flex", alignItems: "center" }}>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography sx={{ fontSize: "0.85rem", fontWeight: 600, color: settings.textPrimaryColor, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {req.employeeName || req.employee_number || "Unknown"}
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.7rem", color: settings.textSecondaryColor }}>
+                      {req.type || "Leave"} • {req.start_date} to {req.end_date}
+                    </Typography>
+                  </Box>
+                  <Chip label={req.status || "Pending"} size="small" sx={{ mr: 1 }} />
+                  <Button size="small" onClick={() => setSelected(req)} sx={{ mr: 1 }}>
+                    View
+                  </Button>
+                  {req.status === "Pending" && (
+                    <>
+                      <Button variant="contained" color="success" size="small" onClick={() => updateStatus(req.id, "Approved")} disabled={actionLoading} sx={{ mr: 1 }}>
+                        Approve
+                      </Button>
+                      <Button variant="contained" color="error" size="small" onClick={() => updateStatus(req.id, "Rejected")} disabled={actionLoading}>
+                        Reject
+                      </Button>
+                    </>
+                  )}
+                </ListItem>
+              ))}
+            </List>
+          ) : (
+            <Typography sx={{ fontSize: "0.85rem", color: settings.textSecondaryColor, textAlign: "center", py: 2 }}>
+              No leave requests
+            </Typography>
+          )}
+        </Box>
+      </CardContent>
+
+      <Dialog open={!!selected} onClose={() => setSelected(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 600 }}>{selected?.employeeName || "Request Details"}</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ mb: 1, color: settings.textSecondaryColor }}>Type: {selected?.type}</Typography>
+          <Typography sx={{ mb: 1, color: settings.textSecondaryColor }}>Period: {selected?.start_date} to {selected?.end_date}</Typography>
+          <Typography sx={{ mb: 1, color: settings.textSecondaryColor }}>Status: {selected?.status}</Typography>
+          <Typography sx={{ mb: 1, color: settings.textSecondaryColor }}>Reason:</Typography>
+          <Typography sx={{ color: settings.textPrimaryColor }}>{selected?.reason || "(none)"}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSelected(null)} variant="outlined">Close</Button>
+          {selected?.status === "Pending" && (
+            <>
+              <Button onClick={() => updateStatus(selected.id, "Rejected")} color="error" disabled={actionLoading}>Reject</Button>
+              <Button onClick={() => updateStatus(selected.id, "Approved")} variant="contained" disabled={actionLoading}>Approve</Button>
+            </>
+          )}
+        </DialogActions>
+      </Dialog>
+    </Card>
+  );
+};
+
 // Modified QuickActions component to filter out Audit Logs for non-superadmins
 const QuickActions = ({ settings, userRole }) => {
   const isSuperAdmin = userRole === "superadmin" || userRole === "technical";
@@ -2823,8 +2955,9 @@ const QuickActions = ({ settings, userRole }) => {
           {filteredActions.map((item, i) => (
             <Grid item xs={4} key={i}>
               <Grow in timeout={400 + i * 50}>
-                <Link to={item.link} style={{ textDecoration: "none" }}>
-                  <Box
+                <Tooltip title={item.tooltip || item.label} arrow>
+                  <Link to={item.link} style={{ textDecoration: "none" }}>
+                    <Box
                     sx={{
                       p: 1,
                       borderRadius: 1.5,
@@ -2858,6 +2991,7 @@ const QuickActions = ({ settings, userRole }) => {
                     </Typography>
                   </Box>
                 </Link>
+                </Tooltip>
               </Grow>
             </Grid>
           ))}

@@ -15,7 +15,6 @@ import {
   DialogActions,
   IconButton,
   Tooltip,
-  Chip,
   Table,
   TableBody,
   TableCell,
@@ -29,6 +28,13 @@ import {
   ToggleButton,
   Divider,
   alpha,
+  Grid,
+  Tabs,
+  Tab,
+  InputAdornment,
+  List,
+  ListItemButton,
+  ListItemText,
 } from '@mui/material';
 import {
   Calculate as CalculateIcon,
@@ -40,13 +46,17 @@ import {
   Cancel as CancelIcon,
   Search as SearchIcon,
   HelpOutline as HelpOutlineIcon,
+  Clear as ClearIcon,
+  Backspace as BackspaceIcon,
+  ArrowForwardIos as ArrowForwardIosIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import API_BASE_URL from '../../apiConfig';
 import { useSystemSettings } from '../../contexts/SystemSettingsContext';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
 
-// Available payroll fields
+// --- Data Definitions ---
+
 const PAYROLL_FIELDS = [
   { value: 'rateNbc584', label: 'Basic Rate (NBC 584)', category: 'Salary' },
   { value: 'rateNbc594', label: 'Basic Rate (NBC 594)', category: 'Salary' },
@@ -124,12 +134,14 @@ const OPERATORS = [
   { value: '-', label: 'Subtract', symbol: '−' },
   { value: '*', label: 'Multiply', symbol: '×' },
   { value: '/', label: 'Divide', symbol: '÷' },
+  { value: '(', label: 'Open Parenthesis', symbol: '(' },
+  { value: ')', label: 'Close Parenthesis', symbol: ')' },
 ];
 
 const FUNCTIONS = [
-  { value: 'Math.floor', label: 'Round Down', description: 'Example: 3.7 → 3' },
-  { value: 'Math.ceil', label: 'Round Up', description: 'Example: 3.2 → 4' },
-  { value: 'Math.round', label: 'Round', description: 'Example: 3.5 → 4' },
+  { value: 'Math.floor', label: 'Round Down', description: '3.7 → 3' },
+  { value: 'Math.ceil', label: 'Round Up', description: '3.2 → 4' },
+  { value: 'Math.round', label: 'Round', description: '3.5 → 4' },
 ];
 
 const PERCENTAGES = [
@@ -137,6 +149,8 @@ const PERCENTAGES = [
   { label: '9%', value: '0.09' },
   { label: '12%', value: '0.12' },
 ];
+
+// --- Main Component ---
 
 const PayrollFormulas = () => {
   const { settings } = useSystemSettings();
@@ -151,6 +165,10 @@ const PayrollFormulas = () => {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [searchTerm, setSearchTerm] = useState('');
   const [verificationChecked, setVerificationChecked] = useState(false);
+  
+  // Modal State for Tabs/Categories
+  const [modalTabValue, setModalTabValue] = useState(0); // 0: Fields, 1: Operators/Funcs
+  
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [originalFormula, setOriginalFormula] = useState('');
   const [originalDescription, setOriginalDescription] = useState('');
@@ -223,6 +241,7 @@ const PayrollFormulas = () => {
     setOriginalDescription(formula.description || '');
     setVerificationChecked(false);
     setSelectedCategory('All');
+    setModalTabValue(0);
     setShowModal(true);
   };
 
@@ -235,6 +254,7 @@ const PayrollFormulas = () => {
     setOriginalDescription('');
     setVerificationChecked(false);
     setSelectedCategory('All');
+    setModalTabValue(0);
     setShowModal(true);
   };
 
@@ -297,6 +317,10 @@ const PayrollFormulas = () => {
     setFormulaInput(newValue);
   };
 
+  const handleBackspace = () => {
+    setFormulaInput((prev) => prev.slice(0, -1).trimEnd());
+  };
+
   const hasChanged =
     editingFormula &&
     (formulaInput !== originalFormula ||
@@ -331,9 +355,66 @@ const PayrollFormulas = () => {
     page * rowsPerPage + rowsPerPage
   );
 
+  // --- Helper Components for Modal ---
+
+  const OperatorButton = ({ op }) => (
+    <Button
+      key={op.value}
+      variant="contained"
+      onClick={() => insertIntoFormula(op.value)}
+      sx={{
+        minWidth: 45,
+        height: 45,
+        bgcolor: '#ef5350', // Red 400
+        color: 'white',
+        fontWeight: 'bold',
+        fontSize: '1.2rem',
+        boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+        '&:hover': { bgcolor: '#e53935', transform: 'translateY(-1px)' },
+      }}
+      title={op.label}
+    >
+      {op.symbol}
+    </Button>
+  );
+
+  const FunctionChip = ({ func }) => (
+    <Tooltip key={func.value} title={func.description} arrow>
+      <Button
+        size="small"
+        variant="outlined"
+        onClick={() => insertIntoFormula(`${func.value}(`)}
+        sx={{
+          borderColor: '#66bb6a',
+          color: '#2e7d32',
+          fontWeight: 500,
+          '&:hover': { bgcolor: alpha('#66bb6a', 0.1) },
+        }}
+      >
+        {func.label}
+      </Button>
+    </Tooltip>
+  );
+
+  const PercentageChip = ({ pct }) => (
+    <Button
+      size="small"
+      variant="outlined"
+      onClick={() => insertIntoFormula(`* ${pct.value}`)}
+      sx={{
+        borderColor: '#ffa726',
+        color: '#ef6c00',
+        fontWeight: 500,
+        '&:hover': { bgcolor: alpha('#ffa726', 0.1) },
+      }}
+    >
+      {pct.label}
+    </Button>
+  );
+
   return (
     <Box sx={{ p: 3, minHeight: '100vh', bgcolor: settings.backgroundColor }}>
-      {/* Header - Fixed */}
+      {/* Header */}
       <Box sx={{ mb: 4 }}>
         <Paper
           elevation={3}
@@ -341,35 +422,51 @@ const PayrollFormulas = () => {
             p: 3,
             background: `linear-gradient(135deg, ${settings.accentColor} 0%, ${settings.backgroundColor} 100%)`,
             borderRadius: 3,
+            border: `1px solid ${alpha(settings.primaryColor, 0.2)}`,
           }}
         >
           <Box
             display="flex"
             alignItems="center"
             justifyContent="space-between"
+            flexWrap="wrap"
+            gap={2}
           >
-            <Box display="flex" alignItems="center" gap={2}>
+            <Box display="flex" alignItems="center" gap={2.5}>
               <Avatar
-                sx={{ bgcolor: settings.primaryColor, width: 56, height: 56 }}
+                sx={{
+                  bgcolor: settings.primaryColor,
+                  width: 64,
+                  height: 64,
+                  boxShadow: `0 8px 16px ${alpha(settings.primaryColor, 0.3)}`,
+                }}
               >
-                <CalculateIcon sx={{ fontSize: 32 }} />
+                <CalculateIcon sx={{ fontSize: 36 }} />
               </Avatar>
               <Box>
                 <Typography
                   variant="h4"
-                  sx={{ fontWeight: 700, color: settings.textPrimaryColor }}
+                  sx={{
+                    fontWeight: 800,
+                    color: settings.textPrimaryColor,
+                    letterSpacing: '-0.5px',
+                  }}
                 >
-                  Payroll Calculation Formulas
+                  Payroll Calculation Engine
                 </Typography>
                 <Typography
-                  variant="body2"
-                  sx={{ color: settings.textPrimaryColor, opacity: 0.8 }}
+                  variant="body1"
+                  sx={{
+                    color: settings.textPrimaryColor,
+                    opacity: 0.8,
+                    mt: 0.5,
+                  }}
                 >
-                  Create and manage your payroll calculations
+                  Configure, manage, and audit payroll computation logic
                 </Typography>
               </Box>
             </Box>
-            <Box display="flex" gap={1}>
+            <Box display="flex" gap={1.5}>
               <Button
                 variant="outlined"
                 startIcon={<RefreshIcon />}
@@ -378,9 +475,11 @@ const PayrollFormulas = () => {
                 sx={{
                   borderColor: settings.primaryColor,
                   color: settings.textPrimaryColor,
+                  fontWeight: 600,
+                  px: 3,
                   '&:hover': {
                     borderColor: settings.secondaryColor,
-                    bgcolor: alpha(settings.primaryColor, 0.1),
+                    bgcolor: alpha(settings.primaryColor, 0.08),
                   },
                 }}
               >
@@ -393,7 +492,13 @@ const PayrollFormulas = () => {
                 sx={{
                   bgcolor: settings.primaryColor,
                   color: settings.accentColor,
-                  '&:hover': { bgcolor: settings.secondaryColor },
+                  fontWeight: 700,
+                  px: 3,
+                  boxShadow: `0 4px 12px ${alpha(settings.primaryColor, 0.3)}`,
+                  '&:hover': {
+                    bgcolor: settings.secondaryColor,
+                    boxShadow: `0 6px 16px ${alpha(settings.primaryColor, 0.4)}`,
+                  },
                 }}
               >
                 New Formula
@@ -403,11 +508,11 @@ const PayrollFormulas = () => {
         </Paper>
       </Box>
 
-      {/* Search - Fixed */}
+      {/* Search Bar */}
       <Box sx={{ mb: 3 }}>
         <TextField
           fullWidth
-          placeholder="Search formulas..."
+          placeholder="Search formulas by name or description..."
           value={searchTerm}
           onChange={(e) => {
             setSearchTerm(e.target.value);
@@ -415,60 +520,90 @@ const PayrollFormulas = () => {
           }}
           InputProps={{
             startAdornment: (
-              <SearchIcon sx={{ mr: 1, color: settings.primaryColor }} />
+              <InputAdornment position="start">
+                <SearchIcon sx={{ color: settings.primaryColor }} />
+              </InputAdornment>
             ),
-          }}
-          sx={{
-            maxWidth: 500,
-            '& .MuiOutlinedInput-root': {
+            sx: {
               bgcolor: settings.accentColor,
+              borderRadius: 2,
+              '& .MuiOutlinedInput-notchedOutline': {
+                borderColor: alpha(settings.primaryColor, 0.2),
+              },
+              '&:hover .MuiOutlinedInput-notchedOutline': {
+                borderColor: alpha(settings.primaryColor, 0.5),
+              },
             },
           }}
+          sx={{ maxWidth: 600 }}
         />
       </Box>
 
-      {/* Table - Fixed */}
-      <Paper elevation={2} sx={{ borderRadius: 2, overflow: 'hidden' }}>
+      {/* Data Table */}
+      <Paper
+        elevation={2}
+        sx={{
+          borderRadius: 2,
+          overflow: 'hidden',
+          border: `1px solid ${alpha(settings.primaryColor, 0.1)}`,
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
         {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'center', p: 6, flex: 1 }}>
             <CircularProgress sx={{ color: settings.primaryColor }} />
           </Box>
         ) : (
           <>
-            <TableContainer>
+            {/* FIX APPLIED HERE: minHeight prevents the table from shrinking/jumping */}
+            <TableContainer sx={{ minHeight: 600 }}>
               <Table>
                 <TableHead>
-                  <TableRow sx={{ bgcolor: alpha(settings.primaryColor, 0.1) }}>
+                  <TableRow
+                    sx={{
+                      bgcolor: alpha(settings.primaryColor, 0.05),
+                      borderBottom: `2px solid ${settings.primaryColor}`,
+                    }}
+                  >
                     <TableCell
                       sx={{
-                        fontWeight: 'bold',
+                        fontWeight: 700,
                         color: settings.textPrimaryColor,
+                        fontSize: '0.95rem',
+                        py: 2,
                       }}
                     >
-                      Formula Name
+                      Formula Key
                     </TableCell>
                     <TableCell
                       sx={{
-                        fontWeight: 'bold',
+                        fontWeight: 700,
                         color: settings.textPrimaryColor,
+                        fontSize: '0.95rem',
+                        py: 2,
                       }}
                     >
                       Description
                     </TableCell>
                     <TableCell
                       sx={{
-                        fontWeight: 'bold',
+                        fontWeight: 700,
                         color: settings.textPrimaryColor,
+                        fontSize: '0.95rem',
+                        py: 2,
                       }}
                     >
-                      Calculation
+                      Logic Preview
                     </TableCell>
                     <TableCell
                       sx={{
-                        fontWeight: 'bold',
+                        fontWeight: 700,
                         color: settings.textPrimaryColor,
+                        fontSize: '0.95rem',
+                        py: 2,
+                        textAlign: 'center',
                       }}
-                      align="center"
                     >
                       Actions
                     </TableCell>
@@ -477,85 +612,120 @@ const PayrollFormulas = () => {
                 <TableBody>
                   {paginatedFormulas.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
-                        <Typography
-                          sx={{
-                            color: settings.textPrimaryColor,
-                            opacity: 0.7,
-                          }}
-                        >
-                          {searchTerm
-                            ? 'No formulas found'
-                            : 'No formulas available. Create your first formula!'}
-                        </Typography>
+                      <TableCell colSpan={4} align="center" sx={{ py: 8 }}>
+                        <Box sx={{ textAlign: 'center' }}>
+                          <CalculateIcon
+                            sx={{
+                              fontSize: 48,
+                              color: alpha(settings.textPrimaryColor, 0.2),
+                              mb: 1,
+                            }}
+                          />
+                          <Typography
+                            variant="h6"
+                            sx={{
+                              color: settings.textPrimaryColor,
+                              opacity: 0.6,
+                            }}
+                          >
+                            {searchTerm
+                              ? 'No formulas match your search'
+                              : 'No formulas configured yet'}
+                          </Typography>
+                        </Box>
                       </TableCell>
                     </TableRow>
                   ) : (
                     paginatedFormulas.map((formula) => (
                       <TableRow
                         key={formula.id}
+                        hover
                         sx={{
-                          '&:hover': {
-                            bgcolor: alpha(settings.primaryColor, 0.05),
-                          },
+                          '&:last-child td, &:last-child th': { border: 0 },
+                          transition: 'background-color 0.2s',
                         }}
                       >
                         <TableCell
                           sx={{
                             fontWeight: 600,
-                            color: settings.textPrimaryColor,
+                            color: settings.primaryColor,
+                            fontFamily: 'monospace',
+                            fontSize: '1rem',
                           }}
                         >
                           {formula.formula_key}
                         </TableCell>
-                        <TableCell sx={{ color: settings.textPrimaryColor }}>
-                          {formula.description || '-'}
+                        <TableCell
+                          sx={{ color: settings.textPrimaryColor, maxWidth: 250 }}
+                        >
+                          {formula.description || (
+                            <span
+                              style={{
+                                color: alpha(settings.textPrimaryColor, 0.4),
+                                fontStyle: 'italic',
+                              }}
+                            >
+                              No description
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell>
-                          <Typography
-                            variant="body2"
+                          <Box
                             sx={{
-                              fontSize: '0.9rem',
+                              bgcolor: alpha(settings.primaryColor, 0.05),
+                              px: 2,
+                              py: 1,
+                              borderRadius: 1,
+                              fontFamily: 'monospace',
                               color: settings.textPrimaryColor,
-                              maxWidth: 500,
+                              maxWidth: 400,
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
                               whiteSpace: 'nowrap',
-                              fontWeight: 500,
+                              border: `1px dashed ${alpha(
+                                settings.primaryColor,
+                                0.3
+                              )}`,
                             }}
                             title={formatFormulaForDisplay(
                               formula.formula_expression
                             )}
                           >
-                            {formatFormulaForDisplay(
-                              formula.formula_expression
-                            )}
-                          </Typography>
+                            {formatFormulaForDisplay(formula.formula_expression)}
+                          </Box>
                         </TableCell>
                         <TableCell align="center">
                           <Box
                             sx={{
                               display: 'flex',
-                              gap: 1,
+                              gap: 0.5,
                               justifyContent: 'center',
                             }}
                           >
-                            <Tooltip title="Edit">
+                            <Tooltip title="Edit Formula" arrow>
                               <IconButton
-                                size="small"
                                 onClick={() => handleEdit(formula)}
-                                sx={{ color: settings.primaryColor }}
+                                sx={{
+                                  color: settings.primaryColor,
+                                  bgcolor: alpha(settings.primaryColor, 0.05),
+                                  '&:hover': {
+                                    bgcolor: alpha(settings.primaryColor, 0.15),
+                                  },
+                                }}
                               >
                                 <EditIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="Delete">
+                            <Tooltip title="Delete Formula" arrow>
                               <IconButton
-                                size="small"
                                 onClick={() =>
                                   handleDelete(formula.formula_key)
                                 }
-                                sx={{ color: '#d32f2f' }}
+                                sx={{
+                                  color: '#d32f2f',
+                                  bgcolor: alpha('#d32f2f', 0.05),
+                                  '&:hover': { bgcolor: alpha('#d32f2f', 0.15) },
+                                }}
                               >
                                 <DeleteIcon fontSize="small" />
                               </IconButton>
@@ -579,24 +749,32 @@ const PayrollFormulas = () => {
                 setPage(0);
               }}
               rowsPerPageOptions={[10, 25, 50]}
+              sx={{
+                borderTop: `1px solid ${alpha(settings.primaryColor, 0.1)}`,
+              }}
             />
           </>
         )}
       </Paper>
 
-      {/* Modal */}
+      {/* Enhanced Modal - Split Pane Design */}
       <Dialog
         open={showModal}
-        onClose={() => setShowModal(false)}
+        onClose={() => !loading && setShowModal(false)}
         maxWidth="lg"
         fullWidth
         PaperProps={{
           sx: {
             borderRadius: 3,
+            height: '90vh',
             maxHeight: '90vh',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
           },
         }}
       >
+        {/* Modal Header */}
         <DialogTitle
           sx={{
             bgcolor: settings.primaryColor,
@@ -604,298 +782,422 @@ const PayrollFormulas = () => {
             fontWeight: 700,
             display: 'flex',
             alignItems: 'center',
-            gap: 1,
+            justifyContent: 'space-between',
+            py: 2,
+            px: 3,
           }}
         >
-          <CalculateIcon />
-          {editingFormula ? 'Edit Formula' : 'Create New Formula'}
-        </DialogTitle>
-        <DialogContent sx={{ mt: 2 }}>
-          {/* Basic Info */}
-          <Box sx={{ mb: 3 }}>
-            <TextField
-              fullWidth
-              label="Formula Name"
-              value={formulaName}
-              onChange={(e) => setFormulaName(e.target.value)}
-              disabled={!!editingFormula}
-              placeholder="e.g., grossSalary"
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              label="Description"
-              value={formulaDescription}
-              onChange={(e) => setFormulaDescription(e.target.value)}
-              placeholder="e.g., Calculate total salary before deductions"
-            />
-          </Box>
-
-          <Divider sx={{ my: 3 }} />
-
-          {/* Formula Builder */}
-          <Box
-            sx={{
-              p: 3,
-              bgcolor: alpha(settings.primaryColor, 0.05),
-              borderRadius: 2,
-              border: `1px solid ${alpha(settings.primaryColor, 0.2)}`,
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-              <HelpOutlineIcon sx={{ color: settings.primaryColor }} />
-              <Typography
-                variant="h6"
-                sx={{ fontWeight: 'bold', color: settings.textPrimaryColor }}
-              >
-                Build Your Calculation
-              </Typography>
-            </Box>
-
-            {/* Formula Input */}
-            <TextField
-              fullWidth
-              multiline
-              rows={3}
-              label="Type or Build Your Formula"
-              value={formulaInput}
-              onChange={(e) => setFormulaInput(e.target.value)}
-              placeholder="Type or click buttons below to build your formula..."
+          <Box display="flex" alignItems="center" gap={1.5}>
+            <Avatar
               sx={{
-                mb: 2,
-                '& .MuiOutlinedInput-root': {
-                  fontFamily: 'monospace',
-                  fontSize: '0.9rem',
-                },
-              }}
-            />
-
-            {/* Preview */}
-            {formulaInput && (
-              <Paper
-                elevation={0}
-                sx={{
-                  p: 2,
-                  mb: 3,
-                  bgcolor: alpha(settings.secondaryColor, 0.1),
-                  border: `1px solid ${alpha(settings.secondaryColor, 0.3)}`,
-                }}
-              >
-                <Typography
-                  variant="subtitle2"
-                  sx={{ fontWeight: 'bold', mb: 1 }}
-                >
-                  Preview:
-                </Typography>
-                <Typography
-                  sx={{
-                    fontFamily: 'monospace',
-                    color: settings.secondaryColor,
-                    fontSize: '0.9rem',
-                  }}
-                >
-                  {formulaInput}
-                </Typography>
-              </Paper>
-            )}
-
-            {/* Quick Add Operations */}
-            <Box sx={{ mb: 3 }}>
-              <Typography
-                variant="subtitle2"
-                sx={{ fontWeight: 'bold', mb: 1.5 }}
-              >
-                Quick Add Operations
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {OPERATORS.map((op) => (
-                  <Button
-                    key={op.value}
-                    variant="contained"
-                    onClick={() => insertIntoFormula(op.value)}
-                    sx={{
-                      minWidth: 50,
-                      bgcolor: '#d32f2f',
-                      color: 'white',
-                      fontWeight: 'bold',
-                      fontSize: '1.1rem',
-                      '&:hover': { bgcolor: '#b71c1c' },
-                    }}
-                    title={op.label}
-                  >
-                    {op.symbol}
-                  </Button>
-                ))}
-                {PERCENTAGES.map((pct) => (
-                  <Button
-                    key={pct.value}
-                    variant="contained"
-                    onClick={() => insertIntoFormula(`* ${pct.value}`)}
-                    sx={{
-                      bgcolor: '#f57c00',
-                      color: 'white',
-                      fontWeight: 'bold',
-                      '&:hover': { bgcolor: '#e65100' },
-                    }}
-                  >
-                    {pct.label}
-                  </Button>
-                ))}
-              </Box>
-            </Box>
-
-            {/* Category Filter */}
-            <Box sx={{ mb: 3 }}>
-              <Typography
-                variant="subtitle2"
-                sx={{ fontWeight: 'bold', mb: 1.5 }}
-              >
-                Select Field Category
-              </Typography>
-              <ToggleButtonGroup
-                value={selectedCategory}
-                exclusive
-                onChange={(e, value) => value && setSelectedCategory(value)}
-                sx={{ flexWrap: 'wrap' }}
-              >
-                {categories.map((cat) => (
-                  <ToggleButton
-                    key={cat}
-                    value={cat}
-                    sx={{
-                      '&.Mui-selected': {
-                        bgcolor: settings.primaryColor,
-                        color: settings.accentColor,
-                        '&:hover': {
-                          bgcolor: settings.secondaryColor,
-                        },
-                      },
-                    }}
-                  >
-                    {cat}
-                  </ToggleButton>
-                ))}
-              </ToggleButtonGroup>
-            </Box>
-
-            {/* Fields */}
-            <Box sx={{ mb: 3 }}>
-              <Typography
-                variant="subtitle2"
-                sx={{ fontWeight: 'bold', mb: 1.5 }}
-              >
-                Available Fields ({filteredFields.length})
-              </Typography>
-              <Paper
-                elevation={0}
-                sx={{
-                  p: 2,
-                  maxHeight: 200,
-                  overflowY: 'auto',
-                  bgcolor: settings.accentColor,
-                  border: `1px solid ${alpha(settings.primaryColor, 0.2)}`,
-                }}
-              >
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                  {filteredFields.map((field) => (
-                    <Chip
-                      key={field.value}
-                      label={field.label}
-                      onClick={() => insertIntoFormula(field.value)}
-                      sx={{
-                        bgcolor:
-                          field.category === 'Calculated'
-                            ? alpha(settings.secondaryColor, 0.2)
-                            : alpha(settings.primaryColor, 0.1),
-                        color: settings.textPrimaryColor,
-                        border: `1px solid ${
-                          field.category === 'Calculated'
-                            ? settings.secondaryColor
-                            : settings.primaryColor
-                        }`,
-                        '&:hover': {
-                          bgcolor:
-                            field.category === 'Calculated'
-                              ? alpha(settings.secondaryColor, 0.3)
-                              : alpha(settings.primaryColor, 0.2),
-                        },
-                      }}
-                    />
-                  ))}
-                </Box>
-              </Paper>
-            </Box>
-
-            {/* Functions */}
-            <Box>
-              <Typography
-                variant="subtitle2"
-                sx={{ fontWeight: 'bold', mb: 1.5 }}
-              >
-                Rounding Functions
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {FUNCTIONS.map((func) => (
-                  <Tooltip key={func.value} title={func.description}>
-                    <Chip
-                      label={func.label}
-                      onClick={() => insertIntoFormula(`${func.value}(`)}
-                      sx={{
-                        bgcolor: alpha('#2e7d32', 0.1),
-                        color: '#2e7d32',
-                        border: '1px solid #2e7d32',
-                        '&:hover': {
-                          bgcolor: alpha('#2e7d32', 0.2),
-                        },
-                      }}
-                    />
-                  </Tooltip>
-                ))}
-              </Box>
-            </Box>
-          </Box>
-
-          {/* Verification */}
-          {editingFormula && hasChanged && (
-            <Box
-              sx={{
-                mt: 3,
-                p: 2,
-                bgcolor: '#fff3cd',
-                borderRadius: 2,
-                border: '2px solid #ffc107',
+                width: 32,
+                height: 32,
+                bgcolor: alpha('#fff', 0.2),
+                color: 'inherit',
               }}
             >
-              <FormControlLabel
-                control={
+              <CalculateIcon fontSize="small" />
+            </Avatar>
+            <span>
+              {editingFormula ? 'Edit Calculation Logic' : 'Create New Formula'}
+            </span>
+          </Box>
+          <IconButton
+            onClick={() => setShowModal(false)}
+            sx={{ color: 'inherit' }}
+            disabled={loading}
+          >
+            <CancelIcon />
+          </IconButton>
+        </DialogTitle>
+
+        {/* Modal Content - Grid Layout */}
+        <DialogContent sx={{ p: 0, flex: 1, overflow: 'hidden' }}>
+          <Grid container sx={{ height: '100%' }}>
+            {/* LEFT COLUMN: TOOLBOX */}
+            <Grid
+              item
+              xs={12}
+              md={4}
+              sx={{
+                bgcolor: alpha(settings.primaryColor, 0.03),
+                borderRight: `1px solid ${alpha(settings.primaryColor, 0.1)}`,
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100%',
+              }}
+            >
+              {/* Toolbox Tabs */}
+              <Box
+                sx={{
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                  bgcolor: '#fff',
+                }}
+              >
+                <Tabs
+                  value={modalTabValue}
+                  onChange={(e, newVal) => setModalTabValue(newVal)}
+                  variant="fullWidth"
+                  sx={{
+                    '& .MuiTab-root': {
+                      textTransform: 'none',
+                      fontWeight: 600,
+                      fontSize: '0.9rem',
+                    },
+                  }}
+                >
+                  <Tab label="Fields" />
+                  <Tab label="Operators" />
+                </Tabs>
+              </Box>
+
+              {/* Toolbox Content */}
+              <Box sx={{ p: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                {modalTabValue === 0 && (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                    {/* Category Filters */}
+                    <Box sx={{ p: 2, bgcolor: '#fff', borderBottom: '1px solid #eee' }}>
+                      <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 1 }}>
+                        FILTER BY CATEGORY
+                      </Typography>
+                      <ToggleButtonGroup
+                        value={selectedCategory}
+                        exclusive
+                        onChange={(e, value) => value && setSelectedCategory(value)}
+                        sx={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: 0.5,
+                        }}
+                      >
+                        {categories.map((cat) => (
+                          <ToggleButton
+                            key={cat}
+                            value={cat}
+                            size="small"
+                            sx={{
+                              textTransform: 'none',
+                              fontSize: '0.7rem',
+                              px: 1,
+                              py: 0.25,
+                              borderRadius: 1,
+                              border: '1px solid rgba(0,0,0,0.12)',
+                              '&.Mui-selected': {
+                                bgcolor: settings.primaryColor,
+                                color: '#fff',
+                                borderColor: settings.primaryColor,
+                              },
+                            }}
+                          >
+                            {cat}
+                          </ToggleButton>
+                        ))}
+                      </ToggleButtonGroup>
+                    </Box>
+
+                    {/* Fields List - Scrollable */}
+                    <Box sx={{ flex: 1, overflowY: 'auto' }}>
+                      <List sx={{ p: 0 }}>
+                        {filteredFields.map((field) => (
+                          <ListItemButton
+                            key={field.value}
+                            onClick={() => insertIntoFormula(field.value)}
+                            sx={{
+                              py: 1.5,
+                              px: 2,
+                              borderBottom: '1px solid',
+                              borderColor: 'divider',
+                              '&:last-child': { borderBottom: 'none' },
+                              '&:hover': {
+                                bgcolor: alpha(settings.primaryColor, 0.08),
+                              },
+                            }}
+                            title={`Insert: ${field.value}`}
+                          >
+                            <ListItemText
+                              primary={field.label}
+                              secondary={field.category}
+                              primaryTypographyProps={{
+                                fontWeight: 600,
+                                fontSize: '0.9rem',
+                                color: 'text.primary',
+                              }}
+                              secondaryTypographyProps={{
+                                fontSize: '0.75rem',
+                                color: 'text.secondary',
+                                textTransform: 'uppercase',
+                                letterSpacing: 0.5,
+                              }}
+                            />
+                            <ArrowForwardIosIcon
+                              sx={{ fontSize: 14, color: 'text.disabled', opacity: 0.5 }}
+                            />
+                          </ListItemButton>
+                        ))}
+                        {filteredFields.length === 0 && (
+                          <Box sx={{ p: 3, textAlign: 'center', color: 'text.secondary' }}>
+                            No fields found in this category.
+                          </Box>
+                        )}
+                      </List>
+                    </Box>
+                  </Box>
+                )}
+
+                {modalTabValue === 1 && (
+                  <Box sx={{ p: 2, overflowY: 'auto' }}>
+                    {/* Math Operators */}
+                    <Typography
+                      variant="subtitle2"
+                      sx={{ fontWeight: 'bold', mb: 1, mt: 1 }}
+                    >
+                      Basic Math
+                    </Typography>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, 1fr)',
+                        gap: 1,
+                        mb: 3,
+                      }}
+                    >
+                      {OPERATORS.map((op) => (
+                        <OperatorButton key={op.value} op={op} />
+                      ))}
+                    </Box>
+
+                    <Divider sx={{ my: 2 }} />
+
+                    {/* Functions */}
+                    <Typography
+                      variant="subtitle2"
+                      sx={{ fontWeight: 'bold', mb: 1.5 }}
+                    >
+                      Rounding Functions
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
+                      {FUNCTIONS.map((func) => (
+                        <FunctionChip key={func.value} func={func} />
+                      ))}
+                    </Box>
+
+                    <Divider sx={{ my: 2 }} />
+
+                    {/* Percentages */}
+                    <Typography
+                      variant="subtitle2"
+                      sx={{ fontWeight: 'bold', mb: 1.5 }}
+                    >
+                      Common Rates
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {PERCENTAGES.map((pct) => (
+                        <PercentageChip key={pct.value} pct={pct} />
+                      ))}
+                    </Box>
+                  </Box>
+                )}
+              </Box>
+            </Grid>
+
+            {/* RIGHT COLUMN: WORKSPACE */}
+            <Grid
+              item
+              xs={12}
+              md={8}
+              sx={{
+                p: 3,
+                display: 'flex',
+                flexDirection: 'column',
+                overflowY: 'auto',
+                bgcolor: '#fff',
+              }}
+            >
+              {/* Metadata Section */}
+              <Box sx={{ mb: 3 }}>
+                <TextField
+                  fullWidth
+                  label="Formula Name (Key)"
+                  value={formulaName}
+                  onChange={(e) => setFormulaName(e.target.value)}
+                  disabled={!!editingFormula}
+                  placeholder="e.g., grossSalary"
+                  helperText="Unique identifier for the system"
+                  sx={{ mb: 2 }}
+                  InputProps={{
+                    sx: { fontWeight: 500, fontFamily: 'monospace' },
+                  }}
+                />
+                <TextField
+                  fullWidth
+                  label="Description"
+                  value={formulaDescription}
+                  onChange={(e) => setFormulaDescription(e.target.value)}
+                  placeholder="Describe what this formula calculates..."
+                  multiline
+                  rows={2}
+                />
+              </Box>
+
+              <Divider sx={{ my: 1 }} />
+
+              {/* Editor Section */}
+              <Box sx={{ mt: 2, flex: 1, display: 'flex', flexDirection: 'column' }}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    mb: 1,
+                  }}
+                >
+                  <Typography
+                    variant="subtitle2"
+                    sx={{ fontWeight: 'bold', color: 'text.secondary' }}
+                  >
+                    FORMULA EDITOR
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                      size="small"
+                      startIcon={<BackspaceIcon />}
+                      onClick={handleBackspace}
+                      color="secondary"
+                    >
+                      Backspace
+                    </Button>
+                    <Button
+                      size="small"
+                      startIcon={<ClearIcon />}
+                      onClick={() => setFormulaInput('')}
+                      color="error"
+                    >
+                      Clear
+                    </Button>
+                  </Box>
+                </Box>
+
+                {/* Code-like Input */}
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={6}
+                  maxRows={10}
+                  value={formulaInput}
+                  onChange={(e) => setFormulaInput(e.target.value)}
+                  placeholder="Start typing or click items from the left..."
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      fontFamily: '"Fira Code", "Roboto Mono", monospace',
+                      fontSize: '1rem',
+                      lineHeight: 1.6,
+                      bgcolor: alpha('#000', 0.02),
+                      alignItems: 'flex-start',
+                    },
+                    mb: 2,
+                  }}
+                  InputProps={{
+                    sx: { borderRadius: 2 },
+                  }}
+                />
+
+                {/* Visual Preview Card */}
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 2,
+                    bgcolor: alpha(settings.secondaryColor, 0.05),
+                    border: `1px solid ${alpha(settings.secondaryColor, 0.2)}`,
+                    borderRadius: 2,
+                    mb: 2,
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontWeight: 700,
+                      display: 'block',
+                      mb: 1,
+                      color: 'text.secondary',
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.5,
+                    }}
+                  >
+                    Human Readable Preview
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontFamily: 'sans-serif',
+                      color: settings.textPrimaryColor,
+                      fontSize: '1.1rem',
+                      fontWeight: 500,
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {formulaInput ? (
+                      formulaInput
+                        .replace(/\+/g, ' + ')
+                        .replace(/-/g, ' - ')
+                        .replace(/\*/g, ' × ')
+                        .replace(/\//g, ' ÷ ')
+                    ) : (
+                      <span style={{ opacity: 0.5, fontStyle: 'italic' }}>
+                        No logic entered yet...
+                      </span>
+                    )}
+                  </Typography>
+                </Paper>
+              </Box>
+
+              {/* Verification Warning */}
+              {editingFormula && hasChanged && (
+                <Box
+                  sx={{
+                    mt: 'auto',
+                    p: 2,
+                    bgcolor: '#fff3cd',
+                    borderRadius: 2,
+                    border: '1px solid #ffc107',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1.5,
+                  }}
+                >
                   <Checkbox
                     checked={verificationChecked}
                     onChange={(e) => setVerificationChecked(e.target.checked)}
-                    sx={{
-                      color: '#856404',
-                      '&.Mui-checked': { color: '#856404' },
-                    }}
+                    sx={{ color: '#856404', '&.Mui-checked': { color: '#856404' } }}
                   />
-                }
-                label={
-                  <Typography sx={{ fontWeight: 'bold', color: '#856404' }}>
-                    ✓ I confirm that I want to update this formula
+                  <Typography
+                    variant="body2"
+                    sx={{ fontWeight: 600, color: '#856404' }}
+                  >
+                    I confirm this modification is correct and I want to update the
+                    existing formula.
                   </Typography>
-                }
-              />
-            </Box>
-          )}
+                </Box>
+              )}
+            </Grid>
+          </Grid>
         </DialogContent>
+
+        {/* Modal Footer */}
         <DialogActions
-          sx={{ p: 2, bgcolor: alpha(settings.primaryColor, 0.05) }}
+          sx={{
+            p: 2,
+            bgcolor: alpha(settings.primaryColor, 0.03),
+            borderTop: `1px solid ${alpha(settings.primaryColor, 0.1)}`,
+          }}
         >
+          <Box sx={{ flexGrow: 1 }} /> {/* Spacer */}
           <Button
-            variant="outlined"
             onClick={() => setShowModal(false)}
-            startIcon={<CancelIcon />}
+            disabled={loading}
             sx={{
-              borderColor: settings.primaryColor,
-              color: settings.textPrimaryColor,
+              color: 'text.secondary',
+              fontWeight: 600,
+              mr: 1,
             }}
           >
             Cancel
@@ -903,7 +1205,6 @@ const PayrollFormulas = () => {
           <Button
             variant="contained"
             onClick={handleSave}
-            startIcon={loading ? <CircularProgress size={20} /> : <SaveIcon />}
             disabled={
               loading ||
               !formulaName ||
@@ -911,12 +1212,17 @@ const PayrollFormulas = () => {
               !formulaInput ||
               (editingFormula && hasChanged && !verificationChecked)
             }
+            startIcon={loading ? <CircularProgress size={20} /> : <SaveIcon />}
             sx={{
               bgcolor: settings.primaryColor,
               color: settings.accentColor,
+              fontWeight: 700,
+              px: 4,
+              py: 1,
               '&:hover': { bgcolor: settings.secondaryColor },
               '&:disabled': {
-                bgcolor: alpha(settings.primaryColor, 0.3),
+                bgcolor: alpha(settings.textPrimaryColor, 0.2),
+                color: alpha(settings.textPrimaryColor, 0.5),
               },
             }}
           >

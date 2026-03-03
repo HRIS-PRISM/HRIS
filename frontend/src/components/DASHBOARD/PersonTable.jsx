@@ -370,7 +370,8 @@ const PersonTable = () => {
   const [data, setData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
+  // CHANGED: Default rows per page to 20
+  const [rowsPerPage, setRowsPerPage] = useState(20);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [successOpen, setSuccessOpen] = useState(false);
@@ -1317,7 +1318,7 @@ const PersonTable = () => {
   })();
 
   const handleRowsPerPageChange = (e) => {
-    const next = Number(e.target.value) || 10;
+    const next = Number(e.target.value) || 20;
     setRowsPerPage(next);
     setPage(0);
   };
@@ -1588,6 +1589,7 @@ const PersonTable = () => {
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                    flexShrink: 0,
                   }}
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -1640,9 +1642,10 @@ const PersonTable = () => {
                     display: 'flex',
                     flexDirection: 'column',
                     overflow: 'hidden',
+                    pt: 2,
                   }}
                 >
-                  <Box sx={{ mb: 3 }}>
+                  <Box sx={{ mb: 2, flexShrink: 0 }}>
                     <ModernTextField
                       size="small"
                       variant="outlined"
@@ -1658,6 +1661,7 @@ const PersonTable = () => {
                     />
                   </Box>
 
+                  {/* SCROLLABLE AREA */}
                   <Box
                     sx={{
                       flexGrow: 1,
@@ -1677,88 +1681,77 @@ const PersonTable = () => {
                     }}
                   >
                     {viewMode === 'grid' ? (
-                      <Grid container spacing={1}>
+                      <Grid container spacing={1.5}>
                         {paginatedData.map((person) => (
                           <Grid
                             item
                             xs={12}
                             sm={6}
-                            md={4}
-                            lg={3}
+                            md={6}
+                            lg={6}
                             key={person.id}
                           >
                             <Card
                               onClick={() => handleOpenModal(person)}
                               sx={{
                                 cursor: 'pointer',
-                                border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.1)}`,
+                                border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.15)}`,
                                 height: '100%',
-                                borderRadius: 1.5,
-                                background:
-                                  'linear-gradient(135deg, #ffffff 0%, #fff8f0 100%)',
+                                borderRadius: 2,
+                                backgroundColor: '#ffffff', // STRICTLY WHITE
                                 display: 'flex',
                                 flexDirection: 'column',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                                transition: 'all 0.2s ease',
                                 '&:hover': {
                                   borderColor: accentColor,
-                                  transform: 'translateY(-2px)',
-                                  transition: 'all 0.2s ease',
-                                  boxShadow: '0 4px 8px rgba(109,35,35,0.15)',
+                                  transform: 'translateY(-4px)',
+                                  boxShadow: '0 8px 16px rgba(109,35,35,0.1)',
                                 },
                               }}
                             >
                               <CardContent
                                 sx={{
-                                  px: 1.5,
-                                  py: 1.25,
+                                  p: 1.5, // Reduced padding
                                   flexGrow: 1,
                                   display: 'flex',
                                   flexDirection: 'column',
-                                  gap: 0.4,
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                  textAlign: 'center',
+                                  gap: 0.5, // Reduced gap
                                 }}
                               >
-                                {/* Top row: Employee Number only */}
-                                <Box
+                                <Avatar
                                   sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'flex-start',
-                                    mb: 0.25,
+                                    bgcolor: alpha(accentColor, 0.1),
+                                    color: accentColor,
+                                    width: 36, // Reduced avatar size
+                                    height: 36,
                                   }}
                                 >
-                                  <PersonIcon
-                                    sx={{
-                                      fontSize: 18,
-                                      color: accentColor,
-                                      mr: 0.5,
-                                    }}
-                                  />
-                                  <Typography
-                                    variant="caption"
-                                    sx={{
-                                      color: accentColor,
-                                      px: 0.5,
-                                      py: 0.15,
-                                      borderRadius: 0.5,
-                                      fontSize: '0.7rem',
-                                      fontWeight: 'bold',
-                                      backgroundColor: alpha(accentColor, 0.06),
-                                    }}
-                                  >
-                                    {person.agencyEmployeeNum}
-                                  </Typography>
-                                </Box>
-
-                                {/* Name */}
+                                  <PersonIcon sx={{ fontSize: 20 }} />
+                                </Avatar>
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    color: accentColor,
+                                    fontWeight: 'bold',
+                                    fontSize: '0.7rem',
+                                    letterSpacing: 0.5,
+                                    lineHeight: 1.2,
+                                  }}
+                                >
+                                  {person.agencyEmployeeNum}
+                                </Typography>
                                 <Typography
                                   variant="body2"
-                                  fontWeight="bold"
-                                  color="#222"
-                                  sx={{ lineHeight: 1.1, mt: 0.2 }}
+                                  fontWeight="600"
+                                  color="#333"
+                                  sx={{ lineHeight: 1.2, fontSize: '0.9rem' }}
                                 >
                                   {person.firstName} {person.lastName}
                                 </Typography>
-
-                                {/* Only show core identity info in grid view */}
                               </CardContent>
                             </Card>
                           </Grid>
@@ -1772,22 +1765,23 @@ const PersonTable = () => {
                           sx={{
                             cursor: 'pointer',
                             border: '1px solid rgba(109, 35, 35, 0.1)',
-                            mb: 0.75,
+                            mb: 1,
+                            backgroundColor: '#fff',
                             '&:hover': {
                               borderColor: accentColor,
                               backgroundColor: alpha(
                                 settings.accentColor ||
                                   settings.backgroundColor ||
                                   '#FEF9E1',
-                                0.25,
+                                0.2,
                               ),
                             },
                           }}
                         >
-                          <Box sx={{ p: 1.5 }}>
+                          <Box sx={{ p: 1 }}> {/* Reduced padding from 1.5 */}
                             <Box sx={{ display: 'flex', alignItems: 'center' }}>
                               <PersonIcon
-                                sx={{ fontSize: 20, color: accentColor, mr: 1 }}
+                                sx={{ fontSize: 18, color: accentColor, mr: 1.5 }} // Reduced icon size and margin
                               />
                               <Box sx={{ flexGrow: 1 }}>
                                 <Typography
@@ -1796,6 +1790,7 @@ const PersonTable = () => {
                                     color: accentColor,
                                     fontSize: '0.7rem',
                                     fontWeight: 'bold',
+                                    lineHeight: 1.1,
                                   }}
                                 >
                                   {person.agencyEmployeeNum}
@@ -1804,7 +1799,7 @@ const PersonTable = () => {
                                   variant="body2"
                                   fontWeight="bold"
                                   color="#333"
-                                  sx={{ lineHeight: 1.2 }}
+                                  sx={{ lineHeight: 1.2, fontSize: '0.9rem' }}
                                 >
                                   {person.firstName} {person.lastName}
                                 </Typography>
@@ -1830,102 +1825,101 @@ const PersonTable = () => {
                         </Typography>
                       </Box>
                     )}
+                  </Box>
 
-                    {/* Sticky pagination footer */}
+                  {/* FIXED FOOTER - Outside Scrollable Area */}
+                  <Box
+                    sx={{
+                      flexShrink: 0,
+                      mt: 2,
+                      pt: 1.5,
+                      borderTop: `1px solid ${alpha(accentColor, 0.15)}`,
+                      display: 'flex',
+                      justifyContent: 'flex-end',
+                      alignItems: 'center',
+                      backgroundColor: '#fff', // Ensure solid bg
+                    }}
+                  >
                     <Box
                       sx={{
-                        position: 'sticky',
-                        bottom: 0,
-                        zIndex: 10,
-                        mt: 2,
-                        px: 2,
-                        py: 0.75,
-                        backgroundColor: '#fff',
-                        borderTop: `1px solid ${alpha(accentColor, 0.15)}`,
                         display: 'flex',
-                        justifyContent: 'flex-end',
+                        flexDirection: 'column',
+                        alignItems: 'flex-end',
+                        gap: 0.5,
                       }}
                     >
+                      {/* Rows per page */}
                       <Box
                         sx={{
                           display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'flex-end',
+                          alignItems: 'center',
+                          gap: 0.75,
+                        }}
+                      >
+                        <Typography
+                          sx={{
+                            fontSize: '0.75rem',
+                            color: accentColor,
+                            fontWeight: 600,
+                          }}
+                        >
+                          Rows per page:
+                        </Typography>
+
+                        <FormControl size="small" sx={{ minWidth: 70 }}>
+                          <Select
+                            value={rowsPerPage}
+                            onChange={handleRowsPerPageChange}
+                            sx={{
+                              fontSize: '0.75rem',
+                              height: 28,
+                            }}
+                          >
+                            <MenuItem value={20}>20</MenuItem>
+                            <MenuItem value={40}>40</MenuItem>
+                            <MenuItem value={60}>60</MenuItem>
+                            <MenuItem value={80}>80</MenuItem>
+                            <MenuItem value={100}>100</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Box>
+
+                      {/* Total + Pagination */}
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
                           gap: 0.5,
                         }}
                       >
-                        {/* Rows per page */}
-                        <Box
+                        <Typography
                           sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 0.75,
+                            fontSize: '0.75rem',
+                            color: accentColor,
                           }}
                         >
-                          <Typography
-                            sx={{
-                              fontSize: '0.75rem',
-                              color: accentColor,
-                              fontWeight: 600,
-                            }}
-                          >
-                            Rows per page:
-                          </Typography>
+                          {startRow}-{endRow} of {totalRows}
+                        </Typography>
 
-                          <FormControl size="small" sx={{ minWidth: 70 }}>
-                            <Select
-                              value={rowsPerPage}
-                              onChange={handleRowsPerPageChange}
-                              sx={{
-                                fontSize: '0.75rem',
-                                height: 28,
-                              }}
-                            >
-                              <MenuItem value={10}>10</MenuItem>
-                              <MenuItem value={20}>20</MenuItem>
-                              <MenuItem value={30}>30</MenuItem>
-                              <MenuItem value={50}>50</MenuItem>
-                            </Select>
-                          </FormControl>
-                        </Box>
-
-                        {/* Total + Pagination */}
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 0.5,
-                          }}
+                        <IconButton
+                          size="small"
+                          onClick={() => setPage((p) => Math.max(0, p - 1))}
+                          disabled={page <= 0}
+                          sx={{ color: accentColor, p: 0.5 }}
                         >
-                          <Typography
-                            sx={{
-                              fontSize: '0.75rem',
-                              color: accentColor,
-                            }}
-                          >
-                            {startRow}-{endRow} of {totalRows}
-                          </Typography>
+                          <PrevIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
 
-                          <IconButton
-                            size="small"
-                            onClick={() => setPage((p) => Math.max(0, p - 1))}
-                            disabled={page <= 0}
-                            sx={{ color: accentColor, p: 0.5 }}
-                          >
-                            <PrevIcon sx={{ fontSize: 16 }} />
-                          </IconButton>
-
-                          <IconButton
-                            size="small"
-                            onClick={() =>
-                              setPage((p) => Math.min(totalPages - 1, p + 1))
-                            }
-                            disabled={page >= totalPages - 1}
-                            sx={{ color: accentColor, p: 0.5 }}
-                          >
-                            <NextIcon sx={{ fontSize: 16 }} />
-                          </IconButton>
-                        </Box>
+                        <IconButton
+                          size="small"
+                          onClick={() =>
+                            setPage((p) => Math.min(totalPages - 1, p + 1))
+                          }
+                          disabled={page >= totalPages - 1}
+                          sx={{ color: accentColor, p: 0.5 }}
+                        >
+                          <NextIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
                       </Box>
                     </Box>
                   </Box>
@@ -1941,7 +1935,6 @@ const PersonTable = () => {
           onClose={() => setSuccessOpen(false)}
         />
 
-        {/* Edit Modal */}
         {/* Edit Modal */}
         <Modal
           open={!!editPerson}
