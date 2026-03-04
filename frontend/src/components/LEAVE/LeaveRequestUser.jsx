@@ -182,16 +182,26 @@ const LeaveRequestUser = () => {
 
   const getAllocatedRemainingDays = () => {
     if (!newLeaveRequest.leave_code || !assignments.length) return null;
-    // Sum remaining_hours across all assignments for this leave type.
-    // This ensures carried-forward balances and multiple assignment rows
-    // are all considered (matches groupedBalances display).
-    const byType = assignments.filter((a) => a.leave_code === newLeaveRequest.leave_code);
-    if (!byType.length) return null;
-    const totalRemainingHours = byType.reduce(
-      (s, r) => s + (parseFloat(r.remaining_hours) || 0),
-      0,
-    );
-    return totalRemainingHours / 8;
+    const allocated = assignments
+      .filter(
+        (a) =>
+          a.leave_code === newLeaveRequest.leave_code &&
+          (a.carried_forward_hours === null ||
+            Number(a.carried_forward_hours) === 0),
+      )
+      .sort((a, b) => {
+        if (b.period_year !== a.period_year)
+          return b.period_year - a.period_year;
+        const semVal = (s) => {
+          if (!s) return 0;
+          if (s.includes('2nd')) return 2;
+          if (s.includes('1st')) return 1;
+          return 0;
+        };
+        return semVal(b.period_semester) - semVal(a.period_semester);
+      })[0];
+    if (!allocated) return null;
+    return (parseFloat(allocated.remaining_hours) || 0) / 8;
   };
 
   const months = [
@@ -373,21 +383,9 @@ const LeaveRequestUser = () => {
     if (field === 'leave_code') {
       setSelectedDates([]);
       // Debug logs for leave type selection
-      try {
-        console.log('Selected leave_code:', value);
-        console.log('All assignments:', assignments);
-        console.log('LeaveTypes:', leaveTypes);
-        const byType = assignments.filter((a) => a.leave_code === value);
-        console.log('Assignments for selected type:', byType);
-        const remDays = getAllocatedRemainingDays();
-        console.log('getAllocatedRemainingDays() ->', remDays);
-        const avail = remDays !== null ? Math.floor(remDays + 1e-6) : null;
-        console.log('availableDays (floored) ->', avail);
-        const grouped = groupedBalances.find((b) => b.code === value);
-        console.log('groupedBalances entry ->', grouped);
-      } catch (e) {
-        console.error('Debug log error', e);
-      }
+      console.log('Selected leave_code:', value);
+      console.log('Assignments:', assignments);
+      console.log('LeaveTypes:', leaveTypes);
     }
   };
 
@@ -509,10 +507,7 @@ const LeaveRequestUser = () => {
   };
 
   const remainingDays = getAllocatedRemainingDays();
-  // Use an integer day count for UI checks to avoid fractional-hour rounding
-  const availableDays =
-    remainingDays !== null ? Math.floor(remainingDays + 1e-6) : null;
-  const isOverBalance = availableDays !== null && selectedDates.length > availableDays;
+  const isOverBalance = remainingDays !== null && selectedDates.length > remainingDays;
 
   // Inline error states for UI
   const [inlineLeaveTypeError, setInlineLeaveTypeError] = React.useState('');
@@ -525,7 +520,7 @@ const LeaveRequestUser = () => {
     if (newLeaveRequest.leave_code) {
       // Find all assignments for this leave type
       const hasAllocation = assignments.some(
-        (a) => a.leave_code === newLeaveRequest.leave_code && parseFloat(a.remaining_hours || 0) > 0
+        (a) => a.leave_code === newLeaveRequest.leave_code && parseFloat(a.allocated_hours || 0) > 0
       );
       // Find balance for selected leave type from groupedBalances
       const selectedBalance = groupedBalances.find(
@@ -945,7 +940,7 @@ const LeaveRequestUser = () => {
                         color: isOverBalance ? '#C62828' : accentColor,
                         justifyContent: 'flex-start', // Align text left
                       }}
-                      disabled={availableDays === 0}
+                      disabled={remainingDays === 0}
                     >
                       {selectedDates.length > 0
                         ? `${selectedDates.length} date(s) selected`
@@ -970,11 +965,7 @@ const LeaveRequestUser = () => {
                       allowPastDates={isSickLeave()}
                       leaveType={newLeaveRequest.leave_code}
                       leaveRequests={leaveRequests}
-                      maxSelectableDates={
-                        remainingDays !== null
-                          ? Math.floor(remainingDays + 1e-6)
-                          : null
-                      }
+                      maxSelectableDates={remainingDays}
                     />
                     {isSickLeave() && (
                       <Typography
@@ -1069,15 +1060,15 @@ const LeaveRequestUser = () => {
                   variant="contained"
                   startIcon={isOverBalance ? <WarningIcon /> : <AddIcon />}
                   fullWidth
-                  disabled={isOverBalance || availableDays === 0}
+                  disabled={isOverBalance || remainingDays === 0}
                   sx={{
                     mt: 2,
                     py: 1.2,
                     fontSize: '1rem',
-                    backgroundColor: isOverBalance || availableDays === 0 ? '#ccc' : accentColor,
-                    color: isOverBalance || availableDays === 0 ? '#666' : primaryColor,
+                    backgroundColor: isOverBalance || remainingDays === 0 ? '#ccc' : accentColor,
+                    color: isOverBalance || remainingDays === 0 ? '#666' : primaryColor,
                     '&:hover': {
-                      backgroundColor: isOverBalance || availableDays === 0 ? '#ccc' : accentDark,
+                      backgroundColor: isOverBalance || remainingDays === 0 ? '#ccc' : accentDark,
                     },
                     '&:disabled': {
                       backgroundColor: '#ccc !important',
@@ -1085,7 +1076,7 @@ const LeaveRequestUser = () => {
                     },
                   }}
                 >
-                    {availableDays === 0
+                  {remainingDays === 0
                     ? 'No Balance — Cannot Submit'
                     : isOverBalance
                     ? 'Insufficient Balance — Cannot Submit'

@@ -74,10 +74,13 @@ const Login = () => {
   const [dashWarning, setDashWarning] = useState("");
   const [dontRemindToday, setDontRemindToday] = useState(false);
   
+  
   // Login attempt tracking
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [isLoginLocked, setIsLoginLocked] = useState(false);
   const [loginLockTimer, setLoginLockTimer] = useState(0);
+
+  
 
   const primaryGradient = "linear-gradient(135deg, #800020, #A52A2A)";
   const primaryHoverGradient = "linear-gradient(135deg, #A52A2A, #800020)";
@@ -85,6 +88,17 @@ const Login = () => {
   const darkText = "#4B0000";
   const mediumText = "#800020";
   const placeholderGray = "rgba(0, 0, 0, 0.45)";
+
+
+  // Lock scroll — screen-fitted, no scrolling
+useEffect(() => {
+  document.body.style.overflow = "hidden";
+  document.documentElement.style.overflow = "hidden";
+  return () => {
+    document.body.style.overflow = "";
+    document.documentElement.style.overflow = "";
+  };
+}, []);
 
   const employeeNumberForRequests = React.useMemo(() => {
     return resolvedEmployeeNumber || employeeNumber;
