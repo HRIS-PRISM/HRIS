@@ -210,6 +210,7 @@ const DailyTimeRecordFaculty = () => {
   const [registrationStatusFilter, setRegistrationStatusFilter] = useState("");
   const [departments, setDepartments] = useState([]);
   const [employmentCategories, setEmploymentCategories] = useState([]);
+  const [approvedLeaves, setApprovedLeaves] = useState([]);
 
   // ACCESS: page access control
   const {
@@ -299,9 +300,29 @@ const DailyTimeRecordFaculty = () => {
     }
   };
 
+  const fetchApprovedLeaves = async (empID) => {
+    try {
+      const response = await axios.get(
+        `${API_BASE_URL}/leaveRoute/leave_request`,
+        getAuthHeaders()
+      );
+      // Filter only HR Approved (status === 2) for this employee
+      const hrApproved = response.data.filter(
+        (req) =>
+          String(req.status) === '2' &&
+          String(req.employeeNumber) === String(empID)
+      );
+      setApprovedLeaves(hrApproved);
+    } catch (err) {
+      console.error('Error fetching approved leaves:', err);
+      setApprovedLeaves([]);
+    }
+  };
+
   useEffect(() => {
     if (personID) {
       fetchOfficialTimes(personID);
+      fetchApprovedLeaves(personID);
     }
   }, [personID]);
 
@@ -1343,11 +1364,35 @@ const DailyTimeRecordFaculty = () => {
     return false;
   };
 
+  const isApprovedLeaveDate = (dateString) => {
+    if (!dateString || approvedLeaves.length === 0) return false;
+
+    const checkDate = dateString.split('T')[0]; // normalize to YYYY-MM-DD
+
+    return approvedLeaves.some((req) => {
+      const dates = Array.isArray(req.leave_date)
+        ? req.leave_date
+        : String(req.leave_date).split(',').map((d) => d.trim());
+
+      return dates.some((d) => d.split('T')[0] === checkDate);
+    });
+  };
+
   // Returns styling info if a date is within a suspension/holiday range
   const getDateIndicator = (dateString) => {
     if (!dateString) return null;
 
     const date = String(dateString).split("T")[0]; // YYYY-MM-DD
+
+    if (isApprovedLeaveDate(date)) {
+      return {
+        type: 'leave',
+        label: 'ON LEAVE',
+        bgColor: 'rgba(46, 125, 50, 0.2)',  // green tint
+        textColor: '#000000',
+        borderColor: '#2e7d32',
+      };
+    }
 
     // Suspensions first (higher priority)
     const suspension = suspensions.find((s) => {
@@ -2042,102 +2087,102 @@ const DailyTimeRecordFaculty = () => {
                   const timeFields = getTimeFields(record, dtrType);
                   const renderedTime = getRenderedTimeData(record, dtrType);
 
-return (
-  <tr key={i}>
-    {/* DAY cell - shows day number + indicator label */}
-    <td
-      style={{
-        ...cellStyle,
-        backgroundColor: indicator ? indicator.bgColor : "transparent",
-        position: "relative",
-      }}
-    >
-      <div style={{ fontWeight: "bold", fontSize: "10px" }}>{day}</div>
-      {indicator && (
-        <div
-          style={{
-            fontSize: "6px",
-            fontWeight: "bold",
-            color: indicator.textColor,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            opacity: 0.8,
-            lineHeight: 1,
-          }}
-        >
-          {indicator.label}
-        </div>
-      )}
-    </td>
+                  return (
+                    <tr key={i}>
+                      {/* DAY cell - shows day number + indicator label */}
+                      <td
+                        style={{
+                          ...cellStyle,
+                          backgroundColor: indicator ? indicator.bgColor : "transparent",
+                          position: "relative",
+                        }}
+                      >
+                        <div style={{ fontWeight: "bold", fontSize: "10px" }}>{day}</div>
+                        {indicator && (
+                          <div
+                            style={{
+                              fontSize: "6px",
+                              fontWeight: "bold",
+                              color: indicator.textColor,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              opacity: 0.8,
+                              lineHeight: 1,
+                            }}
+                          >
+                            {indicator.label}
+                          </div>
+                        )}
+                      </td>
 
-    {dtrType === "regular" ? (
-      <>
-        {/* AM Arrival */}
-        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
-          <span>{formatTime(timeFields.timeIN)}</span>
-        </td>
+                      {dtrType === "regular" ? (
+                        <>
+                          {/* AM Arrival */}
+                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                            <span>{formatTime(timeFields.timeIN)}</span>
+                          </td>
 
-        {/* AM Departure */}
-        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
-          <span>{formatTime(timeFields.breaktimeIN)}</span>
-        </td>
+                          {/* AM Departure */}
+                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                            <span>{formatTime(timeFields.breaktimeIN)}</span>
+                          </td>
 
-        {/* PM Arrival */}
-        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
-          <span>{formatTime(timeFields.breaktimeOUT)}</span>
-        </td>
+                          {/* PM Arrival */}
+                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                            <span>{formatTime(timeFields.breaktimeOUT)}</span>
+                          </td>
 
-        {/* PM Departure */}
-        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
-          <span>{formatTime(timeFields.timeOUT)}</span>
-        </td>
+                          {/* PM Departure */}
+                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                            <span>{formatTime(timeFields.timeOUT)}</span>
+                          </td>
 
-        {/* Late Min */}
-        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
-          <span>{record?.minutes || ""}</span>
-        </td>
+                          {/* Late Min */}
+                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                            <span>{record?.minutes || ""}</span>
+                          </td>
 
-        {/* Undertime Min */}
-        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
-          <span>{record?.minutes || ""}</span>
-        </td>
-      </>
-    ) : (
-      <>
-        {/* AM Arrival */}
-        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
-          <span>{formatTime(timeFields.timeIN)}</span>
-        </td>
+                          {/* Undertime Min */}
+                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                            <span>{record?.minutes || ""}</span>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          {/* AM Arrival */}
+                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                            <span>{formatTime(timeFields.timeIN)}</span>
+                          </td>
 
-        {/* AM Departure - empty for non-regular */}
-        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
-          <span></span>
-        </td>
+                          {/* AM Departure - empty for non-regular */}
+                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                            <span></span>
+                          </td>
 
-        {/* PM Arrival - empty for non-regular */}
-        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
-          <span></span>
-        </td>
+                          {/* PM Arrival - empty for non-regular */}
+                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                            <span></span>
+                          </td>
 
-        {/* PM Departure */}
-        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
-          <span>{formatTime(timeFields.timeOUT)}</span>
-        </td>
+                          {/* PM Departure */}
+                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                            <span>{formatTime(timeFields.timeOUT)}</span>
+                          </td>
 
-        {/* Late Min - empty */}
-        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
-          <span></span>
-        </td>
+                          {/* Late Min - empty */}
+                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                            <span></span>
+                          </td>
 
-        {/* Undertime Min - empty */}
-        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
-          <span></span>
-        </td>
-      </>
-    )}
-  </tr>
-);
+                          {/* Undertime Min - empty */}
+                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                            <span></span>
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  );
                 })}
                 <tr>
                   <td colSpan="7" style={{ padding: "10px 5px" }}>
