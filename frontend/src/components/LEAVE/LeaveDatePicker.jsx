@@ -73,7 +73,7 @@ const NavigationButton = styled(IconButton)(({ theme, accentColor }) => ({
 }));
 
 // --- ADDED: Accept leaveRequests and maxSelectableDates as props ---
-const LeaveDatePickerModal = ({ 
+const LeaveDatePicker = ({ 
   open, 
   onClose, 
   selectedDates, 
@@ -429,4 +429,4 @@ const LeaveDatePickerModal = ({
   );
 };
 
-export default LeaveDatePickerModal;
+export default LeaveDatePicker;

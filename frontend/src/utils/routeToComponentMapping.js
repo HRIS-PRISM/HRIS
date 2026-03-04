@@ -79,6 +79,7 @@ export const routeToComponentMap = {
   '/leave-assignment': 'leave-assignment',
   '/leave-request': 'leave-request',
   '/leave-request-user': 'leave-request-user',
+  '/system-settings': 'system-settings',
 };
 
 /**

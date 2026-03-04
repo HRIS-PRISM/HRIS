@@ -1076,7 +1076,6 @@ const TaskList = ({ settings }) => {
               flex: 1,
               overflowY: "auto",
               overflowX: "hidden",
-              pr: 1,
               minHeight: 0,
               "&::-webkit-scrollbar": { width: "6px" },
               "&::-webkit-scrollbar-track": { background: `${settings.primaryColor}1A`, borderRadius: "3px" },
@@ -1111,7 +1110,6 @@ const TaskList = ({ settings }) => {
                         height: 20,
                         bgcolor: task.priority === "high" ? "#f4433610" : task.priority === "medium" ? "#ff980010" : "#4caf5010",
                         color: task.priority === "high" ? "#f44336" : task.priority === "medium" ? "#ff9800" : "#4caf50",
-                        mr: 1,
                       }}
                     />
                     <IconButton size="small" onClick={() => handleDelete(task.id)} sx={{ color: settings.textPrimaryColor }}>
