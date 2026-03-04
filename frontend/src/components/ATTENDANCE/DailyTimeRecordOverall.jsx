@@ -13,6 +13,7 @@ import {
   Circle,
 } from "@mui/icons-material";
 import PrintIcon from "@mui/icons-material/Print";
+import { Stack, Divider } from '@mui/material';
 import {
   Avatar,
   Box,
@@ -43,6 +44,7 @@ import {
   Typography,
   CircularProgress as MCircularProgress,
 } from "@mui/material";
+import { LinearProgress } from '@mui/material';
 import earistLogo from "../../assets/earistLogo.png";
 import hrisLogo from "../../assets/hrisLogo.png";
 import { useSystemSettings } from "../../hooks/useSystemSettings";
@@ -577,7 +579,7 @@ const DailyTimeRecordFaculty = () => {
     }
 
     setLoadingAllUsers(true);
-    setPrintingStatus("Loading attendance and DTR records…");
+    setPrintingStatus("Loading Daily Time Records…");
 
     try {
       // Fetch all attendance records for the date range (only users with records)
@@ -1969,6 +1971,7 @@ const DailyTimeRecordFaculty = () => {
           };
       }
     };
+    
 
     return (
       <div className="table-container">
@@ -2039,436 +2042,102 @@ const DailyTimeRecordFaculty = () => {
                   const timeFields = getTimeFields(record, dtrType);
                   const renderedTime = getRenderedTimeData(record, dtrType);
 
-                  return (
-                    <tr key={i}>
-                      <td
-                        style={{
-                          ...cellStyle,
-                          backgroundColor: indicator
-                            ? indicator.bgColor
-                            : "transparent",
-                        }}
-                      >
-                        {day}
-                      </td>
-                      {dtrType === "regular" ? (
-                        <>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
-                            }}
-                          >
-                            {indicator && (
-                              <>
-                                <div
-                                  style={{
-                                    position: "absolute",
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    backgroundColor: indicator.bgColor,
-                                    zIndex: 0,
-                                    opacity: 0.3,
-                                  }}
-                                />
-                                <div
-                                  style={{
-                                    position: "absolute",
-                                    top: "50%",
-                                    left: "50%",
-                                    transform: "translate(-50%, -50%)",
-                                    fontSize: "7px",
-                                    fontWeight: "bold",
-                                    color: indicator.textColor,
-                                    whiteSpace: "nowrap",
-                                    pointerEvents: "none",
-                                    zIndex: 1,
-                                    opacity: 0.5,
-                                  }}
-                                >
-                                  {indicator.label}
-                                </div>
-                              </>
-                            )}
-                            <span style={{ position: "relative", zIndex: 2 }}>
-                              {formatTime(timeFields.timeIN)}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: "absolute",
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
-                              {formatTime(timeFields.breaktimeIN)}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: "absolute",
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
-                              {formatTime(timeFields.breaktimeOUT)}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
-                            }}
-                          >
-                            {indicator && (
-                              <>
-                                <div
-                                  style={{
-                                    position: "absolute",
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    backgroundColor: indicator.bgColor,
-                                    zIndex: 0,
-                                    opacity: 0.3,
-                                  }}
-                                />
-                                <div
-                                  style={{
-                                    position: "absolute",
-                                    top: "50%",
-                                    left: "50%",
-                                    transform: "translate(-50%, -50%)",
-                                    fontSize: "7px",
-                                    fontWeight: "bold",
-                                    color: indicator.textColor,
-                                    whiteSpace: "nowrap",
-                                    pointerEvents: "none",
-                                    zIndex: 1,
-                                    opacity: 0.5,
-                                  }}
-                                >
-                                  {indicator.label}
-                                </div>
-                              </>
-                            )}
-                            <span style={{ position: "relative", zIndex: 2 }}>
-                              {formatTime(timeFields.timeOUT)}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: "absolute",
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
-                              {record?.minutes || ""}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
-                            }}
-                          >
-                            {indicator && (
-                              <>
-                                <div
-                                  style={{
-                                    position: "absolute",
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    backgroundColor: indicator.bgColor,
-                                    zIndex: 0,
-                                    opacity: 0.3,
-                                  }}
-                                />
-                                <div
-                                  style={{
-                                    position: "absolute",
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    fontSize: "7px",
-                                    fontWeight: "bold",
-                                    color: indicator.textColor,
-                                    backgroundColor: indicator.bgColor,
-                                    zIndex: 1,
-                                    pointerEvents: "none",
-                                    opacity: 0.9,
-                                  }}
-                                >
-                                  {indicator.label}
-                                </div>
-                              </>
-                            )}
-                            <span style={{ position: "relative", zIndex: 2 }}>
-                              {record?.minutes || ""}
-                            </span>
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          {/* For Honorarium, Service Credit, and Overtime - use same layout as Regular */}
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: "absolute",
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
-                              {formatTime(timeFields.timeIN)}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: "absolute",
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
-                              {/* Empty for non-regular types (no break time) */}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: "absolute",
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
-                              {/* Empty for non-regular types (no break time) */}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: "absolute",
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
-                              {formatTime(timeFields.timeOUT)}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: "absolute",
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
-                              {/* Empty or show late minutes if calculated */}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
-                            }}
-                          >
-                            {indicator && (
-                              <>
-                                <div
-                                  style={{
-                                    position: "absolute",
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    backgroundColor: indicator.bgColor,
-                                    zIndex: 0,
-                                    opacity: 0.3,
-                                  }}
-                                />
-                                <div
-                                  style={{
-                                    position: "absolute",
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    fontSize: "7px",
-                                    fontWeight: "bold",
-                                    color: indicator.textColor,
-                                    backgroundColor: indicator.bgColor,
-                                    zIndex: 1,
-                                    pointerEvents: "none",
-                                    opacity: 0.9,
-                                  }}
-                                >
-                                  {indicator.label}
-                                </div>
-                              </>
-                            )}
-                            <span style={{ position: "relative", zIndex: 2 }}>
-                              {/* Empty or show undertime minutes if calculated */}
-                            </span>
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                  );
+return (
+  <tr key={i}>
+    {/* DAY cell - shows day number + indicator label */}
+    <td
+      style={{
+        ...cellStyle,
+        backgroundColor: indicator ? indicator.bgColor : "transparent",
+        position: "relative",
+      }}
+    >
+      <div style={{ fontWeight: "bold", fontSize: "10px" }}>{day}</div>
+      {indicator && (
+        <div
+          style={{
+            fontSize: "6px",
+            fontWeight: "bold",
+            color: indicator.textColor,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            opacity: 0.8,
+            lineHeight: 1,
+          }}
+        >
+          {indicator.label}
+        </div>
+      )}
+    </td>
+
+    {dtrType === "regular" ? (
+      <>
+        {/* AM Arrival */}
+        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+          <span>{formatTime(timeFields.timeIN)}</span>
+        </td>
+
+        {/* AM Departure */}
+        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+          <span>{formatTime(timeFields.breaktimeIN)}</span>
+        </td>
+
+        {/* PM Arrival */}
+        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+          <span>{formatTime(timeFields.breaktimeOUT)}</span>
+        </td>
+
+        {/* PM Departure */}
+        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+          <span>{formatTime(timeFields.timeOUT)}</span>
+        </td>
+
+        {/* Late Min */}
+        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+          <span>{record?.minutes || ""}</span>
+        </td>
+
+        {/* Undertime Min */}
+        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+          <span>{record?.minutes || ""}</span>
+        </td>
+      </>
+    ) : (
+      <>
+        {/* AM Arrival */}
+        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+          <span>{formatTime(timeFields.timeIN)}</span>
+        </td>
+
+        {/* AM Departure - empty for non-regular */}
+        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+          <span></span>
+        </td>
+
+        {/* PM Arrival - empty for non-regular */}
+        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+          <span></span>
+        </td>
+
+        {/* PM Departure */}
+        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+          <span>{formatTime(timeFields.timeOUT)}</span>
+        </td>
+
+        {/* Late Min - empty */}
+        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+          <span></span>
+        </td>
+
+        {/* Undertime Min - empty */}
+        <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+          <span></span>
+        </td>
+      </>
+    )}
+  </tr>
+);
                 })}
                 <tr>
                   <td colSpan="7" style={{ padding: "10px 5px" }}>
@@ -3472,39 +3141,67 @@ const DailyTimeRecordFaculty = () => {
     <Container maxWidth="xl" sx={{ py: 4, mt: -5 }}>
       {/* Fixed Status Overlay at Top of Screen - Shows during printing/downloading/loading */}
       {(printingAll || loadingAllUsers) && (
-        <Box
-          sx={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.9)",
-            color: "white",
-            py: 2,
-            px: 3,
-            zIndex: 9999,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 1,
-            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)",
-          }}
-        >
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-            <MCircularProgress size={24} sx={{ color: "white" }} />
-            <Typography variant="h6" sx={{ fontWeight: 700 }}>
-              {printingStatus ||
-                (loadingAllUsers
-                  ? "Loading attendance and DTR records…"
-                  : "Preparing DTRs...")}
-            </Typography>
-          </Box>
-          <Typography variant="body2" sx={{ opacity: 0.9 }}>
-            {loadingAllUsers
-              ? "This may take a moment for all employees."
-              : "Please wait — the DTRs are being captured and compiled. A new tab will open when ready."}
-          </Typography>
-        </Box>
+<Dialog
+  open={loadingAllUsers || printingStatus}
+  maxWidth="xs"
+  fullWidth
+  PaperProps={{
+    sx: {
+      borderRadius: 4,
+      p: 0,
+      backgroundColor: '#ffffff',
+      boxShadow: '0 10px 50px rgba(0,0,0,0.12)',
+      overflow: 'hidden',
+    },
+  }}
+>
+  <Box
+    sx={{
+      p: 4,
+      minHeight: 280,
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      alignItems: 'center',
+      textAlign: 'center',
+      gap: 2,
+    }}
+  >
+    {/* Spinner */}
+    <MCircularProgress
+      size={80}
+      thickness={4.5}
+      sx={{ color: '#2e7d32' }}
+    />
+
+    {/* Title */}
+    <Typography
+      variant="h6"
+      sx={{
+        fontWeight: 700,
+        color: '#111',
+      }}
+    >
+      {printingStatus ||
+        (loadingAllUsers
+          ? "Loading attendance and DTR records…"
+          : "Preparing DTRs...")}
+    </Typography>
+
+    {/* Subtitle (UNCHANGED STRUCTURE) */}
+    <Typography
+      variant="body2"
+      sx={{
+        color: '#555',
+        maxWidth: 360,
+      }}
+    >
+      {loadingAllUsers
+        ? "This may take a moment for all employees."
+        : "Please wait — the DTRs are being captured and compiled. A new tab will open when ready."}
+    </Typography>
+  </Box>
+</Dialog>
       )}
 
       <style>
@@ -5418,15 +5115,26 @@ const DailyTimeRecordFaculty = () => {
                           <>
                             {/* ================= TABLE 1 ================= */}
                             <table
-                              style={{
-                                border: "1px solid black",
-                                borderCollapse: "collapse",
-                                width: "49%",
-                                tableLayout: "fixed",
-                              }}
-                              className="print-visble"
-                            >
-                              {renderHeader()}
+  style={{
+    position: "relative",
+    border: "1px solid black",
+    borderCollapse: "collapse",
+    width: "49%",
+    tableLayout: "fixed",  // keep fixed so colgroup widths are respected
+  }}
+  className="print-visble"
+>
+  {/* ADD THIS colgroup for equal column widths */}
+  <colgroup>
+    <col style={{ width: "8%" }} />   {/* DAY */}
+    <col style={{ width: "16%" }} />  {/* AM Arrival */}
+    <col style={{ width: "16%" }} />  {/* AM Departure */}
+    <col style={{ width: "16%" }} />  {/* PM Arrival */}
+    <col style={{ width: "16%" }} />  {/* PM Departure */}
+    <col style={{ width: "14%" }} />  {/* Late Min */}
+    <col style={{ width: "14%" }} />  {/* Undertime Min */}
+  </colgroup>
+  {renderHeader()}
                               <tbody>
                                 {Array.from({ length: 31 }, (_, i) => {
                                   const day = (i + 1)
@@ -5712,16 +5420,27 @@ const DailyTimeRecordFaculty = () => {
                             </table>
 
                             {/* ================= TABLE 2 ================= */}
-                            <table
+                           <table
                               style={{
+                                position: "relative",
                                 border: "1px solid black",
                                 borderCollapse: "collapse",
                                 width: "49%",
-                                tableLayout: "fixed",
+                                tableLayout: "fixed",  // keep fixed so colgroup widths are respected
                               }}
                               className="print-visble"
                             >
-                              {renderHeader()}
+                              {/* ADD THIS colgroup for equal column widths */}
+                              <colgroup>
+                                <col style={{ width: "8%" }} />   {/* DAY */}
+                                <col style={{ width: "16%" }} />  {/* AM Arrival */}
+                                <col style={{ width: "16%" }} />  {/* AM Departure */}
+                                <col style={{ width: "16%" }} />  {/* PM Arrival */}
+                                <col style={{ width: "16%" }} />  {/* PM Departure */}
+                                <col style={{ width: "14%" }} />  {/* Late Min */}
+                                <col style={{ width: "14%" }} />  {/* Undertime Min */}
+                              </colgroup>
+                              {renderHeader()}  
                               <tbody>
                                 {Array.from({ length: 31 }, (_, i) => {
                                   const day = (i + 1)
@@ -6311,80 +6030,143 @@ const DailyTimeRecordFaculty = () => {
         </Dialog>
 
         {/* Re-print Confirmation Modal */}
-        <Dialog
-          open={confirmModal.open}
-          onClose={closeConfirm}
-          maxWidth="sm"
-          fullWidth
-        >
-          <DialogTitle
-            sx={{
-              backgroundColor: primaryColor,
-              color: textPrimaryColor,
-              fontWeight: 700,
-            }}
-          >
-            {printStatusMap.has(confirmModal.user?.employeeNumber)
-              ? "Re-print DTR"
-              : "Print DTR"}
-          </DialogTitle>
-          <DialogContent sx={{ mt: 2 }}>
-            <Typography variant="body1" sx={{ mb: 2 }}>
-              {confirmModal.user && (
-                <>
-                  <strong>Employee:</strong>{" "}
-                  {confirmModal.user.fullName ||
-                    `${confirmModal.user.firstName} ${confirmModal.user.lastName}`}
-                  <br />
-                  <strong>Employee Number:</strong>{" "}
-                  {confirmModal.user.employeeNumber}
-                  <br />
-                  <strong>Period:</strong> {formatMonth(startDate)}
-                </>
-              )}
-            </Typography>
-            <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              {printStatusMap.has(confirmModal.user?.employeeNumber)
-                ? "This DTR has already been printed. Do you want to print it again?"
-                : "Are you sure you want to print this DTR?"}
-            </Typography>
-          </DialogContent>
-          <Box
-            sx={{ p: 2, display: "flex", justifyContent: "flex-end", gap: 2 }}
-          >
-            <ProfessionalButton
-              variant="outlined"
-              onClick={closeConfirm}
-              sx={{
-                borderColor: accentColor,
-                color: textPrimaryColor,
-                "&:hover": {
-                  borderColor: hoverColor,
-                  backgroundColor: alpha(accentColor, 0.1),
-                },
-              }}
-            >
-              Cancel
-            </ProfessionalButton>
-            <ProfessionalButton
-              variant="contained"
-              onClick={() =>
-                confirmModal.user &&
-                handleIndividualPrintConfirmed(confirmModal.user)
-              }
-              startIcon={<PrintIcon />}
-              sx={{
-                backgroundColor: accentColor,
-                color: textSecondaryColor,
-                "&:hover": { backgroundColor: hoverColor },
-              }}
-            >
-              {printStatusMap.has(confirmModal.user?.employeeNumber)
-                ? "Re-print"
-                : "Print"}
-            </ProfessionalButton>
-          </Box>
-        </Dialog>
+<Dialog
+  open={confirmModal.open}
+  onClose={closeConfirm}
+  maxWidth="sm"
+  fullWidth
+  PaperProps={{
+    sx: {
+      borderRadius: 3, // Softer, modern rounded corners
+      boxShadow: "0px 10px 30px rgba(0,0,0,0.1)", // Soft, diffused shadow
+      overflow: "hidden",
+    },
+  }}
+>
+  <DialogContent
+    sx={{
+      textAlign: "center",
+      py: 4,
+      px: 3,
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+    }}
+  >
+    {/* Clean, Large Icon without heavy background */}
+    <Box
+      sx={{
+        mb: 2,
+        color: accentColor, // Uses your theme accent
+        backgroundColor: alpha(accentColor, 0.05), // Very subtle background tint
+        p: 2,
+        borderRadius: "12px", // Squircle shape
+      }}
+    >
+      <PrintIcon sx={{ fontSize: 40 }} />
+    </Box>
+
+    {/* Typography Focus */}
+    <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5, color: textPrimaryColor }}>
+      {printStatusMap.has(confirmModal.user?.employeeNumber)
+        ? "Re-print DTR?"
+        : "Confirm Print Job"}
+    </Typography>
+    
+    <Typography variant="body2" sx={{ color: "text.secondary", mb: 3, maxWidth: "85%" }}>
+      {printStatusMap.has(confirmModal.user?.employeeNumber)
+        ? "This record was printed previously. Would you like to generate a new copy?"
+        : "Please verify the details below before printing."}
+    </Typography>
+
+    {/* Document Preview Style Box */}
+    {confirmModal.user && (
+      <Box
+        sx={{
+          width: "100%",
+          border: "1px dashed",
+          borderColor: "divider",
+          backgroundColor: "background.paper",
+          borderRadius: 2,
+          p: 2.5,
+          mb: 3,
+          display: "flex",
+          flexDirection: "column",
+          gap: 1.5,
+          alignItems: "center",
+        }}
+      >
+        <Typography variant="body1" sx={{ fontWeight: 600 }}>
+          {confirmModal.user.fullName ||
+            `${confirmModal.user.firstName} ${confirmModal.user.lastName}`}
+        </Typography>
+        
+        {/* Simple Divider Line */}
+        <Box 
+          sx={{ 
+            width: "40px", 
+            height: "3px", 
+            backgroundColor: accentColor, 
+            borderRadius: "2px" 
+          }} 
+        />
+
+        <Stack direction="row" spacing={2} divider={<Divider orientation="vertical" flexItem />}>
+           <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {confirmModal.user.employeeNumber}
+           </Typography>
+           <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {formatMonth(startDate)}
+           </Typography>
+        </Stack>
+      </Box>
+    )}
+
+    {/* Action Buttons - Pill shaped for modern look */}
+    <Box sx={{ display: "flex", gap: 2, width: "100%", justifyContent: "center" }}>
+      <ProfessionalButton
+        variant="outlined"
+        onClick={closeConfirm}
+        sx={{
+          borderRadius: "50px", // Pill shape
+          px: 3,
+          borderColor: "divider",
+          color: "text.primary",
+          borderWidth: 2,
+          "&:hover": {
+            borderColor: accentColor,
+            backgroundColor: "transparent",
+            color: accentColor,
+          },
+        }}
+      >
+        Cancel
+      </ProfessionalButton>
+      <ProfessionalButton
+        variant="contained"
+        onClick={() =>
+          confirmModal.user &&
+          handleIndividualPrintConfirmed(confirmModal.user)
+        }
+        startIcon={<PrintIcon />}
+        sx={{
+          borderRadius: "50px", // Pill shape
+          px: 4,
+          py: 1,
+          backgroundColor: accentColor,
+          boxShadow: `0 4px 14px 0 ${alpha(accentColor, 0.39)}`, // Colored shadow
+          color: textSecondaryColor,
+          "&:hover": { 
+            backgroundColor: hoverColor,
+            transform: "translateY(-1px)", // Subtle lift
+          },
+        }}
+      >
+        Print
+      </ProfessionalButton>
+    </Box>
+  </DialogContent>
+</Dialog>
       </Box>
     </Container>
   );

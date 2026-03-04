@@ -1,7 +1,7 @@
 import API_BASE_URL from '../../apiConfig';
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { jwtDecode } from 'jwt-decode';
+import decodeJwt from '../../utils/jwtUtils';
 import { AccessTime, CalendarToday, SearchOutlined } from '@mui/icons-material';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import PrintIcon from '@mui/icons-material/Print';
@@ -146,7 +146,7 @@ const DailyTimeRecord = () => {
     const token = localStorage.getItem('token');
     if (token) {
       try {
-        const decoded = jwtDecode(token);
+        const decoded = decodeJwt(token);
         setPersonID(decoded.employeeNumber);
       } catch (error) {
         console.error('Error decoding token:', error);
@@ -897,7 +897,7 @@ const cellStyle = {
   textAlign: 'center',
   padding: '0 1px',
   fontFamily: 'Arial, serif',
-  fontSize: '8px',
+  fontSize: '10px',
   height: '16px',
   whiteSpace: 'nowrap',
   overflow: 'hidden',
@@ -1350,15 +1350,25 @@ const cellStyle = {
                   >
                     <>
                       {/* Table 1 */}
-                      <table
-                        style={{
-                          border: '1px solid black',
-                          borderCollapse: 'collapse',
-                          width: '49%',
-                          tableLayout: 'fixed',
-                        }}
-                      >
-                        {renderHeader()}
+<table
+  style={{
+    border: '1px solid black',
+    borderCollapse: 'collapse',
+    width: '49%',
+    tableLayout: 'fixed',
+  }}
+>
+  {/* ADD THIS */}
+  <colgroup>
+    <col style={{ width: '8%' }} />   {/* DAY */}
+    <col style={{ width: '16%' }} />  {/* AM Arrival */}
+    <col style={{ width: '16%' }} />  {/* AM Departure */}
+    <col style={{ width: '16%' }} />  {/* PM Arrival */}
+    <col style={{ width: '16%' }} />  {/* PM Departure */}
+    <col style={{ width: '14%' }} />  {/* Late Min */}
+    <col style={{ width: '14%' }} />  {/* Undertime Min */}
+  </colgroup>
+  {renderHeader()}
                         <tbody>
                           {Array.from({ length: 31 }, (_, i) => {
                             const day = (i + 1).toString().padStart(2, '0');
@@ -1375,217 +1385,66 @@ const cellStyle = {
                             }
                             const indicator = getDateIndicator(fullDate, record);
                             
-                            return (
-                              <tr key={i}>
-                                <td
-                                  style={{
-                                    ...cellStyle,
-                                    backgroundColor: indicator
-                                      ? indicator.bgColor
-                                      : 'transparent',
-                                  }}
-                                >
-                                  {day}
-                                </td>
-                                <td
-                                  style={{
-                                    ...cellStyle,
-                                    backgroundColor: indicator
-                                      ? indicator.bgColor
-                                      : 'transparent',
-                                    position: 'relative',
-                                  }}
-                                >
-                                  {indicator && (
-                                    <div
-                                      style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0,
-                                        backgroundColor: indicator.bgColor,
-                                        zIndex: 0,
-                                        opacity: 0.3,
-                                      }}
-                                    />
-                                  )}
-                                  <span
-                                    style={{ position: 'relative', zIndex: 1 }}
-                                  >
-                                    {formatTime(record?.timeIN || '')}
-                                  </span>
-                                </td>
-                                <td
-                                  style={{
-                                    ...cellStyle,
-                                    backgroundColor: indicator
-                                      ? indicator.bgColor
-                                      : 'transparent',
-                                    position: 'relative',
-                                  }}
-                                >
-                                  {indicator && (
-                                    <div
-                                      style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0,
-                                        backgroundColor: indicator.bgColor,
-                                        zIndex: 0,
-                                        opacity: 0.3,
-                                      }}
-                                    />
-                                  )}
-                                  <span
-                                    style={{ position: 'relative', zIndex: 1 }}
-                                  >
-                                    {formatTime(record?.breaktimeIN || '')}
-                                  </span>
-                                </td>
-                                <td
-                                  style={{
-                                    ...cellStyle,
-                                    backgroundColor: indicator
-                                      ? indicator.bgColor
-                                      : 'transparent',
-                                    position: 'relative',
-                                  }}
-                                >
-                                  {indicator && (
-                                    <div
-                                      style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0,
-                                        backgroundColor: indicator.bgColor,
-                                        zIndex: 0,
-                                        opacity: 0.3,
-                                      }}
-                                    />
-                                  )}
-                                  <span
-                                    style={{ position: 'relative', zIndex: 1 }}
-                                  >
-                                    {formatTime(record?.breaktimeOUT || '')}
-                                  </span>
-                                </td>
-                                <td
-                                  style={{
-                                    ...cellStyle,
-                                    backgroundColor: indicator
-                                      ? indicator.bgColor
-                                      : 'transparent',
-                                    position: 'relative',
-                                  }}
-                                >
-                                  {indicator && (
-                                    <div
-                                      style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0,
-                                        backgroundColor: indicator.bgColor,
-                                        zIndex: 0,
-                                        opacity: 0.3,
-                                      }}
-                                    />
-                                  )}
-                                  <span
-                                    style={{ position: 'relative', zIndex: 1 }}
-                                  >
-                                    {formatTime(record?.timeOUT || '')}
-                                  </span>
-                                </td>
-                                <td
-                                  style={{
-                                    ...cellStyle,
-                                    backgroundColor: indicator
-                                      ? indicator.bgColor
-                                      : 'transparent',
-                                    position: 'relative',
-                                  }}
-                                >
-                                  {indicator && (
-                                    <div
-                                      style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0,
-                                        backgroundColor: indicator.bgColor,
-                                        zIndex: 0,
-                                        opacity: 0.3,
-                                      }}
-                                    />
-                                  )}
-                                  <span
-                                    style={{ position: 'relative', zIndex: 1 }}
-                                  >
-                                    {record?.minutes || ''}
-                                  </span>
-                                </td>
-                                <td
-                                  style={{
-                                    ...cellStyle,
-                                    backgroundColor: indicator
-                                      ? indicator.bgColor
-                                      : 'transparent',
-                                    position: 'relative',
-                                  }}
-                                >
-                                  {indicator && (
-                                    <>
-                                      <div
-                                        style={{
-                                          position: 'absolute',
-                                          top: 0,
-                                          left: 0,
-                                          right: 0,
-                                          bottom: 0,
-                                          backgroundColor: indicator.bgColor,
-                                          zIndex: 0,
-                                          opacity: 0.3,
-                                        }}
-                                      />
-                                      <div
-                                        style={{
-                                          position: 'absolute',
-                                          top: 0,
-                                          left: 0,
-                                          right: 0,
-                                          bottom: 0,
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          fontSize: '7px',
-                                          fontWeight: 'bold',
-                                          color: indicator.textColor,
-                                          backgroundColor: indicator.bgColor,
-                                          zIndex: 1,
-                                          pointerEvents: 'none',
-                                          opacity: 0.9,
-                                        }}
-                                      >
-                                        {indicator.label}
-                                      </div>
-                                    </>
-                                  )}
-                                  <span
-                                    style={{ position: 'relative', zIndex: 2 }}
-                                  >
-                                    {record?.minutes || ''}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
+return (
+  <tr key={i}>
+    {/* DAY cell - label only here */}
+    <td
+      style={{
+        ...cellStyle,
+        backgroundColor: indicator ? indicator.bgColor : 'transparent',
+        position: 'relative',
+      }}
+    >
+      <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+      {indicator && (
+        <div
+          style={{
+            fontSize: '6px',
+            fontWeight: 'bold',
+            color: indicator.textColor,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            opacity: 0.8,
+            lineHeight: 1,
+          }}
+        >
+          {indicator.label}
+        </div>
+      )}
+    </td>
+
+    {/* AM Arrival */}
+    <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : 'transparent' }}>
+      <span>{formatTime(record?.timeIN || '')}</span>
+    </td>
+
+    {/* AM Departure */}
+    <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : 'transparent' }}>
+      <span>{formatTime(record?.breaktimeIN || '')}</span>
+    </td>
+
+    {/* PM Arrival */}
+    <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : 'transparent' }}>
+      <span>{formatTime(record?.breaktimeOUT || '')}</span>
+    </td>
+
+    {/* PM Departure */}
+    <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : 'transparent' }}>
+      <span>{formatTime(record?.timeOUT || '')}</span>
+    </td>
+
+    {/* Late Min */}
+    <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : 'transparent' }}>
+      <span>{record?.hours || ''}</span>
+    </td>
+
+    {/* Undertime Min */}
+    <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : 'transparent' }}>
+      <span>{record?.minutes || ''}</span>
+    </td>
+  </tr>
+);
                           })}
                           <tr>
                             <td colSpan="7" style={{ padding: '10px 5px' }}>
@@ -1702,15 +1561,25 @@ const cellStyle = {
                       </table>
 
                       {/* Table 2 */}
-                      <table
-                        style={{
-                          border: '1px solid black',
-                          borderCollapse: 'collapse',
-                          width: '49%',
-                          tableLayout: 'fixed',
-                        }}
-                      >
-                        {renderHeader()}
+ <table
+  style={{
+    border: '1px solid black',
+    borderCollapse: 'collapse',
+    width: '49%',
+    tableLayout: 'fixed',
+  }}
+>
+  {/* ADD THIS */}
+  <colgroup>
+    <col style={{ width: '8%' }} />   {/* DAY */}
+    <col style={{ width: '16%' }} />  {/* AM Arrival */}
+    <col style={{ width: '16%' }} />  {/* AM Departure */}
+    <col style={{ width: '16%' }} />  {/* PM Arrival */}
+    <col style={{ width: '16%' }} />  {/* PM Departure */}
+    <col style={{ width: '14%' }} />  {/* Late Min */}
+    <col style={{ width: '14%' }} />  {/* Undertime Min */}
+  </colgroup>
+  {renderHeader()}
                         <tbody>
                           {Array.from({ length: 31 }, (_, i) => {
                             const day = (i + 1).toString().padStart(2, '0');
@@ -1730,217 +1599,66 @@ const cellStyle = {
                               record,
                             );
 
-                            return (
-                              <tr key={i}>
-                                <td
-                                  style={{
-                                    ...cellStyle,
-                                    backgroundColor: indicator
-                                      ? indicator.bgColor
-                                      : 'transparent',
-                                  }}
-                                >
-                                  {day}
-                                </td>
-                                <td
-                                  style={{
-                                    ...cellStyle,
-                                    backgroundColor: indicator
-                                      ? indicator.bgColor
-                                      : 'transparent',
-                                    position: 'relative',
-                                  }}
-                                >
-                                  {indicator && (
-                                    <div
-                                      style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0,
-                                        backgroundColor: indicator.bgColor,
-                                        zIndex: 0,
-                                        opacity: 0.3,
-                                      }}
-                                    />
-                                  )}
-                                  <span
-                                    style={{ position: 'relative', zIndex: 1 }}
-                                  >
-                                    {formatTime(record?.timeIN || '')}
-                                  </span>
-                                </td>
-                                <td
-                                  style={{
-                                    ...cellStyle,
-                                    backgroundColor: indicator
-                                      ? indicator.bgColor
-                                      : 'transparent',
-                                    position: 'relative',
-                                  }}
-                                >
-                                  {indicator && (
-                                    <div
-                                      style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0,
-                                        backgroundColor: indicator.bgColor,
-                                        zIndex: 0,
-                                        opacity: 0.3,
-                                      }}
-                                    />
-                                  )}
-                                  <span
-                                    style={{ position: 'relative', zIndex: 1 }}
-                                  >
-                                    {formatTime(record?.breaktimeIN || '')}
-                                  </span>
-                                </td>
-                                <td
-                                  style={{
-                                    ...cellStyle,
-                                    backgroundColor: indicator
-                                      ? indicator.bgColor
-                                      : 'transparent',
-                                    position: 'relative',
-                                  }}
-                                >
-                                  {indicator && (
-                                    <div
-                                      style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0,
-                                        backgroundColor: indicator.bgColor,
-                                        zIndex: 0,
-                                        opacity: 0.3,
-                                      }}
-                                    />
-                                  )}
-                                  <span
-                                    style={{ position: 'relative', zIndex: 1 }}
-                                  >
-                                    {formatTime(record?.breaktimeOUT || '')}
-                                  </span>
-                                </td>
-                                <td
-                                  style={{
-                                    ...cellStyle,
-                                    backgroundColor: indicator
-                                      ? indicator.bgColor
-                                      : 'transparent',
-                                    position: 'relative',
-                                  }}
-                                >
-                                  {indicator && (
-                                    <div
-                                      style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0,
-                                        backgroundColor: indicator.bgColor,
-                                        zIndex: 0,
-                                        opacity: 0.3,
-                                      }}
-                                    />
-                                  )}
-                                  <span
-                                    style={{ position: 'relative', zIndex: 1 }}
-                                  >
-                                    {formatTime(record?.timeOUT || '')}
-                                  </span>
-                                </td>
-                                <td
-                                  style={{
-                                    ...cellStyle,
-                                    backgroundColor: indicator
-                                      ? indicator.bgColor
-                                      : 'transparent',
-                                    position: 'relative',
-                                  }}
-                                >
-                                  {indicator && (
-                                    <div
-                                      style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0,
-                                        backgroundColor: indicator.bgColor,
-                                        zIndex: 0,
-                                        opacity: 0.3,
-                                      }}
-                                    />
-                                  )}
-                                  <span
-                                    style={{ position: 'relative', zIndex: 1 }}
-                                  >
-                                    {record?.hours || ''}
-                                  </span>
-                                </td>
-                                <td
-                                  style={{
-                                    ...cellStyle,
-                                    backgroundColor: indicator
-                                      ? indicator.bgColor
-                                      : 'transparent',
-                                    position: 'relative',
-                                  }}
-                                >
-                                  {indicator && (
-                                    <>
-                                      <div
-                                        style={{
-                                          position: 'absolute',
-                                          top: 0,
-                                          left: 0,
-                                          right: 0,
-                                          bottom: 0,
-                                          backgroundColor: indicator.bgColor,
-                                          zIndex: 0,
-                                          opacity: 0.3,
-                                        }}
-                                      />
-                                      <div
-                                        style={{
-                                          position: 'absolute',
-                                          top: 0,
-                                          left: 0,
-                                          right: 0,
-                                          bottom: 0,
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          fontSize: '7px',
-                                          fontWeight: 'bold',
-                                          color: indicator.textColor,
-                                          backgroundColor: indicator.bgColor,
-                                          zIndex: 1,
-                                          pointerEvents: 'none',
-                                          opacity: 0.9,
-                                        }}
-                                      >
-                                        {indicator.label}
-                                      </div>
-                                    </>
-                                  )}
-                                  <span
-                                    style={{ position: 'relative', zIndex: 2 }}
-                                  >
-                                    {record?.minutes || ''}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
+return (
+  <tr key={i}>
+    {/* DAY cell - label only here */}
+    <td
+      style={{
+        ...cellStyle,
+        backgroundColor: indicator ? indicator.bgColor : 'transparent',
+        position: 'relative',
+      }}
+    >
+      <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+      {indicator && (
+        <div
+          style={{
+            fontSize: '6px',
+            fontWeight: 'bold',
+            color: indicator.textColor,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            opacity: 0.8,
+            lineHeight: 1,
+          }}
+        >
+          {indicator.label}
+        </div>
+      )}
+    </td>
+
+    {/* AM Arrival */}
+    <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : 'transparent' }}>
+      <span>{formatTime(record?.timeIN || '')}</span>
+    </td>
+
+    {/* AM Departure */}
+    <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : 'transparent' }}>
+      <span>{formatTime(record?.breaktimeIN || '')}</span>
+    </td>
+
+    {/* PM Arrival */}
+    <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : 'transparent' }}>
+      <span>{formatTime(record?.breaktimeOUT || '')}</span>
+    </td>
+
+    {/* PM Departure */}
+    <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : 'transparent' }}>
+      <span>{formatTime(record?.timeOUT || '')}</span>
+    </td>
+
+    {/* Late Min */}
+    <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : 'transparent' }}>
+      <span>{record?.hours || ''}</span>
+    </td>
+
+    {/* Undertime Min */}
+    <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : 'transparent' }}>
+      <span>{record?.minutes || ''}</span>
+    </td>
+  </tr>
+);
                           })}
                           <tr>
                             <td colSpan="7" style={{ padding: '10px 5px' }}>
