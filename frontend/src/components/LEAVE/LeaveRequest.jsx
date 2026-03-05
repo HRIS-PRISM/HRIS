@@ -67,6 +67,7 @@ import {
   SelectAll as SelectAllIcon,
   DoneAll as DoneAllIcon,
   ThumbDown as ThumbDownIcon,
+  HistoryToggleOff,
 } from '@mui/icons-material';
 
 import LoadingOverlay from '../LoadingOverlay';
@@ -126,6 +127,10 @@ const LeaveRequest = () => {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedRequests, setSelectedRequests] = useState([]);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [transactionLogsModalOpen, setTransactionLogsModalOpen] = useState(false);
+  const [transactionLogs, setTransactionLogs] = useState([]);
+  const [transactionLogsLoading, setTransactionLogsLoading] = useState(false);
+  const [transactionLogsError, setTransactionLogsError] = useState('');
 
   const { settings } = useSystemSettings();
 
@@ -524,6 +529,90 @@ const LeaveRequest = () => {
     });
   };
 
+  const formatDateTime = (d) => {
+    if (!d) return 'N/A';
+    return new Date(d).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const renderTransactionMessage = (message) => {
+    const safeMessage = message || 'No message';
+    const lower = safeMessage.toLowerCase();
+
+    const highlights = [];
+    if (lower.includes('immediate supervisor')) {
+      highlights.push({ pattern: /immediate supervisor/gi, color: '#1565C0' });
+      highlights.push({ pattern: /\bapprove\b/gi, color: '#1565C0' });
+    } else if (lower.includes('hr') && lower.includes('approve')) {
+      highlights.push({ pattern: /\bhr\b/gi, color: '#2E7D32' });
+      highlights.push({ pattern: /\bapprove\b/gi, color: '#2E7D32' });
+    } else if (lower.includes('rejected')) {
+      highlights.push({ pattern: /\brejected\b/gi, color: '#C62828' });
+    } else if (lower.includes('requested')) {
+      highlights.push({ pattern: /\brequested\b/gi, color: '#D4A017' });
+    }
+
+    if (!highlights.length) return safeMessage;
+
+    let rendered = [safeMessage];
+    highlights.forEach(({ pattern, color }, idx) => {
+      rendered = rendered.flatMap((part, partIdx) => {
+        if (typeof part !== 'string') return [part];
+        const chunks = part.split(pattern);
+        const matches = part.match(pattern) || [];
+        if (!matches.length) return [part];
+
+        const out = [];
+        chunks.forEach((chunk, i) => {
+          if (chunk) out.push(chunk);
+          if (i < matches.length) {
+            out.push(
+              <Box
+                component="span"
+                key={`admin-hl-${idx}-${partIdx}-${i}`}
+                sx={{ color, fontWeight: 700 }}
+              >
+                {matches[i]}
+              </Box>,
+            );
+          }
+        });
+        return out;
+      });
+    });
+
+    return <>{rendered}</>;
+  };
+
+  const fetchTransactionLogs = async () => {
+    setTransactionLogsLoading(true);
+    setTransactionLogsError('');
+    try {
+      const res = await axios.get(
+        `${API_BASE_URL}/leaveRoute/leave_request/transactions`,
+        getAuthHeaders(),
+      );
+      setTransactionLogs(Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
+      console.error('Error fetching transaction logs:', e);
+      setTransactionLogsError('Failed to load transaction logs.');
+      setTransactionLogs([]);
+    } finally {
+      setTransactionLogsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (transactionLogsModalOpen) {
+      fetchTransactionLogs();
+    }
+  }, [transactionLogsModalOpen]);
+
   return (
     <Box
       sx={{
@@ -652,6 +741,20 @@ const LeaveRequest = () => {
                         }}
                       >
                         <Refresh sx={{ fontSize: 24 }} />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Transaction Logs">
+                      <IconButton
+                        onClick={() => setTransactionLogsModalOpen(true)}
+                        sx={{
+                          bgcolor: 'rgba(109,35,35,0.1)',
+                          '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
+                          color: accentColor,
+                          width: 48,
+                          height: 48,
+                        }}
+                      >
+                        <HistoryToggleOff sx={{ fontSize: 24 }} />
                       </IconButton>
                     </Tooltip>
                   </Box>
@@ -1676,6 +1779,107 @@ const LeaveRequest = () => {
             </Fade>
           </Grid>
         </Grid>
+
+        <Modal
+          open={transactionLogsModalOpen}
+          onClose={() => setTransactionLogsModalOpen(false)}
+        >
+          <Fade in={transactionLogsModalOpen}>
+            <Box
+              sx={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                width: { xs: '92%', sm: '85%', md: 820 },
+                maxHeight: '85vh',
+                bgcolor: primaryColor,
+                border: `1px solid ${alpha(accentColor, 0.2)}`,
+                boxShadow: `0 24px 64px ${alpha(accentColor, 0.3)}`,
+                borderRadius: 3,
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              <Box
+                sx={{
+                  p: 2.5,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  borderBottom: `1px solid ${alpha(accentColor, 0.15)}`,
+                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                }}
+              >
+                <Typography variant="h6" sx={{ fontWeight: 700, color: accentColor }}>
+                  Transaction Logs
+                </Typography>
+                <IconButton
+                  size="small"
+                  onClick={() => setTransactionLogsModalOpen(false)}
+                  sx={{
+                    color: accentColor,
+                    '&:hover': { backgroundColor: alpha(accentColor, 0.08) },
+                  }}
+                >
+                  <Close />
+                </IconButton>
+              </Box>
+
+              <Box sx={{ p: 3, overflowY: 'auto' }}>
+                {transactionLogsLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                    <CircularProgress size={28} sx={{ color: accentColor }} />
+                  </Box>
+                ) : transactionLogsError ? (
+                  <Typography variant="body2" sx={{ color: '#C62828' }}>
+                    {transactionLogsError}
+                  </Typography>
+                ) : transactionLogs.length === 0 ? (
+                  <Typography variant="body2" sx={{ color: '#666' }}>
+                    No transaction logs available.
+                  </Typography>
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                    {transactionLogs.map((log) => {
+                      const loggedAt =
+                        log.created_at ||
+                        log.createdAt ||
+                        log.date_created ||
+                        log.timestamp;
+                      return (
+                        <Paper
+                          key={`admin-log-${log.id}`}
+                          sx={{
+                            p: 2,
+                            borderRadius: 2,
+                            border: `1px solid ${alpha(accentColor, 0.12)}`,
+                            background: '#fff',
+                          }}
+                        >
+                          <Typography sx={{ fontWeight: 600, color: '#333', fontSize: '0.95rem' }}>
+                            {renderTransactionMessage(log.message)}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              display: 'inline-flex',
+                              mt: 1,
+                              color: '#777',
+                            }}
+                          >
+                            {loggedAt ? formatDateTime(loggedAt) : 'No timestamp'}
+                          </Typography>
+                        </Paper>
+                      );
+                    })}
+                  </Box>
+                )}
+              </Box>
+            </Box>
+          </Fade>
+        </Modal>
 
         {/* Edit Modal */}
         <Modal
