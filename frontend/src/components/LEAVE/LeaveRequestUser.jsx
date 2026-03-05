@@ -43,7 +43,7 @@ import { jwtDecode } from 'jwt-decode';
 
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
-import LeaveDatePickerModal from './LeaveDatePicker';
+import LeaveDatePicker from './LeaveDatePicker';
 // Removed LeaveCredits import to implement Grid version inline
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 
@@ -609,7 +609,7 @@ const LeaveRequestUser = () => {
         </Alert>
       </Snackbar>
 
-      {/* Removed: Instant balance error snackbar (handled in LeaveDatePickerModal) */}
+      {/* Removed: Instant balance error snackbar (handled in LeaveDatePicker) */}
       {/* Existing balance alert for backend errors */}
       <Snackbar
         open={balanceAlertOpen}
@@ -947,7 +947,7 @@ const LeaveRequestUser = () => {
                         : 'Pick Leave Dates'}
                     </ProfessionalButton>
 
-                    <LeaveDatePickerModal
+                    <LeaveDatePicker
                       open={dateModalOpen}
                       onClose={() => {
                         setNewLeaveRequest((prev) => ({
@@ -1051,7 +1051,7 @@ const LeaveRequestUser = () => {
                         </Typography>
                       )}
                     </Box>
-                    {/* Over-balance warning now shown in LeaveDatePickerModal only */}
+                    {/* Over-balance warning now shown in LeaveDatePicker only */}
                   </Grid>
 
                 {/* Submit button */}

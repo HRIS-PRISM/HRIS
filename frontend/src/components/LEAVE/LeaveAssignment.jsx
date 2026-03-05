@@ -1978,7 +1978,7 @@ const LeaveAssignment = () => {
                                       '&:disabled': { bgcolor: '#f5f5f5 !important', color: '#ccc !important', borderColor: '#eee !important' },
                                     }}
                                   >
-                                    {canCommute(period) ? 'Commute Leave' : 'Already Commuted'}
+                                    {canCommute(period) ? 'Transfer to Leave Commutation' : 'Already Commuted'}
                                   </Button>
                                 </Box>
                               </Box>
