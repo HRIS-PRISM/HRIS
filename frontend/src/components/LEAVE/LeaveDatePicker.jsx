@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import { Tooltip } from "@mui/material";
 import {
   Modal,
   Box,
@@ -71,7 +72,8 @@ const NavigationButton = styled(IconButton)(({ theme, accentColor }) => ({
   },
 }));
 
-const LeaveDatePickerModal = ({ 
+// --- ADDED: Accept leaveRequests and maxSelectableDates as props ---
+const LeaveDatePicker = ({ 
   open, 
   onClose, 
   selectedDates, 
@@ -82,8 +84,33 @@ const LeaveDatePickerModal = ({
   secondaryColor = '#FFF8E7',
   allowPastDates = false, // NEW: Set to true for sick leave
   leaveType = '', // NEW: Pass leave type to show info
+  leaveRequests = [], // NEW: pass leaveRequests for HR-approved logic
+  maxSelectableDates = null, // NEW: pass max days allowed
 }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [overBalanceWarning, setOverBalanceWarning] = useState('');
+
+  // --- Find HR-approved dates ---
+  const hrApprovedDates = useMemo(() => {
+    const dates = new Set();
+    leaveRequests.forEach(req => {
+      if (String(req.status) === '2') {
+        (req.leave_date || '').split(',').forEach(d => {
+          if (d.trim()) dates.add(d.trim());
+        });
+      }
+    });
+    return dates;
+  }, [leaveRequests]);
+
+  // --- Over-balance warning ---
+  React.useEffect(() => {
+    if (maxSelectableDates !== null && selectedDates.length > maxSelectableDates) {
+      setOverBalanceWarning(`Insufficient balance — you have ${maxSelectableDates.toFixed(1)} day(s) but selected ${selectedDates.length}.`);
+    } else {
+      setOverBalanceWarning('');
+    }
+  }, [selectedDates, maxSelectableDates]);
 
   const formatDate = (dateObj) => {
     const year = dateObj.getFullYear();
@@ -93,9 +120,20 @@ const LeaveDatePickerModal = ({
   };
 
   const toggleDate = (dateStr) => {
-    setSelectedDates((prev) =>
-      prev.includes(dateStr) ? prev.filter((d) => d !== dateStr) : [...prev, dateStr]
-    );
+    // Prevent selecting HR-approved
+    if (hrApprovedDates.has(dateStr)) return;
+    // Allow deselecting always, but only allow selecting if not over max
+    setSelectedDates((prev) => {
+      if (prev.includes(dateStr)) {
+        return prev.filter((d) => d !== dateStr);
+      } else {
+        if (maxSelectableDates !== null && prev.length >= maxSelectableDates) {
+          // Allow over-select for warning, but don't block selection
+          return [...prev, dateStr];
+        }
+        return [...prev, dateStr];
+      }
+    });
   };
 
   const clearAllDates = () => {
@@ -123,10 +161,12 @@ const LeaveDatePickerModal = ({
       const dateStr = formatDate(dateObj);
       const isSelected = selectedDates.includes(dateStr);
       const isToday = dateObj.getTime() === today.getTime();
-      
       // Only disable past dates if allowPastDates is false
       const isPast = !allowPastDates && dateObj < today;
-
+      // --- Disable if HR-approved ---
+      const isHRApproved = hrApprovedDates.has(dateStr);
+      // --- Disable if over balance ---
+      // Only disable if HR-approved or past
       return {
         type: 'day',
         key: dateStr,
@@ -135,11 +175,13 @@ const LeaveDatePickerModal = ({
         isSelected,
         isToday,
         isPast,
+        isHRApproved,
+        // isOverBalance: false, // not used for disabling now
       };
     });
 
     return [...blanks, ...days];
-  }, [currentMonth, selectedDates, allowPastDates]);
+  }, [currentMonth, selectedDates, allowPastDates, hrApprovedDates, maxSelectableDates]);
 
   const goToPreviousMonth = () => {
     setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
@@ -291,15 +333,16 @@ const LeaveDatePickerModal = ({
                 if (item.type === 'blank') {
                   return <Box key={item.key} sx={{ width: 44, height: 44 }} />;
                 }
-
-                return (
+                // Tooltip for HR-approved
+                const dayButton = (
                   <DayButton
                     key={item.key}
                     selected={item.isSelected}
-                    disabled={item.isPast}
+                    disabled={item.isPast || item.isHRApproved}
                     isToday={item.isToday}
                     accentColor={accentColor}
-                    onClick={() => !item.isPast && toggleDate(item.dateStr)}
+                    onClick={() => !(item.isPast || item.isHRApproved) && toggleDate(item.dateStr)}
+                    sx={item.isHRApproved ? { border: `2px solid #C62828`, background: 'rgba(198,40,40,0.08)' } : {}}
                   >
                     {item.dayNum}
                     {item.isSelected && (
@@ -307,40 +350,26 @@ const LeaveDatePickerModal = ({
                     )}
                   </DayButton>
                 );
+                if (item.isHRApproved) {
+                  return (
+                    <Tooltip key={item.key} title={"This date is unavailable. An HR-approved leave has already been scheduled."} arrow>
+                      <span>{dayButton}</span>
+                    </Tooltip>
+                  );
+                }
+                return dayButton;
               })}
             </Box>
           </Box>
 
-          {/* Selected Dates Display */}
-          {selectedDates.length > 0 && (
-            <Box sx={{ px: 3, pb: 2, maxHeight: 120, overflowY: 'auto' }}>
-              <Typography variant="caption" sx={{ color: accentColor, fontWeight: 700, display: 'block', mb: 1.5, textTransform: 'uppercase' }}>
-                Selected Dates ({selectedDates.length})
+          {/* Over-balance warning */}
+          {overBalanceWarning && (
+            <Box sx={{ px: 3, pb: 1 }}>
+              <Typography variant="body2" sx={{ color: '#C62828', fontWeight: 600, mb: 1 }}>
+                {overBalanceWarning}
               </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {sortedSelectedDates.map((dateStr) => (
-                  <Chip
-                    key={dateStr}
-                    label={formatSelectedDate(dateStr)}
-                    size="small"
-                    onDelete={() => toggleDate(dateStr)}
-                    deleteIcon={<Clear sx={{ fontSize: 16 }} />}
-                    sx={{
-                      backgroundColor: alpha(accentColor, 0.1),
-                      color: accentColor,
-                      fontWeight: 600,
-                      fontSize: '0.75rem',
-                      height: 28,
-                      borderRadius: 2,
-                      border: `1px solid ${alpha(accentColor, 0.2)}`,
-                      '& .MuiChip-deleteIcon': { color: accentColor, '&:hover': { color: accentDark } },
-                    }}
-                  />
-                ))}
-              </Box>
             </Box>
           )}
-
           {/* Footer Actions */}
           <Box
             sx={{
@@ -363,6 +392,7 @@ const LeaveDatePickerModal = ({
                 fontWeight: 600,
                 textTransform: 'none',
                 '&:hover': { backgroundColor: alpha(accentColor, 0.08) },
+// (Removed duplicate, invalid Button code block that caused syntax error)
                 '&:disabled': { color: '#ccc' },
               }}
             >
@@ -399,4 +429,4 @@ const LeaveDatePickerModal = ({
   );
 };
 
-export default LeaveDatePickerModal;
+export default LeaveDatePicker;

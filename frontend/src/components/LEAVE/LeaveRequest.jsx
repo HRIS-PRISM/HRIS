@@ -1,5 +1,11 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect, useMemo, useDeferredValue, useRef } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useDeferredValue,
+  useRef,
+} from 'react';
 import axios from 'axios';
 import { getAuthHeaders } from '../../utils/auth';
 import { useSocket } from '../../contexts/SocketContext';
@@ -32,6 +38,9 @@ import {
   Paper,
   Snackbar,
   Alert,
+  Checkbox,
+  FormControlLabel,
+  Slide,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -53,6 +62,11 @@ import {
   ViewList as ViewListIcon,
   ViewModule as ViewModuleIcon,
   HowToReg,
+  CheckBox as CheckBoxIcon,
+  CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon,
+  SelectAll as SelectAllIcon,
+  DoneAll as DoneAllIcon,
+  ThumbDown as ThumbDownIcon,
 } from '@mui/icons-material';
 
 import LoadingOverlay from '../LoadingOverlay';
@@ -84,11 +98,16 @@ const ThemedTextField = styled(TextField, {
 const LeaveRequest = () => {
   const { socket, connected } = useSocket();
   const refreshRef = useRef(null);
-  
+
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [employeeNames, setEmployeeNames] = useState({});
-  const [newRequest, setNewRequest] = useState({ employeeNumber: '', leave_code: '', leave_date: '', status: '0' });
+  const [newRequest, setNewRequest] = useState({
+    employeeNumber: '',
+    leave_code: '',
+    leave_date: '',
+    status: '0',
+  });
   const [editRequest, setEditRequest] = useState(null);
   const [originalRequest, setOriginalRequest] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -102,15 +121,19 @@ const LeaveRequest = () => {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(8);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [leaveTypeFilter, setLeaveTypeFilter] = useState('all');
   const [viewMode, setViewMode] = useState('grid');
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedRequests, setSelectedRequests] = useState([]);
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   const { settings } = useSystemSettings();
-  
+
   // Use stable themed components
   const GlassCard = ThemedCard;
   const ProfessionalButton = ThemedButton;
   const ModernTextField = ThemedTextField;
-  
+
   // Get colors from system settings
   const primaryColor = settings.accentColor || '#FEF9E1';
   const secondaryColor = settings.backgroundColor || '#FFF8E7';
@@ -121,21 +144,63 @@ const LeaveRequest = () => {
 
   // Status Configuration
   const statusOptions = [
-    { value: '0', label: 'Pending Review', short: 'Pending', color: '#F57C00', bg: '#FFF3E0', icon: AccessTime },
-    { value: '1', label: 'Manager Approved', short: 'Manager Approved', color: '#1565C0', bg: '#E3F2FD', icon: CheckCircle },
-    { value: '2', label: 'HR Approved', short: 'HR Approved', color: '#2E7D32', bg: '#E8F5E9', icon: CheckCircle },
-    { value: '3', label: 'Denied', short: 'Denied', color: '#C62828', bg: '#FFEBEE', icon: Block },
-    { value: '4', label: 'Cancelled', short: 'Cancelled', color: '#757575', bg: '#F5F5F5', icon: CancelIcon },
+    {
+      value: '0',
+      label: 'Pending Review',
+      short: 'Pending',
+      color: '#F57C00',
+      bg: '#FFF3E0',
+      icon: AccessTime,
+    },
+    {
+      value: '1',
+      label: 'Manager Approved',
+      short: 'Manager Approved',
+      color: '#1565C0',
+      bg: '#E3F2FD',
+      icon: CheckCircle,
+    },
+    {
+      value: '2',
+      label: 'HR Approved',
+      short: 'HR Approved',
+      color: '#2E7D32',
+      bg: '#E8F5E9',
+      icon: CheckCircle,
+    },
+    {
+      value: '3',
+      label: 'Denied',
+      short: 'Denied',
+      color: '#C62828',
+      bg: '#FFEBEE',
+      icon: Block,
+    },
+    {
+      value: '4',
+      label: 'Cancelled',
+      short: 'Cancelled',
+      color: '#757575',
+      bg: '#F5F5F5',
+      icon: CancelIcon,
+    },
   ];
 
   const isSickLeave = (code) => {
-    const t = leaveTypes.find(x => x.leave_code === code);
+    const t = leaveTypes.find((x) => x.leave_code === code);
     if (!t) return false;
-    return (t.leave_code || '').toLowerCase().includes('sl') || (t.leave_description || '').toLowerCase().includes('sick');
+    return (
+      (t.leave_code || '').toLowerCase().includes('sl') ||
+      (t.leave_description || '').toLowerCase().includes('sick')
+    );
   };
 
-  useEffect(() => { setPage(0); }, [deferredSearch, statusFilter]);
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => {
+    setPage(0);
+  }, [deferredSearch, statusFilter, leaveTypeFilter]);
+  useEffect(() => {
+    fetchAll();
+  }, []);
 
   // Keep latest fetch function for Socket.IO handler
   useEffect(() => {
@@ -164,87 +229,177 @@ const LeaveRequest = () => {
       ]);
       setLeaveRequests(reqRes.data);
       setLeaveTypes(typeRes.data);
-      
+
       const names = {};
-      const empNums = [...new Set(reqRes.data.map(r => r.employeeNumber))];
-      await Promise.all(empNums.map(async (emp) => {
-        try {
-          const res = await axios.get(`${API_BASE_URL}/personalinfo/person_table/${emp}`, getAuthHeaders());
-          names[emp] = [res.data.firstName, res.data.lastName].filter(Boolean).join(' ') || 'Unknown';
-        } catch { names[emp] = 'Unknown'; }
-      }));
+      const empNums = [...new Set(reqRes.data.map((r) => r.employeeNumber))];
+      await Promise.all(
+        empNums.map(async (emp) => {
+          try {
+            const res = await axios.get(
+              `${API_BASE_URL}/personalinfo/person_table/${emp}`,
+              getAuthHeaders(),
+            );
+            names[emp] =
+              [res.data.firstName, res.data.lastName]
+                .filter(Boolean)
+                .join(' ') || 'Unknown';
+          } catch {
+            names[emp] = 'Unknown';
+          }
+        }),
+      );
       setEmployeeNames(names);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const handleAdd = async () => {
-    if (!newRequest.employeeNumber || !newRequest.leave_code || !newRequest.leave_date) { 
-      alert('Please fill all required fields'); 
-      return; 
+    if (
+      !newRequest.employeeNumber ||
+      !newRequest.leave_code ||
+      !newRequest.leave_date
+    ) {
+      alert('Please fill all required fields');
+      return;
     }
+
+    // Validate: check if employee has enough allocated hours for this leave type
+    const employeeAssignments =
+      Object.values(employeeNames).length > 0
+        ? Object.keys(employeeNames).filter(
+            (emp) => emp === newRequest.employeeNumber,
+          )
+        : [];
+
+    // Count leave dates (8 hours per day)
+    const leaveDates = Array.isArray(newRequest.leave_date)
+      ? newRequest.leave_date
+      : newRequest.leave_date.split(',').filter((d) => d.trim());
+    const hoursRequested = leaveDates.length * 8;
+
+    // Find the leave assignment for this employee and leave type
+    const leaveAssignment = leaveCredits?.assignments?.find(
+      (a) =>
+        a.employeeNumber?.toString() ===
+          newRequest.employeeNumber?.toString() &&
+        a.leave_code === newRequest.leave_code,
+    );
+
+    if (leaveAssignment) {
+      const allocatedHours = parseFloat(leaveAssignment.allocated_hours) || 0;
+      const usedHours = parseFloat(leaveAssignment.used_hours) || 0;
+      const availableHours = allocatedHours - usedHours;
+
+      if (availableHours < hoursRequested) {
+        alert(
+          `Insufficient allocated hours. ` +
+            `Requested: ${(hoursRequested / 8).toFixed(1)} days, ` +
+            `Available: ${(availableHours / 8).toFixed(1)} days`,
+        );
+        return;
+      }
+    }
+
     setLoading(true);
     try {
-      await axios.post(`${API_BASE_URL}/leaveRoute/leave_request`, {
-        employeeNumber: newRequest.employeeNumber,
-        leave_code: newRequest.leave_code,
-        leave_dates: [newRequest.leave_date],
-        status: Number(newRequest.status),
-      }, getAuthHeaders());
-      setNewRequest({ employeeNumber: '', leave_code: '', leave_date: '', status: '0' });
+      await axios.post(
+        `${API_BASE_URL}/leaveRoute/leave_request`,
+        {
+          employeeNumber: newRequest.employeeNumber,
+          leave_code: newRequest.leave_code,
+          leave_dates: [newRequest.leave_date],
+          status: Number(newRequest.status),
+        },
+        getAuthHeaders(),
+      );
+      setNewRequest({
+        employeeNumber: '',
+        leave_code: '',
+        leave_date: '',
+        status: '0',
+      });
       setSelectedDates([]);
       setSuccessAction('adding');
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
       fetchAll();
-    } catch (e) { alert('Error adding request'); } 
-    finally { setLoading(false); }
+    } catch (e) {
+      alert('Error adding request');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleUpdate = async () => {
     try {
-      await axios.put(`${API_BASE_URL}/leaveRoute/leave_request/${editRequest.id}`, {
-        employeeNumber: editRequest.employeeNumber,
-        leave_code: editRequest.leave_code,
-        leave_date: editRequest.leave_date,
-        status: Number(editRequest.status),
-      }, getAuthHeaders());
-      setEditRequest(null); 
+      await axios.put(
+        `${API_BASE_URL}/leaveRoute/leave_request/${editRequest.id}`,
+        {
+          employeeNumber: editRequest.employeeNumber,
+          leave_code: editRequest.leave_code,
+          leave_date: editRequest.leave_date,
+          status: Number(editRequest.status),
+        },
+        getAuthHeaders(),
+      );
+      setEditRequest(null);
       setOriginalRequest(null);
       setIsEditing(false);
       setSuccessAction('edit');
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
       fetchAll();
-    } catch { alert('Error updating request'); }
+    } catch {
+      alert('Error updating request');
+    }
   };
 
   const handleDelete = async (id, status) => {
-    if (String(status) === '4') { alert('Cannot delete cancelled request'); return; }
+    if (String(status) === '4') {
+      alert('Cannot delete cancelled request');
+      return;
+    }
     if (!window.confirm('Delete this leave request?')) return;
-    try { 
-      await axios.delete(`${API_BASE_URL}/leaveRoute/leave_request/${id}`, getAuthHeaders()); 
+    try {
+      await axios.delete(
+        `${API_BASE_URL}/leaveRoute/leave_request/${id}`,
+        getAuthHeaders(),
+      );
       closeModal();
       setSuccessAction('delete');
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
-      fetchAll(); 
-    } catch { alert('Error deleting request'); }
+      fetchAll();
+    } catch {
+      alert('Error deleting request');
+    }
   };
 
   const handleCancel = async (id) => {
     if (!window.confirm('Cancel this leave request?')) return;
     try {
-      const r = leaveRequests.find(x => x.id === id);
-      await axios.put(`${API_BASE_URL}/leaveRoute/leave_request/${id}`, { ...r, status: 4 }, getAuthHeaders());
+      const r = leaveRequests.find((x) => x.id === id);
+      await axios.put(
+        `${API_BASE_URL}/leaveRoute/leave_request/${id}`,
+        { ...r, status: 4 },
+        getAuthHeaders(),
+      );
       closeModal();
       setSuccessAction('cancel');
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
       fetchAll();
-    } catch { alert('Error cancelling request'); }
+    } catch {
+      alert('Error cancelling request');
+    }
   };
 
-  const closeModal = () => { setEditRequest(null); setOriginalRequest(null); setIsEditing(false); };
+  const closeModal = () => {
+    setEditRequest(null);
+    setOriginalRequest(null);
+    setIsEditing(false);
+  };
 
   const hasChanges = () => {
     if (!editRequest || !originalRequest) return false;
@@ -262,48 +417,131 @@ const LeaveRequest = () => {
     }
   };
 
-  const filtered = useMemo(() => {
-    let data = leaveRequests;
-    if (statusFilter !== 'all') data = data.filter(r => String(r.status) === statusFilter);
-    const s = (deferredSearch || '').toLowerCase().trim();
-    if (s) data = data.filter(r => 
-      (employeeNames[r.employeeNumber] || '').toLowerCase().includes(s) || 
-      (r.employeeNumber || '').toLowerCase().includes(s)
-    );
-    return data;
-  }, [leaveRequests, deferredSearch, employeeNames, statusFilter]);
-
-  const paged = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-  const counts = { 
-    all: leaveRequests.length, 
-    '0': leaveRequests.filter(r => String(r.status) === '0').length, 
-    '1': leaveRequests.filter(r => String(r.status) === '1').length, 
-    '2': leaveRequests.filter(r => String(r.status) === '2').length, 
-    '3': leaveRequests.filter(r => String(r.status) === '3').length 
+  const toggleSelectMode = () => {
+    setSelectMode(!selectMode);
+    setSelectedRequests([]);
   };
 
-  const getStatus = (v) => statusOptions.find(o => o.value === String(v)) || statusOptions[0];
-  const getType = (c) => leaveTypes.find(t => t.leave_code === c) || { leave_description: c };
-  const formatDate = (d) => { 
-    if (!d) return 'N/A'; 
-    const s = Array.isArray(d) ? d[0] : d.split(',')[0]; 
-    const [y, m, day] = s.trim().split('-'); 
-    return new Date(y, m - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); 
+  const handleSelectRequest = (id) => {
+    if (selectedRequests.includes(id)) {
+      setSelectedRequests(selectedRequests.filter((reqId) => reqId !== id));
+    } else {
+      setSelectedRequests([...selectedRequests, id]);
+    }
+  };
+
+  const handleSelectAll = () => {
+    if (selectedRequests.length === paged.length) {
+      setSelectedRequests([]);
+    } else {
+      setSelectedRequests(paged.map((req) => req.id));
+    }
+  };
+
+  const handleBulkStatusUpdate = async (newStatus) => {
+    if (selectedRequests.length === 0) {
+      alert('Please select at least one request');
+      return;
+    }
+
+    const statusLabel =
+      statusOptions.find((o) => o.value === String(newStatus))?.label ||
+      'Unknown';
+    const confirmed = window.confirm(
+      `Are you sure you want to update ${selectedRequests.length} request(s) to "${statusLabel}"?`,
+    );
+    if (!confirmed) return;
+
+    setBulkLoading(true);
+    try {
+      await axios.put(
+        `${API_BASE_URL}/leaveRoute/leave_request/bulk-update`,
+        { ids: selectedRequests, status: newStatus },
+        getAuthHeaders(),
+      );
+      setSuccessAction('bulk');
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2000);
+      setSelectedRequests([]);
+      setSelectMode(false);
+      fetchAll();
+    } catch (error) {
+      alert(
+        'Error updating requests: ' +
+          (error.response?.data?.error || error.message),
+      );
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const filtered = useMemo(() => {
+    let data = leaveRequests;
+    if (statusFilter !== 'all')
+      data = data.filter((r) => String(r.status) === statusFilter);
+    if (leaveTypeFilter !== 'all')
+      data = data.filter((r) => r.leave_code === leaveTypeFilter);
+    const s = (deferredSearch || '').toLowerCase().trim();
+    if (s)
+      data = data.filter(
+        (r) =>
+          (employeeNames[r.employeeNumber] || '').toLowerCase().includes(s) ||
+          (r.employeeNumber || '').toLowerCase().includes(s),
+      );
+    return data;
+  }, [
+    leaveRequests,
+    deferredSearch,
+    employeeNames,
+    statusFilter,
+    leaveTypeFilter,
+  ]);
+
+  const paged = filtered.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage,
+  );
+  const counts = {
+    all: leaveRequests.length,
+    0: leaveRequests.filter((r) => String(r.status) === '0').length,
+    1: leaveRequests.filter((r) => String(r.status) === '1').length,
+    2: leaveRequests.filter((r) => String(r.status) === '2').length,
+    3: leaveRequests.filter((r) => String(r.status) === '3').length,
+  };
+
+  const getStatus = (v) =>
+    statusOptions.find((o) => o.value === String(v)) || statusOptions[0];
+  const getType = (c) =>
+    leaveTypes.find((t) => t.leave_code === c) || { leave_description: c };
+  const formatDate = (d) => {
+    if (!d) return 'N/A';
+    const s = Array.isArray(d) ? d[0] : d.split(',')[0];
+    const [y, m, day] = s.trim().split('-');
+    return new Date(y, m - 1, day).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
   };
 
   return (
-    <Box sx={{ 
-      py: { xs: 2, md: 4 },
-      mt: { xs: 0, md: -5 },
-      width: '100%',
-      maxWidth: '1600px',
-      mx: 'auto',
-      overflowX: 'hidden',
-    }}>
+    <Box
+      sx={{
+        py: { xs: 2, md: 4 },
+        mt: { xs: 0, md: -5 },
+        width: '100%',
+        maxWidth: '1600px',
+        mx: 'auto',
+        overflowX: 'hidden',
+      }}
+    >
       <Box sx={{ px: { xs: 2, sm: 3, md: 6 } }}>
         {/* Loading Backdrop */}
         <Backdrop
-          sx={{ color: primaryColor, zIndex: (theme) => theme.zIndex.drawer + 1 }}
+          sx={{
+            color: primaryColor,
+            zIndex: (theme) => theme.zIndex.drawer + 1,
+          }}
           open={loading}
         >
           <Box sx={{ textAlign: 'center' }}>
@@ -313,8 +551,12 @@ const LeaveRequest = () => {
             </Typography>
           </Box>
         </Backdrop>
-        
-        <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
+
+        <SuccessfulOverlay
+          open={successOpen}
+          action={successAction}
+          onClose={() => setSuccessOpen(false)}
+        />
 
         {/* Header */}
         <Fade in timeout={500}>
@@ -336,7 +578,8 @@ const LeaveRequest = () => {
                     right: -50,
                     width: 200,
                     height: 200,
-                    background: 'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)',
+                    background:
+                      'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)',
                   }}
                 />
                 <Box
@@ -346,38 +589,62 @@ const LeaveRequest = () => {
                     left: '30%',
                     width: 150,
                     height: 150,
-                    background: 'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
+                    background:
+                      'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
                   }}
                 />
-                
-                <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
+
+                <Box
+                  display="flex"
+                  alignItems="center"
+                  justifyContent="space-between"
+                  position="relative"
+                  zIndex={1}
+                >
                   <Box display="flex" alignItems="center">
-                    <Avatar 
-                      sx={{ 
-                        bgcolor: 'rgba(109,35,35,0.15)', 
-                        mr: 4, 
+                    <Avatar
+                      sx={{
+                        bgcolor: 'rgba(109,35,35,0.15)',
+                        mr: 4,
                         width: 64,
                         height: 64,
-                        boxShadow: '0 8px 24px rgba(109,35,35,0.15)'
+                        boxShadow: '0 8px 24px rgba(109,35,35,0.15)',
                       }}
                     >
                       <BusinessIcon sx={{ color: accentColor, fontSize: 32 }} />
                     </Avatar>
                     <Box>
-                      <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: accentColor }}>
+                      <Typography
+                        variant="h4"
+                        component="h1"
+                        sx={{
+                          fontWeight: 700,
+                          mb: 1,
+                          lineHeight: 1.2,
+                          color: accentColor,
+                        }}
+                      >
                         Leave Request Management
                       </Typography>
-                      <Typography variant="body1" sx={{ opacity: 0.8, fontWeight: 400, color: accentDark }}>
-                        Administrative Panel • Submit and manage employee leave requests
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          opacity: 0.8,
+                          fontWeight: 400,
+                          color: accentDark,
+                        }}
+                      >
+                        Administrative Panel • Submit and manage employee leave
+                        requests
                       </Typography>
                     </Box>
                   </Box>
                   <Box display="flex" alignItems="center" gap={2}>
                     <Tooltip title="Refresh Data">
-                      <IconButton 
+                      <IconButton
                         onClick={() => window.location.reload()}
-                        sx={{ 
-                          bgcolor: 'rgba(109,35,35,0.1)', 
+                        sx={{
+                          bgcolor: 'rgba(109,35,35,0.1)',
                           '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
                           color: accentColor,
                           width: 48,
@@ -399,18 +666,25 @@ const LeaveRequest = () => {
           {/* Add New Request Section */}
           <Grid item xs={12} lg={6}>
             <Fade in timeout={700}>
-              <GlassCard settings={settings} sx={{ height: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column' }}>
+              <GlassCard
+                settings={settings}
+                sx={{
+                  height: 'calc(100vh - 200px)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
                 <Box
                   sx={{
                     p: 4,
                     background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                     color: accentColor,
-                    display: "flex",
-                    alignItems: "center",
+                    display: 'flex',
+                    alignItems: 'center',
                     boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
                   }}
                 >
-                  <EventNote sx={{ fontSize: "1.8rem", mr: 2 }} />
+                  <EventNote sx={{ fontSize: '1.8rem', mr: 2 }} />
                   <Box>
                     <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
                       Add New Leave Request
@@ -421,36 +695,67 @@ const LeaveRequest = () => {
                   </Box>
                 </Box>
 
-                <Box sx={{ 
-                  p: 4, 
-                  flexGrow: 1, 
-                  display: 'flex', 
-                  flexDirection: 'column',
-                  overflowY: 'auto'
-                }}>
+                <Box
+                  sx={{
+                    p: 4,
+                    flexGrow: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflowY: 'auto',
+                  }}
+                >
                   {/* Employee Information Section */}
                   <Box sx={{ mb: 3 }}>
-                    <Typography variant="h5" sx={{ fontWeight: 600, mb: 2, color: accentColor, display: 'flex', alignItems: 'center' }}>
+                    <Typography
+                      variant="h5"
+                      sx={{
+                        fontWeight: 600,
+                        mb: 2,
+                        color: accentColor,
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                    >
                       <PersonIcon sx={{ mr: 2, fontSize: 24 }} />
-                      Employee Information <span style={{ marginLeft: '12px', fontWeight: 400, opacity: 0.7, color: 'red' }}>*</span>
+                      Employee Information{' '}
+                      <span
+                        style={{
+                          marginLeft: '12px',
+                          fontWeight: 400,
+                          opacity: 0.7,
+                          color: 'red',
+                        }}
+                      >
+                        *
+                      </span>
                     </Typography>
-                    
+
                     <Grid container spacing={2}>
                       <Grid item xs={12}>
-                        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
+                        <Typography
+                          variant="body2"
+                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                        >
                           Employee Number
                         </Typography>
                         <ModernTextField
                           settings={settings}
-                          value={newRequest.employeeNumber} 
-                          onChange={(e) => setNewRequest({ ...newRequest, employeeNumber: e.target.value })} 
-                          fullWidth 
+                          value={newRequest.employeeNumber}
+                          onChange={(e) =>
+                            setNewRequest({
+                              ...newRequest,
+                              employeeNumber: e.target.value,
+                            })
+                          }
+                          fullWidth
                           size="small"
-                          placeholder="Enter employee ID" 
+                          placeholder="Enter employee ID"
                           InputProps={{
                             startAdornment: (
                               <InputAdornment position="start">
-                                <PersonIcon sx={{ color: accentColor, fontSize: 20 }} />
+                                <PersonIcon
+                                  sx={{ color: accentColor, fontSize: 20 }}
+                                />
                               </InputAdornment>
                             ),
                           }}
@@ -462,30 +767,55 @@ const LeaveRequest = () => {
                   <Divider sx={{ my: 3, borderColor: 'rgba(109,35,35,0.1)' }} />
 
                   {/* Leave Details Section */}
-                  <Typography variant="h5" sx={{ fontWeight: 600, mb: 3, color: accentColor, display: 'flex', alignItems: 'center' }}>
+                  <Typography
+                    variant="h5"
+                    sx={{
+                      fontWeight: 600,
+                      mb: 3,
+                      color: accentColor,
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                  >
                     <EventNote sx={{ mr: 2, fontSize: 24 }} />
                     Leave Details
                   </Typography>
 
                   <Grid container spacing={2}>
                     <Grid item xs={12}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
+                      <Typography
+                        variant="body2"
+                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                      >
                         Leave Type <span style={{ color: 'red' }}>*</span>
                       </Typography>
                       <FormControl fullWidth size="small">
                         <ModernTextField
                           settings={settings}
                           select
-                          value={newRequest.leave_code} 
-                          onChange={(e) => { setNewRequest({ ...newRequest, leave_code: e.target.value }); setSelectedDates([]); }} 
+                          value={newRequest.leave_code}
+                          onChange={(e) => {
+                            setNewRequest({
+                              ...newRequest,
+                              leave_code: e.target.value,
+                            });
+                            setSelectedDates([]);
+                          }}
                           displayEmpty
                           SelectProps={{
                             displayEmpty: true,
-                            renderValue: (value) => value ? `${value} - ${leaveTypes.find(t => t.leave_code === value)?.leave_description || ''}` : <em>Select Leave Type</em>,
+                            renderValue: (value) =>
+                              value ? (
+                                `${value} - ${leaveTypes.find((t) => t.leave_code === value)?.leave_description || ''}`
+                              ) : (
+                                <em>Select Leave Type</em>
+                              ),
                           }}
                         >
-                          <MenuItem value=""><em>Select Leave Type</em></MenuItem>
-                          {leaveTypes.map(t => (
+                          <MenuItem value="">
+                            <em>Select Leave Type</em>
+                          </MenuItem>
+                          {leaveTypes.map((t) => (
                             <MenuItem key={t.id} value={t.leave_code}>
                               {t.leave_code} - {t.leave_description}
                             </MenuItem>
@@ -493,61 +823,87 @@ const LeaveRequest = () => {
                         </ModernTextField>
                       </FormControl>
                     </Grid>
-                    
+
                     <Grid item xs={12}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
+                      <Typography
+                        variant="body2"
+                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                      >
                         Leave Date(s) <span style={{ color: 'red' }}>*</span>
                       </Typography>
-                      <ProfessionalButton 
+                      <ProfessionalButton
                         settings={settings}
-                        variant="outlined" 
-                        onClick={() => setDateModalOpen(true)} 
-                        startIcon={<CalendarMonth />} 
-                        sx={{ 
-                          width: '100%', 
+                        variant="outlined"
+                        onClick={() => setDateModalOpen(true)}
+                        startIcon={<CalendarMonth />}
+                        sx={{
+                          width: '100%',
                           height: 40,
                           justifyContent: 'flex-start',
                         }}
                       >
-                        {selectedDates.length > 0 ? `${selectedDates.length} date(s) selected` : 'Select Leave Dates'}
+                        {selectedDates.length > 0
+                          ? `${selectedDates.length} date(s) selected`
+                          : 'Select Leave Dates'}
                       </ProfessionalButton>
                       {isSickLeave(newRequest.leave_code) && (
-                        <Typography variant="caption" sx={{ color: '#1565C0', mt: 1, display: 'block' }}>
+                        <Typography
+                          variant="caption"
+                          sx={{ color: '#1565C0', mt: 1, display: 'block' }}
+                        >
                           ℹ Past dates allowed for sick leave
                         </Typography>
                       )}
-                      <LeaveDatePickerModal 
-                        open={dateModalOpen} 
-                        onClose={() => { setNewRequest({ ...newRequest, leave_date: selectedDates.join(',') }); setDateModalOpen(false); }} 
-                        selectedDates={selectedDates} 
-                        setSelectedDates={setSelectedDates} 
-                        accentColor={accentColor} 
-                        accentDark={accentDark} 
-                        primaryColor={primaryColor} 
-                        secondaryColor={secondaryColor} 
-                        allowPastDates={isSickLeave(newRequest.leave_code)} 
+                      <LeaveDatePickerModal
+                        open={dateModalOpen}
+                        onClose={() => {
+                          setNewRequest({
+                            ...newRequest,
+                            leave_date: selectedDates.join(','),
+                          });
+                          setDateModalOpen(false);
+                        }}
+                        selectedDates={selectedDates}
+                        setSelectedDates={setSelectedDates}
+                        accentColor={accentColor}
+                        accentDark={accentDark}
+                        primaryColor={primaryColor}
+                        secondaryColor={secondaryColor}
+                        allowPastDates={isSickLeave(newRequest.leave_code)}
                       />
                     </Grid>
-                    
+
                     <Grid item xs={12}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
+                      <Typography
+                        variant="body2"
+                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                      >
                         Initial Status
                       </Typography>
                       <FormControl fullWidth size="small">
                         <ModernTextField
                           settings={settings}
                           select
-                          value={newRequest.status} 
-                          onChange={(e) => setNewRequest({ ...newRequest, status: e.target.value })}
+                          value={newRequest.status}
+                          onChange={(e) =>
+                            setNewRequest({
+                              ...newRequest,
+                              status: e.target.value,
+                            })
+                          }
                           SelectProps={{
                             renderValue: (value) => {
-                              const opt = statusOptions.find(o => o.value === value);
+                              const opt = statusOptions.find(
+                                (o) => o.value === value,
+                              );
                               return opt?.label || 'Select Status';
                             },
                           }}
                         >
-                          {statusOptions.slice(0, 2).map(o => (
-                            <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+                          {statusOptions.slice(0, 2).map((o) => (
+                            <MenuItem key={o.value} value={o.value}>
+                              {o.label}
+                            </MenuItem>
                           ))}
                         </ModernTextField>
                       </FormControl>
@@ -556,17 +912,17 @@ const LeaveRequest = () => {
 
                   <Box sx={{ mt: 'auto', pt: 3 }}>
                     <ProfessionalButton
-                      onClick={handleAdd} 
+                      onClick={handleAdd}
                       settings={settings}
-                      variant="contained" 
-                      startIcon={<AddIcon />} 
+                      variant="contained"
+                      startIcon={<AddIcon />}
                       fullWidth
                       sx={{
                         backgroundColor: accentColor,
                         color: primaryColor,
                         py: 1.5,
                         fontSize: '1rem',
-                        "&:hover": { 
+                        '&:hover': {
                           backgroundColor: accentDark,
                         },
                       }}
@@ -582,20 +938,27 @@ const LeaveRequest = () => {
           {/* Records Section */}
           <Grid item xs={12} lg={6}>
             <Fade in timeout={900}>
-              <GlassCard settings={settings} sx={{ height: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column' }}>
+              <GlassCard
+                settings={settings}
+                sx={{
+                  height: 'calc(100vh - 200px)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
                 <Box
                   sx={{
                     p: 4,
                     background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                     color: accentColor,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
                     boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
                   }}
                 >
-                  <Box sx={{ display: "flex", alignItems: "center" }}>
-                    <ReorderIcon sx={{ fontSize: "1.8rem", mr: 2 }} />
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <ReorderIcon sx={{ fontSize: '1.8rem', mr: 2 }} />
                     <Box>
                       <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
                         Leave Request Records
@@ -605,95 +968,197 @@ const LeaveRequest = () => {
                       </Typography>
                     </Box>
                   </Box>
-                  
-                  <ToggleButtonGroup
-                    value={viewMode}
-                    exclusive
-                    onChange={handleViewModeChange}
-                    aria-label="view mode"
-                    size="small"
-                    sx={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                      '& .MuiToggleButton-root': {
-                        color: accentColor,
-                        borderColor: 'rgba(109, 35, 35, 0.5)',
-                        padding: '4px 8px',
-                        '&.Mui-selected': {
-                          backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                          color: accentColor
-                        },
+
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Tooltip
+                      title={
+                        selectMode
+                          ? 'Exit Selection Mode'
+                          : 'Select Multiple Requests'
                       }
-                    }}
-                  >
-                    <ToggleButton value="grid" aria-label="grid view">
-                      <ViewModuleIcon fontSize="small" />
-                    </ToggleButton>
-                    <ToggleButton value="list" aria-label="list view">
-                      <ViewListIcon fontSize="small" />
-                    </ToggleButton>
-                  </ToggleButtonGroup>
+                    >
+                      <Button
+                        onClick={toggleSelectMode}
+                        size="small"
+                        variant={selectMode ? 'contained' : 'outlined'}
+                        startIcon={
+                          selectMode ? (
+                            <CheckBoxIcon />
+                          ) : (
+                            <CheckBoxOutlineBlankIcon />
+                          )
+                        }
+                        sx={{
+                          color: selectMode ? primaryColor : accentColor,
+                          backgroundColor: selectMode
+                            ? accentColor
+                            : 'transparent',
+                          borderColor: selectMode
+                            ? accentColor
+                            : 'rgba(109, 35, 35, 0.5)',
+                          '&:hover': {
+                            backgroundColor: selectMode
+                              ? accentDark
+                              : 'rgba(109, 35, 35, 0.08)',
+                            borderColor: accentColor,
+                          },
+                        }}
+                      >
+                        {selectMode ? 'Cancel' : 'Select'}
+                      </Button>
+                    </Tooltip>
+
+                    <ToggleButtonGroup
+                      value={viewMode}
+                      exclusive
+                      onChange={handleViewModeChange}
+                      aria-label="view mode"
+                      size="small"
+                      sx={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                        '& .MuiToggleButton-root': {
+                          color: accentColor,
+                          borderColor: 'rgba(109, 35, 35, 0.5)',
+                          padding: '4px 8px',
+                          '&.Mui-selected': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                            color: accentColor,
+                          },
+                        },
+                      }}
+                    >
+                      <ToggleButton value="grid" aria-label="grid view">
+                        <ViewModuleIcon fontSize="small" />
+                      </ToggleButton>
+                      <ToggleButton value="list" aria-label="list view">
+                        <ViewListIcon fontSize="small" />
+                      </ToggleButton>
+                    </ToggleButtonGroup>
+                  </Box>
                 </Box>
 
-                <Box sx={{ 
-                  p: 4, 
-                  flexGrow: 1, 
-                  display: 'flex', 
-                  flexDirection: 'column',
-                  overflow: 'hidden'
-                }}>
-                  {/* Search */}
-                  <Box sx={{ mb: 3 }}>
-                    <ModernTextField
-                      settings={settings}
-                      size="small"
-                      placeholder="Search by employee name or ID..." 
-                      value={searchTerm} 
-                      onChange={(e) => setSearchTerm(e.target.value)} 
-                      fullWidth 
-                      InputProps={{ 
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <SearchIcon sx={{ color: accentColor }} />
-                          </InputAdornment>
-                        ),
-                      }} 
-                    />
+                <Box
+                  sx={{
+                    p: 4,
+                    flexGrow: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {/* Search and Leave Type Filter Row */}
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      gap: 2,
+                      mb: 3,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Box sx={{ flex: 1 }}>
+                      <ModernTextField
+                        settings={settings}
+                        size="small"
+                        placeholder="Search by employee name or ID..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        fullWidth
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <SearchIcon
+                                sx={{ color: accentColor, fontSize: 20 }}
+                              />
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+                    </Box>
+                    <FormControl sx={{ minWidth: 200 }} size="small">
+                      <ModernTextField
+                        settings={settings}
+                        select
+                        value={leaveTypeFilter}
+                        onChange={(e) => {
+                          setLeaveTypeFilter(e.target.value);
+                          setPage(0);
+                        }}
+                        label="Leave Type"
+                        variant="outlined"
+                      >
+                        <MenuItem value="all">All Leave Types</MenuItem>
+                        {leaveTypes.map((type) => (
+                          <MenuItem
+                            key={type.leave_code}
+                            value={type.leave_code}
+                          >
+                            {type.leave_code} - {type.leave_description}
+                          </MenuItem>
+                        ))}
+                      </ModernTextField>
+                    </FormControl>
                   </Box>
 
                   {/* Status Filter Chips */}
-                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 3 }}>
+                  <Box
+                    sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}
+                  >
                     {[
-                      { label: `All (${counts.all})`, value: 'all', color: accentColor },
-                      { label: `Pending (${counts['0']})`, value: '0', color: '#F57C00' },
-                      { label: `Manager (${counts['1']})`, value: '1', color: '#1565C0' },
-                      { label: `HR (${counts['2']})`, value: '2', color: '#2E7D32' },
-                      { label: `Denied (${counts['3']})`, value: '3', color: '#C62828' },
-                    ].map(f => (
-                      <Chip 
-                        key={f.value} 
-                        label={f.label} 
-                        onClick={() => setStatusFilter(f.value)} 
-                        sx={{ 
+                      {
+                        label: `All (${counts.all})`,
+                        value: 'all',
+                        color: accentColor,
+                      },
+                      {
+                        label: `Pending (${counts['0']})`,
+                        value: '0',
+                        color: '#F57C00',
+                      },
+                      {
+                        label: `Manager (${counts['1']})`,
+                        value: '1',
+                        color: '#1565C0',
+                      },
+                      {
+                        label: `HR (${counts['2']})`,
+                        value: '2',
+                        color: '#2E7D32',
+                      },
+                      {
+                        label: `Denied (${counts['3']})`,
+                        value: '3',
+                        color: '#C62828',
+                      },
+                    ].map((f) => (
+                      <Chip
+                        key={f.value}
+                        label={f.label}
+                        onClick={() => setStatusFilter(f.value)}
+                        sx={{
                           fontSize: '0.75rem',
                           fontWeight: 600,
                           height: 28,
-                          border: `1px solid ${f.color}`, 
-                          bgcolor: statusFilter === f.value ? f.color : 'transparent', 
-                          color: statusFilter === f.value ? '#fff' : f.color, 
+                          border: `1px solid ${f.color}`,
+                          bgcolor:
+                            statusFilter === f.value ? f.color : 'transparent',
+                          color: statusFilter === f.value ? '#fff' : f.color,
                           cursor: 'pointer',
                           transition: 'all 0.2s ease',
-                          '&:hover': { 
-                            bgcolor: statusFilter === f.value ? f.color : alpha(f.color, 0.08),
-                          } 
-                        }} 
+                          '&:hover': {
+                            bgcolor:
+                              statusFilter === f.value
+                                ? f.color
+                                : alpha(f.color, 0.08),
+                          },
+                        }}
                       />
                     ))}
                   </Box>
 
                   {/* Records List */}
-                  <Box 
-                    sx={{ 
-                      flexGrow: 1, 
+                  <Box
+                    sx={{
+                      flexGrow: 1,
                       overflowY: 'auto',
                       pr: 1,
                       '&::-webkit-scrollbar': {
@@ -711,12 +1176,21 @@ const LeaveRequest = () => {
                   >
                     {paged.length === 0 ? (
                       <Box sx={{ textAlign: 'center', py: 8 }}>
-                        <EventNote sx={{ fontSize: 56, color: '#e0e0e0', mb: 2 }} />
-                        <Typography variant="h6" sx={{ color: accentColor, fontWeight: 'bold', mb: 1 }}>
+                        <EventNote
+                          sx={{ fontSize: 56, color: '#e0e0e0', mb: 2 }}
+                        />
+                        <Typography
+                          variant="h6"
+                          sx={{ color: accentColor, fontWeight: 'bold', mb: 1 }}
+                        >
                           No Records Found
                         </Typography>
                         <Typography variant="body2" sx={{ color: grayColor }}>
-                          {searchTerm || statusFilter !== 'all' ? 'Try adjusting your search or filter' : 'Add your first leave request'}
+                          {searchTerm ||
+                          statusFilter !== 'all' ||
+                          leaveTypeFilter !== 'all'
+                            ? 'Try adjusting your search or filter'
+                            : 'Add your first leave request'}
                         </Typography>
                       </Box>
                     ) : viewMode === 'grid' ? (
@@ -726,64 +1200,151 @@ const LeaveRequest = () => {
                           const type = getType(req.leave_code);
                           const isCancelled = String(req.status) === '4';
                           const StatusIcon = status.icon;
-                          
+                          const isSelected = selectedRequests.includes(req.id);
+
                           return (
                             <Grid item xs={12} sm={6} key={req.id}>
                               <Card
-                                onClick={() => !isCancelled && (setEditRequest({ ...req }), setOriginalRequest({ ...req }), setIsEditing(false))}
+                                onClick={(e) => {
+                                  if (selectMode && !isCancelled) {
+                                    e.stopPropagation();
+                                    handleSelectRequest(req.id);
+                                  } else if (!isCancelled && !selectMode) {
+                                    setEditRequest({ ...req });
+                                    setOriginalRequest({ ...req });
+                                    setIsEditing(false);
+                                  }
+                                }}
                                 sx={{
                                   cursor: isCancelled ? 'default' : 'pointer',
                                   opacity: isCancelled ? 0.65 : 1,
-                                  border: "1px solid rgba(109, 35, 35, 0.1)",
-                                  height: "100%",
+                                  border: isSelected
+                                    ? `2px solid ${accentColor}`
+                                    : '1px solid rgba(109, 35, 35, 0.1)',
+                                  height: '100%',
                                   display: 'flex',
                                   flexDirection: 'column',
-                                  "&:hover": isCancelled ? {} : { 
-                                    borderColor: accentColor,
-                                    transform: 'translateY(-2px)',
-                                    transition: 'all 0.2s ease',
-                                    boxShadow: '0 4px 8px rgba(109,35,35,0.15)'
-                                  },
+                                  position: 'relative',
+                                  backgroundColor: isSelected
+                                    ? 'rgba(109, 35, 35, 0.05)'
+                                    : 'white',
+                                  '&:hover': isCancelled
+                                    ? {}
+                                    : {
+                                        borderColor: accentColor,
+                                        transform: 'translateY(-2px)',
+                                        transition: 'all 0.2s ease',
+                                        boxShadow:
+                                          '0 4px 8px rgba(109,35,35,0.15)',
+                                      },
                                 }}
                               >
-                                <CardContent sx={{ p: 2, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-                                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                                    <PersonIcon sx={{ fontSize: 18, color: accentColor, mr: 0.5 }} />
-                                    <Typography variant="caption" sx={{ 
-                                      color: accentColor, 
-                                      px: 0.5, 
-                                      py: 0.2, 
-                                      borderRadius: 0.5,
-                                      fontSize: '0.7rem',
-                                      fontWeight: 'bold'
-                                    }}>
+                                {selectMode && !isCancelled && (
+                                  <Checkbox
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      e.stopPropagation();
+                                      handleSelectRequest(req.id);
+                                    }}
+                                    sx={{
+                                      position: 'absolute',
+                                      top: 8,
+                                      right: 8,
+                                      zIndex: 10,
+                                      color: accentColor,
+                                      '&.Mui-checked': {
+                                        color: accentColor,
+                                      },
+                                    }}
+                                  />
+                                )}
+                                <CardContent
+                                  sx={{
+                                    p: 2,
+                                    flexGrow: 1,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                  }}
+                                >
+                                  <Box
+                                    sx={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      mb: 1,
+                                    }}
+                                  >
+                                    <PersonIcon
+                                      sx={{
+                                        fontSize: 18,
+                                        color: accentColor,
+                                        mr: 0.5,
+                                      }}
+                                    />
+                                    <Typography
+                                      variant="caption"
+                                      sx={{
+                                        color: accentColor,
+                                        px: 0.5,
+                                        py: 0.2,
+                                        borderRadius: 0.5,
+                                        fontSize: '0.7rem',
+                                        fontWeight: 'bold',
+                                      }}
+                                    >
                                       #{req.employeeNumber}
                                     </Typography>
                                   </Box>
-                                  
-                                  <Typography variant="body2" fontWeight="bold" color="#333" mb={0.5} noWrap>
-                                    {employeeNames[req.employeeNumber] || 'Loading...'}
+
+                                  <Typography
+                                    variant="body2"
+                                    fontWeight="bold"
+                                    color="#333"
+                                    mb={0.5}
+                                    noWrap
+                                  >
+                                    {employeeNames[req.employeeNumber] ||
+                                      'Loading...'}
                                   </Typography>
-                                  
-                                  <Typography variant="body2" fontWeight="bold" color="#333" mb={1} sx={{ flexGrow: 1 }}>
+
+                                  <Typography
+                                    variant="body2"
+                                    fontWeight="bold"
+                                    color="#333"
+                                    mb={1}
+                                    sx={{ flexGrow: 1 }}
+                                  >
                                     {type.leave_description || req.leave_code}
                                   </Typography>
-                                  
-                                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                    <Typography variant="caption" color="#000" fontSize="0.75rem">
+
+                                  <Box
+                                    sx={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                    }}
+                                  >
+                                    <Typography
+                                      variant="caption"
+                                      color="#000"
+                                      fontSize="0.75rem"
+                                    >
                                       {formatDate(req.leave_date)}
                                     </Typography>
                                     <Chip
-                                      icon={<StatusIcon sx={{ fontSize: 14 }} />}
+                                      icon={
+                                        <StatusIcon sx={{ fontSize: 14 }} />
+                                      }
                                       label={status.short}
                                       size="small"
-                                      sx={{ 
+                                      sx={{
                                         bgcolor: status.bg,
                                         color: status.color,
                                         fontWeight: 600,
                                         fontSize: '0.65rem',
                                         height: 22,
-                                        '& .MuiChip-icon': { color: status.color },
+                                        '& .MuiChip-icon': {
+                                          color: status.color,
+                                        },
                                       }}
                                     />
                                   </Box>
@@ -799,63 +1360,136 @@ const LeaveRequest = () => {
                         const type = getType(req.leave_code);
                         const isCancelled = String(req.status) === '4';
                         const StatusIcon = status.icon;
-                        
+                        const isSelected = selectedRequests.includes(req.id);
+
                         return (
                           <Card
                             key={req.id}
-                            onClick={() => !isCancelled && (setEditRequest({ ...req }), setOriginalRequest({ ...req }), setIsEditing(false))}
+                            onClick={(e) => {
+                              if (selectMode && !isCancelled) {
+                                e.stopPropagation();
+                                handleSelectRequest(req.id);
+                              } else if (!isCancelled && !selectMode) {
+                                setEditRequest({ ...req });
+                                setOriginalRequest({ ...req });
+                                setIsEditing(false);
+                              }
+                            }}
                             sx={{
                               cursor: isCancelled ? 'default' : 'pointer',
                               opacity: isCancelled ? 0.65 : 1,
-                              border: "1px solid rgba(109, 35, 35, 0.1)",
+                              border: isSelected
+                                ? `2px solid ${accentColor}`
+                                : '1px solid rgba(109, 35, 35, 0.1)',
                               mb: 1,
-                              "&:hover": isCancelled ? {} : { 
-                                borderColor: accentColor,
-                                backgroundColor: 'rgba(254, 249, 225, 0.3)'
-                              },
+                              backgroundColor: isSelected
+                                ? 'rgba(109, 35, 35, 0.05)'
+                                : 'white',
+                              '&:hover': isCancelled
+                                ? {}
+                                : {
+                                    borderColor: accentColor,
+                                    backgroundColor: isSelected
+                                      ? 'rgba(109, 35, 35, 0.08)'
+                                      : 'rgba(254, 249, 225, 0.3)',
+                                  },
                             }}
                           >
                             <Box sx={{ p: 2 }}>
-                              <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'flex-start',
+                                }}
+                              >
+                                {selectMode && !isCancelled && (
+                                  <Checkbox
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      e.stopPropagation();
+                                      handleSelectRequest(req.id);
+                                    }}
+                                    sx={{
+                                      mr: 1,
+                                      color: accentColor,
+                                      '&.Mui-checked': {
+                                        color: accentColor,
+                                      },
+                                    }}
+                                  />
+                                )}
+
                                 <Box sx={{ mr: 1.5, mt: 0.2 }}>
-                                  <PersonIcon sx={{ fontSize: 20, color: accentColor }} />
+                                  <PersonIcon
+                                    sx={{ fontSize: 20, color: accentColor }}
+                                  />
                                 </Box>
-                                
+
                                 <Box sx={{ flexGrow: 1 }}>
-                                  <Typography variant="caption" sx={{ 
-                                    color: accentColor,
-                                    fontSize: '0.7rem',
-                                    fontWeight: 'bold',
-                                    display: 'block',
-                                    mb: 0.5
-                                  }}>
+                                  <Typography
+                                    variant="caption"
+                                    sx={{
+                                      color: accentColor,
+                                      fontSize: '0.7rem',
+                                      fontWeight: 'bold',
+                                      display: 'block',
+                                      mb: 0.5,
+                                    }}
+                                  >
                                     #{req.employeeNumber}
                                   </Typography>
-                                  <Typography variant="body2" fontWeight="bold" color="#333" sx={{ mb: 0.5 }}>
-                                    {employeeNames[req.employeeNumber] || 'Loading...'}
+                                  <Typography
+                                    variant="body2"
+                                    fontWeight="bold"
+                                    color="#333"
+                                    sx={{ mb: 0.5 }}
+                                  >
+                                    {employeeNames[req.employeeNumber] ||
+                                      'Loading...'}
                                   </Typography>
-                                  
-                                  <Typography variant="body2" fontWeight="bold" color="#333" sx={{ mb: 0.5 }}>
+
+                                  <Typography
+                                    variant="body2"
+                                    fontWeight="bold"
+                                    color="#333"
+                                    sx={{ mb: 0.5 }}
+                                  >
                                     {type.leave_description || req.leave_code}
                                   </Typography>
-                                  
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <CalendarMonth sx={{ fontSize: 14, color: '#000' }} />
-                                    <Typography variant="caption" color="#000" fontSize="0.75rem">
+
+                                  <Box
+                                    sx={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 1,
+                                    }}
+                                  >
+                                    <CalendarMonth
+                                      sx={{ fontSize: 14, color: '#000' }}
+                                    />
+                                    <Typography
+                                      variant="caption"
+                                      color="#000"
+                                      fontSize="0.75rem"
+                                    >
                                       {formatDate(req.leave_date)}
                                     </Typography>
                                     <Chip
-                                      icon={<StatusIcon sx={{ fontSize: 14 }} />}
+                                      icon={
+                                        <StatusIcon sx={{ fontSize: 14 }} />
+                                      }
                                       label={status.short}
                                       size="small"
-                                      sx={{ 
+                                      sx={{
                                         bgcolor: status.bg,
                                         color: status.color,
                                         fontWeight: 600,
                                         fontSize: '0.65rem',
                                         height: 22,
                                         ml: 'auto',
-                                        '& .MuiChip-icon': { color: status.color },
+                                        '& .MuiChip-icon': {
+                                          color: status.color,
+                                        },
                                       }}
                                     />
                                   </Box>
@@ -868,23 +1502,172 @@ const LeaveRequest = () => {
                     )}
                   </Box>
 
+                  {/* Bulk Action Toolbar */}
+                  {selectMode && (
+                    <Slide
+                      direction="up"
+                      in={selectMode}
+                      mountOnEnter
+                      unmountOnExit
+                    >
+                      <Paper
+                        elevation={4}
+                        sx={{
+                          position: 'sticky',
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          p: 2,
+                          backgroundColor: primaryColor,
+                          borderTop: `2px solid ${accentColor}`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 2,
+                          flexWrap: 'wrap',
+                          zIndex: 100,
+                        }}
+                      >
+                        <Box
+                          sx={{ display: 'flex', alignItems: 'center', gap: 2 }}
+                        >
+                          <Checkbox
+                            checked={
+                              selectedRequests.length === paged.length &&
+                              paged.length > 0
+                            }
+                            indeterminate={
+                              selectedRequests.length > 0 &&
+                              selectedRequests.length < paged.length
+                            }
+                            onChange={handleSelectAll}
+                            sx={{
+                              color: accentColor,
+                              '&.Mui-checked, &.MuiCheckbox-indeterminate': {
+                                color: accentColor,
+                              },
+                            }}
+                          />
+                          <Typography
+                            variant="body2"
+                            sx={{ fontWeight: 600, color: accentColor }}
+                          >
+                            {selectedRequests.length === 0
+                              ? 'Select items'
+                              : `${selectedRequests.length} item${selectedRequests.length > 1 ? 's' : ''} selected`}
+                          </Typography>
+                        </Box>
+
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          <Tooltip title="Approve as Manager">
+                            <Button
+                              onClick={() => handleBulkStatusUpdate(1)}
+                              disabled={
+                                selectedRequests.length === 0 || bulkLoading
+                              }
+                              variant="contained"
+                              size="small"
+                              startIcon={
+                                bulkLoading ? (
+                                  <CircularProgress size={16} />
+                                ) : (
+                                  <CheckCircle />
+                                )
+                              }
+                              sx={{
+                                backgroundColor: '#1565C0',
+                                color: '#fff',
+                                '&:hover': { backgroundColor: '#0D47A1' },
+                                '&:disabled': { backgroundColor: '#ccc' },
+                              }}
+                            >
+                              Manager
+                            </Button>
+                          </Tooltip>
+
+                          <Tooltip title="Approve as HR">
+                            <Button
+                              onClick={() => handleBulkStatusUpdate(2)}
+                              disabled={
+                                selectedRequests.length === 0 || bulkLoading
+                              }
+                              variant="contained"
+                              size="small"
+                              startIcon={
+                                bulkLoading ? (
+                                  <CircularProgress size={16} />
+                                ) : (
+                                  <DoneAllIcon />
+                                )
+                              }
+                              sx={{
+                                backgroundColor: '#2E7D32',
+                                color: '#fff',
+                                '&:hover': { backgroundColor: '#1B5E20' },
+                                '&:disabled': { backgroundColor: '#ccc' },
+                              }}
+                            >
+                              HR Approve
+                            </Button>
+                          </Tooltip>
+
+                          <Tooltip title="Deny Requests">
+                            <Button
+                              onClick={() => handleBulkStatusUpdate(3)}
+                              disabled={
+                                selectedRequests.length === 0 || bulkLoading
+                              }
+                              variant="contained"
+                              size="small"
+                              startIcon={
+                                bulkLoading ? (
+                                  <CircularProgress size={16} />
+                                ) : (
+                                  <ThumbDownIcon />
+                                )
+                              }
+                              sx={{
+                                backgroundColor: '#C62828',
+                                color: '#fff',
+                                '&:hover': { backgroundColor: '#B71C1C' },
+                                '&:disabled': { backgroundColor: '#ccc' },
+                              }}
+                            >
+                              Deny
+                            </Button>
+                          </Tooltip>
+                        </Box>
+                      </Paper>
+                    </Slide>
+                  )}
+
                   {/* Pagination */}
                   {filtered.length > 0 && (
-                    <Box sx={{ pt: 2, mt: 2, borderTop: `1px solid rgba(109,35,35,0.1)` }}>
-                      <TablePagination 
-                        component="div" 
-                        count={filtered.length} 
-                        page={page} 
-                        onPageChange={(e, p) => setPage(p)} 
-                        rowsPerPage={rowsPerPage} 
-                        onRowsPerPageChange={(e) => { setRowsPerPage(+e.target.value); setPage(0); }} 
-                        rowsPerPageOptions={[8, 16, 24]} 
-                        sx={{ 
-                          '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { 
-                            fontWeight: 600,
-                            fontSize: '0.85rem',
-                          } 
-                        }} 
+                    <Box
+                      sx={{
+                        pt: 2,
+                        mt: 2,
+                        borderTop: `1px solid rgba(109,35,35,0.1)`,
+                      }}
+                    >
+                      <TablePagination
+                        component="div"
+                        count={filtered.length}
+                        page={page}
+                        onPageChange={(e, p) => setPage(p)}
+                        rowsPerPage={rowsPerPage}
+                        onRowsPerPageChange={(e) => {
+                          setRowsPerPage(+e.target.value);
+                          setPage(0);
+                        }}
+                        rowsPerPageOptions={[8, 16, 24]}
+                        sx={{
+                          '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows':
+                            {
+                              fontWeight: 600,
+                              fontSize: '0.85rem',
+                            },
+                        }}
                       />
                     </Box>
                   )}
@@ -898,14 +1681,18 @@ const LeaveRequest = () => {
         <Modal
           open={!!editRequest}
           onClose={closeModal}
-          sx={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
         >
           <GlassCard
             settings={settings}
             sx={{
-              width: "90%",
-              maxWidth: "700px",
-              maxHeight: "90vh",
+              width: '90%',
+              maxWidth: '700px',
+              maxHeight: '90vh',
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',
@@ -919,110 +1706,193 @@ const LeaveRequest = () => {
                     p: 3,
                     background: `linear-gradient(135deg, ${settings.secondaryColor || accentDark} 0%, ${settings.deleteButtonHoverColor || accentColor} 100%)`,
                     color: settings.accentColor || '#FEF9E1',
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
                     position: 'sticky',
                     top: 0,
                     zIndex: 10,
                     flexShrink: 0,
                   }}
                 >
-                  <Typography variant="h6" sx={{ fontWeight: 'bold', color: settings.accentColor || '#FEF9E1' }}>
-                    {isEditing ? "Edit Leave Request" : "Leave Request Details"}
+                  <Typography
+                    variant="h6"
+                    sx={{
+                      fontWeight: 'bold',
+                      color: settings.accentColor || '#FEF9E1',
+                    }}
+                  >
+                    {isEditing ? 'Edit Leave Request' : 'Leave Request Details'}
                   </Typography>
-                  <IconButton onClick={closeModal} sx={{ color: settings.accentColor || '#FEF9E1' }}>
+                  <IconButton
+                    onClick={closeModal}
+                    sx={{ color: settings.accentColor || '#FEF9E1' }}
+                  >
                     <Close />
                   </IconButton>
                 </Box>
 
-                <Box sx={{ 
-                  p: 4, 
-                  flexGrow: 1, 
-                  overflowY: 'auto',
-                  minHeight: 0,
-                  '&::-webkit-scrollbar': {
-                    width: '6px',
-                  },
-                  '&::-webkit-scrollbar-track': {
-                    background: '#f1f1f1',
-                    borderRadius: '3px',
-                  },
-                  '&::-webkit-scrollbar-thumb': {
-                    background: settings.primaryColor || accentColor,
-                    borderRadius: '3px',
-                  },
-                }}>
+                <Box
+                  sx={{
+                    p: 4,
+                    flexGrow: 1,
+                    overflowY: 'auto',
+                    minHeight: 0,
+                    '&::-webkit-scrollbar': {
+                      width: '6px',
+                    },
+                    '&::-webkit-scrollbar-track': {
+                      background: '#f1f1f1',
+                      borderRadius: '3px',
+                    },
+                    '&::-webkit-scrollbar-thumb': {
+                      background: settings.primaryColor || accentColor,
+                      borderRadius: '3px',
+                    },
+                  }}
+                >
+                  {/* HR Approved lock notice */}
+                  {String(editRequest.status) === '2' && (
+                    <Alert
+                      severity="info"
+                      sx={{
+                        mb: 3,
+                        backgroundColor: '#E3F2FD',
+                        borderColor: '#1565C0',
+                        color: '#0D47A1',
+                        '& .MuiAlert-icon': { color: '#1565C0' },
+                      }}
+                    >
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        🔒 This request has been HR Approved and cannot be
+                        edited or deleted.
+                      </Typography>
+                    </Alert>
+                  )}
+
                   {/* Employee Information Section */}
                   <Box sx={{ mb: 3 }}>
-                    <Typography variant="h5" sx={{ fontWeight: 600, mb: 2, color: accentColor, display: 'flex', alignItems: 'center' }}>
+                    <Typography
+                      variant="h5"
+                      sx={{
+                        fontWeight: 600,
+                        mb: 2,
+                        color: accentColor,
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                    >
                       <PersonIcon sx={{ mr: 2, fontSize: 24 }} />
                       Employee Information
                     </Typography>
-                    
+
                     <Grid container spacing={2}>
                       <Grid item xs={6}>
-                        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
+                        <Typography
+                          variant="body2"
+                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                        >
                           Employee Number
                         </Typography>
-                        {isEditing ? (
+                        {isEditing && String(editRequest.status) !== '2' ? (
                           <ModernTextField
                             settings={settings}
                             value={editRequest.employeeNumber}
-                            onChange={(e) => setEditRequest({ ...editRequest, employeeNumber: e.target.value })}
+                            onChange={(e) =>
+                              setEditRequest({
+                                ...editRequest,
+                                employeeNumber: e.target.value,
+                              })
+                            }
                             fullWidth
                             size="small"
                           />
                         ) : (
-                          <Box sx={{ 
-                            p: 1.5, 
-                            bgcolor: 'rgba(254, 249, 225, 0.5)', 
-                            borderRadius: 1,
-                            border: '1px solid rgba(109, 35, 35, 0.2)'
-                          }}>
-                            <Typography variant="body2" sx={{ fontWeight: 'bold', color: accentColor }}>
+                          <Box
+                            sx={{
+                              p: 1.5,
+                              bgcolor: 'rgba(254, 249, 225, 0.5)',
+                              borderRadius: 1,
+                              border: '1px solid rgba(109, 35, 35, 0.2)',
+                            }}
+                          >
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 'bold', color: accentColor }}
+                            >
                               #{editRequest.employeeNumber}
                             </Typography>
-                            <Typography variant="caption" sx={{ color: grayColor }}>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: grayColor }}
+                            >
                               {employeeNames[editRequest.employeeNumber]}
                             </Typography>
                           </Box>
                         )}
                       </Grid>
-                      
+
                       <Grid item xs={6}>
-                        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
+                        <Typography
+                          variant="body2"
+                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                        >
                           Leave Type
                         </Typography>
-                        {isEditing ? (
+                        {isEditing && String(editRequest.status) !== '2' ? (
                           <FormControl fullWidth size="small">
                             <ModernTextField
                               settings={settings}
                               select
                               value={editRequest.leave_code}
-                              onChange={(e) => setEditRequest({ ...editRequest, leave_code: e.target.value })}
+                              onChange={(e) =>
+                                setEditRequest({
+                                  ...editRequest,
+                                  leave_code: e.target.value,
+                                })
+                              }
                               SelectProps={{
                                 displayEmpty: true,
-                                renderValue: (value) => value ? `${value} - ${leaveTypes.find(t => t.leave_code === value)?.leave_description || ''}` : <em>Select Type</em>,
+                                renderValue: (value) =>
+                                  value ? (
+                                    `${value} - ${leaveTypes.find((t) => t.leave_code === value)?.leave_description || ''}`
+                                  ) : (
+                                    <em>Select Type</em>
+                                  ),
                               }}
                             >
-                              <MenuItem value=""><em>Select Type</em></MenuItem>
-                              {leaveTypes.map(t => (
-                                <MenuItem key={t.id} value={t.leave_code}>{t.leave_code} - {t.leave_description}</MenuItem>
+                              <MenuItem value="">
+                                <em>Select Type</em>
+                              </MenuItem>
+                              {leaveTypes.map((t) => (
+                                <MenuItem key={t.id} value={t.leave_code}>
+                                  {t.leave_code} - {t.leave_description}
+                                </MenuItem>
                               ))}
                             </ModernTextField>
                           </FormControl>
                         ) : (
-                          <Box sx={{ 
-                            p: 1.5, 
-                            bgcolor: 'rgba(254, 249, 225, 0.5)', 
-                            borderRadius: 1,
-                            border: '1px solid rgba(109, 35, 35, 0.2)'
-                          }}>
-                            <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#333' }}>
-                              {getType(editRequest.leave_code).leave_description}
+                          <Box
+                            sx={{
+                              p: 1.5,
+                              bgcolor: 'rgba(254, 249, 225, 0.5)',
+                              borderRadius: 1,
+                              border: '1px solid rgba(109, 35, 35, 0.2)',
+                            }}
+                          >
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 'bold', color: '#333' }}
+                            >
+                              {
+                                getType(editRequest.leave_code)
+                                  .leave_description
+                              }
                             </Typography>
-                            <Typography variant="caption" sx={{ color: grayColor }}>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: grayColor }}
+                            >
                               Code: {editRequest.leave_code}
                             </Typography>
                           </Box>
@@ -1034,41 +1904,63 @@ const LeaveRequest = () => {
                   <Divider sx={{ my: 3, borderColor: 'rgba(109,35,35,0.1)' }} />
 
                   {/* Leave Details Section */}
-                  <Typography variant="h5" sx={{ fontWeight: 600, mb: 3, color: accentColor, display: 'flex', alignItems: 'center' }}>
+                  <Typography
+                    variant="h5"
+                    sx={{
+                      fontWeight: 600,
+                      mb: 3,
+                      color: accentColor,
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                  >
                     <EventNote sx={{ mr: 2, fontSize: 24 }} />
                     Leave Details
                   </Typography>
 
                   <Grid container spacing={2}>
                     <Grid item xs={6}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
+                      <Typography
+                        variant="body2"
+                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                      >
                         Leave Date
                       </Typography>
-                      {isEditing ? (
+                      {isEditing && String(editRequest.status) !== '2' ? (
                         <ModernTextField
                           settings={settings}
                           type="date"
                           value={editRequest.leave_date?.split(',')[0] || ''}
-                          onChange={(e) => setEditRequest({ ...editRequest, leave_date: e.target.value })}
+                          onChange={(e) =>
+                            setEditRequest({
+                              ...editRequest,
+                              leave_date: e.target.value,
+                            })
+                          }
                           fullWidth
                           size="small"
                         />
                       ) : (
-                        <Box sx={{ 
-                          p: 1.5, 
-                          bgcolor: 'rgba(254, 249, 225, 0.5)', 
-                          borderRadius: 1,
-                          border: '1px solid rgba(109, 35, 35, 0.2)'
-                        }}>
+                        <Box
+                          sx={{
+                            p: 1.5,
+                            bgcolor: 'rgba(254, 249, 225, 0.5)',
+                            borderRadius: 1,
+                            border: '1px solid rgba(109, 35, 35, 0.2)',
+                          }}
+                        >
                           <Typography variant="body2">
                             {formatDate(editRequest.leave_date)}
                           </Typography>
                         </Box>
                       )}
                     </Grid>
-                    
+
                     <Grid item xs={6}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
+                      <Typography
+                        variant="body2"
+                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                      >
                         Status
                       </Typography>
                       <FormControl fullWidth size="small">
@@ -1081,23 +1973,46 @@ const LeaveRequest = () => {
                             setEditRequest({ ...editRequest, status: s });
                             if (!isEditing) {
                               try {
-                                await axios.put(`${API_BASE_URL}/leaveRoute/leave_request/${editRequest.id}`, { ...editRequest, status: +s }, getAuthHeaders());
+                                await axios.put(
+                                  `${API_BASE_URL}/leaveRoute/leave_request/${editRequest.id}`,
+                                  { ...editRequest, status: +s },
+                                  getAuthHeaders(),
+                                );
+                                closeModal();
                                 setSuccessAction('status');
                                 setSuccessOpen(true);
                                 setTimeout(() => setSuccessOpen(false), 2000);
                                 fetchAll();
-                              } catch { alert('Error updating status'); }
+                              } catch {
+                                alert('Error updating status');
+                              }
                             }
                           }}
-                          disabled={isEditing}
+                          disabled={
+                            isEditing || String(editRequest.status) === '2'
+                          }
                           SelectProps={{
                             renderValue: (value) => {
-                              const opt = statusOptions.find(o => o.value === value);
+                              const opt = statusOptions.find(
+                                (o) => o.value === value,
+                              );
                               const Icon = opt?.icon;
                               return (
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  {Icon && <Icon sx={{ fontSize: 18, color: opt.color }} />}
-                                  <Typography sx={{ fontWeight: 600, color: opt?.color }}>
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 1,
+                                  }}
+                                >
+                                  {Icon && (
+                                    <Icon
+                                      sx={{ fontSize: 18, color: opt.color }}
+                                    />
+                                  )}
+                                  <Typography
+                                    sx={{ fontWeight: 600, color: opt?.color }}
+                                  >
                                     {opt?.label}
                                   </Typography>
                                 </Box>
@@ -1106,10 +2021,29 @@ const LeaveRequest = () => {
                           }}
                         >
                           {statusOptions.map((o) => (
-                            <MenuItem key={o.value} value={o.value} sx={{ py: 1.5 }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: o.color }} />
-                                <Typography sx={{ fontWeight: 500 }}>{o.label}</Typography>
+                            <MenuItem
+                              key={o.value}
+                              value={o.value}
+                              sx={{ py: 1.5 }}
+                            >
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 1.5,
+                                }}
+                              >
+                                <Box
+                                  sx={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: '50%',
+                                    bgcolor: o.color,
+                                  }}
+                                />
+                                <Typography sx={{ fontWeight: 500 }}>
+                                  {o.label}
+                                </Typography>
                               </Box>
                             </MenuItem>
                           ))}
@@ -1119,11 +2053,26 @@ const LeaveRequest = () => {
                   </Grid>
 
                   {/* Leave Balance */}
-                  <Box sx={{ mt: 3, p: 2.5, bgcolor: 'rgba(254, 249, 225, 0.5)', borderRadius: 1, border: '1px solid rgba(109, 35, 35, 0.2)' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 1.5, color: accentColor }}>
+                  <Box
+                    sx={{
+                      mt: 3,
+                      p: 2.5,
+                      bgcolor: 'rgba(254, 249, 225, 0.5)',
+                      borderRadius: 1,
+                      border: '1px solid rgba(109, 35, 35, 0.2)',
+                    }}
+                  >
+                    <Typography
+                      variant="body2"
+                      sx={{ fontWeight: 600, mb: 1.5, color: accentColor }}
+                    >
                       Employee Leave Balance
                     </Typography>
-                    <LeaveCredits personID={editRequest.employeeNumber} compact accentColor={accentColor} />
+                    <LeaveCredits
+                      personID={editRequest.employeeNumber}
+                      compact
+                      accentColor={accentColor}
+                    />
                   </Box>
                 </Box>
 
@@ -1147,7 +2096,9 @@ const LeaveRequest = () => {
                     <>
                       <ProfessionalButton
                         onClick={() => handleCancel(editRequest.id)}
-                        disabled={['2', '3', '4'].includes(String(editRequest.status))}
+                        disabled={['2', '3', '4'].includes(
+                          String(editRequest.status),
+                        )}
                         settings={settings}
                         variant="outlined"
                         sx={{
@@ -1166,45 +2117,69 @@ const LeaveRequest = () => {
                         Cancel Request
                       </ProfessionalButton>
                       <ProfessionalButton
-                        onClick={() => handleDelete(editRequest.id, editRequest.status)}
-                        disabled={String(editRequest.status) === '4'}
+                        onClick={() =>
+                          handleDelete(editRequest.id, editRequest.status)
+                        }
+                        disabled={['2', '4'].includes(
+                          String(editRequest.status),
+                        )}
                         startIcon={<DeleteIcon />}
                         settings={settings}
                         variant="outlined"
                         sx={{
-                          borderColor: settings.deleteButtonColor || accentColor,
+                          borderColor:
+                            settings.deleteButtonColor || accentColor,
                           color: settings.deleteButtonColor || accentColor,
                           minWidth: '120px',
                           '&:hover': {
-                            backgroundColor: alpha(settings.deleteButtonColor || accentColor, 0.1),
-                            borderColor: settings.deleteButtonHoverColor || accentDark,
-                            color: settings.deleteButtonHoverColor || accentDark,
+                            backgroundColor: alpha(
+                              settings.deleteButtonColor || accentColor,
+                              0.1,
+                            ),
+                            borderColor:
+                              settings.deleteButtonHoverColor || accentDark,
+                            color:
+                              settings.deleteButtonHoverColor || accentDark,
                           },
                           '&:disabled': {
                             borderColor: '#ccc',
                             color: '#ccc',
                           },
                         }}
+                        title={
+                          String(editRequest.status) === '2'
+                            ? 'Cannot delete HR approved requests'
+                            : 'Delete this request'
+                        }
                       >
                         Delete
                       </ProfessionalButton>
                       <ProfessionalButton
                         onClick={() => setIsEditing(true)}
-                        disabled={String(editRequest.status) === '4'}
+                        disabled={['2', '4'].includes(
+                          String(editRequest.status),
+                        )}
                         startIcon={<EditIcon />}
                         settings={settings}
                         variant="contained"
                         sx={{
-                          backgroundColor: settings.updateButtonColor || accentColor,
+                          backgroundColor:
+                            settings.updateButtonColor || accentColor,
                           color: settings.accentColor || '#FEF9E1',
                           minWidth: '120px',
                           '&:hover': {
-                            backgroundColor: settings.updateButtonHoverColor || accentDark,
+                            backgroundColor:
+                              settings.updateButtonHoverColor || accentDark,
                           },
                           '&:disabled': {
                             backgroundColor: '#ddd',
                           },
                         }}
+                        title={
+                          String(editRequest.status) === '2'
+                            ? 'Cannot edit HR approved requests'
+                            : 'Edit this request'
+                        }
                       >
                         Edit
                       </ProfessionalButton>
@@ -1212,7 +2187,10 @@ const LeaveRequest = () => {
                   ) : (
                     <>
                       <ProfessionalButton
-                        onClick={() => { setEditRequest({ ...originalRequest }); setIsEditing(false); }}
+                        onClick={() => {
+                          setEditRequest({ ...originalRequest });
+                          setIsEditing(false);
+                        }}
                         startIcon={<CancelIcon />}
                         settings={settings}
                         variant="outlined"
@@ -1221,7 +2199,10 @@ const LeaveRequest = () => {
                           color: settings.cancelButtonColor || '#6c757d',
                           minWidth: '120px',
                           '&:hover': {
-                            backgroundColor: alpha(settings.cancelButtonColor || '#6c757d', 0.1),
+                            backgroundColor: alpha(
+                              settings.cancelButtonColor || '#6c757d',
+                              0.1,
+                            ),
                           },
                         }}
                       >
@@ -1234,18 +2215,24 @@ const LeaveRequest = () => {
                         settings={settings}
                         variant="contained"
                         sx={{
-                          backgroundColor: hasChanges() 
-                            ? (settings.updateButtonColor || accentColor)
+                          backgroundColor: hasChanges()
+                            ? settings.updateButtonColor || accentColor
                             : alpha(settings.primaryColor || accentColor, 0.5),
                           color: settings.accentColor || '#FEF9E1',
                           minWidth: '120px',
                           '&:hover': {
-                            backgroundColor: hasChanges() 
-                              ? (settings.updateButtonHoverColor || accentDark)
-                              : alpha(settings.primaryColor || accentColor, 0.5),
+                            backgroundColor: hasChanges()
+                              ? settings.updateButtonHoverColor || accentDark
+                              : alpha(
+                                  settings.primaryColor || accentColor,
+                                  0.5,
+                                ),
                           },
                           '&:disabled': {
-                            color: alpha(settings.accentColor || '#FEF9E1', 0.5),
+                            color: alpha(
+                              settings.accentColor || '#FEF9E1',
+                              0.5,
+                            ),
                           },
                         }}
                       >

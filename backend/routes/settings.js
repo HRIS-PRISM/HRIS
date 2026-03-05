@@ -5,6 +5,60 @@ const path = require('path');
 const fs = require('fs');
 const { upload } = require('../middleware/upload');
 
+// ── Generalized default settings ─────────────────────────────────────────────
+const DEFAULT_SETTINGS = {
+  primaryColor:                '#894444',
+  secondaryColor:              '#6d2323',
+  accentColor:                 '#FFFFFF',
+  textColor:                   '#FFFFFF',
+  textPrimaryColor:            '#6D2323',
+  textSecondaryColor:          '#FFFFFF',
+  hoverColor:                  '#512424',
+  backgroundColor:             '#FFFFFF',
+  sidebarGradientEnd:          '#3a0f0f',
+  institutionLogo:             '',
+  hrisLogo:                    '',
+  institutionName:             'Institution Name',
+  systemName:                  'Human Resource Information System',
+  institutionAbbreviation:     'INST',
+  footerText:                  '© 2026 - HUMAN RESOURCE INFORMATION SYSTEM.  ALL RIGHTS RESERVED.',
+  copyrightSymbol:             '©',
+  enableWatermark:             'true',
+  actionButtonColor:           '#6d2323',
+  actionButtonHoverColor:      '#a31d1d',
+  destructiveButtonColor:      '#6c757d',
+  destructiveButtonHoverColor: '#5a6268',
+  // Modal / Dialog colors
+  modalBackgroundColor:        '#FFFFFF',
+  modalHeaderColor:            '#6d2323',
+  modalHeaderTextColor:        '#FFFFFF',
+  modalBodyTextColor:          '#333333',
+  modalBorderColor:            '#894444',
+  // Footer contact
+  adminEmail:                  'hrinformationsystemhris@gmail.com',
+};
+
+// ── Helper: convert DB rows array → settings object ──────────────────────────
+const rowsToSettings = (rows) => {
+  const settings = {};
+  rows.forEach((row) => {
+    settings[row.setting_key] =
+      row.setting_key === 'enableWatermark'
+        ? row.setting_value === 'true'
+        : row.setting_value;
+  });
+  return settings;
+};
+
+// ── Helper: merge fetched settings with defaults (fills any missing keys) ─────
+const mergeWithDefaults = (fetched) => {
+  const merged = { ...DEFAULT_SETTINGS };
+  Object.keys(fetched).forEach((key) => {
+    merged[key] = fetched[key];
+  });
+  return merged;
+};
+
 // ============================================
 // SYSTEM SETTINGS ROUTES
 // ============================================
@@ -13,103 +67,30 @@ const { upload } = require('../middleware/upload');
 router.get('/api/system-settings', (req, res) => {
   console.log('GET /api/system-settings called');
 
-  // Check if table exists first
   db.query("SHOW TABLES LIKE 'system_settings'", (err, tables) => {
     if (err) {
       console.error('Error checking table:', err);
-      return res.status(500).json({
-        error: 'Database error',
-        details: err.message,
-      });
+      return res.status(500).json({ error: 'Database error', details: err.message });
     }
 
     if (tables.length === 0) {
-      console.error('system_settings table does not exist');
-      return res.status(500).json({
-        error: 'Database table not found. Please run the SQL setup script.',
-      });
+      console.warn('system_settings table does not exist — returning defaults');
+      return res.json(DEFAULT_SETTINGS);
     }
 
-    // Fetch all settings
     db.query('SELECT * FROM system_settings', (err, rows) => {
       if (err) {
         console.error('Error fetching system settings:', err);
-        return res.status(500).json({
-          error: 'Failed to fetch system settings',
-          details: err.message,
-        });
+        return res.status(500).json({ error: 'Failed to fetch system settings', details: err.message });
       }
 
-      console.log('Fetched rows:', rows);
-
-      // If no settings exist, return defaults
       if (rows.length === 0) {
-        console.log('No settings found, returning defaults');
-        return res.json({
-          primaryColor: '#894444',
-          secondaryColor: '#6d2323',
-          accentColor: '#FEF9E1',
-          textColor: '#FFFFFF',
-          textPrimaryColor: '#6D2323', // Added textPrimaryColor
-          textSecondaryColor: '#FEF9E1', // Added textSecondaryColor
-          hoverColor: '#6D2323',
-          backgroundColor: '#FFFFFF',
-          institutionLogo: '',
-          hrisLogo: '',
-          institutionName:
-            'Eulogio "Amang" Rodriguez Institute of Science and Technology',
-          systemName: 'Human Resources Information System',
-          institutionAbbreviation: 'EARIST',
-          footerText:
-            '© 2025 EARIST Manila - Human Resources Information System. All rights Reserved.',
-          copyrightSymbol: '©', // Added copyrightSymbol
-          enableWatermark: true,
-          // CRUD Button Colors
-          createButtonColor: '#6d2323',
-          createButtonHoverColor: '#a31d1d',
-          readButtonColor: '#6d2323',
-          readButtonHoverColor: '#a31d1d',
-          updateButtonColor: '#6d2323',
-          updateButtonHoverColor: '#a31d1d',
-          deleteButtonColor: '#6d2323',
-          deleteButtonHoverColor: '#a31d1d',
-          cancelButtonColor: '#6c757d',
-          cancelButtonHoverColor: '#5a6268',
-        });
+        console.log('No settings rows found — returning defaults');
+        return res.json(DEFAULT_SETTINGS);
       }
 
-      // Convert array of settings to object format
-      const settings = {};
-      rows.forEach((row) => {
-        if (row.setting_key === 'enableWatermark') {
-          settings[row.setting_key] = row.setting_value === 'true';
-        } else {
-          settings[row.setting_key] = row.setting_value;
-        }
-      });
-
-      // Merge with default CRUD button colors if they don't exist
-      const defaultCRUDColors = {
-        createButtonColor: '#6d2323',
-        createButtonHoverColor: '#a31d1d',
-        readButtonColor: '#6d2323',
-        readButtonHoverColor: '#a31d1d',
-        updateButtonColor: '#6d2323',
-        updateButtonHoverColor: '#a31d1d',
-        deleteButtonColor: '#6d2323',
-        deleteButtonHoverColor: '#a31d1d',
-        cancelButtonColor: '#6c757d',
-        cancelButtonHoverColor: '#5a6268',
-      };
-
-      // Add missing CRUD button colors to settings
-      Object.keys(defaultCRUDColors).forEach(key => {
-        if (!settings[key]) {
-          settings[key] = defaultCRUDColors[key];
-        }
-      });
-
-      console.log('Returning settings:', settings);
+      const settings = mergeWithDefaults(rowsToSettings(rows));
+      console.log('Returning settings');
       res.json(settings);
     });
   });
@@ -125,13 +106,13 @@ router.get('/api/system-settings/:key', (req, res) => {
     (err, rows) => {
       if (err) {
         console.error('Error fetching setting:', err);
-        return res.status(500).json({
-          error: 'Failed to fetch setting',
-          details: err.message,
-        });
+        return res.status(500).json({ error: 'Failed to fetch setting', details: err.message });
       }
 
       if (rows.length === 0) {
+        if (DEFAULT_SETTINGS[key] !== undefined) {
+          return res.json({ setting_key: key, setting_value: DEFAULT_SETTINGS[key] });
+        }
         return res.status(404).json({ error: 'Setting not found' });
       }
 
@@ -140,10 +121,9 @@ router.get('/api/system-settings/:key', (req, res) => {
   );
 });
 
-// UPDATE system settings (bulk update)
+// UPDATE system settings (bulk upsert)
 router.put('/api/system-settings', (req, res) => {
   console.log('PUT /api/system-settings called');
-  console.log('Request body:', req.body);
 
   const settings = req.body;
 
@@ -154,54 +134,37 @@ router.put('/api/system-settings', (req, res) => {
   db.getConnection((err, connection) => {
     if (err) {
       console.error('Error getting connection:', err);
-      return res.status(500).json({
-        error: 'Database connection error',
-        details: err.message,
-      });
+      return res.status(500).json({ error: 'Database connection error', details: err.message });
     }
 
     connection.beginTransaction((err) => {
       if (err) {
         connection.release();
         console.error('Error starting transaction:', err);
-        return res.status(500).json({
-          error: 'Transaction error',
-          details: err.message,
-        });
+        return res.status(500).json({ error: 'Transaction error', details: err.message });
       }
 
       const entries = Object.entries(settings);
       let completed = 0;
       let hasError = false;
 
-      if (entries.length === 0) {
-        connection.release();
-        return res.status(400).json({ error: 'No settings to update' });
-      }
-
       entries.forEach(([key, value]) => {
         if (hasError) return;
 
-        const settingValue =
-          typeof value === 'boolean' ? value.toString() : value;
-
-        console.log(`Updating ${key} = ${settingValue}`);
+        const settingValue = typeof value === 'boolean' ? value.toString() : value;
 
         connection.query(
-          `INSERT INTO system_settings (setting_key, setting_value) 
-           VALUES (?, ?) 
+          `INSERT INTO system_settings (setting_key, setting_value)
+           VALUES (?, ?)
            ON DUPLICATE KEY UPDATE setting_value = ?`,
           [key, settingValue, settingValue],
           (err) => {
             if (err && !hasError) {
               hasError = true;
-              console.error('Error updating setting:', err);
+              console.error('Error upserting setting:', key, err);
               return connection.rollback(() => {
                 connection.release();
-                res.status(500).json({
-                  error: 'Failed to update settings',
-                  details: err.message,
-                });
+                res.status(500).json({ error: 'Failed to update settings', details: err.message });
               });
             }
 
@@ -210,22 +173,16 @@ router.put('/api/system-settings', (req, res) => {
             if (completed === entries.length && !hasError) {
               connection.commit((err) => {
                 if (err) {
-                  console.error('Error committing transaction:', err);
                   return connection.rollback(() => {
                     connection.release();
-                    res.status(500).json({
-                      error: 'Failed to commit changes',
-                      details: err.message,
-                    });
+                    console.error('Error committing transaction:', err);
+                    res.status(500).json({ error: 'Failed to commit changes', details: err.message });
                   });
                 }
 
                 connection.release();
                 console.log('Settings updated successfully');
-                res.json({
-                  success: true,
-                  message: 'Settings updated successfully',
-                });
+                res.json({ success: true, message: 'Settings updated successfully' });
               });
             }
           }
@@ -235,7 +192,7 @@ router.put('/api/system-settings', (req, res) => {
   });
 });
 
-// UPDATE single setting
+// UPDATE single setting by key
 router.put('/api/system-settings/:key', (req, res) => {
   const { key } = req.params;
   const { value } = req.body;
@@ -243,28 +200,22 @@ router.put('/api/system-settings/:key', (req, res) => {
   const settingValue = typeof value === 'boolean' ? value.toString() : value;
 
   db.query(
-    `INSERT INTO system_settings (setting_key, setting_value) 
-     VALUES (?, ?) 
+    `INSERT INTO system_settings (setting_key, setting_value)
+     VALUES (?, ?)
      ON DUPLICATE KEY UPDATE setting_value = ?`,
     [key, settingValue, settingValue],
     (err) => {
       if (err) {
         console.error('Error updating setting:', err);
-        return res.status(500).json({
-          error: 'Failed to update setting',
-          details: err.message,
-        });
+        return res.status(500).json({ error: 'Failed to update setting', details: err.message });
       }
 
-      res.json({
-        success: true,
-        message: 'Setting updated successfully',
-      });
+      res.json({ success: true, message: 'Setting updated successfully' });
     }
   );
 });
 
-// DELETE setting
+// DELETE single setting by key
 router.delete('/api/system-settings/:key', (req, res) => {
   const { key } = req.params;
 
@@ -274,126 +225,74 @@ router.delete('/api/system-settings/:key', (req, res) => {
     (err) => {
       if (err) {
         console.error('Error deleting setting:', err);
-        return res.status(500).json({
-          error: 'Failed to delete setting',
-          details: err.message,
-        });
+        return res.status(500).json({ error: 'Failed to delete setting', details: err.message });
       }
 
-      res.json({
-        success: true,
-        message: 'Setting deleted successfully',
-      });
+      res.json({ success: true, message: 'Setting deleted successfully' });
     }
   );
 });
 
-// RESET to default settings
+// RESET all settings to defaults
 router.post('/api/system-settings/reset', (req, res) => {
   console.log('POST /api/system-settings/reset called');
 
   db.getConnection((err, connection) => {
     if (err) {
       console.error('Error getting connection:', err);
-      return res.status(500).json({
-        error: 'Database connection error',
-        details: err.message,
-      });
+      return res.status(500).json({ error: 'Database connection error', details: err.message });
     }
 
     connection.beginTransaction((err) => {
       if (err) {
         connection.release();
-        return res.status(500).json({
-          error: 'Transaction error',
-          details: err.message,
-        });
+        return res.status(500).json({ error: 'Transaction error', details: err.message });
       }
 
-      // Delete all existing settings
       connection.query('DELETE FROM system_settings', (err) => {
         if (err) {
           return connection.rollback(() => {
             connection.release();
             console.error('Error deleting settings:', err);
-            res.status(500).json({
-              error: 'Failed to delete settings',
-              details: err.message,
-            });
+            res.status(500).json({ error: 'Failed to delete settings', details: err.message });
           });
         }
 
-        console.log('Deleted all existing settings');
-
-        // Insert default values
-        const defaultSettings = [
-          ['primaryColor', '#894444'],
-          ['secondaryColor', '#6d2323'],
-          ['accentColor', '#FEF9E1'],
-          ['textColor', '#FFFFFF'],
-          ['textPrimaryColor', '#6D2323'], // Added textPrimaryColor
-          ['textSecondaryColor', '#FEF9E1'], // Added textSecondaryColor
-          ['hoverColor', '#6D2323'],
-          ['backgroundColor', '#FFFFFF'],
-          ['institutionLogo', ''],
-          ['hrisLogo', ''],
-          [
-            'institutionName',
-            'Eulogio "Amang" Rodriguez Institute of Science and Technology',
-          ],
-          ['systemName', 'Human Resources Information System'],
-          ['institutionAbbreviation', 'EARIST'],
-          [
-            'footerText',
-            '© 2025 EARIST Manila - Human Resources Information System. All rights Reserved.',
-          ],
-          ['copyrightSymbol', '©'], // Added copyrightSymbol
-          ['enableWatermark', 'true'],
-        ];
-
+        const defaultEntries = Object.entries(DEFAULT_SETTINGS);
         let completed = 0;
         let hasError = false;
 
-        defaultSettings.forEach(([key, value]) => {
+        defaultEntries.forEach(([key, value]) => {
           if (hasError) return;
 
           connection.query(
             'INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)',
-            [key, value],
+            [key, value.toString()],
             (err) => {
               if (err && !hasError) {
                 hasError = true;
                 return connection.rollback(() => {
                   connection.release();
-                  console.error('Error inserting default setting:', err);
-                  res.status(500).json({
-                    error: 'Failed to insert default settings',
-                    details: err.message,
-                  });
+                  console.error('Error inserting default setting:', key, err);
+                  res.status(500).json({ error: 'Failed to insert default settings', details: err.message });
                 });
               }
 
               completed++;
 
-              if (completed === defaultSettings.length && !hasError) {
+              if (completed === defaultEntries.length && !hasError) {
                 connection.commit((err) => {
                   if (err) {
                     return connection.rollback(() => {
                       connection.release();
-                      console.error('Error committing transaction:', err);
-                      res.status(500).json({
-                        error: 'Failed to commit changes',
-                        details: err.message,
-                      });
+                      console.error('Error committing reset transaction:', err);
+                      res.status(500).json({ error: 'Failed to commit changes', details: err.message });
                     });
                   }
 
                   connection.release();
-                  console.log('Settings reset successfully');
-                  res.json({
-                    success: true,
-                    message: 'Settings reset to default successfully',
-                  });
+                  console.log('Settings reset to defaults successfully');
+                  res.json({ success: true, message: 'Settings reset to default successfully' });
                 });
               }
             }
@@ -405,10 +304,9 @@ router.post('/api/system-settings/reset', (req, res) => {
 });
 
 // ============================================
-// SETTINGS ROUTES (legacy settings table)
+// LEGACY SETTINGS ROUTES (settings table)
 // ============================================
 
-// GET settings
 router.get('/api/settings', (req, res) => {
   db.query('SELECT * FROM settings WHERE id = 1', (err, result) => {
     if (err) throw err;
@@ -416,38 +314,31 @@ router.get('/api/settings', (req, res) => {
   });
 });
 
-// Helper function to delete old logo
 const deleteOldLogo = (logoUrl) => {
-  if (!logoUrl) return; // If no logo URL, exit early
-
-  const logoPath = path.join(__dirname, logoUrl); // Construct the full path to the logo file
+  if (!logoUrl) return;
+  const logoPath = path.join(__dirname, logoUrl);
   fs.unlink(logoPath, (err) => {
     if (err) {
-      console.error(`Error deleting old logo at ${logoPath}: ${err}`);
+      console.error(`Error deleting old logo at ${logoPath}:`, err);
     } else {
-      console.log(`Previous logo at ${logoPath} deleted successfully.`);
+      console.log(`Old logo deleted: ${logoPath}`);
     }
   });
 };
 
-// Update settings
 router.post('/api/settings', upload.single('logo'), (req, res) => {
-  const companyName = req.body.company_name || '';
-  const headerColor = req.body.header_color || '#ffffff';
-  const footerText = req.body.footer_text || '';
-  const footerColor = req.body.footer_color || '#ffffff';
-  const logoUrl = req.file ? `/uploads/${req.file.filename}` : null;
+  const companyName  = req.body.company_name  || '';
+  const headerColor  = req.body.header_color  || '#ffffff';
+  const footerText   = req.body.footer_text   || '';
+  const footerColor  = req.body.footer_color  || '#ffffff';
+  const logoUrl      = req.file ? `/uploads/${req.file.filename}` : null;
 
-  // Check if settings already exist
   db.query('SELECT * FROM settings WHERE id = 1', (err, result) => {
     if (err) throw err;
 
     if (result.length > 0) {
-      // Existing settings found
+      const oldLogoUrl = result[0].logo_url;
 
-      const oldLogoUrl = result[0].logo_url; // Save old logo URL for deletion
-
-      // Update existing settings
       const query =
         'UPDATE settings SET company_name = ?, header_color = ?, footer_text = ?, footer_color = ?' +
         (logoUrl ? ', logo_url = ?' : '') +
@@ -457,32 +348,18 @@ router.post('/api/settings', upload.single('logo'), (req, res) => {
 
       db.query(query, params, (err) => {
         if (err) throw err;
-
-        // If there's a new logo, delete the old one
-        if (logoUrl && oldLogoUrl) {
-          deleteOldLogo(oldLogoUrl);
-        }
-
+        if (logoUrl && oldLogoUrl) deleteOldLogo(oldLogoUrl);
         res.send({ success: true });
       });
     } else {
-      // Insert new settings
       const query =
         'INSERT INTO settings (company_name, header_color, footer_text, footer_color, logo_url) VALUES (?, ?, ?, ?, ?)';
-      db.query(
-        query,
-        [companyName, headerColor, footerText, footerColor, logoUrl],
-        (err) => {
-          if (err) throw err;
-          res.send({ success: true });
-        }
-      );
+      db.query(query, [companyName, headerColor, footerText, footerColor, logoUrl], (err) => {
+        if (err) throw err;
+        res.send({ success: true });
+      });
     }
   });
 });
 
 module.exports = router;
-
-
-
-

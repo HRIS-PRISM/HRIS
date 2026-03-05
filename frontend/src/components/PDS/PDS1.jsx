@@ -2880,28 +2880,40 @@ const PDS1 = () => {
           </table>
         </div>
       </div>
-      <button
-        onClick={() => window.print()}
-        className="no-print"
-        style={{
-          backgroundColor: '#6D2323',
-          color: '#FFFFFF',
-          padding: '10px 20px',
-          border: 'none',
-          borderRadius: '6px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          cursor: 'pointer',
-          marginTop: '20px',
-          fontSize: '14px',
-          marginLeft: '80%',
-          marginBottom: '30px',
-        }}
-      >
-        <PrintIcon style={{ fontSize: '24px' }} />
-        Save / Print
-      </button>
+<button
+  onClick={() => window.print()}
+  className="no-print"
+  style={{
+    position: 'fixed',
+    bottom: '60px',
+    right: '30px',
+    backgroundColor: '#6D2323',
+    color: '#FFFFFF',
+    padding: '14px 20px',
+    border: 'none',
+    borderRadius: '50px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    boxShadow: '0px 4px 15px rgba(0, 0, 0, 0.3)',
+    zIndex: 9999,
+    transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+  }}
+  onMouseEnter={(e) => {
+    e.currentTarget.style.transform = 'scale(1.05)';
+    e.currentTarget.style.boxShadow = '0px 6px 20px rgba(0, 0, 0, 0.4)';
+  }}
+  onMouseLeave={(e) => {
+    e.currentTarget.style.transform = 'scale(1)';
+    e.currentTarget.style.boxShadow = '0px 4px 15px rgba(0, 0, 0, 0.3)';
+  }}
+>
+  <PrintIcon style={{ fontSize: '24px' }} />
+  Save / Print
+</button>
     </div>
   );
 };

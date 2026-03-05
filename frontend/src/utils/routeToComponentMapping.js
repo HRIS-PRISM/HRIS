@@ -75,6 +75,11 @@ export const routeToComponentMap = {
   '/bulk-register': 'bulk-register',
   '/philhealth-table': 'philhealth',
   '/holiday': 'holiday',
+  '/leave-table': 'leave-table',
+  '/leave-assignment': 'leave-assignment',
+  '/leave-request': 'leave-request',
+  '/leave-request-user': 'leave-request-user',
+  '/system-settings': 'system-settings',
 };
 
 /**

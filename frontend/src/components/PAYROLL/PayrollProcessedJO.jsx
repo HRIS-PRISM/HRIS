@@ -573,15 +573,22 @@ const PayrollProcessed = () => {
 
       // Update status in payroll-with-remittance from Processed to Unprocessed
       try {
-        if (recordToDelete && recordToDelete.employeeNumber) {
+        if (
+          recordToDelete &&
+          recordToDelete.employeeNumber &&
+          recordToDelete.startDate &&
+          recordToDelete.endDate
+        ) {
           await axios.put(
-            `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${recordToDelete.employeeNumber}`,
+            `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${recordToDelete.employeeNumber}/${recordToDelete.startDate}/${recordToDelete.endDate}`,
             {
               ...recordToDelete,
               status: 'Unprocessed',
             },
             getAuthHeaders(),
           );
+        } else {
+          console.warn('Skipping status update: missing dates for', recordToDelete?.employeeNumber);
         }
       } catch (updateError) {
         console.error('Error updating payroll status:', updateError);
@@ -731,9 +738,9 @@ const PayrollProcessed = () => {
             try {
               await Promise.all(
                 recordsToDelete.map((record) => {
-                  if (record.employeeNumber) {
+                  if (record.employeeNumber && record.startDate && record.endDate) {
                     return axios.put(
-                      `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${record.employeeNumber}`,
+                      `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${record.employeeNumber}/${record.startDate}/${record.endDate}`,
                       {
                         ...record,
                         status: 'Unprocessed',
@@ -741,6 +748,7 @@ const PayrollProcessed = () => {
                       getAuthHeaders(),
                     );
                   }
+                  console.warn('Skipping status update: missing dates for', record.employeeNumber);
                   return Promise.resolve();
                 }),
               );
@@ -788,15 +796,21 @@ const PayrollProcessed = () => {
 
             // Update status in payroll-with-remittance from Processed to Unprocessed
             try {
-              if (selectedRow.employeeNumber) {
+              if (
+                selectedRow.employeeNumber &&
+                selectedRow.startDate &&
+                selectedRow.endDate
+              ) {
                 await axios.put(
-                  `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${selectedRow.employeeNumber}`,
+                  `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${selectedRow.employeeNumber}/${selectedRow.startDate}/${selectedRow.endDate}`,
                   {
                     ...selectedRow,
                     status: 'Unprocessed',
                   },
                   getAuthHeaders(),
                 );
+              } else {
+                console.warn('Skipping status update: missing dates for', selectedRow?.employeeNumber);
               }
             } catch (updateError) {
               console.error('Error updating payroll status:', updateError);

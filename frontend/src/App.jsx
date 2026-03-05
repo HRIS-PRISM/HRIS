@@ -20,8 +20,11 @@ import {
   Button,
   LinearProgress,
   Paper,
+  Stack,
+  Link,
+  IconButton,
 } from "@mui/material";
-import { AccessTime, Lock, Logout } from "@mui/icons-material"; // Icons for professional look
+import { AccessTime, Lock, Logout, Email, Facebook } from "@mui/icons-material";
 import axios from "axios";
 import ProtectedRoute from "./components/ProtectedRoute";
 import {
@@ -31,8 +34,6 @@ import {
 import { SocketProvider } from "./contexts/SocketContext";
 import "@fontsource/poppins";
 import earistLogo from "./assets/earistLogo.jpg";
-import hrisLogo from "./assets/hrisLogo.png";
-import API_BASE_URL from "./apiConfig";
 
 import Login from "./components/Login";
 import Register from "./components/Register";
@@ -127,6 +128,8 @@ import LeaveRequest from "./components/LEAVE/LeaveRequest";
 import LeaveDatePickerModal from "./components/LEAVE/LeaveDatePicker";
 import LeaveAssignment from "./components/LEAVE/LeaveAssignment";
 import LeaveCredits from "./components/LEAVE/LeaveCredits";
+import Leave from "./components/FORMS/Leave";
+import LeaveCommutation from "./components/LEAVE/LeaveCommutation";
 
 import UsersList from "./components/UsersList";
 import PagesList from "./components/PagesList";
@@ -136,6 +139,61 @@ import AdminSecurity from "./components/AdminManagement";
 import PayrollJO from "./components/PAYROLL/PayrollJO";
 import UnderConstruction from "./components/UnderConstruction";
 import DailyTimeRecordFaculty from "./components/ATTENDANCE/DailyTimeRecordOverall";
+
+function applySystemCSSVariables(s) {
+  const root = document.documentElement;
+
+  root.style.setProperty("--color-primary", s.primaryColor || "#894444");
+  root.style.setProperty("--color-secondary", s.secondaryColor || "#6d2323");
+  root.style.setProperty("--color-accent", s.accentColor || "#FEF9E1");
+  root.style.setProperty("--color-hover", s.hoverColor || "#6D2323");
+  root.style.setProperty("--color-background", s.backgroundColor || "#FFFFFF");
+  root.style.setProperty("--color-text", s.textColor || "#FFFFFF");
+  root.style.setProperty(
+    "--color-text-primary",
+    s.textPrimaryColor || "#6D2323",
+  );
+  root.style.setProperty(
+    "--color-text-secondary",
+    s.textSecondaryColor || "#FEF9E1",
+  );
+
+  root.style.setProperty(
+    "--sidebar-gradient-start",
+    s.primaryColor || "#894444",
+  );
+  root.style.setProperty(
+    "--sidebar-gradient-end",
+    s.sidebarGradientEnd || "#3a0f0f",
+  );
+
+  root.style.setProperty("--btn-action", s.actionButtonColor || "#6d2323");
+  root.style.setProperty(
+    "--btn-action-hover",
+    s.actionButtonHoverColor || "#a31d1d",
+  );
+  root.style.setProperty(
+    "--btn-destructive",
+    s.destructiveButtonColor || "#6c757d",
+  );
+  root.style.setProperty(
+    "--btn-destructive-hover",
+    s.destructiveButtonHoverColor || "#5a6268",
+  );
+
+  // Modal CSS variables — available in any module via var(--modal-*)
+  root.style.setProperty("--modal-bg", s.modalBackgroundColor || "#FFFFFF");
+  root.style.setProperty("--modal-header-bg", s.modalHeaderColor || "#6d2323");
+  root.style.setProperty(
+    "--modal-header-text",
+    s.modalHeaderTextColor || "#FFFFFF",
+  );
+  root.style.setProperty(
+    "--modal-body-text",
+    s.modalBodyTextColor || "#333333",
+  );
+  root.style.setProperty("--modal-border", s.modalBorderColor || "#894444");
+}
 
 function App() {
   const [open, setOpen] = useState(false);
@@ -176,6 +234,10 @@ function App() {
   const drawerWidth = 270;
   const collapsedWidth = 60;
 
+  useEffect(() => {
+    applySystemCSSVariables(systemSettings);
+  }, [systemSettings]);
+
   const dynamicTheme = createTheme({
     typography: {
       fontFamily: "Poppins, sans-serif",
@@ -198,6 +260,16 @@ function App() {
         primary: "#333333",
         secondary: "#666666",
       },
+      crudButtons: {
+        action: {
+          main: systemSettings.actionButtonColor || "#6d2323",
+          hover: systemSettings.actionButtonHoverColor || "#a31d1d",
+        },
+        destructive: {
+          main: systemSettings.destructiveButtonColor || "#6c757d",
+          hover: systemSettings.destructiveButtonHoverColor || "#5a6268",
+        },
+      },
     },
     components: {
       MuiButton: {
@@ -218,7 +290,46 @@ function App() {
             },
           },
         },
+        variants: [
+          ...["create", "read", "update"].map((action) => ({
+            props: { "data-action": action },
+            style: {
+              backgroundColor: systemSettings.actionButtonColor || "#6d2323",
+              color: "#fff",
+              "&:hover": {
+                backgroundColor:
+                  systemSettings.actionButtonHoverColor || "#a31d1d",
+              },
+            },
+          })),
+          ...["delete", "cancel"].map((action) => ({
+            props: { "data-action": action },
+            style: {
+              backgroundColor:
+                systemSettings.destructiveButtonColor || "#6c757d",
+              color: "#fff",
+              "&:hover": {
+                backgroundColor:
+                  systemSettings.destructiveButtonHoverColor || "#5a6268",
+              },
+            },
+          })),
+          {
+            props: { "data-action": "cancel", variant: "outlined" },
+            style: {
+              borderColor: systemSettings.destructiveButtonColor || "#6c757d",
+              color: systemSettings.destructiveButtonColor || "#6c757d",
+              backgroundColor: "transparent",
+              "&:hover": {
+                borderColor:
+                  systemSettings.destructiveButtonHoverColor || "#5a6268",
+                backgroundColor: `${systemSettings.destructiveButtonColor || "#6c757d"}18`,
+              },
+            },
+          },
+        ],
       },
+
       MuiAppBar: {
         styleOverrides: {
           root: {
@@ -226,6 +337,7 @@ function App() {
           },
         },
       },
+
       MuiTableHead: {
         styleOverrides: {
           root: {
@@ -237,6 +349,7 @@ function App() {
           },
         },
       },
+
       MuiChip: {
         styleOverrides: {
           filled: {
@@ -245,6 +358,7 @@ function App() {
           },
         },
       },
+
       MuiTab: {
         styleOverrides: {
           root: {
@@ -254,6 +368,7 @@ function App() {
           },
         },
       },
+
       MuiLinearProgress: {
         styleOverrides: {
           root: {
@@ -264,24 +379,138 @@ function App() {
           },
         },
       },
+
+      MuiFab: {
+        styleOverrides: {
+          root: {
+            backgroundColor:
+              systemSettings.actionButtonColor || systemSettings.primaryColor,
+            color: "#fff",
+            "&:hover": {
+              backgroundColor:
+                systemSettings.actionButtonHoverColor ||
+                systemSettings.hoverColor,
+            },
+          },
+        },
+      },
+
+      MuiIconButton: {
+        variants: [
+          {
+            props: { "data-action": "delete" },
+            style: {
+              color: systemSettings.destructiveButtonColor || "#6c757d",
+              "&:hover": {
+                backgroundColor: `${systemSettings.destructiveButtonColor || "#6c757d"}18`,
+              },
+            },
+          },
+          {
+            props: { "data-action": "cancel" },
+            style: {
+              color: systemSettings.destructiveButtonColor || "#6c757d",
+              "&:hover": {
+                backgroundColor: `${systemSettings.destructiveButtonColor || "#6c757d"}18`,
+              },
+            },
+          },
+          {
+            props: { "data-action": "update" },
+            style: {
+              color: systemSettings.actionButtonColor || "#6d2323",
+              "&:hover": {
+                backgroundColor: `${systemSettings.actionButtonColor || "#6d2323"}18`,
+              },
+            },
+          },
+          {
+            props: { "data-action": "create" },
+            style: {
+              color: systemSettings.actionButtonColor || "#6d2323",
+              "&:hover": {
+                backgroundColor: `${systemSettings.actionButtonColor || "#6d2323"}18`,
+              },
+            },
+          },
+          {
+            props: { "data-action": "read" },
+            style: {
+              color: systemSettings.actionButtonColor || "#6d2323",
+              "&:hover": {
+                backgroundColor: `${systemSettings.actionButtonColor || "#6d2323"}18`,
+              },
+            },
+          },
+        ],
+      },
+
+      // ── Modal / Dialog overrides ───────────────────────────────────────────
+      // These apply automatically to every Dialog across all modules.
+      // No changes needed in individual module files.
+      MuiDialog: {
+        styleOverrides: {
+          paper: {
+            backgroundColor: systemSettings.modalBackgroundColor || "#FFFFFF",
+            border: `1.5px solid ${systemSettings.modalBorderColor || "#894444"}`,
+            borderRadius: 12,
+            boxShadow: `0 8px 40px ${systemSettings.modalBorderColor || "#894444"}33`,
+          },
+        },
+      },
+
+      MuiDialogTitle: {
+        styleOverrides: {
+          root: {
+            backgroundColor: systemSettings.modalHeaderColor || "#6d2323",
+            color: systemSettings.modalHeaderTextColor || "#FFFFFF",
+            fontWeight: 700,
+            fontFamily: "Poppins, sans-serif",
+          },
+        },
+      },
+
+      MuiDialogContent: {
+        styleOverrides: {
+          root: {
+            backgroundColor: systemSettings.modalBackgroundColor || "#FFFFFF",
+            color: systemSettings.modalBodyTextColor || "#333333",
+          },
+        },
+      },
+
+      MuiDialogContentText: {
+        styleOverrides: {
+          root: {
+            color: systemSettings.modalBodyTextColor || "#333333",
+          },
+        },
+      },
+
+      MuiDialogActions: {
+        styleOverrides: {
+          root: {
+            backgroundColor: systemSettings.modalBackgroundColor || "#FFFFFF",
+            borderTop: `1px solid ${systemSettings.modalBorderColor || "#894444"}22`,
+            padding: "12px 24px",
+          },
+        },
+      },
     },
   });
 
   // --- Idle and token expiration handling ---
   const [idleWarningOpen, setIdleWarningOpen] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
-
-  // VISUAL STATE ONLY - For the countdown display (Does not affect logic refs)
   const [timeLeft, setTimeLeft] = useState(0);
 
   const idleTimeoutRef = useRef(null);
   const logoutTimeoutRef = useRef(null);
 
-  const IDLE_WARNING_TIME = 10 * 60 * 1000; // 10 minutes
-  const AUTO_LOGOUT_TIME = 15 * 60*  1000; // 15 minutes
-  const COUNTDOWN_SECONDS = (AUTO_LOGOUT_TIME - IDLE_WARNING_TIME) / 1000; // 300 seconds
+  const IDLE_WARNING_TIME = 10 * 60 * 1000;
+  const AUTO_LOGOUT_TIME = 15 * 60 * 1000;
+  const COUNTDOWN_SECONDS = (AUTO_LOGOUT_TIME - IDLE_WARNING_TIME) / 1000;
 
-  // Check if user is on an authenticated page
   const isAuthenticatedPage = ![
     "/",
     "/login",
@@ -297,11 +526,8 @@ function App() {
   };
 
   const resetIdleTimer = () => {
-    // Only reset timer if on authenticated page
     if (!isAuthenticatedPage) return;
-
     clearTimers();
-
     idleTimeoutRef.current = setTimeout(() => {
       setIdleWarningOpen(true);
       logoutTimeoutRef.current = setTimeout(() => {
@@ -320,14 +546,10 @@ function App() {
   };
 
   const handleAutoLogout = () => {
-    // Close the warning dialog
     setIdleWarningOpen(false);
-    // Clear the tokens
     localStorage.removeItem("token");
     sessionStorage.removeItem("token");
-    // Clear all timers
     clearTimers();
-    // Show the session expired dialog
     setSessionExpired(true);
   };
 
@@ -336,10 +558,8 @@ function App() {
     navigate("/");
   };
 
-  // VISUAL COUNTDOWN EFFECT (Purely for the progress bar and text)
   useEffect(() => {
     let interval;
-
     if (idleWarningOpen) {
       setTimeLeft(COUNTDOWN_SECONDS);
       interval = setInterval(() => {
@@ -354,11 +574,9 @@ function App() {
     } else {
       setTimeLeft(0);
     }
-
     return () => clearInterval(interval);
   }, [idleWarningOpen]);
 
-  // Format seconds to MM:SS
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -366,15 +584,11 @@ function App() {
   };
 
   useEffect(() => {
-    // Only set up idle timers on authenticated pages
     if (!isAuthenticatedPage) {
-      // Close any open dialogs when on unauthenticated pages
       setIdleWarningOpen(false);
-      // Don't close session expired dialog here - let user dismiss it
       clearTimers();
       return;
     }
-
     const events = [
       "mousemove",
       "mousedown",
@@ -382,20 +596,17 @@ function App() {
       "scroll",
       "touchstart",
     ];
-
     events.forEach((event) => {
       window.addEventListener(event, resetIdleTimer);
     });
-
     resetIdleTimer();
-
     return () => {
       events.forEach((event) => {
         window.removeEventListener(event, resetIdleTimer);
       });
       clearTimers();
     };
-  }, [location.pathname]); // Re-run when location changes
+  }, [location.pathname]);
 
   return (
     <ThemeProvider theme={dynamicTheme}>
@@ -407,57 +618,69 @@ function App() {
           overflow: "hidden",
         }}
       >
-        <AppBar
-          position="fixed"
-          sx={{
-            zIndex: 1201,
-            bgcolor: systemSettings.secondaryColor,
-            height: "62px",
-            overflow: "hidden",
-          }}
-        >
-          <Toolbar sx={{ display: "flex", alignItems: "center" }}>
-            <>
-              <img
-                src={systemSettings.institutionLogo || earistLogo}
-                alt="Institution Logo"
-                width="45"
-                height="45"
-                style={{
-                  marginRight: "10px",
-                  border: "1px solid white",
-                  borderRadius: "50px",
-                  marginLeft: "-15px",
-                }}
-              />
-            </>
-
-            <Box>
-              <Typography
-                variant="body2"
-                noWrap
-                sx={{
-                  lineHeight: 1.2,
-                  color: systemSettings.textColor,
-                  marginTop: "8px",
-                }}
-              >
-                {systemSettings.institutionName}
-              </Typography>
-              <Typography
-                variant="subtitle1"
-                noWrap
-                sx={{
-                  color: systemSettings.textColor,
-                  fontWeight: "bold",
-                  marginTop: "-5px",
-                }}
-              >
-                {systemSettings.systemName}
-              </Typography>
-            </Box>
-          </Toolbar>
-        </AppBar>
+<AppBar
+  position="fixed"
+  sx={{
+    zIndex: 1201,
+    bgcolor: systemSettings.secondaryColor,
+    height: "62px",
+    overflow: "hidden",
+  }}
+>
+  <Toolbar sx={{ display: "flex", alignItems: "center" }}>
+<Box
+  sx={{
+    width: 46,
+    height: 46,
+    marginRight: "10px",
+    marginLeft: "-15px",
+    borderRadius: "50%",
+    border: "1px solid white",
+    overflow: "hidden",
+    flexShrink: 0,
+    bgcolor: "rgba(255,255,255,0.15)",
+  }}
+>
+  {systemSettings.institutionLogo && (
+    <img
+      src={systemSettings.institutionLogo}
+      alt="Institution Logo"
+      style={{
+        width: "100%",
+        height: "100%",
+        objectFit: "cover",
+        display: "block",
+        imageRendering: "auto",
+      }}
+    />
+  )}
+</Box>
+    <Box>
+      <Typography
+        variant="body2"
+        noWrap
+        sx={{
+          lineHeight: 1.2,
+          color: systemSettings.textColor,
+          marginTop: "8px",
+        }}
+      >
+        {systemSettings.institutionName}
+      </Typography>
+      <Typography
+        variant="subtitle1"
+        noWrap
+        sx={{
+          color: systemSettings.textColor,
+          fontWeight: "bold",
+          marginTop: "-5px",
+        }}
+      >
+        {systemSettings.systemName}
+      </Typography>
+    </Box>
+  </Toolbar>
+</AppBar>
 
         {!["/", "/login", "/register", "/forgot-password"].includes(
           location.pathname,
@@ -489,15 +712,10 @@ function App() {
             transition: "margin-left 0.3s ease",
             fontFamily: "Poppins, sans-serif",
             minHeight: "100vh",
-
-            "& .MuiPaper-root": {
-              borderColor: systemSettings.primaryColor,
-            },
+            "& .MuiPaper-root": { borderColor: systemSettings.primaryColor },
             "& .MuiButton-contained": {
               backgroundColor: systemSettings.primaryColor,
-              "&:hover": {
-                backgroundColor: systemSettings.hoverColor,
-              },
+              "&:hover": { backgroundColor: systemSettings.hoverColor },
             },
             "& .MuiTableHead-root": {
               "& .MuiTableCell-head": {
@@ -540,7 +758,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/home"
               element={
@@ -661,7 +878,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/view_attendance"
               element={
@@ -682,7 +898,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/attendance-user-state"
               element={
@@ -698,7 +913,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/daily_time_record"
               element={
@@ -764,9 +978,8 @@ function App() {
               element={
                 <ProtectedRoute
                   allowedRoles={["administrator", "superadmin", "technical"]}
-                  
                 >
-                <DailyTimeRecordFaculty />
+                  <DailyTimeRecordFaculty />
                 </ProtectedRoute>
               }
             />
@@ -815,7 +1028,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/attendance_module_faculty_40hrs"
               element={
@@ -826,7 +1038,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/attendance_summary"
               element={
@@ -847,7 +1058,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/pds1"
               element={
@@ -908,7 +1118,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/payroll-table"
               element={
@@ -919,7 +1128,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/payroll-processed"
               element={
@@ -930,7 +1138,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/payroll-processed-jo"
               element={
@@ -941,7 +1148,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/payroll-released"
               element={
@@ -952,7 +1158,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/payroll-jo"
               element={
@@ -963,7 +1168,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/remittance-table"
               element={
@@ -974,7 +1178,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/philhealth-table"
               element={
@@ -985,7 +1188,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/item-table"
               element={
@@ -996,7 +1198,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/salary-grade"
               element={
@@ -1007,7 +1208,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/department-table"
               element={
@@ -1018,7 +1218,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/department-assignment"
               element={
@@ -1029,7 +1228,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/holiday"
               element={
@@ -1040,7 +1238,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/assessment-clearance"
               element={
@@ -1071,7 +1268,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/faculty-clearance"
               element={
@@ -1139,6 +1335,16 @@ function App() {
                   allowedRoles={["administrator", "superadmin", "technical"]}
                 >
                   <LeaveCardBack />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/leave-form"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <Leave />
                 </ProtectedRoute>
               }
             />
@@ -1212,7 +1418,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/profile"
               element={
@@ -1228,7 +1433,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/announcement"
               element={
@@ -1244,7 +1448,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/payslip"
               element={
@@ -1260,7 +1463,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/overall-payslip"
               element={
@@ -1276,7 +1478,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/distribution-payslip"
               element={
@@ -1292,7 +1493,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/loading-overlay"
               element={
@@ -1308,7 +1508,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/successful-overlay"
               element={
@@ -1324,7 +1523,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="admin-home"
               element={
@@ -1340,7 +1538,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="employee-category"
               element={
@@ -1356,86 +1553,61 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
-            {/* <Route path="/leave-table" element={<UnderConstruction />} />
-
-            <Route path="/leave-request" element={<UnderConstruction />} />
-
-            <Route path="/leave-request-user" element={<UnderConstruction />} />
-
-            <Route path="/leave-assignment" element={<UnderConstruction />} />
-
-            <Route path="/leave-date-picker" element={<UnderConstruction />} />
-
-            <Route path="/leave-credits" element={<UnderConstruction />} /> */}
-
             <Route
-  path="/leave-table"
-  element={
-    <ProtectedRoute
-      allowedRoles={["administrator", "superadmin", "technical"]}
-    >
-      <LeaveTable />
-    </ProtectedRoute>
-  }
-/>
-
-<Route
-  path="/leave-request"
-  element={
-    <ProtectedRoute
-      allowedRoles={["administrator", "superadmin", "technical"]}
-    >
-      <LeaveRequest />
-    </ProtectedRoute>
-  }
-/>
-
-<Route
-  path="/leave-request-user"
-  element={
-    <ProtectedRoute
-      allowedRoles={["administrator", "superadmin", "technical"]}
-    >
-      <LeaveRequestUser />
-    </ProtectedRoute>
-  }
-/>
-
-<Route
-  path="/leave-assignment"
-  element={
-    <ProtectedRoute
-      allowedRoles={["administrator", "superadmin", "technical"]}
-    >
-      <LeaveAssignment />
-    </ProtectedRoute>
-  }
-/>
-
-<Route
-  path="/leave-date-picker"
-  element={
-    <ProtectedRoute
-      allowedRoles={["administrator", "superadmin", "technical"]}
-    >
-      <LeaveDatePickerModal />
-    </ProtectedRoute>
-  }
-/>
-
-<Route
-  path="/leave-credits"
-  element={
-    <ProtectedRoute
-      allowedRoles={["administrator", "superadmin", "technical"]}
-    >
-      <LeaveCredits />
-    </ProtectedRoute>
-  }
-/>
-
-
+              path="/leave-table"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <LeaveTable />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/leave-request"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <LeaveRequest />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/leave-request-user"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "administrator",
+                    "superadmin",
+                    "technical",
+                    "staff",
+                  ]}
+                >
+                  <LeaveRequestUser />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/leave-assignment"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <LeaveAssignment />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/leave-commutation"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <LeaveCommutation />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/users-list"
               element={
@@ -1444,7 +1616,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/pages-list"
               element={
@@ -1453,7 +1624,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/audit-logs"
               element={
@@ -1464,7 +1634,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/reports"
               element={
@@ -1475,7 +1644,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/employee-reports"
               element={
@@ -1491,7 +1659,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/system-settings"
               element={
@@ -1502,7 +1669,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/payroll-formulas"
               element={
@@ -1511,7 +1677,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/admin-security"
               element={
@@ -1520,13 +1685,12 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route path="/under-construction" element={<UnderConstruction />} />
             <Route path="/access-denied" element={<AccessDenied />} />
           </Routes>
         </Box>
 
-        {/* IDLE WARNING DIALOG: PROFESSIONAL, INTERACTIVE, FORMAL */}
+        {/* IDLE WARNING DIALOG */}
         <Dialog
           open={idleWarningOpen && isAuthenticatedPage}
           PaperProps={{
@@ -1537,7 +1701,6 @@ function App() {
             },
           }}
         >
-          {/* 1. Dark Maroon Header with Icon */}
           <Box
             sx={{
               bgcolor: systemSettings.primaryColor,
@@ -1566,21 +1729,17 @@ function App() {
                 You have been inactive. For security purposes, you will be
                 logged out in:
               </Typography>
-
-              {/* 2. Interactive Countdown Timer */}
               <Typography
                 variant="h3"
                 sx={{
                   fontWeight: 700,
                   color: systemSettings.primaryColor,
-                  fontFamily: "monospace", // Monospace makes the numbers stay fixed width
+                  fontFamily: "monospace",
                   mb: 1,
                 }}
               >
                 {formatTime(timeLeft)}
               </Typography>
-
-              {/* 3. Visual Progress Bar */}
               <LinearProgress
                 variant="determinate"
                 value={(timeLeft / COUNTDOWN_SECONDS) * 100}
@@ -1614,7 +1773,6 @@ function App() {
             >
               Logout Now
             </Button>
-
             <Button
               onClick={() => {
                 setIdleWarningOpen(false);
@@ -1627,9 +1785,7 @@ function App() {
                 textTransform: "none",
                 fontWeight: 600,
                 backgroundColor: systemSettings.primaryColor,
-                "&:hover": {
-                  backgroundColor: systemSettings.hoverColor,
-                },
+                "&:hover": { backgroundColor: systemSettings.hoverColor },
               }}
             >
               Stay Logged In
@@ -1637,7 +1793,7 @@ function App() {
           </DialogActions>
         </Dialog>
 
-        {/* SESSION EXPIRED DIALOG: PROFESSIONAL, FORMAL */}
+        {/* SESSION EXPIRED DIALOG */}
         <Dialog
           open={sessionExpired}
           PaperProps={{
@@ -1648,7 +1804,6 @@ function App() {
             },
           }}
         >
-          {/* 1. Dark Maroon Header with Icon */}
           <Box
             sx={{
               bgcolor: systemSettings.primaryColor,
@@ -1686,9 +1841,7 @@ function App() {
                 textTransform: "none",
                 fontWeight: 600,
                 backgroundColor: systemSettings.primaryColor,
-                "&:hover": {
-                  backgroundColor: systemSettings.hoverColor,
-                },
+                "&:hover": { backgroundColor: systemSettings.hoverColor },
               }}
             >
               OKAY
@@ -1707,15 +1860,36 @@ function App() {
           zIndex: (theme) => theme.zIndex.drawer + 1,
           bgcolor: systemSettings.secondaryColor,
           color: systemSettings.textColor,
-          textAlign: "center",
-          padding: "20px",
-          height: "10px",
-          overflow: "hidden",
+          py: 1.5,
+          px: 2,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          minHeight: "45px",
+          boxSizing: "border-box",
         }}
       >
-        <Typography variant="body2" sx={{ zIndex: 1, position: "relative" }}>
+        <Box sx={{ width: "50px" }} />
+
+        <Typography
+          sx={{ fontWeight: "bold", textAlign: "center", flexGrow: 1 }}
+        >
           {systemSettings.footerText}
         </Typography>
+
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <IconButton
+            component="a"
+            href={`https://mail.google.com/mail/?view=cm&fs=1&to=${systemSettings.adminEmail}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            color="inherit"
+            size="small"
+            title="Email Admin"
+          >
+            <Email fontSize="small" />
+          </IconButton>
+        </Box>
       </Box>
     </ThemeProvider>
   );

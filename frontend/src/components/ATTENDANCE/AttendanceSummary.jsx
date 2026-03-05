@@ -191,8 +191,8 @@ const StyledModal = ({
       PaperProps={{
         sx: {
           borderRadius: 3,
-          boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-          border: '2px solid #6D2323',
+          boxShadow: '0px 10px 40px rgba(0,0,0,0.18)',
+          border: '1px solid rgba(109, 35, 35, 0.12)',
           overflow: 'hidden',
         },
       }}
@@ -201,73 +201,77 @@ const StyledModal = ({
         sx={{
           px: 3,
           pt: 2.5,
-          pb: 2,
+          pb: 1.5,
           display: 'flex',
           alignItems: 'center',
-          gap: 2,
-          borderBottom: '3px solid #6D2323',
+          justifyContent: 'space-between',
+          borderBottom: '1px solid rgba(0,0,0,0.08)',
           backgroundColor: '#FFFFFF',
         }}
       >
-        <Avatar
+        <Typography
+          variant="subtitle1"
+          sx={{ fontWeight: 700, color: '#6D2323', letterSpacing: 0.3 }}
+        >
+          {title}
+        </Typography>
+        <IconButton
+          size="small"
+          onClick={onClose}
           sx={{
-            bgcolor: 'rgba(109,35,35,0.08)',
             color: '#6D2323',
-            width: 52,
-            height: 52,
+            '&:hover': {
+              backgroundColor: 'rgba(109, 35, 35, 0.06)',
+            },
           }}
         >
-          {getIcon()}
-        </Avatar>
-        <Box>
-          <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#333' }}>
-            {title}
-          </Typography>
-          <Typography variant="body2" sx={{ color: '#666' }}>
-            {type === 'success' ? 'Operation completed successfully.' : 
-             type === 'error' ? 'An error occurred during the operation.' :
-             type === 'warning' ? 'Please review the information carefully.' :
-             'Please read the information below.'}
-          </Typography>
-        </Box>
+          <CloseIcon fontSize="small" />
+        </IconButton>
       </DialogTitle>
 
       <DialogContent
         sx={{
           px: 4,
-          pt: 5,
-          pb: 3,
+          pt: 3,
+          pb: 2,
           backgroundColor: '#FFFFFF',
+          minHeight: 320,
         }}
       >
-        <Alert
-          severity={type === 'error' ? 'error' : type === 'warning' ? 'warning' : type === 'success' ? 'success' : 'info'}
+        <Box
           sx={{
-            mt: 2,
-            mb: 3.5,
-            borderRadius: 2,
-            bgcolor: 'rgba(109,35,35,0.04)',
-            border: '1px solid rgba(109,35,35,0.2)',
-            '& .MuiAlert-icon': {
-              color: '#6D2323',
-              fontSize: 24,
-            },
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            textAlign: 'center',
+                gap: 2.5,
           }}
         >
+          <Box
+            sx={{
+              width: 72,
+              height: 72,
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+                  backgroundColor: 'rgba(109,35,35,0.06)',
+            }}
+          >
+            {getIcon()}
+          </Box>
+
           <Typography
-            variant="body2"
-            sx={{ 
-              color: '#000000',
+            sx={{
+              color: '#4b1717',
+              fontSize: 15,
               whiteSpace: 'pre-line',
               lineHeight: 1.7,
-              '& .text-red': {
-                color: '#d32f2f',
-                fontWeight: 600,
-              },
             }}
-            dangerouslySetInnerHTML={{ __html: message }}
-          />
-        </Alert>
+          >
+            {message}
+          </Typography>
+        </Box>
       </DialogContent>
 
       <DialogActions
@@ -275,9 +279,10 @@ const StyledModal = ({
           px: 4,
           py: 3,
           backgroundColor: '#FFFFFF',
-          borderTop: '1px solid rgba(0,0,0,0.06)',
+          borderTop: '1px solid rgba(0,0,0,0.04)',
           display: 'flex',
-          justifyContent: 'flex-end',
+          flexDirection: 'column',
+          alignItems: 'stretch',
           gap: 1.5,
         }}
       >
@@ -286,8 +291,8 @@ const StyledModal = ({
             onClick={onClose}
             variant="outlined"
             sx={{
-              minWidth: 120,
-              borderColor: '#6D2323',
+              width: '100%',
+              borderColor: 'rgba(109,35,35,0.6)',
               color: '#6D2323',
               fontWeight: 600,
             }}
@@ -299,7 +304,7 @@ const StyledModal = ({
           onClick={onConfirm || onClose}
           variant="contained"
           sx={{
-            minWidth: 160,
+            width: '100%',
             bgcolor: '#6D2323',
             color: '#FEF9E1',
             fontWeight: 600,
@@ -373,7 +378,6 @@ const OverallAttendance = () => {
   const [successOverlay, setSuccessOverlay] = useState(false);
   const [successRedirect, setSuccessRedirect] = useState('');
   const [successAction, setSuccessAction] = useState('send');
-  const [employeeNames, setEmployeeNames] = useState({});
 
   // Modal state
   const [modal, setModal] = useState({
@@ -452,40 +456,6 @@ const OverallAttendance = () => {
 
       if (response.status === 200) {
         setAttendanceData(response.data.data);
-        
-        // Fetch employee names for all records
-        const uniqueEmployeeNumbers = [...new Set(response.data.data.map(record => record.personID))];
-        const namesMap = {};
-        
-        await Promise.all(
-          uniqueEmployeeNumbers.map(async (empNum) => {
-            try {
-              console.log(`Fetching name for employee: ${empNum}`);
-              const nameResponse = await axios.get(
-                `${API_BASE_URL}/personalinfo/person_table/${empNum}`,
-                getAuthHeaders()
-              );
-              console.log(`Response for ${empNum}:`, nameResponse.data);
-              
-              if (nameResponse.data) {
-                const person = nameResponse.data;
-                console.log(`Person data for ${empNum}:`, person);
-                const fullName = `${person.firstName || ''} ${person.middleName ? person.middleName + ' ' : ''}${person.lastName || ''}${person.nameExtension ? ' ' + person.nameExtension : ''}`.trim();
-                console.log(`Full name for ${empNum}:`, fullName);
-                namesMap[empNum] = fullName || 'Unknown';
-              } else {
-                console.log(`No data returned for ${empNum}`);
-                namesMap[empNum] = 'Unknown';
-              }
-            } catch (err) {
-              console.error(`Error fetching name for ${empNum}:`, err);
-              console.error(`Error response:`, err.response?.data);
-              namesMap[empNum] = 'Unknown';
-            }
-          })
-        );
-        
-        setEmployeeNames(namesMap);
       } else {
         console.error('Error: ', response.status);
       }
@@ -698,24 +668,9 @@ const OverallAttendance = () => {
           );
 
           if (response.data.exists) {
-            // Fetch employee name
-            let employeeName = 'Unknown';
-            try {
-              const nameResponse = await axios.get(
-                `${API_BASE_URL}/personalinfo/person_table/${employeeNumber}`,
-                getAuthHeaders()
-              );
-              if (nameResponse.data) {
-                const person = nameResponse.data;
-                employeeName = `${person.firstName || ''} ${person.middleName ? person.middleName + ' ' : ''}${person.lastName || ''}${person.nameExtension ? ' ' + person.nameExtension : ''}`.trim() || 'Unknown';
-              }
-            } catch (err) {
-              console.error('Error fetching employee name:', err);
-            }
-
             showModal(
               'Duplicate Entry',
-              `Payroll entry <span class="text-red">exists</span> for<br/>Employee #: ${employeeNumber}<br/>Name: ${employeeName}<br/>(${startDate} to ${endDate}).`,
+              `Payroll entry exists for Employee ${employeeNumber} (${startDate} to ${endDate}).`,
               'warning'
             );
             return;
@@ -879,30 +834,13 @@ const OverallAttendance = () => {
       }
 
       if (duplicateRecords.length > 0) {
-        // Fetch employee names for duplicates
-        const duplicateDetailsPromises = duplicateRecords.map(async (r) => {
-          try {
-            const nameResponse = await axios.get(
-              `${API_BASE_URL}/personalinfo/person_table/${r.employeeNumber}`,
-              getAuthHeaders()
-            );
-            if (nameResponse.data) {
-              const person = nameResponse.data;
-              const employeeName = `${person.firstName || ''} ${person.middleName ? person.middleName + ' ' : ''}${person.lastName || ''}${person.nameExtension ? ' ' + person.nameExtension : ''}`.trim() || 'Unknown';
-              return `Payroll entry <span class="text-red">exists</span> for<br/>Employee #: ${r.employeeNumber}<br/>Name: ${employeeName}<br/>(${r.startDate} to ${r.endDate}).`;
-            }
-          } catch (err) {
-            console.error('Error fetching employee name:', err);
-          }
-          return `Payroll entry <span class="text-red">exists</span> for<br/>Employee #: ${r.employeeNumber}<br/>Name: Unknown<br/>(${r.startDate} to ${r.endDate}).`;
-        });
-
-        const duplicateDetails = await Promise.all(duplicateDetailsPromises);
-        const duplicateList = duplicateDetails.join('<br/><br/>');
+        const duplicateList = duplicateRecords
+          .map((r) => `• Employee ${r.employeeNumber} (${r.startDate} to ${r.endDate})`)
+          .join('\n');
 
         showModal(
           'Duplicate Entries',
-          `Records already <span class="text-red">exist</span>:<br/><br/>${duplicateList}`,
+          `Records already exist:\n\n${duplicateList}`,
           'warning'
         );
         setProcessingOverlay(false);
@@ -1363,7 +1301,6 @@ const OverallAttendance = () => {
                     <TableRow sx={{ bgcolor: 'rgba(254, 249, 225, 0.7)' }}>
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Department</PremiumTableCell>
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Employee Number</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Name</PremiumTableCell>
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Start Date</PremiumTableCell>
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>End Date</PremiumTableCell>
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Morning Hours</PremiumTableCell>
@@ -1378,7 +1315,6 @@ const OverallAttendance = () => {
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Overtime Tardiness</PremiumTableCell>
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Overall Official Rendered Time</PremiumTableCell>
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Overall Official Tardiness Time</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Overall Total Official Schedule</PremiumTableCell>
                       <PremiumTableCell isHeader sx={{ color: accentColor }}>Action</PremiumTableCell>
                     </TableRow>
                   </TableHead>
@@ -1403,9 +1339,6 @@ const OverallAttendance = () => {
                           ) : (
                             record.personID
                           )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {employeeNames[record.personID] || 'Unknown'}
                         </PremiumTableCell>
                         <PremiumTableCell>
                           {editRecord && editRecord.id === record.id ? (
@@ -1561,17 +1494,6 @@ const OverallAttendance = () => {
                             record.overallRenderedOfficialTimeTardiness
                           )}
                         </PremiumTableCell>
-                        <PremiumTableCell>
-  {editRecord && editRecord.id === record.id ? (
-    <ModernTextField
-      value={editRecord.overallTotalOfficialSchedule}
-      onChange={(e) => setEditRecord({ ...editRecord, overallTotalOfficialSchedule: e.target.value })}
-      size="small"
-    />
-  ) : (
-    record.overallTotalOfficialSchedule || '—'
-  )}
-</PremiumTableCell>
                         <PremiumTableCell>
                           {editRecord && editRecord.id === record.id ? (
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>

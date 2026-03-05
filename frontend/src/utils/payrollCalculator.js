@@ -132,6 +132,11 @@ export function calculateAllFields(item, formulas) {
   const calculationOrder = [
     'grossSalary',
     'abs',
+    // TEVL/DVLT/VLB are salary components and must be calculated early
+    // so they appear in the computed rows on the frontend.
+    'tevl',
+    'dvlt',
+    'vlb',
     'PhilHealthContribution',
     'personalLifeRetIns',
     'netSalary',

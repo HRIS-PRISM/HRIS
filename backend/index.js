@@ -18,7 +18,6 @@ const WorkExperienceRoute = require('./dashboardRoutes/WorkExperience');
 const OtherInfo = require('./dashboardRoutes/OtherSkills');
 const GraduateRoute = require('./dashboardRoutes/Graduate');
 const AllData = require('./dashboardRoutes/DataRoute');
-const Leave = require('./dashboardRoutes/Leave');
 const Attendance = require('./dashboardRoutes/Attendance');
 const SalaryGradeTable = require('./payrollRoutes/SalaryGradeTable');
 const Remittance = require('./payrollRoutes/Remittance');
@@ -56,6 +55,8 @@ const notificationsRoutes = require('./routes/notifications');
 const reportsRoutes = require('./routes/reports');
 const settingsExtendedRoutes = require('./routes/settings-extended');
 const confidentialPasswordRoutes = require('./routes/confidential-password');
+const commutationRoute = require('./routes/commutation');
+
 
 const app = express();
 
@@ -226,7 +227,7 @@ db.query(ensureSuspensionsTableSQL, (err) => {
   else console.log('Suspensions table ready');
 });
 
-// Mount existing dashboard and payroll routes
+// existing routes
 app.use('/ChildrenRoute', childrenRouter);
 app.use('/VoluntaryRoute', VoluntaryWork);
 app.use('/eligibilityRoute', EligibilityRoute);
@@ -240,16 +241,12 @@ app.use('/allData', AllData);
 app.use('/attendance', Attendance);
 app.use('/SalaryGradeTable', SalaryGradeTable);
 app.use('/Remittance', Remittance);
-app.use('/leaveRoute', Leave);
+app.use('/leaveRoute', leaveRoutes);
 app.use('/SendPayslipRoute', SendPayslip);
 app.use('/PayrollRoute', Payroll);
 app.use('/PayrollReleasedRoute', PayrollReleased);
 app.use('/PayrollJORoutes', PayrollJO);
 app.use('/EmploymentCategoryRoutes', EmployeeCategory);
-
-// Mount new organized routes
-// Note: These routes are mounted at root to maintain compatibility with existing frontend
-// The route files define routes like '/login', so mounting at '/' preserves the original paths
 app.use('/', authRoutes);
 app.use('/', passwordRoutes);
 app.use('/', settingsRoutes);
@@ -277,6 +274,7 @@ app.use('/', reportsRoutes);
 app.use('/', settingsExtendedRoutes);
 app.use('/', confidentialPasswordRoutes);
 app.use('/', PayrollFormulas);
+app.use('/commutationRoute', commutationRoute);
 
 // Server startup with Socket.IO
 const PORT = process.env.WEB_PORT || 5000;

@@ -9,7 +9,7 @@ const SuccessfulOverlay = ({ open, action, onClose, showOkButton = false }) => {
     if (open && !showOkButton) {
       const timer = setTimeout(() => {
         if (onClose) onClose();
-      }, 2500);
+      }, 1000);
       return () => clearTimeout(timer);
     }
   }, [open, showOkButton, onClose]);
@@ -25,6 +25,9 @@ const SuccessfulOverlay = ({ open, action, onClose, showOkButton = false }) => {
       case 'download': return 'Successfully Downloaded!';
       case 'gmail': return 'Successfully Sent to Gmail!';
       case 'reset': return 'Successfully Reset!';
+      case 'bulk': return 'Successfully Updated!';
+      case 'status': return 'Status Updated!';
+      case 'cancel': return 'Successfully Cancelled!';
       default: return 'Successful!';
     }
   };

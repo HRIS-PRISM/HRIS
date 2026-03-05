@@ -175,7 +175,7 @@ router.get('/api/attendance', authenticateToken, (req, res) => {
     logAudit(
       req.user,
       'view',
-      'Attendance Module',
+      'attendance-module',
       `${startDate} && ${endDate}`,
       personId,
     );
@@ -1667,7 +1667,9 @@ router.get('/api/suspensions', authenticateToken, (req, res) => {
   const { startDate, endDate } = req.query;
 
   if (!startDate || !endDate) {
-    return res.status(400).json({ error: 'startDate and endDate are required' });
+    return res
+      .status(400)
+      .json({ error: 'startDate and endDate are required' });
   }
 
   const query = `
@@ -1731,19 +1733,25 @@ router.get('/api/suspensions', authenticateToken, (req, res) => {
         }
       } else if (single) {
         if (!byDate[single]) {
-          byDate[single] = { label, title: r.title, reason: r.reason, id: r.id };
+          byDate[single] = {
+            label,
+            title: r.title,
+            reason: r.reason,
+            id: r.id,
+          };
         }
       }
     });
 
     // Log audit trail
-    const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';
+    const requestedBy =
+      req.user?.employeeNumber || req.user?.username || 'unknown';
     logAudit(
       req.user,
       'view',
       'SUSPENSIONS',
       `range ${startDate} to ${endDate}`,
-      requestedBy
+      requestedBy,
     );
 
     notifyAttendanceChanged('suspensions-fetched', {
@@ -1766,7 +1774,9 @@ router.get('/api/leaves', authenticateToken, (req, res) => {
   const { startDate, endDate } = req.query;
 
   if (!startDate || !endDate) {
-    return res.status(400).json({ error: 'startDate and endDate are required' });
+    return res
+      .status(400)
+      .json({ error: 'startDate and endDate are required' });
   }
 
   const leaveQuery = `
@@ -1805,13 +1815,14 @@ router.get('/api/leaves', authenticateToken, (req, res) => {
       };
     });
 
-    const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';
+    const requestedBy =
+      req.user?.employeeNumber || req.user?.username || 'unknown';
     logAudit(
       req.user,
       'view',
       'LEAVES',
       `range ${startDate} to ${endDate}`,
-      requestedBy
+      requestedBy,
     );
 
     notifyAttendanceChanged('leaves-fetched', {
@@ -1834,7 +1845,9 @@ router.get('/api/holiday', authenticateToken, (req, res) => {
   const { startDate, endDate } = req.query;
 
   if (!startDate || !endDate) {
-    return res.status(400).json({ error: 'startDate and endDate are required' });
+    return res
+      .status(400)
+      .json({ error: 'startDate and endDate are required' });
   }
 
   const query = `
@@ -1844,7 +1857,7 @@ router.get('/api/holiday', authenticateToken, (req, res) => {
       (date IS NOT NULL AND date BETWEEN ? AND ?)
       OR
       (date_start IS NOT NULL AND date_end IS NOT NULL AND date_start <= ? AND date_end >= ?)
-  `
+  `;
 
   // NOTE: order is important
   const params = [startDate, endDate, endDate, startDate];
@@ -1898,13 +1911,14 @@ router.get('/api/holiday', authenticateToken, (req, res) => {
     });
 
     // Log audit trail
-    const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';
+    const requestedBy =
+      req.user?.employeeNumber || req.user?.username || 'unknown';
     logAudit(
       req.user,
       'view',
       'HOLIDAYS',
       `range ${startDate} to ${endDate}`,
-      requestedBy
+      requestedBy,
     );
 
     notifyAttendanceChanged('holidays-fetched', {
@@ -1922,6 +1936,5 @@ router.get('/api/holiday', authenticateToken, (req, res) => {
   });
 });
 
-
 module.exports = router;
-//  
+//
