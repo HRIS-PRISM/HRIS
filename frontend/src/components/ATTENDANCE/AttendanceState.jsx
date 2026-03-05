@@ -1,7 +1,7 @@
-import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
-import { useSocket } from '../../contexts/SocketContext';
+import API_BASE_URL from "../../apiConfig";
+import React, { useState, useEffect, useRef } from "react";
+import axios from "axios";
+import { useSocket } from "../../contexts/SocketContext";
 import {
   Box,
   TextField,
@@ -40,8 +40,8 @@ import {
   FormControl,
   InputLabel,
   Select,
-} from '@mui/material';
-import { useSystemSettings } from '../../hooks/useSystemSettings';
+} from "@mui/material";
+import { useSystemSettings } from "../../hooks/useSystemSettings";
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -49,9 +49,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 // Helper function to convert hex to rgb
 const hexToRgb = (hex) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
-    : '109, 35, 35';
+  return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '109, 35, 35';
 };
 import {
   FilterList,
@@ -70,59 +68,58 @@ import {
   AccessTime,
   KeyboardArrowUp,
   KeyboardArrowDown,
-  Star,
-} from '@mui/icons-material';
+} from "@mui/icons-material";
 
 const GlassCard = styled(Card)(({ theme }) => ({
   borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  '&:hover': {
-    transform: 'translateY(-4px)',
+  backdropFilter: "blur(10px)",
+  overflow: "hidden",
+  transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+  "&:hover": {
+    transform: "translateY(-4px)",
   },
 }));
 
 const ProfessionalButton = styled(Button)(
-  ({ theme, variant, color = 'primary' }) => ({
+  ({ theme, variant, color = "primary" }) => ({
     borderRadius: 12,
     fontWeight: 600,
-    padding: '12px 24px',
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    textTransform: 'none',
-    fontSize: '0.95rem',
-    letterSpacing: '0.025em',
+    padding: "12px 24px",
+    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+    textTransform: "none",
+    fontSize: "0.95rem",
+    letterSpacing: "0.025em",
     boxShadow:
-      variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
-    '&:hover': {
-      transform: 'translateY(-2px)',
+      variant === "contained" ? "0 4px 14px rgba(254, 249, 225, 0.25)" : "none",
+    "&:hover": {
+      transform: "translateY(-2px)",
       boxShadow:
-        variant === 'contained'
-          ? '0 6px 20px rgba(254, 249, 225, 0.35)'
-          : 'none',
+        variant === "contained"
+          ? "0 6px 20px rgba(254, 249, 225, 0.35)"
+          : "none",
     },
-    '&:active': {
-      transform: 'translateY(0)',
+    "&:active": {
+      transform: "translateY(0)",
     },
-  }),
+  })
 );
 
 const ModernTextField = styled(TextField)(({ theme }) => ({
-  '& .MuiOutlinedInput-root': {
+  "& .MuiOutlinedInput-root": {
     borderRadius: 12,
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    '&:hover': {
-      transform: 'translateY(-1px)',
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    "&:hover": {
+      transform: "translateY(-1px)",
+      backgroundColor: "rgba(255, 255, 255, 0.95)",
     },
-    '&.Mui-focused': {
-      transform: 'translateY(-1px)',
-      boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
-      backgroundColor: 'rgba(255, 255, 255, 1)',
+    "&.Mui-focused": {
+      transform: "translateY(-1px)",
+      boxShadow: "0 4px 20px rgba(254, 249, 225, 0.25)",
+      backgroundColor: "rgba(255, 255, 255, 1)",
     },
   },
-  '& .MuiInputLabel-root': {
+  "& .MuiInputLabel-root": {
     fontWeight: 500,
   },
 }));
@@ -130,208 +127,80 @@ const ModernTextField = styled(TextField)(({ theme }) => ({
 // Updated PremiumTableContainer with scrolling
 const PremiumTableContainer = styled(TableContainer)(({ theme }) => ({
   borderRadius: 16,
-  overflow: 'auto',
-  boxShadow: '0 4px 24px rgba(109, 35, 35, 0.06)',
-  border: '1px solid rgba(109, 35, 35, 0.08)',
-  maxHeight: '600px',
-  '&::-webkit-scrollbar': {
-    width: '8px',
-    height: '8px',
+  overflow: "auto", // Enable both horizontal and vertical scrolling
+  boxShadow: "0 4px 24px rgba(109, 35, 35, 0.06)",
+  border: "1px solid rgba(109, 35, 35, 0.08)",
+  maxHeight: "600px", // Set max height for vertical scrolling
+  "&::-webkit-scrollbar": {
+    width: "8px",
+    height: "8px",
   },
-  '&::-webkit-scrollbar-track': {
-    background: 'rgba(254, 249, 225, 0.3)',
-    borderRadius: '4px',
+  "&::-webkit-scrollbar-track": {
+    background: "rgba(254, 249, 225, 0.3)",
+    borderRadius: "4px",
   },
-  '&::-webkit-scrollbar-thumb': {
-    background: 'rgba(109, 35, 35, 0.4)',
-    borderRadius: '4px',
-    '&:hover': {
-      background: 'rgba(109, 35, 35, 0.6)',
+  "&::-webkit-scrollbar-thumb": {
+    background: "rgba(109, 35, 35, 0.4)",
+    borderRadius: "4px",
+    "&:hover": {
+      background: "rgba(109, 35, 35, 0.6)",
     },
   },
 }));
 
 const PremiumTableCell = styled(TableCell)(({ theme, isHeader = false }) => ({
   fontWeight: isHeader ? 600 : 500,
-  padding: '18px 20px',
+  padding: "18px 20px",
   borderBottom: isHeader
-    ? '2px solid rgba(254, 249, 225, 0.5)'
-    : '1px solid rgba(109, 35, 35, 0.06)',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-  minWidth: '120px',
-  whiteSpace: 'nowrap',
+    ? "2px solid rgba(254, 249, 225, 0.5)"
+    : "1px solid rgba(109, 35, 35, 0.06)",
+  fontSize: "0.95rem",
+  letterSpacing: "0.025em",
+  minWidth: "120px", // Ensure minimum width for cells
+  whiteSpace: "nowrap", // Prevent text wrapping
 }));
-
-// Helper function to parse time string to minutes
-const parseTimeToMinutes = (timeStr) => {
-  if (!timeStr || typeof timeStr !== 'string') return null;
-
-  console.log('🕐 Parsing time:', timeStr);
-  const match = timeStr.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]\.?M\.?)?$/i);
-  if (!match) {
-    console.log('❌ No regex match for:', timeStr);
-    return null;
-  }
-
-  let hours = parseInt(match[1], 10);
-  const minutes = parseInt(match[2], 10);
-  const ampm = match[4]?.toUpperCase().replace(/\./g, ''); // Remove periods
-  
-  console.log('  Hours:', hours, 'Minutes:', minutes, 'AMPM:', ampm, 'Original:', match[4]);
-
-  if (ampm === 'PM' && hours !== 12) hours += 12;
-  if (ampm === 'AM' && hours === 12) hours = 0;
-  
-  const totalMinutes = hours * 60 + minutes;
-  console.log('  Total minutes:', totalMinutes, '(', hours, ':', minutes, ')');
-
-  return totalMinutes;
-};
-
-// Helper function to check if time falls within a range
-const timeIsInRange = (attendanceTime, startTime, endTime) => {
-  console.log('🔍 Checking range:', attendanceTime, 'between', startTime, 'and', endTime);
-  const attMinutes = parseTimeToMinutes(attendanceTime);
-  const startMinutes = parseTimeToMinutes(startTime);
-  const endMinutes = parseTimeToMinutes(endTime);
-
-  if (attMinutes === null || startMinutes === null || endMinutes === null) {
-    console.log('  ❌ Null values detected');
-    return false;
-  }
-
-  const inRange = attMinutes >= startMinutes && attMinutes <= endMinutes;
-  console.log('  Result:', inRange, '(att:', attMinutes, 'start:', startMinutes, 'end:', endMinutes, ')');
-  return inRange;
-};
-
-// Helper function to determine attendance state and get the type
-const determineAttendanceStateWithType = (
-  attendanceRecord,
-  officialTimeRecord,
-) => {
-  if (!attendanceRecord) {
-    console.log('❌ NO ATTENDANCE RECORD');
-    return { state: null, type: null };
-  }
-
-  const originalState = attendanceRecord.AttendanceState;
-  const attendanceTime = attendanceRecord.Time;
-
-  console.log('📍 Processing record - State:', originalState, 'Time:', attendanceTime);
-
-  // States 1-4 are regular time (Time IN, Break OUT, Break IN, Time OUT)
-  if (originalState >= 1 && originalState <= 4) {
-    console.log('✅ Regular state (1-4), returning as-is');
-    return { state: originalState, type: 'Regular' };
-  }
-
-  // States 5-6 need type determination from official time ranges
-  if (originalState === 5 || originalState === 6) {
-    console.log('🔍 State 5/6 detected - checking official time ranges');
-    
-    if (!officialTimeRecord) {
-      console.log('⚠️ NO OFFICIAL TIME DATA for state 5/6');
-      return { state: originalState, type: null };
-    }
-
-    console.log('🕐 Overtime:', officialTimeRecord.officialOverTimeIN, '-', officialTimeRecord.officialOverTimeOUT);
-    console.log('🕐 Honorarium:', officialTimeRecord.officialHonorariumTimeIN, '-', officialTimeRecord.officialHonorariumTimeOUT);
-    console.log('🕐 Service Credits:', officialTimeRecord.officialServiceCreditTimeIN, '-', officialTimeRecord.officialServiceCreditTimeOUT);
-
-    // Check Overtime range FIRST
-    if (
-      officialTimeRecord.officialOverTimeIN &&
-      officialTimeRecord.officialOverTimeOUT &&
-      timeIsInRange(
-        attendanceTime,
-        officialTimeRecord.officialOverTimeIN,
-        officialTimeRecord.officialOverTimeOUT,
-      )
-    ) {
-      console.log('✅✅✅ MATCHED: Overtime');
-      return { state: originalState, type: 'overtime' };
-    }
-
-    // Check Honorarium range
-    if (
-      officialTimeRecord.officialHonorariumTimeIN &&
-      officialTimeRecord.officialHonorariumTimeOUT &&
-      timeIsInRange(
-        attendanceTime,
-        officialTimeRecord.officialHonorariumTimeIN,
-        officialTimeRecord.officialHonorariumTimeOUT,
-      )
-    ) {
-      console.log('✅✅✅ MATCHED: Honorarium');
-      return { state: originalState, type: 'honorarium' };
-    }
-
-    // Check Service Credits range
-    if (
-      officialTimeRecord.officialServiceCreditTimeIN &&
-      officialTimeRecord.officialServiceCreditTimeOUT &&
-      timeIsInRange(
-        attendanceTime,
-        officialTimeRecord.officialServiceCreditTimeIN,
-        officialTimeRecord.officialServiceCreditTimeOUT,
-      )
-    ) {
-      console.log('✅✅✅ MATCHED: Service Credits');
-      return { state: originalState, type: 'serviceCredits' };
-    }
-
-    // State 5/6 but no matching range = Uncategorized
-    console.log('❌ State 5/6 but NO RANGE MATCH - Uncategorized');
-    return { state: originalState, type: null };
-  }
-
-  // Unknown state
-  console.log('⚠️ Unknown state:', originalState);
-  return { state: originalState, type: null };
-};
 
 const AllAttendanceRecord = () => {
   const { socket, connected } = useSocket();
   const { settings } = useSystemSettings();
-  const [personID, setPersonID] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [personID, setPersonID] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [records, setRecords] = useState([]);
-  const [submittedID, setSubmittedID] = useState('');
+  const [submittedID, setSubmittedID] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [moreAnchorEl, setMoreAnchorEl] = useState(null);
   const [expandedRow, setExpandedRow] = useState(null);
-  const [sortOrder, setSortOrder] = useState('desc');
+  const [sortOrder, setSortOrder] = useState("desc");
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(null);
-  const [officialTimeData, setOfficialTimeData] = useState(null);
 
   const fetchRecordsRef = useRef(null);
 
   // Get colors from system settings
-  const primaryColor = settings.accentColor || '#FEF9E1';
-  const secondaryColor = settings.backgroundColor || '#FFF8E7';
-  const accentColor = settings.primaryColor || '#6d2323';
-  const accentDark = settings.secondaryColor || '#8B3333';
-  const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
-  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
-  const hoverColor = settings.hoverColor || '#6D2323';
-  const creamColor = settings.accentColor || '#FEF9E1';
-  const blackColor = '#1a1a1a';
-  const whiteColor = '#FFFFFF';
-  const grayColor = '#6c757d';
+  const primaryColor = settings.accentColor || "#FEF9E1"; // Cards color
+  const secondaryColor = settings.backgroundColor || "#FFF8E7"; // Background
+  const accentColor = settings.primaryColor || "#6d2323"; // Primary accent
+  const accentDark = settings.secondaryColor || "#8B3333"; // Darker accent
+  const textPrimaryColor = settings.textPrimaryColor || "#6d2323";
+  const textSecondaryColor = settings.textSecondaryColor || "#FEF9E1";
+  const hoverColor = settings.hoverColor || "#6D2323";
+  const creamColor = settings.accentColor || "#FEF9E1";
+  const blackColor = "#1a1a1a";
+  const whiteColor = "#FFFFFF";
+  const grayColor = "#6c757d";
 
   const today = new Date();
   const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
   const formattedToday = `${year}-${month}-${day}`;
 
   //ACCESSING
+  // Dynamic page access control using component identifier
+  // The identifier 'attendance-form' should match the component_identifier in the pages table
   const {
     hasAccess,
     loading: accessLoading,
@@ -340,64 +209,25 @@ const AllAttendanceRecord = () => {
   // ACCESSING END
 
   const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem("token");
     return {
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
     };
-  };
-
-  // Fetch official time data for the employee
-  const fetchOfficialTimeData = async (empID) => {
-    try {
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-      const response = await axios.get(
-        `${API_BASE_URL}/officialtimetable/${empID}?date=${today}`,
-        getAuthHeaders(),
-      );
-      if (response.data && response.data.length > 0) {
-        // Get today's day name (Monday, Tuesday, etc.)
-        const todayDayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-        console.log('📅 Today is:', todayDayName);
-        
-        // Find the record matching today's day
-        const todayRecord = response.data.find(record => 
-          record.day && record.day.toLowerCase() === todayDayName.toLowerCase()
-        );
-        
-        if (todayRecord) {
-          setOfficialTimeData(todayRecord);
-          console.log('✅ Official time data for', todayDayName, ':', todayRecord);
-        } else {
-          // Fallback to first record if no day match
-          setOfficialTimeData(response.data[0]);
-          console.log('⚠️ No day match, using first record:', response.data[0]);
-        }
-      } else {
-        setOfficialTimeData(null);
-        console.log('⚠️ No official time data found for', today);
-      }
-    } catch (err) {
-      console.error('❌ Error fetching official time data:', err);
-      setOfficialTimeData(null);
-    }
   };
 
   const fetchRecords = async (showLoading = true) => {
     if (!personID || !startDate || !endDate) return;
 
     if (showLoading) setLoading(true);
-    setError('');
+    setError("");
 
     try {
-      console.log('=== FETCH RECORDS DEBUG ===');
-      console.log('Selected startDate:', startDate);
-      console.log('Selected endDate:', endDate);
-
-      // Fetch official time data for this employee
-      await fetchOfficialTimeData(personID);
+      console.log("=== FETCH RECORDS DEBUG ===");
+      console.log("Selected startDate:", startDate);
+      console.log("Selected endDate:", endDate);
 
       // Adjust dates like AttendanceUserState does
       const adjustedStartDate = new Date(startDate);
@@ -408,28 +238,28 @@ const AllAttendanceRecord = () => {
       adjustedEndDate.setDate(adjustedEndDate.getDate() + 1);
       const adjustedEnd = adjustedEndDate.toISOString().substring(0, 10);
 
-      console.log('Adjusted startDate sent to API:', adjustedStart);
-      console.log('Adjusted endDate sent to API:', adjustedEnd);
+      console.log("Adjusted startDate sent to API:", adjustedStart);
+      console.log("Adjusted endDate sent to API:", adjustedEnd);
 
       const response = await axios.post(
         `${API_BASE_URL}/attendance/api/attendance`,
         { personID, startDate: adjustedStart, endDate: adjustedEnd },
-        getAuthHeaders(),
+        getAuthHeaders()
       );
 
-      console.log('Raw API response:', response.data);
+      console.log("Raw API response:", response.data);
 
       // Filter data to match exact date range
       const filteredData = response.data.filter((record) => {
-        const dateParts = record.Date.split('/');
+        const dateParts = record.Date.split("/");
         if (dateParts.length === 3) {
-          const recordMonth = dateParts[0].padStart(2, '0');
-          const recordDay = dateParts[1].padStart(2, '0');
+          const recordMonth = dateParts[0].padStart(2, "0");
+          const recordDay = dateParts[1].padStart(2, "0");
           const recordYear = dateParts[2];
           const recordDate = `${recordYear}-${recordMonth}-${recordDay}`;
 
           console.log(
-            `Checking record: ${recordDate} >= ${startDate} && ${recordDate} <= ${endDate}`,
+            `Checking record: ${recordDate} >= ${startDate} && ${recordDate} <= ${endDate}`
           );
 
           const isInRange = recordDate >= startDate && recordDate <= endDate;
@@ -440,21 +270,21 @@ const AllAttendanceRecord = () => {
         return false;
       });
 
-      console.log('Filtered data:', filteredData);
-      console.log('=== END DEBUG ===');
+      console.log("Filtered data:", filteredData);
+      console.log("=== END DEBUG ===");
 
       // Sort records by date and time, latest first
       const sortedRecords = filteredData.sort((a, b) => {
-        const dateTimeA = new Date(a.Date + ' ' + a.Time);
-        const dateTimeB = new Date(b.Date + ' ' + b.Time);
+        const dateTimeA = new Date(a.Date + " " + a.Time);
+        const dateTimeB = new Date(b.Date + " " + b.Time);
         return dateTimeB - dateTimeA;
       });
 
       setRecords(sortedRecords);
       setSubmittedID(personID);
     } catch (err) {
-      console.error('Error fetching attendance records:', err);
-      setError('Failed to fetch attendance records');
+      console.error("Error fetching attendance records:", err);
+      setError("Failed to fetch attendance records");
     } finally {
       if (showLoading) setLoading(false);
     }
@@ -477,11 +307,7 @@ const AllAttendanceRecord = () => {
           : [];
 
       // If user is filtering for a specific person, only refresh for that person
-      if (
-        personID &&
-        changedPersonIDs.length > 0 &&
-        !changedPersonIDs.includes(personID)
-      ) {
+      if (personID && changedPersonIDs.length > 0 && !changedPersonIDs.includes(personID)) {
         return;
       }
 
@@ -490,9 +316,9 @@ const AllAttendanceRecord = () => {
       }
     };
 
-    socket.on('attendanceChanged', handleAttendanceChanged);
+    socket.on("attendanceChanged", handleAttendanceChanged);
     return () => {
-      socket.off('attendanceChanged', handleAttendanceChanged);
+      socket.off("attendanceChanged", handleAttendanceChanged);
     };
   }, [socket, connected, personID, startDate, endDate]);
 
@@ -514,23 +340,22 @@ const AllAttendanceRecord = () => {
   };
 
   const handleSort = () => {
-    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    setSortOrder(sortOrder === "asc" ? "desc" : "asc");
   };
 
   const handleClearFilters = () => {
-    setPersonID('');
-    setStartDate('');
-    setEndDate('');
+    setPersonID("");
+    setStartDate("");
+    setEndDate("");
     setRecords([]);
-    setSubmittedID('');
+    setSubmittedID("");
     setSelectedMonth(null);
-    setOfficialTimeData(null);
   };
 
   // Auto-fetch when dates change (for quick select buttons)
   useEffect(() => {
     if (personID && startDate && endDate) {
-      fetchRecords(false);
+      fetchRecords(false); // Silent fetch without loading indicator
     }
   }, [startDate, endDate]);
 
@@ -538,27 +363,27 @@ const AllAttendanceRecord = () => {
     const handleScroll = () => {
       setShowScrollTop(window.scrollY > 300);
     };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const months = [
-    'JAN',
-    'FEB',
-    'MAR',
-    'APR',
-    'MAY',
-    'JUN',
-    'JUL',
-    'AUG',
-    'SEP',
-    'OCT',
-    'NOV',
-    'DEC',
+    "JAN",
+    "FEB",
+    "MAR",
+    "APR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AUG",
+    "SEP",
+    "OCT",
+    "NOV",
+    "DEC",
   ];
 
   // Generate year options (current year ± 5 years)
@@ -576,98 +401,58 @@ const AllAttendanceRecord = () => {
   const getAttendanceIcon = (state) => {
     switch (state) {
       case 1:
-        return <CheckCircle sx={{ fontSize: 16, color: '#4caf50' }} />;
+        return <CheckCircle sx={{ fontSize: 16, color: "#4caf50" }} />;
       case 2:
-        return <AccessTime sx={{ fontSize: 16, color: '#ff9800' }} />;
+        return <AccessTime sx={{ fontSize: 16, color: "#ff9800" }} />;
       case 3:
-        return <AccessTime sx={{ fontSize: 16, color: '#ff9800' }} />;
+        return <AccessTime sx={{ fontSize: 16, color: "#ff9800" }} />;
       case 4:
-        return <CheckCircle sx={{ fontSize: 16, color: '#4caf50' }} />;
-      case 5:
-        return <Star sx={{ fontSize: 16, color: '#9c27b0' }} />;
-      case 6:
-        return <Star sx={{ fontSize: 16, color: '#9c27b0' }} />;
+        return <CheckCircle sx={{ fontSize: 16, color: "#4caf50" }} />;
       default:
-        return <Cancel sx={{ fontSize: 16, color: '#f44336' }} />;
+        return <Cancel sx={{ fontSize: 16, color: "#f44336" }} />;
     }
   };
 
   const getAttendanceColor = (state) => {
     switch (state) {
       case 1:
-        return '#4caf50';
+        return "#4caf50";
       case 2:
-        return '#ff9800';
+        return "#ff9800";
       case 3:
-        return '#ff9800';
+        return "#ff9800";
       case 4:
-        return '#4caf50';
-      case 5:
-        return '#9c27b0';
-      case 6:
-        return '#9c27b0';
+        return "#4caf50";
       default:
-        return '#f44336';
+        return "#f44336";
     }
   };
 
-  const getAttendanceLabel = (state, type = null) => {
+  const getAttendanceLabel = (state) => {
     switch (state) {
       case 1:
-        return 'Time IN';
+        return "Time IN";
       case 2:
-        return 'Breaktime OUT';
+        return "Breaktime OUT";
       case 3:
-        return 'Breaktime IN';
+        return "Breaktime IN";
       case 4:
-        return 'Time OUT';
-      case 5:
-        if (type === 'honorarium') return 'Honorarium IN';
-        if (type === 'serviceCredits') return 'Service Credits IN';
-        if (type === 'overtime') return 'Overtime IN';
-        return 'Uncategorized';
-      case 6:
-        if (type === 'honorarium') return 'Honorarium OUT';
-        if (type === 'serviceCredits') return 'Service Credits OUT';
-        if (type === 'overtime') return 'Overtime OUT';
-        return 'Uncategorized';
+        return "Time OUT";
       default:
-        return 'Uncategorized';
+        return "Uncategorized";
     }
   };
 
-  const filteredRecords = records
-    .map((record) => {
-      console.log('\n========================================');
-      console.log('🔍 PROCESSING RECORD:', record.Time, 'State:', record.AttendanceState);
-      console.log('Official Time Data exists?', !!officialTimeData);
-      if (officialTimeData) {
-        console.log('📋 Official Time Ranges:');
-        console.log('  Overtime:', officialTimeData.officialOverTimeIN, 'to', officialTimeData.officialOverTimeOUT);
-        console.log('  Honorarium:', officialTimeData.officialHonorariumTimeIN, 'to', officialTimeData.officialHonorariumTimeOUT);
-        console.log('  Service Credits:', officialTimeData.officialServiceCreditTimeIN, 'to', officialTimeData.officialServiceCreditTimeOUT);
-      }
-      const stateInfo = determineAttendanceStateWithType(
-        record,
-        officialTimeData,
-      );
-      console.log('✅ RESULT → State:', stateInfo.state, 'Type:', stateInfo.type);
-      console.log('========================================\n');
-      return {
-        ...record,
-        displayState: stateInfo.state,
-        displayType: stateInfo.type,
-      };
-    })
-    .sort((a, b) => {
-      const dateA = new Date(a.Date + ' ' + a.Time);
-      const dateB = new Date(b.Date + ' ' + b.Time);
-      return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
-    });
+  const filteredRecords = records.sort((a, b) => {
+    const dateA = new Date(a.Date + " " + a.Time);
+    const dateB = new Date(b.Date + " " + b.Time);
+    return sortOrder === "asc" ? dateA - dateB : dateB - dateA;
+  });
 
   const moreOpen = Boolean(moreAnchorEl);
 
   // ACCESSING 2
+  // Loading state
   if (accessLoading) {
     return (
       <Container maxWidth="md" sx={{ py: 8 }}>
@@ -686,6 +471,7 @@ const AllAttendanceRecord = () => {
       </Container>
     );
   }
+  // Access denied state - Now using the reusable component
   if (hasAccess === false) {
     return (
       <AccessDenied
@@ -702,42 +488,40 @@ const AllAttendanceRecord = () => {
     <Box
       sx={{
         py: 4,
-        borderRadius: '14px',
-        width: '100vw',
-        mx: 'auto',
-        maxWidth: '100%',
-        overflow: 'hidden',
-        position: 'relative',
-        left: '50%',
-        transform: 'translateX(-50%)',
+        borderRadius: "14px",
+        width: "100vw",
+        mx: "auto",
+        maxWidth: "100%",
+        overflow: "hidden",
+        position: "relative",
+        left: "50%",
+        transform: "translateX(-50%)",
       }}
     >
-      <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
+      <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
         {/* Header */}
         <Fade in timeout={500}>
           <Box sx={{ mb: 4 }}>
-            <GlassCard
-              sx={{
-                background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-                boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-                '&:hover': {
-                  boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-                },
-              }}
-            >
+            <GlassCard sx={{
+              background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
+              boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
+              border: `1px solid ${alpha(accentColor, 0.1)}`,
+              "&:hover": {
+                boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
+              },
+            }}>
               <Box
                 sx={{
                   p: 5,
                   background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                   color: textPrimaryColor,
-                  position: 'relative',
-                  overflow: 'hidden',
+                  position: "relative",
+                  overflow: "hidden",
                 }}
               >
                 <Box
                   sx={{
-                    position: 'absolute',
+                    position: "absolute",
                     top: -50,
                     right: -50,
                     width: 200,
@@ -747,9 +531,9 @@ const AllAttendanceRecord = () => {
                 />
                 <Box
                   sx={{
-                    position: 'absolute',
+                    position: "absolute",
                     bottom: -30,
-                    left: '30%',
+                    left: "30%",
                     width: 150,
                     height: 150,
                     background: `radial-gradient(circle, ${alpha(accentColor, 0.08)} 0%, ${alpha(accentColor, 0)} 70%)`,
@@ -773,7 +557,7 @@ const AllAttendanceRecord = () => {
                         boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`,
                       }}
                     >
-                      <Search sx={{ color: textPrimaryColor, fontSize: 32 }} />
+                      <Search sx={{color: textPrimaryColor, fontSize: 32 }} />
                     </Avatar>
                     <Box>
                       <Typography
@@ -808,7 +592,7 @@ const AllAttendanceRecord = () => {
                         bgcolor: alpha(accentColor, 0.15),
                         color: textPrimaryColor,
                         fontWeight: 500,
-                        '& .MuiChip-label': { px: 1 },
+                        "& .MuiChip-label": { px: 1 },
                       }}
                     />
                     <Tooltip title="Refresh">
@@ -817,11 +601,11 @@ const AllAttendanceRecord = () => {
                         disabled={!personID || !startDate || !endDate}
                         sx={{
                           bgcolor: alpha(accentColor, 0.1),
-                          '&:hover': { bgcolor: alpha(accentColor, 0.2) },
+                          "&:hover": { bgcolor: alpha(accentColor, 0.2) },
                           color: textPrimaryColor,
                           width: 48,
                           height: 48,
-                          '&:disabled': {
+                          "&:disabled": {
                             bgcolor: alpha(accentColor, 0.05),
                             color: alpha(accentColor, 0.3),
                           },
@@ -839,17 +623,15 @@ const AllAttendanceRecord = () => {
 
         {/* Controls */}
         <Fade in timeout={700}>
-          <GlassCard
-            sx={{
-              mb: 4,
-              background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-              boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-              border: `1px solid ${alpha(accentColor, 0.1)}`,
-              '&:hover': {
-                boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-              },
-            }}
-          >
+          <GlassCard sx={{ 
+            mb: 4,
+            background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
+            boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
+            border: `1px solid ${alpha(accentColor, 0.1)}`,
+            "&:hover": {
+              boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
+            },
+          }}>
             <CardContent sx={{ p: 4 }}>
               <Box component="form" onSubmit={handleSubmit}>
                 <Grid container spacing={4} sx={{ mb: 3 }}>
@@ -914,8 +696,8 @@ const AllAttendanceRecord = () => {
                     variant="h6"
                     sx={{
                       color: textPrimaryColor,
-                      display: 'flex',
-                      alignItems: 'center',
+                      display: "flex",
+                      alignItems: "center",
                       mb: 2,
                     }}
                   >
@@ -931,7 +713,7 @@ const AllAttendanceRecord = () => {
 
                   {/* Quick Filters Row */}
                   <Box
-                    sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}
+                    sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 3 }}
                   >
                     <ProfessionalButton
                       variant="outlined"
@@ -1006,9 +788,9 @@ const AllAttendanceRecord = () => {
                   >
                     <Box
                       sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
                         mb: 2,
                       }}
                     >
@@ -1038,8 +820,8 @@ const AllAttendanceRecord = () => {
                           onChange={(e) => setSelectedYear(e.target.value)}
                           label="Year"
                           sx={{
-                            backgroundColor: 'white',
-                            '& .MuiOutlinedInput-notchedOutline': {
+                            backgroundColor: "white",
+                            "& .MuiOutlinedInput-notchedOutline": {
                               borderColor: accentColor,
                             },
                             borderRadius: 2,
@@ -1056,11 +838,11 @@ const AllAttendanceRecord = () => {
                     </Box>
                     <Box
                       sx={{
-                        display: 'grid',
+                        display: "grid",
                         gridTemplateColumns: {
-                          xs: 'repeat(3, 1fr)',
-                          sm: 'repeat(4, 1fr)',
-                          md: 'repeat(6, 1fr)',
+                          xs: "repeat(3, 1fr)",
+                          sm: "repeat(4, 1fr)",
+                          md: "repeat(6, 1fr)",
                         },
                         gap: 1.5,
                       }}
@@ -1070,7 +852,7 @@ const AllAttendanceRecord = () => {
                         return (
                           <ProfessionalButton
                             key={month}
-                            variant={isSelected ? 'contained' : 'outlined'}
+                            variant={isSelected ? "contained" : "outlined"}
                             size="medium"
                             onClick={() => handleMonthClick(index)}
                             sx={{
@@ -1079,22 +861,22 @@ const AllAttendanceRecord = () => {
                                 : accentColor,
                               backgroundColor: isSelected
                                 ? accentColor
-                                : 'transparent',
+                                : "transparent",
                               color: isSelected
                                 ? textSecondaryColor
                                 : textPrimaryColor,
                               py: 1.5,
                               fontWeight: 600,
-                              '&:hover': {
+                              "&:hover": {
                                 backgroundColor: isSelected
                                   ? accentDark
                                   : alpha(accentColor, 0.1),
                                 borderWidth: 2,
                               },
-                              transition: 'all 0.3s ease',
+                              transition: "all 0.3s ease",
                               boxShadow: isSelected
                                 ? `0 4px 12px ${alpha(accentColor, 0.3)}`
-                                : 'none',
+                                : "none",
                             }}
                           >
                             {month}
@@ -1106,17 +888,17 @@ const AllAttendanceRecord = () => {
                 </Box>
 
                 {/* Clear Button */}
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
                   <ProfessionalButton
                     variant="outlined"
                     startIcon={<Clear />}
                     onClick={handleClearFilters}
                     sx={{
-                      borderColor: '#d32f2f',
-                      color: '#d32f2f',
-                      '&:hover': {
-                        borderColor: '#b71c1c',
-                        backgroundColor: alpha('#d32f2f', 0.05),
+                      borderColor: "#d32f2f",
+                      color: "#d32f2f",
+                      "&:hover": {
+                        borderColor: "#b71c1c",
+                        backgroundColor: alpha("#d32f2f", 0.05),
                       },
                     }}
                   >
@@ -1134,7 +916,7 @@ const AllAttendanceRecord = () => {
               mb: 2,
               borderRadius: 1,
               bgcolor: alpha(accentColor, 0.1),
-              '& .MuiLinearProgress-bar': { bgcolor: accentColor },
+              "& .MuiLinearProgress-bar": { bgcolor: accentColor },
             }}
           />
         )}
@@ -1150,15 +932,15 @@ const AllAttendanceRecord = () => {
         {/* Results */}
         {submittedID && (
           <Fade in={!loading} timeout={500}>
-            <GlassCard sx={{ border: `1px solid ${alpha(accentColor, 0.1)}` }}>
+            <GlassCard sx={{border: `1px solid ${alpha(accentColor, 0.1)}`}}>
               <Box
                 sx={{
                   p: 4,
                   background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                   color: accentColor,
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
                 }}
               >
                 <Box>
@@ -1167,8 +949,8 @@ const AllAttendanceRecord = () => {
                     sx={{
                       opacity: 0.8,
                       mb: 0.5,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.1em',
+                      textTransform: "uppercase",
+                      letterSpacing: "0.1em",
                       color: accentDark,
                     }}
                   >
@@ -1181,13 +963,13 @@ const AllAttendanceRecord = () => {
                     {submittedID}
                   </Typography>
                 </Box>
-                <Box sx={{ textAlign: 'right' }}>
+                <Box sx={{ textAlign: "right" }}>
                   <Badge
                     badgeContent={filteredRecords.length}
                     color="secondary"
                     sx={{
-                      '& .MuiBadge-badge': {
-                        fontSize: '0.8rem',
+                      "& .MuiBadge-badge": {
+                        fontSize: "0.8rem",
                         height: 24,
                         minWidth: 24,
                       },
@@ -1201,7 +983,7 @@ const AllAttendanceRecord = () => {
                     variant="caption"
                     sx={{
                       opacity: 0.8,
-                      display: 'block',
+                      display: "block",
                       mt: 0.5,
                       color: accentDark,
                     }}
@@ -1215,7 +997,7 @@ const AllAttendanceRecord = () => {
                 <Table
                   stickyHeader
                   sx={{
-                    minWidth: '800px',
+                    minWidth: "800px", // Set minimum width to ensure horizontal scrolling
                   }}
                 >
                   <TableHead sx={{ bgcolor: alpha(primaryColor, 0.7) }}>
@@ -1224,15 +1006,15 @@ const AllAttendanceRecord = () => {
                         isHeader
                         sx={{
                           color: accentColor,
-                          cursor: 'pointer',
-                          userSelect: 'none',
-                          '&:hover': { bgcolor: alpha(accentColor, 0.05) },
+                          cursor: "pointer",
+                          userSelect: "none",
+                          "&:hover": { bgcolor: alpha(accentColor, 0.05) },
                         }}
                         onClick={handleSort}
                       >
                         <Box display="flex" alignItems="center" gap={1}>
                           Date
-                          {sortOrder === 'asc' ? (
+                          {sortOrder === "asc" ? (
                             <KeyboardArrowUp fontSize="small" />
                           ) : (
                             <KeyboardArrowDown fontSize="small" />
@@ -1251,7 +1033,7 @@ const AllAttendanceRecord = () => {
                     {filteredRecords.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={3} align="center" sx={{ py: 6 }}>
-                          <Box sx={{ textAlign: 'center' }}>
+                          <Box sx={{ textAlign: "center" }}>
                             <Info
                               sx={{
                                 fontSize: 64,
@@ -1281,12 +1063,12 @@ const AllAttendanceRecord = () => {
                         <React.Fragment key={idx}>
                           <TableRow
                             sx={{
-                              '&:nth-of-type(even)': {
+                              "&:nth-of-type(even)": {
                                 bgcolor: alpha(primaryColor, 0.3),
                               },
-                              '&:hover': { bgcolor: alpha(accentColor, 0.05) },
-                              cursor: 'pointer',
-                              transition: 'all 0.2s ease',
+                              "&:hover": { bgcolor: alpha(accentColor, 0.05) },
+                              cursor: "pointer",
+                              transition: "all 0.2s ease",
                             }}
                             onClick={() => handleRowExpand(idx)}
                           >
@@ -1296,13 +1078,13 @@ const AllAttendanceRecord = () => {
                                 sx={{ fontWeight: 500, color: blackColor }}
                               >
                                 {new Date(record.Date).toLocaleDateString(
-                                  'en-US',
+                                  "en-US",
                                   {
-                                    weekday: 'short',
-                                    year: 'numeric',
-                                    month: 'short',
-                                    day: 'numeric',
-                                  },
+                                    weekday: "short",
+                                    year: "numeric",
+                                    month: "short",
+                                    day: "numeric",
+                                  }
                                 )}
                               </Typography>
                             </PremiumTableCell>
@@ -1316,24 +1098,23 @@ const AllAttendanceRecord = () => {
                             </PremiumTableCell>
                             <PremiumTableCell>
                               <Chip
-                                icon={getAttendanceIcon(record.displayState)}
+                                icon={getAttendanceIcon(record.AttendanceState)}
                                 label={getAttendanceLabel(
-                                  record.displayState,
-                                  record.displayType,
+                                  record.AttendanceState
                                 )}
                                 size="small"
                                 sx={{
                                   bgcolor: alpha(
-                                    getAttendanceColor(record.displayState),
-                                    0.1,
+                                    getAttendanceColor(record.AttendanceState),
+                                    0.1
                                   ),
                                   color: getAttendanceColor(
-                                    record.displayState,
+                                    record.AttendanceState
                                   ),
                                   fontWeight: 600,
-                                  '& .MuiChip-icon': {
+                                  "& .MuiChip-icon": {
                                     color: getAttendanceColor(
-                                      record.displayState,
+                                      record.AttendanceState
                                     ),
                                   },
                                 }}
@@ -1421,8 +1202,7 @@ const AllAttendanceRecord = () => {
                                         }}
                                       >
                                         {getAttendanceLabel(
-                                          record.displayState,
-                                          record.displayType,
+                                          record.AttendanceState
                                         )}
                                       </Typography>
                                     </Grid>
@@ -1445,13 +1225,13 @@ const AllAttendanceRecord = () => {
         <Zoom in={showScrollTop}>
           <Fab
             sx={{
-              position: 'fixed',
+              position: "fixed",
               bottom: 24,
               right: 24,
               zIndex: 1000,
               bgcolor: accentColor,
               color: primaryColor,
-              '&:hover': {
+              "&:hover": {
                 bgcolor: accentDark,
               },
             }}

@@ -4,28 +4,43 @@ import API_BASE_URL from '../../apiConfig';
 import { getAuthHeaders } from '../../utils/auth';
 import { useSocket } from '../../contexts/SocketContext';
 import logo from './logo.png';
-// Ensure this path matches where you saved the LoadingOverlay component above
-import LoadingOverlay from '../LoadingOverlay';
 import {
   Box,
+  TextField,
   Button,
+  Paper,
   Typography,
-  Divider,
-  Snackbar,
+  Grid,
+  Checkbox,
+  FormControlLabel,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemButton,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   Alert,
-  Fab,
-  Tooltip,
-  Zoom
+  Snackbar,
+  Divider,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
+import AddIcon from '@mui/icons-material/Add';
+import SaveIcon from '@mui/icons-material/Save';
+import CancelIcon from '@mui/icons-material/Cancel';
 import PrintIcon from '@mui/icons-material/Print';
-import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
 const AssessmentClearance = () => {
   const { socket, connected } = useSocket();
-  
-  // Initial state is EMPTY for a standard layout (Blank Form)
   const [formData, setFormData] = useState({
     date: '',
     first_semester: false,
@@ -47,24 +62,53 @@ const AssessmentClearance = () => {
     deadline_of_submission: '',
   });
 
-  // State for the loading overlay during PDF generation
-  const [isGenerating, setIsGenerating] = useState(false);
-  
   const [records, setRecords] = useState([]);
   const [selectedRecord, setSelectedRecord] = useState(null);
+  const [loading, setLoading] = useState(false);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
     severity: 'success',
   });
+  const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null });
   const printRef = useRef(null);
 
-  // --- CRUD LOGIC COMMENTED OUT ---
-  /*
-  const fetchRecords = async () => { ... };
-  const handleSave = async () => { ... };
-  const handleDelete = async () => { ... };
-  */
+  // Fetch all records
+  const fetchRecords = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(
+        `${API_BASE_URL}/api/assessment-clearance`,
+        getAuthHeaders(),
+      );
+      setRecords(response.data);
+    } catch (error) {
+      console.error('Error fetching records:', error);
+      showSnackbar('Failed to fetch records', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRecords();
+  }, []);
+
+  // Live refresh when other users change records
+  useEffect(() => {
+    if (!socket || !connected) return;
+
+    const handleChanged = (data) => {
+      // Another admin created/updated/deleted a record; refresh list
+      // data: { action, id, timestamp }
+      fetchRecords();
+    };
+
+    socket.on('assessmentClearanceChanged', handleChanged);
+    return () => {
+      socket.off('assessmentClearanceChanged', handleChanged);
+    };
+  }, [socket, connected]);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -72,6 +116,112 @@ const AssessmentClearance = () => {
       ...prev,
       [name]: type === 'checkbox' ? checked : value,
     }));
+  };
+
+  const handleSelectRecord = (record) => {
+    setSelectedRecord(record.id);
+    // Determine signature type based on which field has data
+    let signatureType = '';
+    if (record.college_dean) signatureType = 'college_dean';
+    else if (record.director_of_instruction)
+      signatureType = 'director_of_instruction';
+    else if (record.ecc_administrator) signatureType = 'ecc_administrator';
+
+    setFormData({
+      date: record.date || '',
+      first_semester: record.first_semester === 1,
+      second_semester: record.second_semester === 1,
+      school_year_from: record.school_year_from || '',
+      school_year_to: record.school_year_to || '',
+      name: record.name || '',
+      position: record.position || '',
+      department: record.department || '',
+      signature_type: signatureType,
+      college_dean: record.college_dean || '',
+      director_of_instruction: record.director_of_instruction || '',
+      ecc_administrator: record.ecc_administrator || '',
+      date_signed: record.date_signed || '',
+      email_address: record.email_address || '',
+      telephone_cellphone: record.telephone_cellphone || '',
+      date_fully_accomplished: record.date_fully_accomplished || '',
+      vacation_address: record.vacation_address || '',
+      deadline_of_submission: record.deadline_of_submission || '',
+    });
+  };
+
+  const handleNewRecord = () => {
+    setSelectedRecord(null);
+    setFormData({
+      date: '',
+      first_semester: false,
+      second_semester: false,
+      school_year_from: '',
+      school_year_to: '',
+      name: '',
+      position: '',
+      department: '',
+      signature_type: '',
+      college_dean: '',
+      director_of_instruction: '',
+      ecc_administrator: '',
+      date_signed: '',
+      email_address: '',
+      telephone_cellphone: '',
+      date_fully_accomplished: '',
+      vacation_address: '',
+      deadline_of_submission: '',
+    });
+  };
+
+  const handleSave = async () => {
+    try {
+      setLoading(true);
+      if (selectedRecord) {
+        // Update existing record
+        await axios.put(
+          `${API_BASE_URL}/api/assessment-clearance/${selectedRecord}`,
+          formData,
+          getAuthHeaders(),
+        );
+        showSnackbar('Record updated successfully', 'success');
+      } else {
+        // Create new record
+        await axios.post(
+          `${API_BASE_URL}/api/assessment-clearance`,
+          formData,
+          getAuthHeaders(),
+        );
+        showSnackbar('Record created successfully', 'success');
+      }
+      await fetchRecords();
+      handleNewRecord();
+    } catch (error) {
+      console.error('Error saving record:', error);
+      showSnackbar('Failed to save record', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    try {
+      setLoading(true);
+      await axios.delete(
+        `${API_BASE_URL}/api/assessment-clearance/${deleteDialog.id}`,
+        getAuthHeaders(),
+      );
+      showSnackbar('Record deleted successfully', 'success');
+      await fetchRecords();
+      if (selectedRecord === deleteDialog.id) {
+        handleNewRecord();
+      }
+      setDeleteDialog({ open: false, id: null });
+    } catch (error) {
+      console.error('Error deleting record:', error);
+      showSnackbar('Failed to delete record', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const showSnackbar = (message, severity = 'success') => {
@@ -82,7 +232,7 @@ const AssessmentClearance = () => {
     setSnackbar({ ...snackbar, open: false });
   };
 
-  // Capture helpers
+  // Capture helpers (similar to DailyTimeRecord.jsx)
   const ensureCaptureStyles = (el) => {
     if (!el) return {};
     const orig = {
@@ -126,15 +276,16 @@ const AssessmentClearance = () => {
     if (!printRef.current) return;
 
     try {
-      setIsGenerating(true); 
-
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'in',
         format: 'a4',
       });
 
+      // Ensure capture-friendly styles
       const orig = ensureCaptureStyles(printRef.current);
+
+      // Wait for styles to apply
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const canvas = await html2canvas(printRef.current, {
@@ -159,13 +310,9 @@ const AssessmentClearance = () => {
       pdf.autoPrint();
       const blobUrl = pdf.output('bloburl');
       window.open(blobUrl, '_blank');
-      
-      showSnackbar('Print view generated', 'success');
     } catch (error) {
       console.error('Error generating print view:', error);
       showSnackbar('Error generating print view', 'error');
-    } finally {
-      setIsGenerating(false); 
     }
   };
 
@@ -173,8 +320,6 @@ const AssessmentClearance = () => {
     if (!printRef.current) return;
 
     try {
-      setIsGenerating(true); 
-
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'in',
@@ -182,6 +327,8 @@ const AssessmentClearance = () => {
       });
 
       const orig = ensureCaptureStyles(printRef.current);
+
+      // Wait for styles to apply
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const canvas = await html2canvas(printRef.current, {
@@ -203,19 +350,20 @@ const AssessmentClearance = () => {
       const yOffset = (pageHeight - formHeight) / 2;
 
       pdf.addImage(imgData, 'PNG', xOffset, yOffset, formWidth, formHeight);
-      
-      const fileName = `Assessment-Clearance-Form-${new Date().toISOString().split('T')[0]}.pdf`;
+      const fileName = `Assessment-Clearance-${formData.name || 'Form'}-${new Date().toISOString().split('T')[0]}.pdf`;
       pdf.save(fileName);
       showSnackbar('PDF downloaded successfully', 'success');
     } catch (error) {
       console.error('Error generating PDF:', error);
       showSnackbar('Error generating PDF', 'error');
-    } finally {
-      setIsGenerating(false); 
     }
   };
 
-  const renderWithUnderline = (value, emptyLineWidth = '45px') => {
+  // Helper function to render text with underline only when data exists
+  const renderWithUnderline = (
+    value,
+    placeholder = '________________________',
+  ) => {
     if (value) {
       return (
         <span
@@ -240,18 +388,10 @@ const AssessmentClearance = () => {
         </span>
       );
     }
-    
-    return (
-      <span
-        style={{
-          display: 'inline-block',
-          width: emptyLineWidth,
-          borderBottom: '1px solid black',
-        }}
-      />
-    );
+    return placeholder;
   };
 
+  // Render the form display (left side)
   const renderFormDisplay = () => {
     return (
       <div
@@ -272,6 +412,8 @@ const AssessmentClearance = () => {
         }}
       >
         <div style={{ width: '5.25in', margin: 'auto' }}>
+          <br />
+          <br />
           <div style={{ width: '5.25in', margin: 'auto', textAlign: 'center' }}>
             <img
               src={logo}
@@ -294,7 +436,7 @@ const AssessmentClearance = () => {
             </div>
           </div>
           <div style={{ textAlign: 'center', marginTop: '10px' }}>
-            {renderWithUnderline(formData.date, '200px')}
+            {renderWithUnderline(formData.date, '__________________')}
             <div style={{ marginTop: '2px', fontSize: '90%' }}>Date</div>
           </div>
           <div style={{ textAlign: 'center', marginTop: '15px' }}>
@@ -304,33 +446,11 @@ const AssessmentClearance = () => {
               </i>
             </b>
             <br />
-            <br />1<sup>ST</sup>{' '}
-            {formData.first_semester ? (
-              '✓'
-            ) : (
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: '45px',
-                  borderBottom: '1px solid black',
-                }}
-              />
-            )}{' '}
-            2<sup>ND</sup>{' '}
-            {formData.second_semester ? (
-              '✓'
-            ) : (
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: '45px',
-                  borderBottom: '1px solid black',
-                }}
-              />
-            )}{' '}
+            <br />1<sup>ST</sup> {formData.first_semester ? '✓' : '____'} 2
+            <sup>ND</sup> {formData.second_semester ? '✓' : '____'}{' '}
             Semester/School year{' '}
-            {renderWithUnderline(formData.school_year_from, '45px')} -{' '}
-            {renderWithUnderline(formData.school_year_to, '45px')}
+            {renderWithUnderline(formData.school_year_from, '_____')} -{' '}
+            {renderWithUnderline(formData.school_year_to, '______')}
             <br />
           </div>
         </div>
@@ -346,19 +466,19 @@ const AssessmentClearance = () => {
         >
           <tr>
             <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-              {renderWithUnderline(formData.name, '100%')}
+              {renderWithUnderline(formData.name)}
             </td>
             <td colSpan="2" style={{ height: '0.25in', textAlign: 'center' }}>
               &nbsp;
             </td>
             <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-              {renderWithUnderline(formData.position, '100%')}
+              {renderWithUnderline(formData.position)}
             </td>
             <td colSpan="2" style={{ height: '0.25in', textAlign: 'center' }}>
               of
             </td>
             <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-              {renderWithUnderline(formData.department, '100%')}
+              {renderWithUnderline(formData.department)}
             </td>
           </tr>
           <tr>
@@ -454,7 +574,7 @@ const AssessmentClearance = () => {
               }}
             >
               <br />
-              <div style={{ fontWeight: 'bold', marginBottom: '4px', minHeight: '20px' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
                 {formData.signature_type === 'college_dean'
                   ? formData.college_dean
                   : formData.signature_type === 'director_of_instruction'
@@ -487,7 +607,7 @@ const AssessmentClearance = () => {
                 textAlign: 'center',
               }}
             >
-              {formData.date_signed}
+              {renderWithUnderline(formData.date_signed, '')}
             </td>
           </tr>
           <tr>
@@ -597,11 +717,10 @@ const AssessmentClearance = () => {
             margin: 'auto',
           }}
         >
-          {/* REMOVED GRAY BACKGROUND */}
           <tr>
             <td
               colSpan="32"
-              style={{ height: '0.25in' }}
+              style={{ backgroundColor: 'gray', height: '0.25in' }}
             >
               &nbsp;
             </td>
@@ -641,7 +760,7 @@ const AssessmentClearance = () => {
 
                 <span
                   style={{
-                    flex: 1,
+                    flex: 1, // fills remaining space
                     borderBottom: '1.5px solid black',
                     paddingBottom: '2px',
                     MinWidth: '40px',
@@ -681,7 +800,10 @@ const AssessmentClearance = () => {
                 verticalAlign: 'bottom',
               }}
             >
-              {renderWithUnderline(formData.date_fully_accomplished, '200px')}
+              {renderWithUnderline(
+                formData.date_fully_accomplished,
+                '________________________',
+              )}
               <br />
               Date Fully Accomplished
             </td>
@@ -696,7 +818,7 @@ const AssessmentClearance = () => {
             >
               {renderWithUnderline(
                 formData.vacation_address,
-                '100%',
+                '______________________________',
               )}
               <br />
               Vacation Address
@@ -710,11 +832,10 @@ const AssessmentClearance = () => {
               &nbsp;
             </td>
           </tr>
-          {/* REMOVED GRAY BACKGROUND */}
           <tr>
             <td
               colSpan="32"
-              style={{ height: '0.25in' }}
+              style={{ backgroundColor: 'gray', height: '0.25in' }}
             >
               &nbsp;
             </td>
@@ -723,7 +844,10 @@ const AssessmentClearance = () => {
             <td colSpan="32" style={{ height: '0.35in', fontSize: '90%' }}>
               <b>
                 DEADLINE OF SUBMISSION:{' '}
-                {renderWithUnderline(formData.deadline_of_submission, '200px')}{' '}
+                {renderWithUnderline(
+                  formData.deadline_of_submission,
+                  '______________________________',
+                )}{' '}
               </b>
             </td>
           </tr>
@@ -744,81 +868,402 @@ const AssessmentClearance = () => {
   };
 
   return (
-    <Box sx={{ 
-      display: 'flex', 
-      justifyContent: 'center', 
-      minHeight: '100vh', 
-      bgcolor: '#ffffff', 
-      position: 'relative' 
-    }}>
-      
+    <Box sx={{ display: 'flex', gap: 2, p: 2, minHeight: '100vh' }}>
+      {/* Left Side - Form Display */}
       <Box
         sx={{
-          width: '100%',
+          flex: '1 1 60%',
           overflow: 'auto',
-          paddingBottom: '100px',
+          maxHeight: '100vh',
+          position: 'relative',
         }}
       >
+        <Box
+          className="no-print"
+          sx={{
+            position: 'absolute',
+            top: 10,
+            right: 10,
+            zIndex: 1000,
+            display: 'flex',
+            gap: 1,
+          }}
+        >
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<PrintIcon />}
+            onClick={printPage}
+            sx={{
+              backgroundColor: '#6D2323',
+              '&:hover': {
+                backgroundColor: '#8a4747',
+              },
+            }}
+          >
+            Print
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<PrintIcon />}
+            onClick={downloadPDF}
+            sx={{
+              backgroundColor: '#6D2323',
+              '&:hover': {
+                backgroundColor: '#8a4747',
+              },
+            }}
+          >
+            Download PDF
+          </Button>
+        </Box>
         {renderFormDisplay()}
       </Box>
 
-      {/* Floating Action Buttons (Bottom Right - ROW) */}
+      {/* Right Side - Input Form and Records List */}
       <Box
+        className="no-print"
         sx={{
-          position: 'fixed',
-          bottom: '1in',
-          right: 30,
+          flex: '1 1 40%',
           display: 'flex',
-          flexDirection: 'row', 
+          flexDirection: 'column',
           gap: 2,
-          zIndex: 1000,
         }}
       >
-        <Zoom in={true} style={{ transitionDelay: '0ms' }}>
-          <Tooltip title="Print Form" placement="top">
-            <Fab 
-              color="primary" 
-              aria-label="print" 
-              onClick={printPage}
-              sx={{ 
-                bgcolor: '#6D2323', 
-                '&:hover': { bgcolor: '#8a4747' },
-                width: 56,
-                height: 56
-              }}
-            >
-              <PrintIcon />
-            </Fab>
-          </Tooltip>
-        </Zoom>
+        {/* Form Inputs */}
+        <Paper elevation={3} sx={{ p: 3 }} className="no-print">
+          <Typography variant="h6" gutterBottom>
+            {selectedRecord ? 'Edit Record' : 'New Record'}
+          </Typography>
+          <Divider sx={{ mb: 2 }} />
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Date"
+                name="date"
+                value={formData.date}
+                onChange={handleInputChange}
+                type="date"
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={formData.first_semester}
+                    onChange={handleInputChange}
+                    name="first_semester"
+                  />
+                }
+                label="1st Semester"
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={formData.second_semester}
+                    onChange={handleInputChange}
+                    name="second_semester"
+                  />
+                }
+                label="2nd Semester"
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField
+                fullWidth
+                label="School Year From"
+                name="school_year_from"
+                value={formData.school_year_from}
+                onChange={handleInputChange}
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField
+                fullWidth
+                label="School Year To"
+                name="school_year_to"
+                value={formData.school_year_to}
+                onChange={handleInputChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Name"
+                name="name"
+                value={formData.name}
+                onChange={handleInputChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Position"
+                name="position"
+                value={formData.position}
+                onChange={handleInputChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Department"
+                name="department"
+                value={formData.department}
+                onChange={handleInputChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <Divider sx={{ my: 2 }} />
+              <Typography
+                variant="subtitle2"
+                sx={{ mb: 1, fontWeight: 'bold' }}
+              >
+                1. Signatures Section
+              </Typography>
+            </Grid>
+            <Grid item xs={12}>
+              <FormControl fullWidth>
+                <InputLabel>Select Signature Type</InputLabel>
+                <Select
+                  value={formData.signature_type}
+                  onChange={handleInputChange}
+                  name="signature_type"
+                  label="Select Signature Type"
+                >
+                  <MenuItem value="">
+                    <em>None</em>
+                  </MenuItem>
+                  <MenuItem value="college_dean">
+                    College Dean (for Faculty Assigned in Colleges)
+                  </MenuItem>
+                  <MenuItem value="director_of_instruction">
+                    Director of Instruction (for Gen. Ed. Faculty)
+                  </MenuItem>
+                  <MenuItem value="ecc_administrator">
+                    ECC Administrator (for ECC Faculty)
+                  </MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            {formData.signature_type === 'college_dean' && (
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="College Dean Signature/Name"
+                  name="college_dean"
+                  value={formData.college_dean}
+                  onChange={handleInputChange}
+                  placeholder="Enter College Dean signature or name"
+                />
+              </Grid>
+            )}
+            {formData.signature_type === 'director_of_instruction' && (
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Director of Instruction Signature/Name"
+                  name="director_of_instruction"
+                  value={formData.director_of_instruction}
+                  onChange={handleInputChange}
+                  placeholder="Enter Director of Instruction signature or name"
+                />
+              </Grid>
+            )}
+            {formData.signature_type === 'ecc_administrator' && (
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="ECC Administrator Signature/Name"
+                  name="ecc_administrator"
+                  value={formData.ecc_administrator}
+                  onChange={handleInputChange}
+                  placeholder="Enter ECC Administrator signature or name"
+                />
+              </Grid>
+            )}
+            {formData.signature_type && (
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Date Signed"
+                  name="date_signed"
+                  value={formData.date_signed}
+                  onChange={handleInputChange}
+                  type="date"
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+            )}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Email Address"
+                name="email_address"
+                type="email"
+                value={formData.email_address}
+                onChange={handleInputChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Telephone/Cell Phone #"
+                name="telephone_cellphone"
+                value={formData.telephone_cellphone}
+                onChange={handleInputChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Date Fully Accomplished"
+                name="date_fully_accomplished"
+                value={formData.date_fully_accomplished}
+                onChange={handleInputChange}
+                type="date"
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Vacation Address"
+                name="vacation_address"
+                value={formData.vacation_address}
+                onChange={handleInputChange}
+                multiline
+                rows={3}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Deadline of Submission"
+                name="deadline_of_submission"
+                value={formData.deadline_of_submission}
+                onChange={handleInputChange}
+                type="date"
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  startIcon={<SaveIcon />}
+                  onClick={handleSave}
+                  disabled={loading}
+                  fullWidth
+                >
+                  {selectedRecord ? 'Update' : 'Save'}
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="secondary"
+                  startIcon={<CancelIcon />}
+                  onClick={handleNewRecord}
+                  disabled={loading}
+                  fullWidth
+                >
+                  New
+                </Button>
+              </Box>
+            </Grid>
+          </Grid>
+        </Paper>
 
-        <Zoom in={true} style={{ transitionDelay: '100ms' }}>
-          <Tooltip title="Download PDF" placement="top">
-            <Fab 
-              color="primary" 
-              aria-label="download" 
-              onClick={downloadPDF}
-              sx={{ 
-                bgcolor: '#6D2323', 
-                '&:hover': { bgcolor: '#8a4747' },
-                width: 56,
-                height: 56
-              }}
-            >
-              <PictureAsPdfIcon />
-            </Fab>
-          </Tooltip>
-        </Zoom>
+        {/* Records List */}
+        <Paper
+          elevation={3}
+          sx={{ p: 2, flex: 1, overflow: 'auto' }}
+          className="no-print"
+        >
+          <Typography variant="h6" gutterBottom>
+            Records
+          </Typography>
+          <Divider sx={{ mb: 2 }} />
+          {loading && records.length === 0 ? (
+            <Typography>Loading...</Typography>
+          ) : records.length === 0 ? (
+            <Typography color="text.secondary">No records found</Typography>
+          ) : (
+            <List>
+              {records.map((record) => (
+                <ListItem
+                  key={record.id}
+                  secondaryAction={
+                    <Box>
+                      <IconButton
+                        edge="end"
+                        onClick={() => handleSelectRecord(record)}
+                        color="primary"
+                      >
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton
+                        edge="end"
+                        onClick={() =>
+                          setDeleteDialog({ open: true, id: record.id })
+                        }
+                        color="error"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Box>
+                  }
+                  disablePadding
+                >
+                  <ListItemButton
+                    selected={selectedRecord === record.id}
+                    onClick={() => handleSelectRecord(record)}
+                  >
+                    <ListItemText
+                      primary={record.name || `Record #${record.id}`}
+                      secondary={`${record.date || 'No date'} - ${record.department || 'No department'}`}
+                    />
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </Paper>
       </Box>
 
-      {/* This overlay now has the blur effect */}
-      <LoadingOverlay open={isGenerating} message="Generating Document..." />
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialog.open}
+        onClose={() => setDeleteDialog({ open: false, id: null })}
+      >
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete this record? This action cannot be
+            undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialog({ open: false, id: null })}>
+            Cancel
+          </Button>
+          <Button onClick={handleDelete} color="error" variant="contained">
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
 
+      {/* Snackbar for notifications */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={6000}
         onClose={handleCloseSnackbar}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       >
         <Alert
           onClose={handleCloseSnackbar}

@@ -402,13 +402,6 @@ export const componentMapping = {
     description: 'Security Management',
     icon: AdminPanelSettings,
   },
-  'system-settings': {
-    componentPath: 'components/SystemSettings.jsx',
-    routePath: '/system-settings',
-    componentName: 'SystemSettings',
-    description: 'System Settings',
-    icon: AdminPanelSettings,
-  },
   'employee-category': {
     componentPath: 'components/EmploymentCategory.jsx',
     routePath: '/employee-category',
@@ -457,6 +450,13 @@ export const componentMapping = {
     componentName: 'LeaveRequestUser',
     description: 'User Leave Request',
     icon: EventNote,
+  },
+   'system-settings': {
+    componentPath: './SystemSettings.jsx',
+    routePath: '/system-settings',
+    componentName: 'SystemSettings',
+    description: 'System Settings',
+    icon: AdminPanelSettings,
   },
 
 };

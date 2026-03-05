@@ -1,338 +1,101 @@
-import React, { useState, useRef } from "react";
+import React from "react";
 import Button from "@mui/material/Button";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import PrintIcon from '@mui/icons-material/Print';
-import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-import { useNavigate } from "react-router-dom";
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
-import { 
-  Box, 
-  Fab, 
-  Tooltip, 
-  Zoom, 
-  Snackbar, 
-  Alert 
-} from "@mui/material";
-// Adjust this path to where you saved your LoadingOverlay component
-import LoadingOverlay from '../LoadingOverlay';
+import { useNavigate } from "react-router-dom"; // Import useNavigate
+
 
 const ClearanceBack = () => {
-    const navigate = useNavigate();
-    const printRef = useRef(null);
-
-    // State for Loading Overlay and Notifications
-    const [isGenerating, setIsGenerating] = useState(false);
-    const [snackbar, setSnackbar] = useState({
-        open: false,
-        message: '',
-        severity: 'success',
-    });
-
     const handleBack = () => {
         navigate("/clearance");
-    };
+      };
+   
+    const navigate = useNavigate();
 
-    const showSnackbar = (message, severity = 'success') => {
-        setSnackbar({ open: true, message, severity });
-    };
-
-    const handleCloseSnackbar = () => {
-        setSnackbar({ ...snackbar, open: false });
-    };
-
-    // Capture helpers
-    const ensureCaptureStyles = (el) => {
-        if (!el) return {};
-        const orig = {
-            backgroundColor: el.style.backgroundColor,
-            width: el.style.width,
-            visibility: el.style.visibility,
-            display: el.style.display,
-            position: el.style.position,
-            left: el.style.left,
-            zIndex: el.style.zIndex,
-            opacity: el.style.opacity,
-        };
-        el.style.backgroundColor = '#ffffff';
-        el.style.width = '8.5in';
-        el.style.visibility = 'visible';
-        el.style.display = 'block';
-        el.style.position = 'fixed';
-        el.style.left = '-9999px';
-        el.style.zIndex = '10000';
-        el.style.opacity = '1';
-        return orig;
-    };
-
-    const restoreCaptureStyles = (el, orig) => {
-        if (!el || !orig) return;
-        try {
-            el.style.backgroundColor = orig.backgroundColor || '';
-            el.style.width = orig.width || '';
-            el.style.visibility = orig.visibility || '';
-            el.style.display = orig.display || '';
-            el.style.position = orig.position || '';
-            el.style.left = orig.left || '';
-            el.style.zIndex = orig.zIndex || '';
-            el.style.opacity = orig.opacity || '';
-        } catch (e) {
-            /* noop */
-        }
-    };
-
-    const printPage = async () => {
-        if (!printRef.current) return;
-        try {
-            setIsGenerating(true);
-
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: [8.5, 13] });
-            const orig = ensureCaptureStyles(printRef.current);
-            await new Promise((resolve) => setTimeout(resolve, 100));
-
-            const canvas = await html2canvas(printRef.current, {
-                scale: 2,
-                useCORS: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-            });
-
-            restoreCaptureStyles(printRef.current, orig);
-            const imgData = canvas.toDataURL('image/png');
-            const pageWidth = pdf.internal.pageSize.getWidth();
-            const pageHeight = pdf.internal.pageSize.getHeight();
-            
-            pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight);
-            pdf.autoPrint();
-            window.open(pdf.output('bloburl'), '_blank');
-            
-            showSnackbar('Print view generated', 'success');
-        } catch (error) {
-            console.error('Error generating print view:', error);
-            showSnackbar('Error generating print view', 'error');
-        } finally {
-            setIsGenerating(false);
-        }
-    };
-
-    const downloadPDF = async () => {
-        if (!printRef.current) return;
-        try {
-            setIsGenerating(true);
-
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: [8.5, 13] });
-            const orig = ensureCaptureStyles(printRef.current);
-            await new Promise((resolve) => setTimeout(resolve, 100));
-
-            const canvas = await html2canvas(printRef.current, {
-                scale: 2,
-                useCORS: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-            });
-
-            restoreCaptureStyles(printRef.current, orig);
-            const imgData = canvas.toDataURL('image/png');
-            const pageWidth = pdf.internal.pageSize.getWidth();
-            const pageHeight = pdf.internal.pageSize.getHeight();
-
-            pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight);
-            
-            const fileName = `Clearance-Back-${new Date().toISOString().split('T')[0]}.pdf`;
-            pdf.save(fileName);
-            showSnackbar('PDF downloaded successfully', 'success');
-        } catch (error) {
-            console.error('Error generating PDF:', error);
-            showSnackbar('Error generating PDF', 'error');
-        } finally {
-            setIsGenerating(false);
-        }
-    };
 
     return (
-        <Box sx={{ 
-            display: 'flex', 
-            flexDirection: 'column', 
-            alignItems: 'center', 
-            minHeight: '100vh', 
-            bgcolor: '#ffffff', 
-            position: 'relative',
-            paddingBottom: '80px' 
-        }}>
-            <Box sx={{ width: '100%' }}>
-                {/* ══════════════════════════════════════════
-                    PRINTABLE AREA
-                ══════════════════════════════════════════ */}
-                <div
-                    ref={printRef}
-                    style={{
-                        padding: '0.35in 0.4in',
-                        width: '8.5in',
-                        minHeight: '13in',
-                        fontFamily: 'Arial, Helvetica, sans-serif',
-                        margin: 'auto',
-                        marginTop: '30px',
-                        backgroundColor: '#ffffff',
-                        boxSizing: 'border-box',
-                    }}
-                >
-                    {/* Instructions heading */}
-                    <p style={{ fontSize: '14px', fontStyle: 'italic', fontWeight: 'bold', marginBottom: '12px' }}>
-                        INSTRUCTIONS:
-                    </p>
+        <div style={{
+            border: '1px solid black',
+            padding: '0.25in',
+            width: '8in',
+            height: '10.5in',
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            alignContent: 'center',
+            margin: 'auto',
+            marginTop: '50px',
+            backgroundColor: '#ffffff'
+            
+            }}>
+            <font size="4">
 
-                    {/* Instruction list */}
-                    <ol
-                        type="1"
-                        style={{
-                            fontSize: '13px',
-                            lineHeight: '1.85',
-                            paddingLeft: '1.2em',
-                            margin: 0,
-                        }}
-                    >
-                        <li style={{ textAlign: 'justify', marginBottom: '14px' }}>
-                            Employees who are retiring, being separated, transferring to other agencies,
-                            leaving the Philippines and going on leave of absence{' '}
-                            <b>for more than 30 days</b> shall prepare this form in quadruplicate.
-                        </li>
 
-                        <li style={{ textAlign: 'justify', marginBottom: '14px' }}>
-                            This clearance should be duly accomplished before paying the last salary or
-                            any money due the employees. (Specify which type of clearance: maternity
-                            leave, retirement, transfer, etc.)
-                        </li>
+            <i> INSTRUCTIONS: </i>
+            <br />
+            <br />
 
-                        <li style={{ textAlign: 'justify', marginBottom: '14px' }}>
-                            If the employees are cleared from a unit/office/department, the
-                            clearing/authorized official may attach to this clearance the pertinent
-                            documents that shall prove that the employees are cleared of any obligation or
-                            accountability from their office, if any, and tick the box under the
-                            "Cleared" column before affixing their signatures.
-                        </li>
 
-                        <li style={{ textAlign: 'justify', marginBottom: '14px' }}>
-                            If the employees appear to have uncleared accountability/ies from a
-                            unit/office/department, the clearing/authorized official shall attach to this
-                            clearance the pertinent document/s that shall prove that the employees have
-                            remaining obligation or accountability from their office further indicating the
-                            necessary action/s that the employee must satisfy in order to be cleared, and
-                            tick the box under the "Uncleared" column. The clearing/authorized official
-                            must only sign this clearance corresponding to their name once the employee
-                            have complied the necessary requirements and cleared of all the obligation/s
-                            and accountability/ies from their office. They must also tick the box under
-                            the "Cleared" column.
-                        </li>
+            <ol type="1">
+                <li>Employees who are retiring, being separated, transferring to other agencies,<br />
+                leaving the Philippines and going on leave of absence <b>for more than 30 days</b><br />
+                shall prepare this form in quadruplicate.<br /><br />
+                </li>
+                <li>This clearance should be duly accomplished before paying the last salary or<br />
+                any money due the employees. (Specify which type of clearance: maternity<br />
+                leave, retirement, transfer, etc.)<br /><br />
+                </li>
+                <li>If the employees are cleared from a unit/office/department, the<br />
+                clearing/authorized official may attach to this clearance the pertinent<br />
+                documents that shall prove that the employees are cleared of any obligation or<br />
+                accountability from their office, if any, and tick the box under the "Cleared"<br />
+                column before affixing their signatures.<br /><br />
+                </li>
+                <li>If the employees appear to have uncleared accountability/ies from a<br />
+                unit/office/department, the clearing/authorized official shall attach to this<br />
+                clearance the pertinent document/s that shall prove that the employees have<br />
+                remaining obligation or accountability from their office further indicating the<br />
+                necessary action/s that the employee must satisfy in order to be cleared, and<br />
+                tick the box under the "Uncleared" column. The clearing/authorized official<br />
+                must only sign this clearance corresponding to their name once the employee<br />
+                have complied the necessary requirements and cleared of all the obligation/s<br />
+                and accountability/ies from their office. They must also tick the box under the<br />
+                "Cleared" column.<br /><br />              
+                </li>
+                <li>The HRMO shall distribute copies of approved clearance as follows: original to<br />
+                the employee; duplicate to be attached to the payroll or voucher; triplicate to<br />
+                human resource unit file; and fourth copy to accounting/auditing office.<br /><br />
+                </li>
+                <li>Processing of clearance certificate shall follow the order of number indicated.</li><br /><br />
+            </ol>
+            </font>
+            <div style={{fontSize: '75%', float: 'right'}}>
+                <i>Page 2 of 2</i>
+            </div>
+            {/* Next Button */}
+     <Button
+     variant="contained"
+     startIcon={<ArrowBackIcon />}
+     onClick={handleBack}
+     color="darkgray"
+     sx={{
+        position:'right',
+        marginTop: '10px',
 
-                        <li style={{ textAlign: 'justify', marginBottom: '14px' }}>
-                            The HRMO shall distribute copies of approved clearance as follows: original to
-                            the employee; duplicate to be attached to the payroll or voucher; triplicate
-                            to human resource unit file; and fourth copy to accounting/auditing office.
-                        </li>
 
-                        <li style={{ textAlign: 'justify' }}>
-                            Processing of clearance certificate shall follow the order of number indicated.
-                        </li>
-                    </ol>
-
-                    {/* Page label */}
-                    <div style={{ fontSize: '11px', fontStyle: 'italic', textAlign: 'right', marginTop: '20px' }}>
-                        Page 2 of 2
-                    </div>
-                </div>
-                {/* ══ END of printable area ══ */}
-            </Box>
-
-            {/* Floating Action Buttons (Bottom Right) */}
-            <Box
-                sx={{
-                    position: 'fixed',
-                    bottom: '1in',
-                    right: 30,
-                    display: 'flex',
-                    flexDirection: 'row', 
-                    gap: 2,
-                    zIndex: 1000,
-                }}
-            >
-                {/* 1. Back Button */}
-                <Zoom in={true} style={{ transitionDelay: '0ms' }}>
-                    <Tooltip title="Back to Front" placement="top">
-                        <Fab 
-                            color="primary" 
-                            aria-label="back" 
-                            onClick={handleBack}
-                            sx={{ 
-                                bgcolor: '#6D2323', 
-                                '&:hover': { bgcolor: '#8a4747' },
-                                width: 56,
-                                height: 56
-                            }}
-                        >
-                            <ArrowBackIcon />
-                        </Fab>
-                    </Tooltip>
-                </Zoom>
-
-                {/* 2. Print Button */}
-                <Zoom in={true} style={{ transitionDelay: '100ms' }}>
-                    <Tooltip title="Print Form" placement="top">
-                        <Fab 
-                            color="primary" 
-                            aria-label="print" 
-                            onClick={printPage}
-                            sx={{ 
-                                bgcolor: '#6D2323', 
-                                '&:hover': { bgcolor: '#8a4747' },
-                                width: 56,
-                                height: 56
-                            }}
-                        >
-                            <PrintIcon />
-                        </Fab>
-                    </Tooltip>
-                </Zoom>
-
-                {/* 3. Download PDF Button */}
-                <Zoom in={true} style={{ transitionDelay: '200ms' }}>
-                    <Tooltip title="Download PDF" placement="top">
-                        <Fab 
-                            color="primary" 
-                            aria-label="download" 
-                            onClick={downloadPDF}
-                            sx={{ 
-                                bgcolor: '#6D2323', 
-                                '&:hover': { bgcolor: '#8a4747' },
-                                width: 56,
-                                height: 56
-                            }}
-                        >
-                            <PictureAsPdfIcon />
-                        </Fab>
-                    </Tooltip>
-                </Zoom>
-            </Box>
-
-            {/* Loading Overlay with Blur */}
-            <LoadingOverlay open={isGenerating} message="Generating Document..." />
-
-            {/* Snackbar for notifications */}
-            <Snackbar
-                open={snackbar.open}
-                autoHideDuration={6000}
-                onClose={handleCloseSnackbar}
-                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-            >
-                <Alert
-                    onClose={handleCloseSnackbar}
-                    severity={snackbar.severity}
-                    sx={{ width: '100%' }}
-                >
-                    {snackbar.message}
-                </Alert>
-            </Snackbar>
-        </Box>
+        '&:hover': {
+            backgroundColor: 'black',
+            color: 'lightgray'}
+       
+       
+     }}
+   
+   >
+    Back
+   </Button>
+        </div>
     );
 };
 
+
 export default ClearanceBack;
+
+
+
