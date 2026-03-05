@@ -1,5 +1,5 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useSocket } from '../../contexts/SocketContext';
 import {
@@ -13,7 +13,6 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
   Container,
   Card,
   CardContent,
@@ -22,11 +21,9 @@ import {
   Divider,
   Avatar,
   IconButton,
-  Tooltip,
   Fade,
   Alert,
   alpha,
-  CardHeader,
   Chip,
   styled,
   Backdrop,
@@ -38,6 +35,7 @@ import {
   Checkbox,
   Snackbar,
   Dialog,
+  LinearProgress,
 } from '@mui/material';
 import {
   Search,
@@ -45,34 +43,31 @@ import {
   CalendarToday,
   Today,
   ArrowBackIos,
-  ArrowForwardIos,
   Clear,
   Send,
   Refresh,
   Info,
   Assignment,
   FilterList,
-  NavigateNext,
-  Print as PrintIcon,
   People,
   CheckCircle,
-  ArrowBack, // ADD THIS
-  ArrowForward, // ADD THIS
-  SearchOutlined, // ADD THIS
+  ArrowBack,
+  ArrowForward,
+  SearchOutlined,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import AccessDenied from '../AccessDenied';
 import usePageAccess from '../../hooks/usePageAccess';
 
-const GlassCard = styled(Card)(({ theme }) => ({
+const GlassCard = styled(Card)(() => ({
   borderRadius: 20,
   backdropFilter: 'blur(10px)',
   overflow: 'hidden',
   transition: 'box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
 }));
 
-const ProfessionalButton = styled(Button)(({ theme }) => ({
+const ProfessionalButton = styled(Button)(() => ({
   borderRadius: 12,
   fontWeight: 600,
   padding: '12px 24px',
@@ -82,7 +77,7 @@ const ProfessionalButton = styled(Button)(({ theme }) => ({
   letterSpacing: '0.025em',
 }));
 
-const ModernTextField = styled(TextField)(({ theme }) => ({
+const ModernTextField = styled(TextField)(() => ({
   '& .MuiOutlinedInput-root': {
     borderRadius: 12,
     transition:
@@ -94,14 +89,14 @@ const ModernTextField = styled(TextField)(({ theme }) => ({
   },
 }));
 
-const PremiumTableContainer = styled(TableContainer)(({ theme }) => ({
+const PremiumTableContainer = styled(TableContainer)(() => ({
   borderRadius: 16,
-  overflow: 'hidden',
+  overflowX: 'auto',
   boxShadow: '0 4px 24px rgba(109, 35, 35, 0.06)',
   border: '1px solid rgba(109, 35, 35, 0.08)',
 }));
 
-const PremiumTableCell = styled(TableCell)(({ theme, isHeader = false }) => ({
+const PremiumTableCell = styled(TableCell)(({ isHeader = false }) => ({
   fontWeight: isHeader ? 600 : 500,
   padding: '18px 20px',
   borderBottom: isHeader
@@ -114,7 +109,10 @@ const PremiumTableCell = styled(TableCell)(({ theme, isHeader = false }) => ({
 const hexToRgb = (hex) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
+    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(
+        result[3],
+        16,
+      )}`
     : '109, 35, 35';
 };
 
@@ -137,9 +135,77 @@ const getDayOfWeek = (dateString) => {
   return date.toLocaleDateString('en-US', { weekday: 'long' });
 };
 
+// Full name formatter for "Lastname, Firstname Middlename/MI Extension"
+const formatFullName = (fullName) => {
+  if (!fullName) return '';
+  const cleaned = String(fullName).trim().replace(/\s+/g, ' ');
+  if (!cleaned) return '';
+
+  const parts = cleaned.split(' ');
+  const suffixes = new Set(['JR', 'JR.', 'SR', 'SR.', 'II', 'III', 'IV', 'V']);
+
+  let suffix = '';
+  const lastTokenUpper = parts[parts.length - 1]?.toUpperCase();
+  if (suffixes.has(lastTokenUpper)) suffix = parts.pop();
+
+  if (parts.length === 1) return suffix ? `${parts[0]} ${suffix}` : parts[0];
+
+  const firstName = parts[0];
+  const lastName = parts[parts.length - 1];
+  const middleParts = parts.slice(1, parts.length - 1);
+
+  const middleFormatted = middleParts
+    .map((m) => {
+      const mm = String(m).replace(/\./g, '');
+      if (mm.length === 1) return `${mm.toUpperCase()}.`;
+      return m;
+    })
+    .join(' ');
+
+  const base = `${lastName}, ${firstName}${
+    middleFormatted ? ` ${middleFormatted}` : ''
+  }`;
+  return suffix ? `${base} ${suffix}` : base;
+};
+
+// ✅ highlight fix: trims query so clearing removes highlight
+const highlightMatch = (text, q) => {
+  const query = (q || '').trim();
+  if (!query || !text) return text;
+
+  const s = String(text);
+  const lower = s.toLowerCase();
+  const qLower = query.toLowerCase();
+  const idx = lower.indexOf(qLower);
+  if (idx === -1) return text;
+
+  const before = s.slice(0, idx);
+  const match = s.slice(idx, idx + query.length);
+  const after = s.slice(idx + query.length);
+
+  return (
+    <span>
+      {before}
+      <span
+        style={{
+          backgroundColor: '#ffeb3b',
+          color: '#000',
+          padding: '0 3px',
+          borderRadius: 2,
+        }}
+      >
+        {match}
+      </span>
+      {after}
+    </span>
+  );
+};
+
 const ViewAttendanceRecord = () => {
   const { socket, connected } = useSocket();
   const { settings } = useSystemSettings();
+  const navigate = useNavigate();
+
   const [personID, setPersonID] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -147,111 +213,54 @@ const ViewAttendanceRecord = () => {
   const [personName, setPersonName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
     severity: 'success',
   });
   const [snackbarCountdown, setSnackbarCountdown] = useState(6);
+
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
 
-  // New states for users list
+  // All Users
   const [allUsersDTR, setAllUsersDTR] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState(new Set());
-  const [surnameFilter, setSurnameFilter] = useState('All');
   const [loadingAllUsers, setLoadingAllUsers] = useState(false);
   const [viewMode, setViewMode] = useState('single');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(null);
 
-  // Department filter (All Users)
+  // Department filter
   const [departments, setDepartments] = useState([]);
   const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
   const [departmentCodeFilter, setDepartmentCodeFilter] = useState('');
   const [loadingDepartments, setLoadingDepartments] = useState(false);
 
-  // Pagination states
+  // Pagination + filters
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
   const [recordFilter, setRecordFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
+  // ✅ Debounced search (reduces lag while typing)
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery), 200);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+  const trimmedSearch = debouncedSearch.trim();
+
+  // ✅ Progress loading screen for Load All Users (NO NAMES)
+  const [progressOpen, setProgressOpen] = useState(false);
+  const [progressTotal, setProgressTotal] = useState(0);
+  const [progressDone, setProgressDone] = useState(0);
+
   const fetchRecordsRef = useRef(null);
   const fetchAllUsersDTRRef = useRef(null);
 
-  // Filter and pagination logic
-  const getFilteredUsers = () => {
-    let filtered = allUsersDTR.slice();
-
-    // Apply record filter first
-    if (recordFilter === 'has') {
-      filtered = filtered.filter((u) => u.records && u.records.length > 0);
-    } else if (recordFilter === 'no') {
-      filtered = filtered.filter((u) => !u.records || u.records.length === 0);
-    }
-
-    // Apply department filter
-    if (departmentCodeFilter) {
-      filtered = filtered.filter((u) => {
-        const deptCode = departmentAssignmentsMap?.[u.employeeNumber] || '';
-        if (departmentCodeFilter === '__UNASSIGNED__') return !deptCode;
-        return deptCode === departmentCodeFilter;
-      });
-    }
-
-    if (!searchQuery || searchQuery.trim() === '') return filtered;
-    const q = searchQuery.trim().toLowerCase();
-    return filtered.filter((user) => {
-      const full = (user.fullName || '').toLowerCase();
-      const last = (user.lastName || '').toLowerCase();
-      const emp = (user.employeeNumber || '').toLowerCase();
-      return full.includes(q) || last.includes(q) || emp.includes(q);
-    });
-  };
-
-  const filteredUsers = getFilteredUsers();
-  const selectedCountInFiltered = filteredUsers.reduce((count, user) => {
-    return selectedUsers.has(user.employeeNumber) ? count + 1 : count;
-  }, 0);
-  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / rowsPerPage));
-  const paginatedUsers = filteredUsers.slice(
-    (currentPage - 1) * rowsPerPage,
-    currentPage * rowsPerPage,
-  );
-
-  const goToPage = (page) => {
-    const p = Math.min(Math.max(1, page), totalPages);
-    setCurrentPage(p);
-  };
-
-  const highlightMatch = (text, q) => {
-    if (!q || !text) return text;
-    const lower = text.toLowerCase();
-    const qLower = q.toLowerCase();
-    const idx = lower.indexOf(qLower);
-    if (idx === -1) return text;
-    const before = text.slice(0, idx);
-    const match = text.slice(idx, idx + q.length);
-    const after = text.slice(idx + q.length);
-    return (
-      <span>
-        {before}
-        <span
-          style={{
-            backgroundColor: '#ffeb3b', // yellow highlight for search/filter matches
-            color: '#000',
-            padding: '0 3px',
-            borderRadius: 2,
-          }}
-        >
-          {match}
-        </span>
-        {after}
-      </span>
-    );
-  };
-
-  const navigate = useNavigate();
+  const { hasAccess, loading: accessLoading } = usePageAccess('view-attendance');
 
   const primaryColor = settings.accentColor || '#FEF9E1';
   const secondaryColor = settings.backgroundColor || '#FFF8E7';
@@ -259,18 +268,11 @@ const ViewAttendanceRecord = () => {
   const accentDark = settings.secondaryColor || '#8B3333';
   const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
   const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
-  const hoverColor = settings.hoverColor || '#6D2323';
 
   const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
-  const formattedToday = `${year}-${month}-${day}`;
-
-  const [selectedMonth, setSelectedMonth] = useState(null);
-
-  const { hasAccess, loading: accessLoading } =
-    usePageAccess('view-attendance');
+  const formattedToday = `${today.getFullYear()}-${String(
+    today.getMonth() + 1,
+  ).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
@@ -281,6 +283,25 @@ const ViewAttendanceRecord = () => {
       },
     };
   };
+
+  const showSnackbar = (message, severity = 'success') => {
+    setSnackbar({ open: true, message, severity });
+    setSnackbarCountdown(6);
+  };
+
+  const handleCloseSnackbar = () => {
+    setSnackbar((prev) => ({ ...prev, open: false }));
+  };
+
+  useEffect(() => {
+    let timer;
+    if (snackbar.open && snackbarCountdown > 0) {
+      timer = setInterval(() => {
+        setSnackbarCountdown((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [snackbar.open, snackbarCountdown]);
 
   const fetchDepartmentsAndAssignments = async () => {
     setLoadingDepartments(true);
@@ -305,9 +326,8 @@ const ViewAttendanceRecord = () => {
         map[String(a.employeeNumber)] = a.code || '';
       });
       setDepartmentAssignmentsMap(map);
-    } catch (error) {
-      console.error('Error fetching departments/assignments:', error);
-      // Keep UI usable even if this fails
+    } catch (err) {
+      console.error('Error fetching departments/assignments:', err);
       setDepartments([]);
       setDepartmentAssignmentsMap({});
       showSnackbar('Failed to load departments for filtering', 'warning');
@@ -316,31 +336,67 @@ const ViewAttendanceRecord = () => {
     }
   };
 
-  const showSnackbar = (message, severity = 'success') => {
-    setSnackbar({ open: true, message, severity });
-    setSnackbarCountdown(6);
-  };
-
-  const handleCloseSnackbar = () => {
-    setSnackbar({ ...snackbar, open: false });
-  };
-
-  // Countdown timer for snackbar
-  useEffect(() => {
-    let timer;
-    if (snackbar.open && snackbarCountdown > 0) {
-      timer = setInterval(() => {
-        setSnackbarCountdown((prev) => prev - 1);
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [snackbar.open, snackbarCountdown]);
-
-  // Load departments + assignments when switching to All Users mode
   useEffect(() => {
     if (viewMode !== 'multiple') return;
     fetchDepartmentsAndAssignments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode]);
+
+  // ✅ MEMO: filtered list (fast)
+  const filteredUsers = useMemo(() => {
+    let filtered = allUsersDTR.slice();
+
+    if (recordFilter === 'has') {
+      filtered = filtered.filter((u) => (u.recordsCount || 0) > 0);
+    } else if (recordFilter === 'no') {
+      filtered = filtered.filter((u) => (u.recordsCount || 0) === 0);
+    }
+
+    if (departmentCodeFilter) {
+      filtered = filtered.filter((u) => {
+        const deptCode = departmentAssignmentsMap?.[u.employeeNumber] || '';
+        if (departmentCodeFilter === '__UNASSIGNED__') return !deptCode;
+        return deptCode === departmentCodeFilter;
+      });
+    }
+
+    if (!trimmedSearch) return filtered;
+
+    const q = trimmedSearch.toLowerCase();
+    return filtered.filter((user) => {
+      const full = (user.fullName || '').toLowerCase();
+      const last = (user.lastName || '').toLowerCase();
+      const emp = (user.employeeNumber || '').toLowerCase();
+      return full.includes(q) || last.includes(q) || emp.includes(q);
+    });
+  }, [
+    allUsersDTR,
+    recordFilter,
+    departmentCodeFilter,
+    departmentAssignmentsMap,
+    trimmedSearch,
+  ]);
+
+  const selectedCountInFiltered = useMemo(() => {
+    let count = 0;
+    for (const u of filteredUsers) if (selectedUsers.has(u.employeeNumber)) count++;
+    return count;
+  }, [filteredUsers, selectedUsers]);
+
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredUsers.length / rowsPerPage)),
+    [filteredUsers.length, rowsPerPage],
+  );
+
+  const paginatedUsers = useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    return filteredUsers.slice(start, start + rowsPerPage);
+  }, [filteredUsers, currentPage, rowsPerPage]);
+
+  const goToPage = (page) => {
+    const p = Math.min(Math.max(1, page), totalPages);
+    setCurrentPage(p);
+  };
 
   const fetchRecords = async (showLoading = true) => {
     if (!personID || !startDate || !endDate) return;
@@ -348,30 +404,27 @@ const ViewAttendanceRecord = () => {
     setError('');
 
     try {
-      // This endpoint now auto-saves records
       const response = await axios.post(
         `${API_BASE_URL}/attendance/api/all-attendance`,
         { personID, startDate, endDate },
         getAuthHeaders(),
       );
 
-      const responseData = response.data;
+      const recs = Array.isArray(response.data) ? response.data : [];
+      setRecords(recs);
 
-      const records = Array.isArray(responseData) ? responseData : [];
-      setRecords(records);
-
-      if (records.length > 0) {
-        setPersonName(records[0].PersonName);
+      if (recs.length > 0) {
+        setPersonName(recs[0].PersonName);
         showSnackbar(
-          `Loaded ${records.length} records and auto-saved to database`,
+          `Loaded ${recs.length} records and auto-saved to database`,
           'success',
         );
       } else {
         setPersonName('');
         showSnackbar('No records found for this period', 'info');
       }
-    } catch (error) {
-      console.error('Error fetching attendance records:', error);
+    } catch (err) {
+      console.error('Error fetching attendance records:', err);
       setError('Failed to fetch attendance records. Please try again.');
       showSnackbar('Failed to fetch attendance records', 'error');
     } finally {
@@ -379,8 +432,7 @@ const ViewAttendanceRecord = () => {
     }
   };
 
-  // Replace the fetchAllUsersDTR function with this improved version:
-
+  // ✅ Load All Users with progress screen (no employee names shown)
   const fetchAllUsersDTR = async () => {
     if (!startDate || !endDate) {
       showSnackbar('Please select start date and end date first', 'warning');
@@ -388,8 +440,13 @@ const ViewAttendanceRecord = () => {
     }
 
     setLoadingAllUsers(true);
+
+    // open loading screen
+    setProgressOpen(true);
+    setProgressDone(0);
+    setProgressTotal(0);
+
     try {
-      // CHANGED: Fetch ALL users from device (not just registered users)
       const usersResponse = await axios.get(
         `${API_BASE_URL}/attendance/api/all-device-users`,
         getAuthHeaders(),
@@ -397,13 +454,11 @@ const ViewAttendanceRecord = () => {
 
       let users = usersResponse.data || [];
 
-      // If a department is selected, apply it BEFORE fetching DTR (performance + "before sending")
       if (
         departmentCodeFilter &&
         Object.keys(departmentAssignmentsMap || {}).length === 0 &&
         !loadingDepartments
       ) {
-        // Ensure we have assignments map available
         await fetchDepartmentsAndAssignments();
       }
 
@@ -419,45 +474,52 @@ const ViewAttendanceRecord = () => {
 
       showSnackbar(`Found ${users.length} users in device records`, 'info');
 
-      // Fetch DTR for each user
+      setProgressTotal(users.length);
+      setProgressDone(0);
+
       const dtrPromises = users.map(async (user) => {
+        const empNo = user?.PersonID;
+        const displayName = user?.PersonName || empNo || 'Unknown';
+
         try {
           const dtrResponse = await axios.post(
             `${API_BASE_URL}/attendance/api/all-attendance`,
-            { personID: user.PersonID, startDate, endDate },
+            { personID: empNo, startDate, endDate },
             getAuthHeaders(),
           );
 
           const dtrData = Array.isArray(dtrResponse.data) ? dtrResponse.data : [];
 
+          // ✅ keep list light (count only)
           return {
-            employeeNumber: user.PersonID,
-            firstName: user.PersonName ? user.PersonName.split(' ')[0] : '',
-            lastName: user.PersonName
-              ? user.PersonName.split(' ').slice(1).join(' ')
+            employeeNumber: empNo,
+            firstName: displayName ? displayName.split(' ')[0] : '',
+            lastName: displayName
+              ? displayName.split(' ').slice(1).join(' ')
               : '',
-            fullName: user.PersonName || user.PersonID,
-            records: dtrData,
+            fullName: displayName,
+            recordsCount: dtrData.length,
             hasRecords: dtrData.length > 0,
           };
-        } catch (error) {
-          console.error(`Error fetching DTR for ${user.PersonID}:`, error);
+        } catch (err) {
+          console.error(`Error fetching DTR for ${empNo}:`, err);
           return {
-            employeeNumber: user.PersonID,
-            firstName: user.PersonName ? user.PersonName.split(' ')[0] : '',
-            lastName: user.PersonName
-              ? user.PersonName.split(' ').slice(1).join(' ')
+            employeeNumber: empNo,
+            firstName: displayName ? displayName.split(' ')[0] : '',
+            lastName: displayName
+              ? displayName.split(' ').slice(1).join(' ')
               : '',
-            fullName: user.PersonName || user.PersonID,
-            records: [],
+            fullName: displayName,
+            recordsCount: 0,
             hasRecords: false,
           };
+        } finally {
+          setProgressDone((prev) => prev + 1);
         }
       });
 
       const allDTRData = await Promise.all(dtrPromises);
 
-      // Sort by last name
       allDTRData.sort((a, b) => {
         const lastNameA = (a.lastName || '').toUpperCase();
         const lastNameB = (b.lastName || '').toUpperCase();
@@ -467,43 +529,40 @@ const ViewAttendanceRecord = () => {
       setAllUsersDTR(allDTRData);
 
       const totalRecords = allDTRData.reduce(
-        (sum, user) => sum + user.records.length,
+        (sum, u) => sum + (u.recordsCount || 0),
         0,
       );
       const usersWithRecords = allDTRData.filter((u) => u.hasRecords).length;
 
-      // Show success message
       showSnackbar(
         `Loaded ${allDTRData.length} employees (${usersWithRecords} with records, ${totalRecords} total records auto-saved)`,
         'success',
       );
 
-      // Show success modal if records were saved
       if (totalRecords > 0) {
         setModalMessage(
-          `Successfully auto-saved ${totalRecords} attendance records for ${usersWithRecords} employees to the database. You can now view or print their DTR.`
+          `Successfully auto-saved ${totalRecords} attendance records for ${usersWithRecords} employees to the database. You can now view or print their DTR.`,
         );
         setShowSuccessModal(true);
       }
-    } catch (error) {
-      console.error('Error fetching all users DTR:', error);
+    } catch (err) {
+      console.error('Error fetching all users DTR:', err);
       showSnackbar(
         'Error fetching users DTR data: ' +
-          (error.response?.data?.error || error.message),
+          (err.response?.data?.error || err.message),
         'error',
       );
     } finally {
       setLoadingAllUsers(false);
+      setTimeout(() => setProgressOpen(false), 250);
     }
   };
 
-  // Keep latest fetch functions for Socket.IO handler
   useEffect(() => {
     fetchRecordsRef.current = fetchRecords;
     fetchAllUsersDTRRef.current = fetchAllUsersDTR;
   });
 
-  // Realtime: refresh when attendance data changes
   useEffect(() => {
     if (!socket || !connected) return;
 
@@ -517,7 +576,11 @@ const ViewAttendanceRecord = () => {
           : [];
 
       if (viewMode === 'single') {
-        if (personID && changedPersonIDs.length > 0 && !changedPersonIDs.includes(personID)) {
+        if (
+          personID &&
+          changedPersonIDs.length > 0 &&
+          !changedPersonIDs.includes(personID)
+        ) {
           return;
         }
         if (personID && startDate && endDate) {
@@ -526,9 +589,8 @@ const ViewAttendanceRecord = () => {
         return;
       }
 
-      // viewMode === 'multiple'
       if (!startDate || !endDate) return;
-      if (allUsersDTR.length === 0) return; // avoid heavy refresh unless list is loaded
+      if (allUsersDTR.length === 0) return;
 
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
@@ -541,39 +603,16 @@ const ViewAttendanceRecord = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       socket.off('attendanceChanged', handleAttendanceChanged);
     };
-  }, [socket, connected, viewMode, personID, startDate, endDate, allUsersDTR.length]);
+  }, [
+    socket,
+    connected,
+    viewMode,
+    personID,
+    startDate,
+    endDate,
+    allUsersDTR.length,
+  ]);
 
-  // ADD: New function for bulk auto-save all users at once
-  const handleBulkAutoSave = async () => {
-    if (!startDate || !endDate) {
-      showSnackbar('Please select start date and end date first', 'warning');
-      return;
-    }
-
-    setLoadingAllUsers(true);
-    try {
-      const response = await axios.post(
-        `${API_BASE_URL}/attendance/api/bulk-auto-save`,
-        { startDate, endDate },
-        getAuthHeaders(),
-      );
-
-      if (response.data.success) {
-        showSnackbar(response.data.message, 'success');
-        // Refresh the list
-        fetchAllUsersDTR();
-      }
-    } catch (error) {
-      console.error('Error bulk auto-saving:', error);
-      showSnackbar(
-        'Error auto-saving records: ' +
-          (error.response?.data?.error || error.message),
-        'error',
-      );
-    } finally {
-      setLoadingAllUsers(false);
-    }
-  };
   const handleSendToDTR = async () => {
     if (!personID || !startDate || !endDate) {
       showSnackbar('Please fill in all fields first', 'warning');
@@ -589,7 +628,6 @@ const ViewAttendanceRecord = () => {
 
       if (response.data.success) {
         showSnackbar(response.data.message, 'success');
-        // Navigate to DTR module
         navigate('/daily_time_record_faculty', {
           state: {
             employeeNumber: personID,
@@ -599,19 +637,15 @@ const ViewAttendanceRecord = () => {
           },
         });
       }
-    } catch (error) {
-      console.error('Error sending to DTR:', error);
-      showSnackbar(
-        error.response?.data?.message || 'Failed to view to DTR',
-        'error',
-      );
+    } catch (err) {
+      console.error('Error sending to DTR:', err);
+      showSnackbar(err.response?.data?.message || 'Failed to view to DTR', 'error');
     }
   };
 
   const handleBulkSendToDTR = async () => {
-    const filtered = getFilteredUsers();
-    const selected = filtered.filter((user) =>
-      selectedUsers.has(user.employeeNumber),
+    const selected = filteredUsers.filter((u) =>
+      selectedUsers.has(u.employeeNumber),
     );
 
     if (selected.length === 0) {
@@ -620,7 +654,7 @@ const ViewAttendanceRecord = () => {
     }
 
     try {
-      const userIDs = selected.map((user) => user.employeeNumber);
+      const userIDs = selected.map((u) => u.employeeNumber);
       const response = await axios.post(
         `${API_BASE_URL}/attendance/api/bulk-send-to-dtr`,
         { userIDs, startDate, endDate },
@@ -629,51 +663,31 @@ const ViewAttendanceRecord = () => {
 
       if (response.data.success) {
         showSnackbar(response.data.message, 'success');
-        // Navigate to DTR module with bulk data
         navigate('/daily_time_record_faculty', {
-          state: {
-            users: selected,
-            startDate,
-            endDate,
-            isBulk: true,
-          },
+          state: { users: selected, startDate, endDate, isBulk: true },
         });
       }
-    } catch (error) {
-      console.error('Error bulk sending to DTR:', error);
-      showSnackbar(
-        error.response?.data?.message || 'Failed to view DTR',
-        'error',
-      );
+    } catch (err) {
+      console.error('Error bulk sending to DTR:', err);
+      showSnackbar(err.response?.data?.message || 'Failed to view DTR', 'error');
     }
   };
 
   const handleUserSelect = (employeeNumber) => {
-    const newSelected = new Set(selectedUsers);
-    if (newSelected.has(employeeNumber)) {
-      newSelected.delete(employeeNumber);
-    } else {
-      newSelected.add(employeeNumber);
-    }
-    setSelectedUsers(newSelected);
+    setSelectedUsers((prev) => {
+      const next = new Set(prev);
+      if (next.has(employeeNumber)) next.delete(employeeNumber);
+      else next.add(employeeNumber);
+      return next;
+    });
   };
 
   const handleSelectAll = (checked) => {
     if (checked) {
-      const filtered = getFilteredUsers();
-      setSelectedUsers(new Set(filtered.map((user) => user.employeeNumber)));
+      setSelectedUsers(new Set(filteredUsers.map((u) => u.employeeNumber)));
     } else {
       setSelectedUsers(new Set());
     }
-  };
-
-  const getSurnameInitials = () => {
-    const initials = new Set();
-    allUsersDTR.forEach((user) => {
-      const lastName = (user.lastName || '').toUpperCase();
-      if (lastName.length > 0) initials.add(lastName[0]);
-    });
-    return Array.from(initials).sort();
   };
 
   const handleSubmit = async (e) => {
@@ -682,9 +696,8 @@ const ViewAttendanceRecord = () => {
   };
 
   useEffect(() => {
-    if (personID && startDate && endDate) {
-      fetchRecords(false);
-    }
+    if (personID && startDate && endDate) fetchRecords(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate]);
 
   const months = [
@@ -702,7 +715,6 @@ const ViewAttendanceRecord = () => {
     'DEC',
   ];
 
-  // Generate year options (current year ± 5 years)
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
@@ -711,7 +723,7 @@ const ViewAttendanceRecord = () => {
     const end = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
     setStartDate(start.toISOString().substring(0, 10));
     setEndDate(end.toISOString().substring(0, 10));
-    setSelectedMonth(monthIndex); // Add this line
+    setSelectedMonth(monthIndex);
   };
 
   const handleClearFilters = () => {
@@ -724,7 +736,9 @@ const ViewAttendanceRecord = () => {
     setAllUsersDTR([]);
     setSelectedUsers(new Set());
     setDepartmentCodeFilter('');
-    setSelectedMonth(null); // Add this line
+    setSelectedMonth(null);
+    setSearchQuery('');
+    setCurrentPage(1);
   };
 
   if (accessLoading) {
@@ -757,6 +771,14 @@ const ViewAttendanceRecord = () => {
     );
   }
 
+  const allUsersTableMaxHeight = 520;
+
+  // ✅ progress % for loading screen
+  const pct =
+    progressTotal > 0
+      ? Math.min(100, Math.round((progressDone / progressTotal) * 100))
+      : 0;
+
   return (
     <Box
       sx={{
@@ -771,7 +793,7 @@ const ViewAttendanceRecord = () => {
       }}
     >
       <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
-        {/* Snackbar for notifications */}
+        {/* Snackbar */}
         <Snackbar
           open={snackbar.open}
           autoHideDuration={6000}
@@ -788,7 +810,8 @@ const ViewAttendanceRecord = () => {
               color: snackbar.severity === 'success' ? '#ffffff' : undefined,
               fontWeight: 600,
               '& .MuiAlert-icon': {
-                color: snackbar.severity === 'success' ? '#ffffff' : undefined,
+                color:
+                  snackbar.severity === 'success' ? '#ffffff' : undefined,
               },
             }}
           >
@@ -813,6 +836,109 @@ const ViewAttendanceRecord = () => {
           </Alert>
         </Snackbar>
 
+        {/* ✅ Loading Screen (Progress) — white bg, green bar, moving icon, NO NAMES */}
+<Dialog
+  open={progressOpen}
+  maxWidth="xs"
+  fullWidth
+  PaperProps={{
+    sx: {
+      borderRadius: 4,
+      p: 0,
+      backgroundColor: '#ffffff',
+      boxShadow: `0 10px 50px ${alpha(accentColor, 0.12)}`,
+      overflow: 'hidden',
+    },
+  }}
+>
+  <Box
+    sx={{
+      p: 4,
+      minHeight: 320,
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      alignItems: 'center',
+      textAlign: 'center',
+      gap: 2,
+    }}
+  >
+    {(() => {
+      const total = progressTotal || 0;
+      const done = progressDone || 0;
+      const pct =
+        total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+
+      return (
+        <>
+          {/* ✅ Title */}
+          <Typography
+            sx={{
+              fontWeight: 900,
+              fontSize: '1.4rem',
+              color: '#111',
+              mb: 0.5,
+            }}
+          >
+            Loading All Users
+          </Typography>
+
+
+
+          {/* ✅ Big Spinner Center */}
+          <CircularProgress
+            size={90}
+            thickness={4.2}
+            sx={{ color: '#2e7d32', my: 1 }}
+          />
+
+                    {/* ✅ Big Percentage */}
+          <Typography
+            sx={{
+              fontWeight: 1000,
+              fontSize: '1.5rem',
+              lineHeight: 1,
+              color: '#2e7d32',
+              letterSpacing: '-0.02em',
+            }}
+          >
+            {pct}%
+          </Typography>
+
+          {/* ✅ Green Progress Line */}
+          <Box sx={{ width: '100%', maxWidth: 420, mt: 1 }}>
+            <LinearProgress
+              variant="determinate"
+              value={pct}
+              sx={{
+                height: 14,
+                borderRadius: 99,
+                backgroundColor: '#eeeeee',
+                '& .MuiLinearProgress-bar': {
+                  borderRadius: 99,
+                  backgroundColor: '#2e7d32',
+                },
+              }}
+            />
+          </Box>
+
+          {/* ✅ Processed counter */}
+          <Typography
+            variant="body2"
+            sx={{ color: '#444', fontWeight: 700, mt: 1 }}
+          >
+            {done} / {total} processed
+          </Typography>
+
+          <Typography variant="caption" sx={{ color: '#666' }}>
+            Please wait while records are being fetched and auto-saved...
+          </Typography>
+        </>
+      );
+    })()}
+  </Box>
+</Dialog>
+
         {/* Success Modal */}
         <Dialog
           open={showSuccessModal}
@@ -832,7 +958,7 @@ const ViewAttendanceRecord = () => {
               textAlign: 'center',
               background: `linear-gradient(135deg, ${alpha(
                 primaryColor,
-                0.3
+                0.3,
               )} 0%, ${alpha(secondaryColor, 0.5)} 100%)`,
             }}
           >
@@ -914,7 +1040,10 @@ const ViewAttendanceRecord = () => {
                     right: -50,
                     width: 200,
                     height: 200,
-                    background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, ${alpha(accentColor, 0)} 70%)`,
+                    background: `radial-gradient(circle, ${alpha(
+                      accentColor,
+                      0.1,
+                    )} 0%, ${alpha(accentColor, 0)} 70%)`,
                   }}
                 />
                 <Box
@@ -949,11 +1078,11 @@ const ViewAttendanceRecord = () => {
                         variant="body1"
                         sx={{ opacity: 0.8, color: textPrimaryColor }}
                       >
-                        Auto-saved records from biometric devices - ready for
-                        DTR
+                        Auto-saved records from biometric devices - ready for DTR
                       </Typography>
                     </Box>
                   </Box>
+
                   <Box display="flex" alignItems="center" gap={2}>
                     <Chip
                       icon={<CheckCircle />}
@@ -967,9 +1096,7 @@ const ViewAttendanceRecord = () => {
                     />
                     <Box display="flex" gap={1}>
                       <ProfessionalButton
-                        variant={
-                          viewMode === 'single' ? 'contained' : 'outlined'
-                        }
+                        variant={viewMode === 'single' ? 'contained' : 'outlined'}
                         onClick={() => setViewMode('single')}
                         sx={{
                           backgroundColor:
@@ -985,6 +1112,7 @@ const ViewAttendanceRecord = () => {
                       >
                         Single User
                       </ProfessionalButton>
+
                       <ProfessionalButton
                         variant={
                           viewMode === 'multiple' ? 'contained' : 'outlined'
@@ -1122,9 +1250,10 @@ const ViewAttendanceRecord = () => {
                     </Grid>
                   </Grid>
                 )}
+
                 <Divider sx={{ my: 3, borderColor: alpha(accentColor, 0.1) }} />
 
-                {/* Quick Date Selection Section */}
+                {/* Quick Date Selection */}
                 <Box sx={{ mb: 4 }}>
                   <Typography
                     variant="h6"
@@ -1138,16 +1267,17 @@ const ViewAttendanceRecord = () => {
                     <FilterList sx={{ mr: 2 }} />
                     Quick Date Selection
                   </Typography>
-                  <Typography
-                    variant="body2"
-                    sx={{ color: alpha(textPrimaryColor, 0.7), mb: 2 }}
-                  >
-                    Click any option below to automatically set the date range:
-                  </Typography>
 
                   {/* Department Filter (All Users) */}
                   {viewMode === 'multiple' && (
-                    <Box sx={{ mb: 3, display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                    <Box
+                      sx={{
+                        mb: 3,
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 2,
+                      }}
+                    >
                       <FormControl
                         sx={{ minWidth: 320, backgroundColor: 'white' }}
                         disabled={loadingDepartments}
@@ -1171,6 +1301,7 @@ const ViewAttendanceRecord = () => {
                           ))}
                         </Select>
                       </FormControl>
+
                       <ProfessionalButton
                         variant="outlined"
                         onClick={fetchDepartmentsAndAssignments}
@@ -1182,17 +1313,17 @@ const ViewAttendanceRecord = () => {
                             <Refresh />
                           )
                         }
-                        sx={{ borderColor: accentColor, color: textPrimaryColor }}
+                        sx={{
+                          borderColor: accentColor,
+                          color: textPrimaryColor,
+                        }}
                       >
                         Refresh Departments
                       </ProfessionalButton>
                     </Box>
                   )}
 
-                  {/* Quick Filters Row */}
-                  <Box
-                    sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}
-                  >
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
                     <ProfessionalButton
                       variant="outlined"
                       startIcon={<Today />}
@@ -1204,6 +1335,7 @@ const ViewAttendanceRecord = () => {
                     >
                       Today
                     </ProfessionalButton>
+
                     <ProfessionalButton
                       variant="outlined"
                       startIcon={<ArrowBackIos />}
@@ -1217,6 +1349,7 @@ const ViewAttendanceRecord = () => {
                     >
                       Yesterday
                     </ProfessionalButton>
+
                     <ProfessionalButton
                       variant="outlined"
                       onClick={() => {
@@ -1229,6 +1362,7 @@ const ViewAttendanceRecord = () => {
                     >
                       Last 7 Days
                     </ProfessionalButton>
+
                     <ProfessionalButton
                       variant="outlined"
                       onClick={() => {
@@ -1241,6 +1375,7 @@ const ViewAttendanceRecord = () => {
                     >
                       Last 15 Days
                     </ProfessionalButton>
+
                     <ProfessionalButton
                       variant="outlined"
                       onClick={() => {
@@ -1287,10 +1422,10 @@ const ViewAttendanceRecord = () => {
                           variant="body2"
                           sx={{ color: alpha(textPrimaryColor, 0.7) }}
                         >
-                          Choose a year, then click any month to view records
-                          for that entire month
+                          Choose a year, then click any month to set the range
                         </Typography>
                       </Box>
+
                       <FormControl sx={{ minWidth: 140 }}>
                         <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>
                         <Select
@@ -1306,14 +1441,15 @@ const ViewAttendanceRecord = () => {
                             fontWeight: 600,
                           }}
                         >
-                          {yearOptions.map((year) => (
-                            <MenuItem key={year} value={year}>
-                              {year}
+                          {yearOptions.map((y) => (
+                            <MenuItem key={y} value={y}>
+                              {y}
                             </MenuItem>
                           ))}
                         </Select>
                       </FormControl>
                     </Box>
+
                     <Box
                       sx={{
                         display: 'grid',
@@ -1325,18 +1461,16 @@ const ViewAttendanceRecord = () => {
                         gap: 1.5,
                       }}
                     >
-                      {months.map((month, index) => {
+                      {months.map((m, index) => {
                         const isSelected = selectedMonth === index;
                         return (
                           <ProfessionalButton
-                            key={month}
+                            key={m}
                             variant={isSelected ? 'contained' : 'outlined'}
                             size="medium"
                             onClick={() => handleMonthClick(index)}
                             sx={{
-                              borderColor: isSelected
-                                ? accentColor
-                                : accentColor,
+                              borderColor: accentColor,
                               backgroundColor: isSelected
                                 ? accentColor
                                 : 'transparent',
@@ -1357,7 +1491,7 @@ const ViewAttendanceRecord = () => {
                                 : 'none',
                             }}
                           >
-                            {month}
+                            {m}
                           </ProfessionalButton>
                         );
                       })}
@@ -1388,7 +1522,7 @@ const ViewAttendanceRecord = () => {
           </GlassCard>
         </Fade>
 
-        {/* All Users DTR List */}
+        {/* All Users */}
         {viewMode === 'multiple' && (
           <Fade in timeout={1000}>
             <GlassCard
@@ -1414,6 +1548,7 @@ const ViewAttendanceRecord = () => {
                 >
                   All Users DTR List (Auto-Saved)
                 </Typography>
+
                 <Box display="flex" gap={2} flexWrap="wrap">
                   <ProfessionalButton
                     variant="contained"
@@ -1433,6 +1568,7 @@ const ViewAttendanceRecord = () => {
                   >
                     {loadingAllUsers ? 'Loading...' : 'Load All Users'}
                   </ProfessionalButton>
+
                   {allUsersDTR.length > 0 && (
                     <ProfessionalButton
                       variant="contained"
@@ -1454,7 +1590,7 @@ const ViewAttendanceRecord = () => {
               <Box sx={{ p: 4 }}>
                 {allUsersDTR.length > 0 ? (
                   <>
-                    {/* Toolbar with filters */}
+                    {/* Toolbar */}
                     <Box
                       sx={{
                         display: 'flex',
@@ -1464,7 +1600,6 @@ const ViewAttendanceRecord = () => {
                         alignItems: 'center',
                       }}
                     >
-                      {/* Search Box */}
                       <TextField
                         label="Search users"
                         value={searchQuery}
@@ -1478,11 +1613,23 @@ const ViewAttendanceRecord = () => {
                               <SearchOutlined />
                             </InputAdornment>
                           ),
+                          endAdornment: searchQuery ? (
+                            <InputAdornment position="end">
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  setSearchQuery('');
+                                  setCurrentPage(1);
+                                }}
+                              >
+                                <Clear />
+                              </IconButton>
+                            </InputAdornment>
+                          ) : null,
                         }}
                         sx={{ minWidth: 300, backgroundColor: 'white' }}
                       />
 
-                      {/* Records Filter */}
                       <FormControl
                         sx={{ minWidth: 160, backgroundColor: 'white' }}
                       >
@@ -1501,7 +1648,6 @@ const ViewAttendanceRecord = () => {
                         </Select>
                       </FormControl>
 
-                      {/* Select All Button */}
                       <ProfessionalButton
                         variant="outlined"
                         onClick={() =>
@@ -1515,56 +1661,14 @@ const ViewAttendanceRecord = () => {
                           ? 'Deselect All'
                           : 'Select All'}
                       </ProfessionalButton>
-
-                      {/* Rows Per Page */}
-                      <FormControl
-                        sx={{ minWidth: 140, backgroundColor: 'white' }}
-                      >
-                        <InputLabel>Rows</InputLabel>
-                        <Select
-                          value={rowsPerPage}
-                          label="Rows"
-                          onChange={(e) => {
-                            setRowsPerPage(Number(e.target.value));
-                            setCurrentPage(1);
-                          }}
-                        >
-                          <MenuItem value={10}>10</MenuItem>
-                          <MenuItem value={20}>20</MenuItem>
-                          <MenuItem value={50}>50</MenuItem>
-                          <MenuItem value={100}>100</MenuItem>
-                        </Select>
-                      </FormControl>
-
-                      {/* Compact Pagination */}
-                      <Box
-                        sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
-                      >
-                        <IconButton
-                          onClick={() => goToPage(currentPage - 1)}
-                          disabled={currentPage === 1}
-                          sx={{ bgcolor: 'white' }}
-                        >
-                          <ArrowBack />
-                        </IconButton>
-                        <Typography sx={{ minWidth: 36, textAlign: 'center' }}>
-                          {currentPage} / {totalPages}
-                        </Typography>
-                        <IconButton
-                          onClick={() => goToPage(currentPage + 1)}
-                          disabled={currentPage === totalPages}
-                          sx={{ bgcolor: 'white' }}
-                        >
-                          <ArrowForward />
-                        </IconButton>
-                      </Box>
                     </Box>
 
                     {/* Table */}
                     <PremiumTableContainer
                       sx={{
                         boxShadow: `0 4px 24px ${alpha(accentColor, 0.06)}`,
-                        maxHeight: 400,
+                        maxHeight: allUsersTableMaxHeight,
+                        overflowY: 'auto',
                       }}
                     >
                       <Table sx={{ minWidth: 800 }} stickyHeader>
@@ -1573,54 +1677,60 @@ const ViewAttendanceRecord = () => {
                             <PremiumTableCell isHeader>
                               <Checkbox
                                 checked={
-                                  selectedCountInFiltered === filteredUsers.length &&
+                                  selectedCountInFiltered ===
+                                    filteredUsers.length &&
                                   filteredUsers.length > 0
                                 }
                                 indeterminate={
                                   selectedCountInFiltered > 0 &&
                                   selectedCountInFiltered < filteredUsers.length
                                 }
-                                onChange={(e) =>
-                                  handleSelectAll(e.target.checked)
-                                }
+                               onChange={(e) =>
+  handleSelectAll(e.target.checked)
+}
+sx={{
+  color: 'rgba(255,255,255,0.7)',
+  '&.Mui-checked': { color: '#ffffff' },
+  '&.MuiCheckbox-indeterminate': { color: '#ffffff' },
+}}
                               />
                             </PremiumTableCell>
+
                             <PremiumTableCell
                               isHeader
                               sx={{ color: textPrimaryColor }}
                             >
                               Employee Number
                             </PremiumTableCell>
+
                             <PremiumTableCell
                               isHeader
                               sx={{ color: textPrimaryColor }}
                             >
                               Department
                             </PremiumTableCell>
+
                             <PremiumTableCell
                               isHeader
                               sx={{ color: textPrimaryColor }}
                             >
                               Full Name
                             </PremiumTableCell>
-                            <PremiumTableCell
-                              isHeader
-                              sx={{ color: textPrimaryColor }}
-                            >
-                              Last Name
-                            </PremiumTableCell>
+
                             <PremiumTableCell
                               isHeader
                               sx={{ color: textPrimaryColor }}
                             >
                               Records Count
                             </PremiumTableCell>
+
                             <PremiumTableCell
                               isHeader
                               sx={{ color: textPrimaryColor }}
                             >
                               Status
                             </PremiumTableCell>
+
                             <PremiumTableCell
                               isHeader
                               sx={{ color: textPrimaryColor }}
@@ -1629,6 +1739,7 @@ const ViewAttendanceRecord = () => {
                             </PremiumTableCell>
                           </TableRow>
                         </TableHead>
+
                         <TableBody>
                           {paginatedUsers.map((user) => (
                             <TableRow
@@ -1653,9 +1764,11 @@ const ViewAttendanceRecord = () => {
                                   }
                                 />
                               </PremiumTableCell>
+
                               <PremiumTableCell>
                                 {user.employeeNumber}
                               </PremiumTableCell>
+
                               <PremiumTableCell>
                                 {(() => {
                                   const dept =
@@ -1673,37 +1786,31 @@ const ViewAttendanceRecord = () => {
                                   );
                                 })()}
                               </PremiumTableCell>
+
                               <PremiumTableCell>
-                                {searchQuery
-                                  ? highlightMatch(user.fullName, searchQuery)
-                                  : user.fullName}
+                                {trimmedSearch
+                                  ? highlightMatch(
+                                      formatFullName(user.fullName),
+                                      trimmedSearch,
+                                    )
+                                  : formatFullName(user.fullName)}
                               </PremiumTableCell>
+
                               <PremiumTableCell>
-                                {user.lastName}
+                                {user.recordsCount || 0}
                               </PremiumTableCell>
-                              <PremiumTableCell>
-                                {user.records.length}
-                              </PremiumTableCell>
+
                               <PremiumTableCell>
                                 <Chip
                                   label={
-                                    user.records.length > 0
-                                      ? 'Auto-Saved'
-                                      : 'No Records'
+                                    user.hasRecords ? 'Auto-Saved' : 'No Records'
                                   }
-                                  color={
-                                    user.records.length > 0
-                                      ? 'success'
-                                      : 'default'
-                                  }
+                                  color={user.hasRecords ? 'success' : 'default'}
                                   size="small"
-                                  icon={
-                                    user.records.length > 0 ? (
-                                      <CheckCircle />
-                                    ) : undefined
-                                  }
+                                  icon={user.hasRecords ? <CheckCircle /> : undefined}
                                 />
                               </PremiumTableCell>
+
                               <PremiumTableCell>
                                 <ProfessionalButton
                                   variant="contained"
@@ -1719,7 +1826,7 @@ const ViewAttendanceRecord = () => {
                                       },
                                     });
                                   }}
-                                  disabled={user.records.length === 0}
+                                  disabled={!user.hasRecords}
                                   sx={{
                                     backgroundColor: '#4caf50',
                                     color: '#ffffff',
@@ -1741,13 +1848,15 @@ const ViewAttendanceRecord = () => {
                       </Table>
                     </PremiumTableContainer>
 
-                    {/* Bottom Pagination */}
+                    {/* Bottom pagination */}
                     <Box
                       sx={{
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
                         mt: 2,
+                        gap: 2,
+                        flexWrap: 'wrap',
                       }}
                     >
                       <Typography
@@ -1755,10 +1864,12 @@ const ViewAttendanceRecord = () => {
                         sx={{ color: textPrimaryColor }}
                       >
                         Showing{' '}
-                        {Math.min(
-                          filteredUsers.length,
-                          (currentPage - 1) * rowsPerPage + 1,
-                        )}{' '}
+                        {filteredUsers.length === 0
+                          ? 0
+                          : Math.min(
+                              filteredUsers.length,
+                              (currentPage - 1) * rowsPerPage + 1,
+                            )}{' '}
                         -{' '}
                         {Math.min(
                           filteredUsers.length,
@@ -1766,37 +1877,48 @@ const ViewAttendanceRecord = () => {
                         )}{' '}
                         of {filteredUsers.length} users
                       </Typography>
-                      <Box
-                        sx={{ display: 'flex', gap: 1, alignItems: 'center' }}
-                      >
-                        <ProfessionalButton
-                          variant="outlined"
-                          onClick={() => goToPage(1)}
-                          disabled={currentPage === 1}
+
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <FormControl
+                          sx={{ minWidth: 140, backgroundColor: 'white' }}
                         >
-                          First
-                        </ProfessionalButton>
-                        <ProfessionalButton
-                          variant="outlined"
-                          onClick={() => goToPage(currentPage - 1)}
-                          disabled={currentPage === 1}
-                        >
-                          Prev
-                        </ProfessionalButton>
-                        <ProfessionalButton
-                          variant="outlined"
-                          onClick={() => goToPage(currentPage + 1)}
-                          disabled={currentPage === totalPages}
-                        >
-                          Next
-                        </ProfessionalButton>
-                        <ProfessionalButton
-                          variant="outlined"
-                          onClick={() => goToPage(totalPages)}
-                          disabled={currentPage === totalPages}
-                        >
-                          Last
-                        </ProfessionalButton>
+                          <InputLabel>Rows</InputLabel>
+                          <Select
+                            value={rowsPerPage}
+                            label="Rows"
+                            onChange={(e) => {
+                              setRowsPerPage(Number(e.target.value));
+                              setCurrentPage(1);
+                            }}
+                          >
+                            <MenuItem value={10}>10</MenuItem>
+                            <MenuItem value={20}>20</MenuItem>
+                            <MenuItem value={50}>50</MenuItem>
+                            <MenuItem value={100}>100</MenuItem>
+                          </Select>
+                        </FormControl>
+
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <IconButton
+                            onClick={() => goToPage(currentPage - 1)}
+                            disabled={currentPage === 1}
+                            sx={{ bgcolor: 'white' }}
+                          >
+                            <ArrowBack />
+                          </IconButton>
+
+                          <Typography sx={{ minWidth: 36, textAlign: 'center' }}>
+                            {currentPage} / {totalPages}
+                          </Typography>
+
+                          <IconButton
+                            onClick={() => goToPage(currentPage + 1)}
+                            disabled={currentPage === totalPages}
+                            sx={{ bgcolor: 'white' }}
+                          >
+                            <ArrowForward />
+                          </IconButton>
+                        </Box>
                       </Box>
                     </Box>
                   </>
@@ -1820,7 +1942,7 @@ const ViewAttendanceRecord = () => {
           </Fade>
         )}
 
-        {/* Loading Backdrop */}
+        {/* Loading Backdrop (single-user fetching) */}
         <Backdrop
           sx={{
             color: textSecondaryColor,
@@ -1883,6 +2005,7 @@ const ViewAttendanceRecord = () => {
                   >
                     {personName}
                   </Typography>
+
                   <Box
                     sx={{
                       display: 'flex',
@@ -1919,6 +2042,7 @@ const ViewAttendanceRecord = () => {
                     </Typography>
                   </Box>
                 </Box>
+
                 <Box
                   display="flex"
                   flexDirection="column"
@@ -1965,68 +2089,39 @@ const ViewAttendanceRecord = () => {
                 <Table sx={{ minWidth: 800 }}>
                   <TableHead sx={{ bgcolor: alpha(primaryColor, 0.7) }}>
                     <TableRow>
-                      <PremiumTableCell
-                        isHeader
-                        sx={{ color: textPrimaryColor }}
-                      >
+                      <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                         Employee ID
                       </PremiumTableCell>
-                      <PremiumTableCell
-                        isHeader
-                        sx={{ color: textPrimaryColor }}
-                      >
+                      <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                         Date
                       </PremiumTableCell>
-                      <PremiumTableCell
-                        isHeader
-                        sx={{ color: textPrimaryColor }}
-                      >
+                      <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                         Day
                       </PremiumTableCell>
-                      <PremiumTableCell
-                        isHeader
-                        sx={{ color: textPrimaryColor }}
-                      >
+                      <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                         Time IN
                       </PremiumTableCell>
-                      <PremiumTableCell
-                        isHeader
-                        sx={{ color: textPrimaryColor }}
-                      >
+                      <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                         Break IN
                       </PremiumTableCell>
-                      <PremiumTableCell
-                        isHeader
-                        sx={{ color: textPrimaryColor }}
-                      >
+                      <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                         Break OUT
                       </PremiumTableCell>
-                      <PremiumTableCell
-                        isHeader
-                        sx={{ color: textPrimaryColor }}
-                      >
+                      <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                         Time OUT
                       </PremiumTableCell>
-                      <PremiumTableCell
-                        isHeader
-                        sx={{ color: textPrimaryColor }}
-                      >
+                      <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                         Special Type
                       </PremiumTableCell>
-                      <PremiumTableCell
-                        isHeader
-                        sx={{ color: textPrimaryColor }}
-                      >
+                      <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                         Special Time IN
                       </PremiumTableCell>
-                      <PremiumTableCell
-                        isHeader
-                        sx={{ color: textPrimaryColor }}
-                      >
+                      <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                         Special Time OUT
                       </PremiumTableCell>
                     </TableRow>
                   </TableHead>
+
                   <TableBody>
                     {records.length === 0 ? (
                       <TableRow>
@@ -2051,20 +2146,17 @@ const ViewAttendanceRecord = () => {
                               variant="body1"
                               color={alpha(accentColor, 0.4)}
                             >
-                              Try adjusting your date range or search for a
-                              different employee
+                              Try adjusting your date range or search for a different employee
                             </Typography>
                           </Box>
                         </TableCell>
                       </TableRow>
                     ) : (
                       records.map((record, index) => {
-                        // Determine special type based on Time5/Time6
                         let specialTypeBadge = null;
                         const hasSpecialTime = record.Time5 || record.Time6;
 
                         if (hasSpecialTime) {
-                          // If we have specialType from backend, use it
                           const type = record.specialType || 'UNCATEGORIZED';
                           const typeLabels = {
                             HONORARIUM: 'Honorarium',
@@ -2111,21 +2203,11 @@ const ViewAttendanceRecord = () => {
                             <PremiumTableCell>
                               {getDayOfWeek(record.Date)}
                             </PremiumTableCell>
-                            <PremiumTableCell>
-                              {formatTime(record.Time1)}
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              {formatTime(record.Time3)}
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              {formatTime(record.Time2)}
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              {formatTime(record.Time4)}
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              {specialTypeBadge || '-'}
-                            </PremiumTableCell>
+                            <PremiumTableCell>{formatTime(record.Time1)}</PremiumTableCell>
+                            <PremiumTableCell>{formatTime(record.Time3)}</PremiumTableCell>
+                            <PremiumTableCell>{formatTime(record.Time2)}</PremiumTableCell>
+                            <PremiumTableCell>{formatTime(record.Time4)}</PremiumTableCell>
+                            <PremiumTableCell>{specialTypeBadge || '-'}</PremiumTableCell>
                             <PremiumTableCell>
                               {record.Time5 ? formatTime(record.Time5) : '-'}
                             </PremiumTableCell>

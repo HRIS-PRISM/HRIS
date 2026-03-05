@@ -1,0 +1,4103 @@
+[33m[nodemon] 3.1.9[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): *.*[39m
+[33m[nodemon] watching extensions: js,mjs,cjs,json[39m
+[32m[nodemon] starting `node index.js`[39m
+Socket.IO server initialized successfully
+node:events:496
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use 0.0.0.0:5000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1973:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '0.0.0.0',
+  port: 5000
+}
+
+Node.js v22.14.0
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node index.js`[39m
+Socket.IO server initialized successfully
+========================================
+✓ HTTP Server running on http://0.0.0.0:5000
+✓ Socket.IO server ready
+========================================
+Audit log table ready
+Auth sessions table ready
+Socket authenticated: 20134507 (technical)
+✓ User connected: 20134507 [cv_aYzJE9pAViACfAAAB]
+  → User 20134507 joined room: 20134507
+  → User 20134507 joined role room: technical
+✗ User disconnected: 20134507 [cv_aYzJE9pAViACfAAAB] - Reason: transport close
+GET /api/system-settings called
+Socket authenticated: 20134507 (technical)
+✓ User connected: 20134507 [JuHqeFjA7OiuHexgAAAD]
+  → User 20134507 joined room: 20134507
+  → User 20134507 joined role room: technical
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+[GET /leave_assignment] Query executing...
+[GET /leave_assignment] ✅ Success, returned 3 records
+GET /api/system-settings called
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+GET /api/system-settings called
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+GET /api/system-settings called
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+✗ User disconnected: 20134507 [JuHqeFjA7OiuHexgAAAD] - Reason: transport close
+GET /api/system-settings called
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+GET /api/system-settings called
+Socket authenticated: 20134507 (technical)
+✓ User connected: 20134507 [0k4Q7mzGDbEPA_iXAAAF]
+  → User 20134507 joined room: 20134507
+  → User 20134507 joined role room: technical
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+GET /api/system-settings called
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+GET /api/system-settings called
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+✗ User disconnected: 20134507 [0k4Q7mzGDbEPA_iXAAAF] - Reason: transport close
+GET /api/system-settings called
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+[GET /leave_assignment] Query executing...
+GET /api/system-settings called
+[GET /leave_assignment] ✅ Success, returned 3 records
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+[GET /leave_assignment] Query executing...
+GET /api/system-settings called
+[GET /leave_assignment] ✅ Success, returned 3 records
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+GET /api/system-settings called
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+Socket authenticated: 20134507 (technical)
+✓ User connected: 20134507 [JNhf-uAF4M3j878lAAAH]
+  → User 20134507 joined room: 20134507
+  → User 20134507 joined role room: technical
+✗ User disconnected: 20134507 [JNhf-uAF4M3j878lAAAH] - Reason: transport close
+GET /api/system-settings called
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+GET /api/system-settings called
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+GET /api/system-settings called
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+GET /api/system-settings called
+Fetched rows: [
+  {
+    id: 3178,
+    setting_key: 'primaryColor',
+    setting_value: '#894444',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3179,
+    setting_key: 'secondaryColor',
+    setting_value: '#6d2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3180,
+    setting_key: 'accentColor',
+    setting_value: '#f5f4f4',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:31:33.000Z
+  },
+  {
+    id: 3181,
+    setting_key: 'textColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3182,
+    setting_key: 'textPrimaryColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3183,
+    setting_key: 'textSecondaryColor',
+    setting_value: '#ffffff',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-24T06:14:25.000Z
+  },
+  {
+    id: 3184,
+    setting_key: 'hoverColor',
+    setting_value: '#6D2323',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3185,
+    setting_key: 'backgroundColor',
+    setting_value: '#FFFFFF',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3186,
+    setting_key: 'institutionLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3187,
+    setting_key: 'hrisLogo',
+    setting_value: '',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3188,
+    setting_key: 'institutionName',
+    setting_value: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3189,
+    setting_key: 'systemName',
+    setting_value: 'Human Resources Information System',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3190,
+    setting_key: 'institutionAbbreviation',
+    setting_value: 'EARIST',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3191,
+    setting_key: 'footerText',
+    setting_value: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3192,
+    setting_key: 'copyrightSymbol',
+    setting_value: '©',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-12-01T09:02:28.000Z
+  },
+  {
+    id: 3193,
+    setting_key: 'enableWatermark',
+    setting_value: 'true',
+    created_at: 2025-11-13T03:25:56.000Z,
+    updated_at: 2025-11-13T03:25:56.000Z
+  },
+  {
+    id: 3338,
+    setting_key: 'createButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3339,
+    setting_key: 'createButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3340,
+    setting_key: 'readButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3341,
+    setting_key: 'readButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3342,
+    setting_key: 'updateButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3343,
+    setting_key: 'updateButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3344,
+    setting_key: 'deleteButtonColor',
+    setting_value: '#6d2323',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3345,
+    setting_key: 'deleteButtonHoverColor',
+    setting_value: '#a31d1d',
+    created_at: 2025-12-21T00:59:06.000Z,
+    updated_at: 2025-12-21T00:59:06.000Z
+  },
+  {
+    id: 3346,
+    setting_key: 'cancelButtonColor',
+    setting_value: '#064b1e',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T02:22:23.000Z
+  },
+  {
+    id: 3347,
+    setting_key: 'cancelButtonHoverColor',
+    setting_value: '#5a6268',
+    created_at: 2025-12-21T01:02:06.000Z,
+    updated_at: 2025-12-21T01:02:06.000Z
+  },
+  {
+    id: 3374,
+    setting_key: 'global_mfa_enabled',
+    setting_value: 'false',
+    created_at: 2026-01-16T02:23:59.000Z,
+    updated_at: 2026-01-16T02:31:38.000Z
+  },
+  {
+    id: 3378,
+    setting_key: 'registration_field_requirements',
+    setting_value: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+    created_at: 2026-01-16T07:37:26.000Z,
+    updated_at: 2026-01-16T08:49:14.000Z
+  },
+  {
+    id: 3383,
+    setting_key: 'send_registration_emails',
+    setting_value: 'false',
+    created_at: 2026-02-09T02:58:53.000Z,
+    updated_at: 2026-02-09T02:58:53.000Z
+  }
+]
+Returning settings: {
+  primaryColor: '#894444',
+  secondaryColor: '#6d2323',
+  accentColor: '#f5f4f4',
+  textColor: '#FFFFFF',
+  textPrimaryColor: '#6D2323',
+  textSecondaryColor: '#ffffff',
+  hoverColor: '#6D2323',
+  backgroundColor: '#FFFFFF',
+  institutionLogo: '',
+  hrisLogo: '',
+  institutionName: 'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+  systemName: 'Human Resources Information System',
+  institutionAbbreviation: 'EARIST',
+  footerText: '© 2025 EARIST Manila - Human Resource Information System. All rights Reserved.',
+  copyrightSymbol: '©',
+  enableWatermark: true,
+  createButtonColor: '#6d2323',
+  createButtonHoverColor: '#a31d1d',
+  readButtonColor: '#6d2323',
+  readButtonHoverColor: '#a31d1d',
+  updateButtonColor: '#6d2323',
+  updateButtonHoverColor: '#a31d1d',
+  deleteButtonColor: '#6d2323',
+  deleteButtonHoverColor: '#a31d1d',
+  cancelButtonColor: '#064b1e',
+  cancelButtonHoverColor: '#5a6268',
+  global_mfa_enabled: 'false',
+  registration_field_requirements: '{"firstName":false,"lastName":false,"email":false,"employeeNumber":true,"employmentCategory":false,"password":false,"middleName":false,"nameExtension":false}',
+  send_registration_emails: 'false'
+}
+Socket authenticated: 20134507 (technical)
+✓ User connected: 20134507 [vbWYAZciX2IkelBfAAAJ]
+  → User 20134507 joined room: 20134507
+  → User 20134507 joined role room: technical
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node index.js`[39m
+Socket.IO server initialized successfully
+node:events:496
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use 0.0.0.0:5000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1973:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '0.0.0.0',
+  port: 5000
+}
+
+Node.js v22.14.0
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node index.js`[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node index.js`[39m
+Socket.IO server initialized successfully
+========================================
+✓ HTTP Server running on http://0.0.0.0:5000
+✓ Socket.IO server ready
+========================================
+Audit log table ready
+Auth sessions table ready
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node index.js`[39m
+C:\Users\Admin\OneDrive\Desktop\HRIS_ADVANCE\HRIS\backend\index.js:48
+const suspensionsRoutes = require('./routes/susconst auditRoutes = require('./routes/audit');
+                                                                             ^
+
+SyntaxError: Unexpected token '/'
+    at wrapSafe (node:internal/modules/cjs/loader:1486:18)
+    at Module._compile (node:internal/modules/cjs/loader:1528:20)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:170:5)
+    at node:internal/main/run_main_module:36:49
+
+Node.js v22.14.0
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node index.js`[39m
+C:\Users\Admin\OneDrive\Desktop\HRIS_ADVANCE\HRIS\backend\index.js:48
+const suspensionsRoutes = require('./routes/susconst auditRoutes = require('./routes/audit');
+                                                                             ^
+
+SyntaxError: Unexpected token '/'
+    at wrapSafe (node:internal/modules/cjs/loader:1486:18)
+    at Module._compile (node:internal/modules/cjs/loader:1528:20)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:170:5)
+    at node:internal/main/run_main_module:36:49
+
+Node.js v22.14.0
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node index.js`[39m
+C:\Users\Admin\OneDrive\Desktop\HRIS_ADVANCE\HRIS\backend\index.js:48
+const suspensionsRoutes = require('./routes/susconst auditRoutes = require('./routes/audit');
+                                                                             ^
+
+SyntaxError: Unexpected token '/'
+    at wrapSafe (node:internal/modules/cjs/loader:1486:18)
+    at Module._compile (node:internal/modules/cjs/loader:1528:20)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:170:5)
+    at node:internal/main/run_main_module:36:49
+
+Node.js v22.14.0
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node index.js`[39m
+C:\Users\Admin\OneDrive\Desktop\HRIS_ADVANCE\HRIS\backend\index.js:48
+const suspensionsRoutes = require('./routes/susconst auditRoutes = require('./routes/audit');
+                                                                             ^
+
+SyntaxError: Unexpected token '/'
+    at wrapSafe (node:internal/modules/cjs/loader:1486:18)
+    at Module._compile (node:internal/modules/cjs/loader:1528:20)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:170:5)
+    at node:internal/main/run_main_module:36:49
+
+Node.js v22.14.0
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node index.js`[39m
+C:\Users\Admin\OneDrive\Desktop\HRIS_ADVANCE\HRIS\backend\index.js:48
+const suspensionsRoutes = require('./routes/susconst auditRoutes = require('./routes/audit');
+                                                                             ^
+
+SyntaxError: Unexpected token '/'
+    at wrapSafe (node:internal/modules/cjs/loader:1486:18)
+    at Module._compile (node:internal/modules/cjs/loader:1528:20)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:170:5)
+    at node:internal/main/run_main_module:36:49
+
+Node.js v22.14.0
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node index.js`[39m
+C:\Users\Admin\OneDrive\Desktop\HRIS_ADVANCE\HRIS\backend\index.js:48
+const suspensionsRoutes = require('./routes/susconst auditRoutes = require('./routes/audit');
+                                                                             ^
+
+SyntaxError: Unexpected token '/'
+    at wrapSafe (node:internal/modules/cjs/loader:1486:18)
+    at Module._compile (node:internal/modules/cjs/loader:1528:20)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:170:5)
+    at node:internal/main/run_main_module:36:49
+
+Node.js v22.14.0
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node index.js`[39m
+C:\Users\Admin\OneDrive\Desktop\HRIS_ADVANCE\HRIS\backend\index.js:48
+const suspensionsRoutes = require('./routes/susconst auditRoutes = require('./routes/audit');
+                                                                             ^
+
+SyntaxError: Unexpected token '/'
+    at wrapSafe (node:internal/modules/cjs/loader:1486:18)
+    at Module._compile (node:internal/modules/cjs/loader:1528:20)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:170:5)
+    at node:internal/main/run_main_module:36:49
+
+Node.js v22.14.0
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node index.js`[39m
+[32m[nodemon] restarting due to changes...[39m
+C:\Users\Admin\OneDrive\Desktop\HRIS_ADVANCE\HRIS\backend\index.js:48
+const suspensionsRoutes = require('./routes/susconst auditRoutes = require('./routes/audit');
+                                                                             ^
+
+SyntaxError: Unexpected token '/'
+    at wrapSafe (node:internal/modules/cjs/loader:1486:18)
+    at Module._compile (node:internal/modules/cjs/loader:1528:20)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:170:5)
+    at node:internal/main/run_main_module:36:49
+
+Node.js v22.14.0
+[32m[nodemon] starting `node index.js`[39m
+C:\Users\Admin\OneDrive\Desktop\HRIS_ADVANCE\HRIS\backend\index.js:48
+const suspensionsRoutes = require('./routes/susconst auditRoutes = require('./routes/audit');
+                                                                             ^
+
+SyntaxError: Unexpected token '/'
+    at wrapSafe (node:internal/modules/cjs/loader:1486:18)
+    at Module._compile (node:internal/modules/cjs/loader:1528:20)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:170:5)
+    at node:internal/main/run_main_module:36:49
+
+Node.js v22.14.0
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node index.js`[39m
+C:\Users\Admin\OneDrive\Desktop\HRIS_ADVANCE\HRIS\backend\index.js:48
+const suspensionsRoutes = require('./routes/susconst auditRoutes = require('./routes/audit');
+                                                                             ^
+
+SyntaxError: Unexpected token '/'
+    at wrapSafe (node:internal/modules/cjs/loader:1486:18)
+    at Module._compile (node:internal/modules/cjs/loader:1528:20)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:170:5)
+    at node:internal/main/run_main_module:36:49
+
+Node.js v22.14.0
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting child process[39m
+[32m[nodemon] starting `node index.js`[39m
+C:\Users\Admin\OneDrive\Desktop\HRIS_ADVANCE\HRIS\backend\index.js:48
+const suspensionsRoutes = require('./routes/susconst auditRoutes = require('./routes/audit');
+                                                                             ^
+
+SyntaxError: Unexpected token '/'
+    at wrapSafe (node:internal/modules/cjs/loader:1486:18)
+    at Module._compile (node:internal/modules/cjs/loader:1528:20)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:170:5)
+    at node:internal/main/run_main_module:36:49
+
+Node.js v22.14.0
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
