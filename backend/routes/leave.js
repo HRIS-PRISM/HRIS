@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const jwt = require("jsonwebtoken");
 
 let io;
 router.setSocketIO = (socketIO) => {
@@ -45,6 +46,109 @@ const normalizeAssignmentRow = (r) => ({
   carried_forward_hours: parseDbHours(r.carried_forward_hours),
   allocated_hours: parseDbHours(r.allocated_hours),
 });
+
+const getActorEmployeeNumber = (req, fallback = null) => {
+  if (req.user?.employeeNumber) return String(req.user.employeeNumber);
+
+  const authHeader = req.headers?.authorization || "";
+  const token = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : null;
+
+  if (token) {
+    try {
+      const decoded = jwt.decode(token);
+      if (decoded?.employeeNumber) return String(decoded.employeeNumber);
+      if (decoded?.username) return String(decoded.username);
+    } catch (err) {
+      console.warn("[leave] Failed to decode auth token:", err.message);
+    }
+  }
+
+  return fallback ? String(fallback) : "unknown";
+};
+
+const insertTransactionLog = (employeeId, message) =>
+  new Promise((resolve) => {
+    if (!employeeId || !message) return resolve();
+
+    db.query(
+      "INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)",
+      [employeeId, message],
+      (err) => {
+        if (err) {
+          console.error("[leave] Failed to insert transaction log:", err.message);
+        }
+        resolve();
+      },
+    );
+  });
+
+const getEmployeeFullName = (employeeNumber) =>
+  new Promise((resolve) => {
+    if (!employeeNumber) return resolve("");
+
+    db.query(
+      `SELECT CONCAT_WS(' ', firstName, middleName, lastName, nameExtension) AS fullName
+       FROM person_table
+       WHERE agencyEmployeeNum = ?
+       LIMIT 1`,
+      [employeeNumber],
+      (err, rows) => {
+        if (err) {
+          console.error("[leave] Failed to fetch employee full name:", err.message);
+          return resolve("");
+        }
+        resolve((rows && rows[0] && rows[0].fullName) || "");
+      },
+    );
+  });
+
+const formatUserDisplayName = (employeeNumber, fullName) => {
+  const emp = employeeNumber ? String(employeeNumber) : "unknown";
+  const name = (fullName || "").trim();
+  return name ? `${name} (${emp})` : emp;
+};
+
+const buildLeaveTransactionMessage = ({
+  action,
+  actorDisplayName,
+  requesterDisplayName,
+  leaveCode,
+}) => {
+  if (!action) return null;
+
+  if (action === "request") {
+    return `${actorDisplayName} requested ${leaveCode}`;
+  }
+
+  if (action === "denied") {
+    return `${actorDisplayName} rejected ${requesterDisplayName}'s request for ${leaveCode}`;
+  }
+
+  if (action === "manager_approved") {
+    return `Immediate supervisor ${actorDisplayName} approve the request ${leaveCode} of ${requesterDisplayName}`;
+  }
+
+  if (action === "hr_approved") {
+    return `HR ${actorDisplayName} approve the request ${leaveCode} of ${requesterDisplayName}`;
+  }
+
+  if (action === "cancelled") {
+    return `${actorDisplayName} cancelled its requests ${leaveCode}`;
+  }
+
+  return null;
+};
+
+const statusToLeaveAction = (statusValue) => {
+  const s = Number(statusValue);
+  if (s === 1) return "manager_approved";
+  if (s === 2) return "hr_approved";
+  if (s === 3) return "denied";
+  if (s === 4) return "cancelled";
+  return null;
+};
 
 // ============================================
 // EMPLOYEES
@@ -469,6 +573,21 @@ router.get("/leave_request", (req, res) => {
   });
 });
 
+router.get("/leave_request/transactions", (req, res) => {
+  const query = `
+    SELECT *
+    FROM transaction_table
+    ORDER BY id DESC
+  `;
+  db.query(query, (err, results) => {
+    if (err) {
+      console.error("Error fetching all transaction logs:", err);
+      return res.status(500).json({ error: "Failed to fetch transaction logs" });
+    }
+    res.json(results);
+  });
+});
+
 router.get("/leave_request/:employeeNumber", (req, res) => {
   const query = `
     SELECT lr.*, lt.leave_description,
@@ -486,6 +605,22 @@ router.get("/leave_request/:employeeNumber", (req, res) => {
   });
 });
 
+router.get("/leave_request/transactions/:employeeNumber", (req, res) => {
+  const query = `
+    SELECT *
+    FROM transaction_table
+    WHERE employee_id = ?
+    ORDER BY id DESC
+  `;
+  db.query(query, [req.params.employeeNumber], (err, results) => {
+    if (err) {
+      console.error("Error fetching transaction logs:", err);
+      return res.status(500).json({ error: "Failed to fetch transaction logs" });
+    }
+    res.json(results);
+  });
+});
+
 // ============================================================
 // POST /leave_request
 //
@@ -499,6 +634,7 @@ router.get("/leave_request/:employeeNumber", (req, res) => {
 // ============================================================
 router.post("/leave_request", (req, res) => {
   const { employeeNumber, leave_code, leave_dates, status } = req.body;
+  const actorEmployeeNumber = getActorEmployeeNumber(req, employeeNumber);
   const dates = Array.isArray(leave_dates) ? leave_dates : [leave_dates];
 
   if (!dates.length)
@@ -559,7 +695,20 @@ router.post("/leave_request", (req, res) => {
     );
 
     Promise.all(insertPromises)
-      .then(() => {
+      .then(async () => {
+        const actorFullName = await getEmployeeFullName(actorEmployeeNumber);
+        const actorDisplayName = formatUserDisplayName(
+          actorEmployeeNumber,
+          actorFullName,
+        );
+        const requestMessage = buildLeaveTransactionMessage({
+          action: "request",
+          actorDisplayName,
+          requesterDisplayName: actorDisplayName,
+          leaveCode: leave_code,
+        });
+        await insertTransactionLog(actorEmployeeNumber, requestMessage);
+
         emitLeaveChange("leaveRequestChanged");
         res.json({
           message: "Leave requests created successfully",
@@ -594,6 +743,7 @@ router.post("/leave_request", (req, res) => {
 // ============================================================
 router.put("/leave_request/bulk-update", (req, res) => {
   const { ids, status } = req.body;
+  const actorEmployeeNumber = getActorEmployeeNumber(req);
   if (!Array.isArray(ids) || !ids.length)
     return res.status(400).json({ error: "ids must be a non-empty array" });
   const newStatus = Number(status);
@@ -654,11 +804,50 @@ router.put("/leave_request/bulk-update", (req, res) => {
 
           const processNext = (index) => {
             if (index >= operations.length) {
-              emitLeaveChange("leaveRequestChanged");
-              return res.json({
-                message: "Bulk update successful",
-                updated: requests.length,
-                newStatus,
+              const action = statusToLeaveAction(newStatus);
+              const transactionInsertsPromise = (async () => {
+                if (!action) return [];
+
+                const actorFullName =
+                  await getEmployeeFullName(actorEmployeeNumber);
+                const actorDisplayName = formatUserDisplayName(
+                  actorEmployeeNumber,
+                  actorFullName,
+                );
+
+                const nameCache = new Map();
+                const getRequesterDisplayName = async (empNo) => {
+                  const key = String(empNo || "");
+                  if (nameCache.has(key)) return nameCache.get(key);
+                  const fullName = await getEmployeeFullName(empNo);
+                  const display = formatUserDisplayName(empNo, fullName);
+                  nameCache.set(key, display);
+                  return display;
+                };
+
+                return Promise.all(
+                  requests.map(async (request) => {
+                    const requesterDisplayName = await getRequesterDisplayName(
+                      request.employeeNumber,
+                    );
+                    const message = buildLeaveTransactionMessage({
+                      action,
+                      actorDisplayName,
+                      requesterDisplayName,
+                      leaveCode: request.leave_code,
+                    });
+                    return insertTransactionLog(actorEmployeeNumber, message);
+                  }),
+                );
+              })();
+
+              return transactionInsertsPromise.finally(() => {
+                emitLeaveChange("leaveRequestChanged");
+                return res.json({
+                  message: "Bulk update successful",
+                  updated: requests.length,
+                  newStatus,
+                });
               });
             }
             const { employeeNumber, leave_code, deltaHours } =
@@ -704,11 +893,49 @@ router.put("/leave_request/bulk-update", (req, res) => {
           };
 
           if (!operations.length) {
-            emitLeaveChange("leaveRequestChanged");
-            return res.json({
-              message: "Bulk update successful",
-              updated: requests.length,
-              newStatus,
+            const action = statusToLeaveAction(newStatus);
+            const transactionInsertsPromise = (async () => {
+              if (!action) return [];
+
+              const actorFullName = await getEmployeeFullName(actorEmployeeNumber);
+              const actorDisplayName = formatUserDisplayName(
+                actorEmployeeNumber,
+                actorFullName,
+              );
+
+              const nameCache = new Map();
+              const getRequesterDisplayName = async (empNo) => {
+                const key = String(empNo || "");
+                if (nameCache.has(key)) return nameCache.get(key);
+                const fullName = await getEmployeeFullName(empNo);
+                const display = formatUserDisplayName(empNo, fullName);
+                nameCache.set(key, display);
+                return display;
+              };
+
+              return Promise.all(
+                requests.map(async (request) => {
+                  const requesterDisplayName = await getRequesterDisplayName(
+                    request.employeeNumber,
+                  );
+                  const message = buildLeaveTransactionMessage({
+                    action,
+                    actorDisplayName,
+                    requesterDisplayName,
+                    leaveCode: request.leave_code,
+                  });
+                  return insertTransactionLog(actorEmployeeNumber, message);
+                }),
+              );
+            })();
+
+            return transactionInsertsPromise.finally(() => {
+              emitLeaveChange("leaveRequestChanged");
+              return res.json({
+                message: "Bulk update successful",
+                updated: requests.length,
+                newStatus,
+              });
             });
           }
           processNext(0);
@@ -726,6 +953,7 @@ router.put("/leave_request/bulk-update", (req, res) => {
 router.put("/leave_request/:id", (req, res) => {
   const { id } = req.params;
   const { employeeNumber, leave_code, leave_date, status } = req.body;
+  const actorEmployeeNumber = getActorEmployeeNumber(req);
 
   db.query(
     "SELECT * FROM leave_request WHERE id = ?",
@@ -744,9 +972,31 @@ router.put("/leave_request/:id", (req, res) => {
         db.query(
           "UPDATE leave_request SET employeeNumber = ?, leave_code = ?, leave_date = ?, status = ? WHERE id = ?",
           [employeeNumber, leave_code, leave_date, newStatus, id],
-          (updateErr) => {
+          async (updateErr) => {
             if (updateErr)
               return res.status(500).json({ error: "Failed to update status" });
+
+            const action = statusToLeaveAction(newStatus);
+            if (action) {
+              const actorFullName = await getEmployeeFullName(actorEmployeeNumber);
+              const requesterFullName = await getEmployeeFullName(employeeNumber);
+              const actorDisplayName = formatUserDisplayName(
+                actorEmployeeNumber,
+                actorFullName,
+              );
+              const requesterDisplayName = formatUserDisplayName(
+                employeeNumber,
+                requesterFullName,
+              );
+              const message = buildLeaveTransactionMessage({
+                action,
+                actorDisplayName,
+                requesterDisplayName,
+                leaveCode: leave_code,
+              });
+              await insertTransactionLog(actorEmployeeNumber, message);
+            }
+
             emitLeaveChange("leaveRequestChanged");
             res.json({
               id,
