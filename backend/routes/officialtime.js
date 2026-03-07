@@ -60,17 +60,14 @@ function parseTimeToMinutes(val) {
   if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
   if (hh < 0 || hh > 12 || mm < 0 || mm > 59) return null;
 
-  // If AM/PM is provided, treat as 12-hour; otherwise treat as 24-hour-ish within 0-23.
   if (ap) {
     if (hh === 12) hh = 0;
     if (ap === 'PM') hh += 12;
   } else {
-    // no AM/PM → allow 0..23
     if (hh > 23) return null;
   }
 
   const minutes = hh * 60 + mm;
-  // Treat midnight as "empty" for this system's defaults
   if (minutes === 0) return null;
   return minutes;
 }
@@ -80,7 +77,6 @@ function getSegmentsForDayRow(row) {
   const segments = [];
   const add = (label, start, end) => {
     if (start == null || end == null) return;
-    // Allow overnight is NOT supported in this system; require start < end
     if (!(start < end)) return;
     segments.push({ label, start, end });
   };
@@ -90,7 +86,6 @@ function getSegmentsForDayRow(row) {
   const bi = parseTimeToMinutes(row.officialBreaktimeIN);
   const bo = parseTimeToMinutes(row.officialBreaktimeOUT);
 
-  // Work day: Time In → Break In, Break Out → Time Out (or Time In → Time Out if no break)
   if (ti != null && to != null) {
     if (bi != null && bo != null) {
       add('Work time (Time In → Break In)', ti, bi);
@@ -120,7 +115,6 @@ function getSegmentsForDayRow(row) {
 }
 
 function findOverlapInSegments(segments) {
-  // Overlap in half-open intervals [a,b): a < d && c < b
   for (let i = 0; i < segments.length; i++) {
     for (let j = i + 1; j < segments.length; j++) {
       const a = segments[i];
@@ -172,23 +166,26 @@ function buildTimeOverlapPayload({ day, employeeID, segA, segB }) {
   };
 }
 
-// GET school year activator info for an employee (optional; returns empty when no record)
+// ─────────────────────────────────────────────────────────────────────────────
+// SCHOOL YEAR ACTIVATOR (stubs — no dedicated table)
+// ─────────────────────────────────────────────────────────────────────────────
+
 router.get(
   '/officialtime/school-year/:empId',
   authenticateToken,
   (req, res) => {
-    const { empId } = req.params;
-    // No dedicated table for school-year activator; return empty so frontend uses defaults
     res.status(200).json(null);
   },
 );
 
-// POST school year activator info (optional; no-op when no table)
 router.post('/officialtime/school-year', authenticateToken, (req, res) => {
   res.status(200).json({ message: 'OK' });
 });
 
-// GET official time table by employeeID (optional ?date= or ?startDate=&endDate= to filter by version)
+// ─────────────────────────────────────────────────────────────────────────────
+// GET official time table by employeeID
+// ─────────────────────────────────────────────────────────────────────────────
+
 router.get('/officialtimetable/:employeeID', authenticateToken, (req, res) => {
   const { employeeID } = req.params;
   const { date, startDate, endDate } = req.query;
@@ -214,7 +211,7 @@ router.get('/officialtimetable/:employeeID', authenticateToken, (req, res) => {
     } catch (e) {
       console.error('Audit log error:', e);
     }
-    // Send startDate/endDate as YYYY-MM-DD so frontend matches DB (no UTC -1 day)
+
     const out = (results || []).map((row) => ({
       ...row,
       startDate: toDateOnlyString(row.startDate),
@@ -224,7 +221,11 @@ router.get('/officialtimetable/:employeeID', authenticateToken, (req, res) => {
   });
 });
 
-// POST official time table (insert-only; overlap check is done on the frontend)
+// ─────────────────────────────────────────────────────────────────────────────
+// POST official time table (insert new schedule version)
+// FIX: added server-side overlap check that was previously missing
+// ─────────────────────────────────────────────────────────────────────────────
+
 router.post('/officialtimetable', authenticateToken, async (req, res) => {
   const { employeeID, academicYear, startDate, endDate, status, records } =
     req.body || {};
@@ -251,12 +252,23 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
     return res.status(400).json({ message: 'No records to insert.' });
   }
 
+  // FIX: Server-side overlap check (frontend check can be bypassed)
+  try {
+    const overlaps = await hasOverlappingRange(db, employeeID, startDate, endDate);
+    if (overlaps) {
+      return res.status(409).json({
+        message: `This date range (${startDate}–${endDate}) overlaps an existing schedule for employee ${employeeID}. Choose different dates.`,
+      });
+    }
+  } catch (err) {
+    return res.status(500).json({ error: 'Overlap check failed: ' + err.message });
+  }
+
   const academicYearVal =
     academicYear != null && String(academicYear).trim() !== ''
       ? String(academicYear).trim()
       : null;
 
-  // New schedule is always active; existing schedules for this employee become inactive
   const newStatus = 'active';
   const values = records.map((r) => [
     employeeID,
@@ -290,7 +302,6 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
   `;
 
   try {
-    // Mark all existing official time rows for this employee as inactive before adding the new schedule
     await new Promise((resolve, reject) => {
       db.query(
         "UPDATE officialtime SET status = 'inactive' WHERE employeeID = ?",
@@ -348,377 +359,12 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
   }
 });
 
-// EXCEL UPLOAD FOR OFFICIAL TIME
-router.post(
-  '/upload-excel-faculty-official-time',
-  upload.single('file'),
-  async (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded.' });
-    }
+// ─────────────────────────────────────────────────────────────────────────────
+// EXCEL UPLOAD — VALIDATE FIRST (must be registered BEFORE the base upload route)
+// FIX: moved /validate route above the base /upload route to prevent Express
+//      from matching the base route first and never reaching /validate
+// ─────────────────────────────────────────────────────────────────────────────
 
-    try {
-      const workbook = xlsx.readFile(req.file.path);
-      const sheetName = workbook.SheetNames[0];
-      const sheet = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], {
-        defval: null,
-        raw: false,
-      });
-
-      if (!sheet.length) {
-        return res.status(400).json({ message: 'Excel file is empty.' });
-      }
-
-      const cleanedSheet = sheet.map((row) => {
-        const normalized = {};
-        for (const key in row) {
-          const cleanKey = key
-            .replace(/\u00A0/g, '')
-            .trim()
-            .toLowerCase();
-          normalized[cleanKey] = row[key];
-        }
-        return normalized;
-      });
-
-      const getField = (r, names) => {
-        for (const n of names) {
-          if (r[n] != null) return r[n];
-        }
-        return null;
-      };
-
-      // Normalize date to YYYY-MM-DD
-      const normDate = (val) => {
-        if (val == null || val === '') return null;
-        const s = String(val).trim();
-        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-        const d = new Date(val);
-        if (Number.isNaN(d.getTime())) return null;
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const dayNum = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${dayNum}`;
-      };
-
-      // Group rows by (employeeID, effective_from, effective_until); require date range
-      const groupKey = (empId, from, to) => `${String(empId)}|${from}|${to}`;
-      const groups = new Map();
-
-      for (const r of cleanedSheet) {
-        const employeeID = getField(r, [
-          'employeeid',
-          'employeenumber',
-          'employee number',
-          'employee_id',
-        ]);
-        const day = getField(r, ['day', 'weekday']);
-        const effectiveFrom = normDate(
-          getField(r, [
-            'effective_from',
-            'effective from',
-            'startdate',
-            'start date',
-          ]),
-        );
-        const effectiveUntil = normDate(
-          getField(r, [
-            'effective_until',
-            'effective until',
-            'enddate',
-            'end date',
-          ]),
-        );
-
-        if (!employeeID || !day) continue;
-        if (!effectiveFrom || !effectiveUntil) continue; // require date range for versioned upload
-        if (effectiveFrom > effectiveUntil) continue;
-
-        const officialTimeIN = getField(r, [
-          'officialtimein',
-          'time in',
-          'timein',
-        ]);
-        const officialBreaktimeIN = getField(r, [
-          'officialbreaktimein',
-          'break in',
-          'breakin',
-        ]);
-        const officialBreaktimeOUT = getField(r, [
-          'officialbreaktimeout',
-          'break out',
-          'breakout',
-        ]);
-        const officialTimeOUT = getField(r, [
-          'officialtimeout',
-          'time out',
-          'timeout',
-        ]);
-        const officialHonorariumTimeIN = getField(r, [
-          'officialhonorariumtimein',
-          'honorarium time in',
-          'honorariumtimein',
-        ]);
-        const officialHonorariumTimeOUT = getField(r, [
-          'officialhonorariumtimeout',
-          'honorarium time out',
-          'honorariumtimeout',
-        ]);
-        const officialServiceCreditTimeIN = getField(r, [
-          'officialservicecredittimein',
-          'service credit time in',
-          'servicecredittimein',
-        ]);
-        const officialServiceCreditTimeOUT = getField(r, [
-          'officialservicecredittimeout',
-          'service credit time out',
-          'servicecredittimeout',
-        ]);
-        const officialOverTimeIN = getField(r, [
-          'officialovertimein',
-          'overtime in',
-          'ot in',
-          'overtimein',
-        ]);
-        const officialOverTimeOUT = getField(r, [
-          'officialovertimeout',
-          'overtime out',
-          'ot out',
-          'overtimeout',
-        ]);
-        const breaktime = getField(r, ['breaktime', 'break time']);
-
-        const key = groupKey(employeeID, effectiveFrom, effectiveUntil);
-        if (!groups.has(key)) {
-          const academicYearVal = (() => {
-            const academicYearCol = getField(r, [
-              'academic year',
-              'academicyear',
-            ]);
-            const semesterCol = getField(r, ['semester']);
-            const yearRaw = getField(r, ['year']);
-            const sem =
-              semesterCol != null && String(semesterCol).trim() !== ''
-                ? String(semesterCol).trim()
-                : '';
-            if (
-              academicYearCol != null &&
-              String(academicYearCol).trim() !== ''
-            ) {
-              const s = String(academicYearCol).trim();
-              if (sem) return `${s} ${sem}`.trim();
-              return s;
-            }
-            if (yearRaw != null && String(yearRaw).trim() !== '') {
-              const y = Number(String(yearRaw).trim());
-              if (Number.isFinite(y))
-                return sem ? `${y}-${y + 1} ${sem}`.trim() : `${y}-${y + 1}`;
-            }
-            return sem || null;
-          })();
-          groups.set(key, {
-            employeeID,
-            startDate: effectiveFrom,
-            endDate: effectiveUntil,
-            academicYear: academicYearVal,
-            rows: [],
-          });
-        }
-        const g = groups.get(key);
-        g.rows.push({
-          day,
-          officialTimeIN: officialTimeIN || '00:00:00 AM',
-          officialBreaktimeIN: officialBreaktimeIN || '00:00:00 AM',
-          officialBreaktimeOUT: officialBreaktimeOUT || '00:00:00 AM',
-          officialTimeOUT: officialTimeOUT || '00:00:00 AM',
-          officialHonorariumTimeIN: officialHonorariumTimeIN || '00:00:00 AM',
-          officialHonorariumTimeOUT: officialHonorariumTimeOUT || '00:00:00 AM',
-          officialServiceCreditTimeIN:
-            officialServiceCreditTimeIN || '00:00:00 AM',
-          officialServiceCreditTimeOUT:
-            officialServiceCreditTimeOUT || '00:00:00 AM',
-          officialOverTimeIN: officialOverTimeIN || '00:00:00 AM',
-          officialOverTimeOUT: officialOverTimeOUT || '00:00:00 AM',
-          breaktime: breaktime != null ? breaktime : null,
-        });
-      }
-
-      const scheduleList = Array.from(groups.values()).filter(
-        (g) => g.rows.length > 0,
-      );
-      if (scheduleList.length === 0) {
-        fs.unlink(req.file.path, () => {});
-        return res.status(400).json({
-          message:
-            'No valid schedule blocks found. Ensure each row has employeeID, day, effective_from, and effective_until.',
-        });
-      }
-
-      // Content validation: detect time overlaps within each day (Work vs Honorarium/Service Credits/Overtime)
-      for (const s of scheduleList) {
-        for (const row of s.rows) {
-          const segments = getSegmentsForDayRow(row);
-          const overlap = findOverlapInSegments(segments);
-          if (overlap) {
-            fs.unlink(req.file.path, () => {});
-            return res.status(400).json({
-              message: formatTimeOverlapMessage({
-                day: row.day,
-                employeeID: s.employeeID,
-                segA: overlap.a,
-                segB: overlap.b,
-              }),
-              overlap: buildTimeOverlapPayload({
-                day: row.day,
-                employeeID: s.employeeID,
-                segA: overlap.a,
-                segB: overlap.b,
-              }),
-            });
-          }
-        }
-      }
-
-      // Overlap check: two ranges [a1,a2] and [b1,b2] overlap iff a1 < b2 && b1 < a2
-      const rangesOverlap = (a1, a2, b1, b2) => a1 < b2 && b1 < a2;
-
-      // Within-file: per employee, check that no two schedule blocks overlap
-      const uniqueEmpIds = [
-        ...new Set(scheduleList.map((s) => String(s.employeeID))),
-      ];
-      for (const empId of uniqueEmpIds) {
-        const list = scheduleList.filter((s) => String(s.employeeID) === empId);
-        for (let i = 0; i < list.length; i++) {
-          for (let j = i + 1; j < list.length; j++) {
-            if (
-              rangesOverlap(
-                list[i].startDate,
-                list[i].endDate,
-                list[j].startDate,
-                list[j].endDate,
-              )
-            ) {
-              fs.unlink(req.file.path, () => {});
-              return res.status(400).json({
-                message: `Overlapping schedule in file for employee ${list[i].employeeID}: ${list[i].startDate}–${list[i].endDate} overlaps ${list[j].startDate}–${list[j].endDate}. Please remove or adjust one of the ranges.`,
-              });
-            }
-          }
-        }
-      }
-
-      // DB overlap: for each schedule, check existing officialtime for same employee
-      for (const s of scheduleList) {
-        const overlaps = await hasOverlappingRange(
-          db,
-          s.employeeID,
-          s.startDate,
-          s.endDate,
-        );
-        if (overlaps) {
-          fs.unlink(req.file.path, () => {});
-          return res.status(400).json({
-            message: `Upload would overlap an existing schedule for employee ${s.employeeID} (${s.startDate}–${s.endDate}). Please use a different date range or deactivate the existing schedule first.`,
-          });
-        }
-      }
-
-      let insertedCount = 0;
-      const processedRecords = [];
-
-      for (const s of scheduleList) {
-        // Mark all existing official time for this employee as inactive
-        await new Promise((resolve, reject) => {
-          db.query(
-            "UPDATE officialtime SET status = 'inactive' WHERE employeeID = ?",
-            [s.employeeID],
-            (err, result) => {
-              if (err) return reject(err);
-              resolve(result);
-            },
-          );
-        });
-
-        const values = s.rows.map((row) => [
-          s.employeeID,
-          s.academicYear,
-          s.startDate,
-          s.endDate,
-          row.day ?? null,
-          row.officialTimeIN ?? null,
-          row.officialBreaktimeIN ?? null,
-          row.officialBreaktimeOUT ?? null,
-          row.officialTimeOUT ?? null,
-          row.officialHonorariumTimeIN ?? null,
-          row.officialHonorariumTimeOUT ?? null,
-          row.officialServiceCreditTimeIN ?? null,
-          row.officialServiceCreditTimeOUT ?? null,
-          row.officialOverTimeIN ?? null,
-          row.officialOverTimeOUT ?? null,
-          'active', // status: always active on upload (not read from Excel)
-          row.breaktime ?? null,
-        ]);
-
-        const insertSql = `
-          INSERT INTO officialtime (
-            employeeID, academicYear, startDate, endDate, day,
-            officialTimeIN, officialBreaktimeIN, officialBreaktimeOUT, officialTimeOUT,
-            officialHonorariumTimeIN, officialHonorariumTimeOUT,
-            officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
-            officialOverTimeIN, officialOverTimeOUT, status, breaktime
-          ) VALUES ?
-        `;
-        const [result] = await db.promise().query(insertSql, [values]);
-        insertedCount += result.affectedRows || 0;
-
-        for (const row of s.rows) {
-          processedRecords.push({
-            employeeID: s.employeeID,
-            academicYear: s.academicYear,
-            startDate: s.startDate,
-            endDate: s.endDate,
-            day: row.day,
-            status: 'active',
-            officialTimeIN: row.officialTimeIN,
-            officialBreaktimeIN: row.officialBreaktimeIN,
-            officialBreaktimeOUT: row.officialBreaktimeOUT,
-            officialTimeOUT: row.officialTimeOUT,
-            officialHonorariumTimeIN: row.officialHonorariumTimeIN,
-            officialHonorariumTimeOUT: row.officialHonorariumTimeOUT,
-            officialServiceCreditTimeIN: row.officialServiceCreditTimeIN,
-            officialServiceCreditTimeOUT: row.officialServiceCreditTimeOUT,
-            officialOverTimeIN: row.officialOverTimeIN,
-            officialOverTimeOUT: row.officialOverTimeOUT,
-          });
-        }
-      }
-
-      fs.unlink(req.file.path, (err) => {
-        if (err) console.error('Error deleting uploaded file:', err);
-      });
-
-      if (!insertedCount) {
-        return res.status(400).json({
-          message:
-            'Upload parsed successfully but no records were inserted. Please check the Excel contents (required columns and date range) and try again.',
-        });
-      }
-
-      res.json({
-        message:
-          'Upload complete. New schedules are set to Active; status is not read from the file.',
-        inserted: insertedCount,
-        updated: 0,
-        records: processedRecords,
-      });
-    } catch (error) {
-      console.error('Error processing Excel file:', error);
-      res.status(500).json({ message: 'Error processing Excel file.' });
-    }
-  },
-);
-
-// EXCEL VALIDATION ONLY (no DB insert) - used by frontend to block uploads on overlap/invalid contents
 router.post(
   '/upload-excel-faculty-official-time/validate',
   upload.single('file'),
@@ -759,7 +405,6 @@ router.post(
         return null;
       };
 
-      // Normalize date to YYYY-MM-DD
       const normDate = (val) => {
         if (val == null || val === '') return null;
         const s = String(val).trim();
@@ -804,85 +449,33 @@ router.post(
         if (!effectiveFrom || !effectiveUntil) continue;
         if (effectiveFrom > effectiveUntil) continue;
 
-        const officialTimeIN = getField(r, [
-          'officialtimein',
-          'time in',
-          'timein',
-        ]);
-        const officialBreaktimeIN = getField(r, [
-          'officialbreaktimein',
-          'break in',
-          'breakin',
-        ]);
-        const officialBreaktimeOUT = getField(r, [
-          'officialbreaktimeout',
-          'break out',
-          'breakout',
-        ]);
-        const officialTimeOUT = getField(r, [
-          'officialtimeout',
-          'time out',
-          'timeout',
-        ]);
-        const officialHonorariumTimeIN = getField(r, [
-          'officialhonorariumtimein',
-          'honorarium time in',
-          'honorariumtimein',
-        ]);
-        const officialHonorariumTimeOUT = getField(r, [
-          'officialhonorariumtimeout',
-          'honorarium time out',
-          'honorariumtimeout',
-        ]);
-        const officialServiceCreditTimeIN = getField(r, [
-          'officialservicecredittimein',
-          'service credit time in',
-          'servicecredittimein',
-        ]);
-        const officialServiceCreditTimeOUT = getField(r, [
-          'officialservicecredittimeout',
-          'service credit time out',
-          'servicecredittimeout',
-        ]);
-        const officialOverTimeIN = getField(r, [
-          'officialovertimein',
-          'overtime in',
-          'ot in',
-          'overtimein',
-        ]);
-        const officialOverTimeOUT = getField(r, [
-          'officialovertimeout',
-          'overtime out',
-          'ot out',
-          'overtimeout',
-        ]);
+        const officialTimeIN = getField(r, ['officialtimein', 'time in', 'timein']);
+        const officialBreaktimeIN = getField(r, ['officialbreaktimein', 'break in', 'breakin']);
+        const officialBreaktimeOUT = getField(r, ['officialbreaktimeout', 'break out', 'breakout']);
+        const officialTimeOUT = getField(r, ['officialtimeout', 'time out', 'timeout']);
+        const officialHonorariumTimeIN = getField(r, ['officialhonorariumtimein', 'honorarium time in', 'honorariumtimein']);
+        const officialHonorariumTimeOUT = getField(r, ['officialhonorariumtimeout', 'honorarium time out', 'honorariumtimeout']);
+        const officialServiceCreditTimeIN = getField(r, ['officialservicecredittimein', 'service credit time in', 'servicecredittimein']);
+        const officialServiceCreditTimeOUT = getField(r, ['officialservicecredittimeout', 'service credit time out', 'servicecredittimeout']);
+        const officialOverTimeIN = getField(r, ['officialovertimein', 'overtime in', 'ot in', 'overtimein']);
+        const officialOverTimeOUT = getField(r, ['officialovertimeout', 'overtime out', 'ot out', 'overtimeout']);
         const breaktime = getField(r, ['breaktime', 'break time']);
 
         const key = groupKey(employeeID, effectiveFrom, effectiveUntil);
         if (!groups.has(key)) {
           const academicYearVal = (() => {
-            const academicYearCol = getField(r, [
-              'academic year',
-              'academicyear',
-            ]);
+            const academicYearCol = getField(r, ['academic year', 'academicyear']);
             const semesterCol = getField(r, ['semester']);
             const yearRaw = getField(r, ['year']);
-            const sem =
-              semesterCol != null && String(semesterCol).trim() !== ''
-                ? String(semesterCol).trim()
-                : '';
-            if (
-              academicYearCol != null &&
-              String(academicYearCol).trim() !== ''
-            ) {
+            const sem = semesterCol != null && String(semesterCol).trim() !== '' ? String(semesterCol).trim() : '';
+            if (academicYearCol != null && String(academicYearCol).trim() !== '') {
               const s = String(academicYearCol).trim();
               if (sem) return `${s} ${sem}`.trim();
               return s;
             }
             if (yearRaw != null && String(yearRaw).trim() !== '') {
               const y = Number(String(yearRaw).trim());
-              if (Number.isFinite(y))
-                return sem ? `${y}-${y + 1} ${sem}`.trim() : `${y}-${y + 1}`;
+              if (Number.isFinite(y)) return sem ? `${y}-${y + 1} ${sem}`.trim() : `${y}-${y + 1}`;
             }
             return sem || null;
           })();
@@ -903,24 +496,19 @@ router.post(
           officialTimeOUT: officialTimeOUT || '00:00:00 AM',
           officialHonorariumTimeIN: officialHonorariumTimeIN || '00:00:00 AM',
           officialHonorariumTimeOUT: officialHonorariumTimeOUT || '00:00:00 AM',
-          officialServiceCreditTimeIN:
-            officialServiceCreditTimeIN || '00:00:00 AM',
-          officialServiceCreditTimeOUT:
-            officialServiceCreditTimeOUT || '00:00:00 AM',
+          officialServiceCreditTimeIN: officialServiceCreditTimeIN || '00:00:00 AM',
+          officialServiceCreditTimeOUT: officialServiceCreditTimeOUT || '00:00:00 AM',
           officialOverTimeIN: officialOverTimeIN || '00:00:00 AM',
           officialOverTimeOUT: officialOverTimeOUT || '00:00:00 AM',
           breaktime: breaktime != null ? breaktime : null,
         });
       }
 
-      const scheduleList = Array.from(groups.values()).filter(
-        (g) => g.rows.length > 0,
-      );
+      const scheduleList = Array.from(groups.values()).filter((g) => g.rows.length > 0);
       if (scheduleList.length === 0) {
         fs.unlink(req.file.path, () => {});
         return res.status(400).json({
-          message:
-            'No valid schedule blocks found. Ensure each row has employeeID, day, effective_from, and effective_until.',
+          message: 'No valid schedule blocks found. Ensure each row has employeeID, day, effective_from, and effective_until.',
         });
       }
 
@@ -932,18 +520,8 @@ router.post(
           if (overlap) {
             fs.unlink(req.file.path, () => {});
             return res.status(400).json({
-              message: formatTimeOverlapMessage({
-                day: row.day,
-                employeeID: s.employeeID,
-                segA: overlap.a,
-                segB: overlap.b,
-              }),
-              overlap: buildTimeOverlapPayload({
-                day: row.day,
-                employeeID: s.employeeID,
-                segA: overlap.a,
-                segB: overlap.b,
-              }),
+              message: formatTimeOverlapMessage({ day: row.day, employeeID: s.employeeID, segA: overlap.a, segB: overlap.b }),
+              overlap: buildTimeOverlapPayload({ day: row.day, employeeID: s.employeeID, segA: overlap.a, segB: overlap.b }),
             });
           }
         }
@@ -951,21 +529,12 @@ router.post(
 
       // Within-file date-range overlap
       const rangesOverlap = (a1, a2, b1, b2) => a1 < b2 && b1 < a2;
-      const uniqueEmpIds = [
-        ...new Set(scheduleList.map((s) => String(s.employeeID))),
-      ];
+      const uniqueEmpIds = [...new Set(scheduleList.map((s) => String(s.employeeID)))];
       for (const empId of uniqueEmpIds) {
         const list = scheduleList.filter((s) => String(s.employeeID) === empId);
         for (let i = 0; i < list.length; i++) {
           for (let j = i + 1; j < list.length; j++) {
-            if (
-              rangesOverlap(
-                list[i].startDate,
-                list[i].endDate,
-                list[j].startDate,
-                list[j].endDate,
-              )
-            ) {
+            if (rangesOverlap(list[i].startDate, list[i].endDate, list[j].startDate, list[j].endDate)) {
               fs.unlink(req.file.path, () => {});
               return res.status(400).json({
                 message: `Overlapping schedule in file for employee ${list[i].employeeID}: ${list[i].startDate}–${list[i].endDate} overlaps ${list[j].startDate}–${list[j].endDate}. Please remove or adjust one of the ranges.`,
@@ -977,12 +546,7 @@ router.post(
 
       // DB date-range overlap
       for (const s of scheduleList) {
-        const overlaps = await hasOverlappingRange(
-          db,
-          s.employeeID,
-          s.startDate,
-          s.endDate,
-        );
+        const overlaps = await hasOverlappingRange(db, s.employeeID, s.startDate, s.endDate);
         if (overlaps) {
           fs.unlink(req.file.path, () => {});
           return res.status(400).json({
@@ -1010,7 +574,280 @@ router.post(
   },
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// EXCEL UPLOAD — ACTUAL INSERT
+// NOTE: must remain AFTER the /validate route above
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post(
+  '/upload-excel-faculty-official-time',
+  upload.single('file'),
+  async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded.' });
+    }
+
+    try {
+      const workbook = xlsx.readFile(req.file.path);
+      const sheetName = workbook.SheetNames[0];
+      const sheet = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], {
+        defval: null,
+        raw: false,
+      });
+
+      if (!sheet.length) {
+        return res.status(400).json({ message: 'Excel file is empty.' });
+      }
+
+      const cleanedSheet = sheet.map((row) => {
+        const normalized = {};
+        for (const key in row) {
+          const cleanKey = key
+            .replace(/\u00A0/g, '')
+            .trim()
+            .toLowerCase();
+          normalized[cleanKey] = row[key];
+        }
+        return normalized;
+      });
+
+      const getField = (r, names) => {
+        for (const n of names) {
+          if (r[n] != null) return r[n];
+        }
+        return null;
+      };
+
+      const normDate = (val) => {
+        if (val == null || val === '') return null;
+        const s = String(val).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+        const d = new Date(val);
+        if (Number.isNaN(d.getTime())) return null;
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const dayNum = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${dayNum}`;
+      };
+
+      const groupKey = (empId, from, to) => `${String(empId)}|${from}|${to}`;
+      const groups = new Map();
+
+      for (const r of cleanedSheet) {
+        const employeeID = getField(r, ['employeeid', 'employeenumber', 'employee number', 'employee_id']);
+        const day = getField(r, ['day', 'weekday']);
+        const effectiveFrom = normDate(getField(r, ['effective_from', 'effective from', 'startdate', 'start date']));
+        const effectiveUntil = normDate(getField(r, ['effective_until', 'effective until', 'enddate', 'end date']));
+
+        if (!employeeID || !day) continue;
+        if (!effectiveFrom || !effectiveUntil) continue;
+        if (effectiveFrom > effectiveUntil) continue;
+
+        const officialTimeIN = getField(r, ['officialtimein', 'time in', 'timein']);
+        const officialBreaktimeIN = getField(r, ['officialbreaktimein', 'break in', 'breakin']);
+        const officialBreaktimeOUT = getField(r, ['officialbreaktimeout', 'break out', 'breakout']);
+        const officialTimeOUT = getField(r, ['officialtimeout', 'time out', 'timeout']);
+        const officialHonorariumTimeIN = getField(r, ['officialhonorariumtimein', 'honorarium time in', 'honorariumtimein']);
+        const officialHonorariumTimeOUT = getField(r, ['officialhonorariumtimeout', 'honorarium time out', 'honorariumtimeout']);
+        const officialServiceCreditTimeIN = getField(r, ['officialservicecredittimein', 'service credit time in', 'servicecredittimein']);
+        const officialServiceCreditTimeOUT = getField(r, ['officialservicecredittimeout', 'service credit time out', 'servicecredittimeout']);
+        const officialOverTimeIN = getField(r, ['officialovertimein', 'overtime in', 'ot in', 'overtimein']);
+        const officialOverTimeOUT = getField(r, ['officialovertimeout', 'overtime out', 'ot out', 'overtimeout']);
+        const breaktime = getField(r, ['breaktime', 'break time']);
+
+        const key = groupKey(employeeID, effectiveFrom, effectiveUntil);
+        if (!groups.has(key)) {
+          const academicYearVal = (() => {
+            const academicYearCol = getField(r, ['academic year', 'academicyear']);
+            const semesterCol = getField(r, ['semester']);
+            const yearRaw = getField(r, ['year']);
+            const sem = semesterCol != null && String(semesterCol).trim() !== '' ? String(semesterCol).trim() : '';
+            if (academicYearCol != null && String(academicYearCol).trim() !== '') {
+              const s = String(academicYearCol).trim();
+              if (sem) return `${s} ${sem}`.trim();
+              return s;
+            }
+            if (yearRaw != null && String(yearRaw).trim() !== '') {
+              const y = Number(String(yearRaw).trim());
+              if (Number.isFinite(y)) return sem ? `${y}-${y + 1} ${sem}`.trim() : `${y}-${y + 1}`;
+            }
+            return sem || null;
+          })();
+          groups.set(key, {
+            employeeID,
+            startDate: effectiveFrom,
+            endDate: effectiveUntil,
+            academicYear: academicYearVal,
+            rows: [],
+          });
+        }
+        const g = groups.get(key);
+        g.rows.push({
+          day,
+          officialTimeIN: officialTimeIN || '00:00:00 AM',
+          officialBreaktimeIN: officialBreaktimeIN || '00:00:00 AM',
+          officialBreaktimeOUT: officialBreaktimeOUT || '00:00:00 AM',
+          officialTimeOUT: officialTimeOUT || '00:00:00 AM',
+          officialHonorariumTimeIN: officialHonorariumTimeIN || '00:00:00 AM',
+          officialHonorariumTimeOUT: officialHonorariumTimeOUT || '00:00:00 AM',
+          officialServiceCreditTimeIN: officialServiceCreditTimeIN || '00:00:00 AM',
+          officialServiceCreditTimeOUT: officialServiceCreditTimeOUT || '00:00:00 AM',
+          officialOverTimeIN: officialOverTimeIN || '00:00:00 AM',
+          officialOverTimeOUT: officialOverTimeOUT || '00:00:00 AM',
+          breaktime: breaktime != null ? breaktime : null,
+        });
+      }
+
+      const scheduleList = Array.from(groups.values()).filter((g) => g.rows.length > 0);
+      if (scheduleList.length === 0) {
+        fs.unlink(req.file.path, () => {});
+        return res.status(400).json({
+          message: 'No valid schedule blocks found. Ensure each row has employeeID, day, effective_from, and effective_until.',
+        });
+      }
+
+      // Content validation: detect time overlaps
+      for (const s of scheduleList) {
+        for (const row of s.rows) {
+          const segments = getSegmentsForDayRow(row);
+          const overlap = findOverlapInSegments(segments);
+          if (overlap) {
+            fs.unlink(req.file.path, () => {});
+            return res.status(400).json({
+              message: formatTimeOverlapMessage({ day: row.day, employeeID: s.employeeID, segA: overlap.a, segB: overlap.b }),
+              overlap: buildTimeOverlapPayload({ day: row.day, employeeID: s.employeeID, segA: overlap.a, segB: overlap.b }),
+            });
+          }
+        }
+      }
+
+      const rangesOverlap = (a1, a2, b1, b2) => a1 < b2 && b1 < a2;
+
+      // Within-file overlap check
+      const uniqueEmpIds = [...new Set(scheduleList.map((s) => String(s.employeeID)))];
+      for (const empId of uniqueEmpIds) {
+        const list = scheduleList.filter((s) => String(s.employeeID) === empId);
+        for (let i = 0; i < list.length; i++) {
+          for (let j = i + 1; j < list.length; j++) {
+            if (rangesOverlap(list[i].startDate, list[i].endDate, list[j].startDate, list[j].endDate)) {
+              fs.unlink(req.file.path, () => {});
+              return res.status(400).json({
+                message: `Overlapping schedule in file for employee ${list[i].employeeID}: ${list[i].startDate}–${list[i].endDate} overlaps ${list[j].startDate}–${list[j].endDate}. Please remove or adjust one of the ranges.`,
+              });
+            }
+          }
+        }
+      }
+
+      // DB overlap check
+      for (const s of scheduleList) {
+        const overlaps = await hasOverlappingRange(db, s.employeeID, s.startDate, s.endDate);
+        if (overlaps) {
+          fs.unlink(req.file.path, () => {});
+          return res.status(400).json({
+            message: `Upload would overlap an existing schedule for employee ${s.employeeID} (${s.startDate}–${s.endDate}). Please use a different date range or deactivate the existing schedule first.`,
+          });
+        }
+      }
+
+      let insertedCount = 0;
+      const processedRecords = [];
+
+      for (const s of scheduleList) {
+        await new Promise((resolve, reject) => {
+          db.query(
+            "UPDATE officialtime SET status = 'inactive' WHERE employeeID = ?",
+            [s.employeeID],
+            (err, result) => {
+              if (err) return reject(err);
+              resolve(result);
+            },
+          );
+        });
+
+        const values = s.rows.map((row) => [
+          s.employeeID,
+          s.academicYear,
+          s.startDate,
+          s.endDate,
+          row.day ?? null,
+          row.officialTimeIN ?? null,
+          row.officialBreaktimeIN ?? null,
+          row.officialBreaktimeOUT ?? null,
+          row.officialTimeOUT ?? null,
+          row.officialHonorariumTimeIN ?? null,
+          row.officialHonorariumTimeOUT ?? null,
+          row.officialServiceCreditTimeIN ?? null,
+          row.officialServiceCreditTimeOUT ?? null,
+          row.officialOverTimeIN ?? null,
+          row.officialOverTimeOUT ?? null,
+          'active',
+          row.breaktime ?? null,
+        ]);
+
+        const insertSql = `
+          INSERT INTO officialtime (
+            employeeID, academicYear, startDate, endDate, day,
+            officialTimeIN, officialBreaktimeIN, officialBreaktimeOUT, officialTimeOUT,
+            officialHonorariumTimeIN, officialHonorariumTimeOUT,
+            officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
+            officialOverTimeIN, officialOverTimeOUT, status, breaktime
+          ) VALUES ?
+        `;
+        const [result] = await db.promise().query(insertSql, [values]);
+        insertedCount += result.affectedRows || 0;
+
+        for (const row of s.rows) {
+          processedRecords.push({
+            employeeID: s.employeeID,
+            academicYear: s.academicYear,
+            startDate: s.startDate,
+            endDate: s.endDate,
+            day: row.day,
+            status: 'active',
+            officialTimeIN: row.officialTimeIN,
+            officialBreaktimeIN: row.officialBreaktimeIN,
+            officialBreaktimeOUT: row.officialBreaktimeOUT,
+            officialTimeOUT: row.officialTimeOUT,
+            officialHonorariumTimeIN: row.officialHonorariumTimeIN,
+            officialHonorariumTimeOUT: row.officialHonorariumTimeOUT,
+            officialServiceCreditTimeIN: row.officialServiceCreditTimeIN,
+            officialServiceCreditTimeOUT: row.officialServiceCreditTimeOUT,
+            officialOverTimeIN: row.officialOverTimeIN,
+            officialOverTimeOUT: row.officialOverTimeOUT,
+          });
+        }
+      }
+
+      fs.unlink(req.file.path, (err) => {
+        if (err) console.error('Error deleting uploaded file:', err);
+      });
+
+      if (!insertedCount) {
+        return res.status(400).json({
+          message: 'Upload parsed successfully but no records were inserted. Please check the Excel contents and try again.',
+        });
+      }
+
+      res.json({
+        message: 'Upload complete. New schedules are set to Active; status is not read from the file.',
+        inserted: insertedCount,
+        updated: 0,
+        records: processedRecords,
+      });
+    } catch (error) {
+      console.error('Error processing Excel file:', error);
+      res.status(500).json({ message: 'Error processing Excel file.' });
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET all users with their official time status
+// FIX: rewrote SQL to guarantee one row per employee (previous GROUP BY on
+//      ot.academicYear/startDate/endDate caused duplicate rows per employee)
+// ─────────────────────────────────────────────────────────────────────────────
+
 router.get('/officialtime/users-status', authenticateToken, (req, res) => {
   const sql = `
     SELECT 
@@ -1021,32 +858,43 @@ router.get('/officialtime/users-status', authenticateToken, (req, res) => {
       p.middleName,
       p.lastName,
       p.nameExtension,
-      -- department via assignment -> department_table
       dt.description AS department,
-      -- latest active schedule fields (academicYear, startDate, endDate) via join to latest startDate row
-      ot.academicYear AS academicYear,
-      ot.startDate AS startDate,
-      ot.endDate AS endDate,
+      latest_ot.academicYear,
+      latest_ot.startDate,
+      latest_ot.endDate,
       CASE 
-        WHEN COUNT(DISTINCT ot2.day) >= 7 THEN 1 
+        WHEN COALESCE(active_days.dayCount, 0) >= 7 THEN 1 
         ELSE 0 
       END as hasDefaultOfficialTime,
-      COUNT(DISTINCT ot2.day) as officialTimeDaysCount
+      COALESCE(active_days.dayCount, 0) as officialTimeDaysCount
     FROM users u
     LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
     LEFT JOIN department_assignment da ON u.employeeNumber = da.employeeNumber
     LEFT JOIN department_table dt ON da.code = dt.code
-    -- ot2 counts active days for the user (preserves previous behavior)
-    LEFT JOIN officialtime ot2 ON u.employeeNumber = ot2.employeeID AND (ot2.status = 'active' OR ot2.status IS NULL)
-    -- join to subquery that finds the latest startDate per employee for active schedules
     LEFT JOIN (
-      SELECT employeeID, MAX(startDate) AS latestStart
+      SELECT employeeID, COUNT(DISTINCT day) AS dayCount
       FROM officialtime
-      WHERE status = 'active'
+      WHERE status = 'active' OR status IS NULL
       GROUP BY employeeID
-    ) latest ON u.employeeNumber = latest.employeeID
-    LEFT JOIN officialtime ot ON ot.employeeID = latest.employeeID AND ot.startDate = latest.latestStart AND ot.status = 'active'
-    GROUP BY u.employeeNumber, u.email, u.role, p.firstName, p.middleName, p.lastName, p.nameExtension, dt.description, ot.academicYear, ot.startDate, ot.endDate
+    ) active_days ON u.employeeNumber = active_days.employeeID
+    LEFT JOIN (
+      SELECT o.employeeID, o.academicYear, o.startDate, o.endDate
+      FROM officialtime o
+      INNER JOIN (
+        SELECT employeeID, MAX(startDate) AS maxStart
+        FROM officialtime
+        WHERE status = 'active'
+        GROUP BY employeeID
+      ) m ON o.employeeID = m.employeeID AND o.startDate = m.maxStart
+      WHERE o.status = 'active'
+      GROUP BY o.employeeID
+    ) latest_ot ON u.employeeNumber = latest_ot.employeeID
+    GROUP BY 
+      u.employeeNumber, u.email, u.role,
+      p.firstName, p.middleName, p.lastName, p.nameExtension,
+      dt.description,
+      latest_ot.academicYear, latest_ot.startDate, latest_ot.endDate,
+      active_days.dayCount
     ORDER BY p.lastName, p.firstName
   `;
 
@@ -1062,7 +910,6 @@ router.get('/officialtime/users-status', authenticateToken, (req, res) => {
       console.error('Audit log error:', e);
     }
 
-    // Format the results
     const formattedResults = results.map((row) => ({
       employeeNumber: row.employeeNumber,
       email: row.email,
@@ -1085,14 +932,16 @@ router.get('/officialtime/users-status', authenticateToken, (req, res) => {
   });
 });
 
-// POST set default official time for users who don't have it
+// ─────────────────────────────────────────────────────────────────────────────
+// POST set default official time for selected users
+// ─────────────────────────────────────────────────────────────────────────────
+
 router.post(
   '/officialtime/set-default-for-users',
   authenticateToken,
   (req, res) => {
-    const { employeeNumbers } = req.body; // Optional: if provided, only set for these users
+    const { employeeNumbers } = req.body;
 
-    // Default official time values
     const defaultTimes = {
       officialTimeIN: '08:00:00 AM',
       officialBreaktimeIN: '00:00:00 AM',
@@ -1107,25 +956,12 @@ router.post(
       breaktime: '',
     };
 
-    const days = [
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-      'Sunday',
-    ];
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-    // First, get all users or specific users
     let userQuery = 'SELECT employeeNumber FROM users';
     let queryParams = [];
 
-    if (
-      employeeNumbers &&
-      Array.isArray(employeeNumbers) &&
-      employeeNumbers.length > 0
-    ) {
+    if (employeeNumbers && Array.isArray(employeeNumbers) && employeeNumbers.length > 0) {
       const placeholders = employeeNumbers.map(() => '?').join(',');
       userQuery += ` WHERE employeeNumber IN (${placeholders})`;
       queryParams = employeeNumbers;
@@ -1142,24 +978,18 @@ router.post(
       let skippedCount = 0;
       let errors = [];
 
-      // Process each user
       const processUser = (user, callback) => {
         const employeeID = user.employeeNumber;
 
-        // Check if user already has official time for all days
-        const checkQuery =
-          'SELECT COUNT(*) as count FROM officialtime WHERE employeeID = ?';
+        const checkQuery = 'SELECT COUNT(*) as count FROM officialtime WHERE employeeID = ?';
         db.query(checkQuery, [employeeID], (checkErr, checkResult) => {
           if (checkErr) {
-            errors.push(
-              `Error checking official time for ${employeeID}: ${checkErr.message}`,
-            );
+            errors.push(`Error checking official time for ${employeeID}: ${checkErr.message}`);
             return callback();
           }
 
           const existingCount = checkResult[0]?.count || 0;
 
-          // Safety: if user already has ANY official time, skip (avoid creating overlaps/duplicates)
           if (existingCount > 0) {
             skippedCount++;
             processedCount++;
@@ -1192,21 +1022,19 @@ router.post(
           ]);
 
           const insertQuery = `
-          INSERT INTO officialtime (
-            employeeID, academicYear, startDate, endDate, day,
-            officialTimeIN, officialBreaktimeIN, officialBreaktimeOUT, officialTimeOUT,
-            officialHonorariumTimeIN, officialHonorariumTimeOUT,
-            officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
-            officialOverTimeIN, officialOverTimeOUT, status, breaktime
-          )
-          VALUES ?
-        `;
+            INSERT INTO officialtime (
+              employeeID, academicYear, startDate, endDate, day,
+              officialTimeIN, officialBreaktimeIN, officialBreaktimeOUT, officialTimeOUT,
+              officialHonorariumTimeIN, officialHonorariumTimeOUT,
+              officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
+              officialOverTimeIN, officialOverTimeOUT, status, breaktime
+            )
+            VALUES ?
+          `;
 
           db.query(insertQuery, [values], (insertErr, insertResult) => {
             if (insertErr) {
-              errors.push(
-                `Error setting default official time for ${employeeID}: ${insertErr.message}`,
-              );
+              errors.push(`Error setting default official time for ${employeeID}: ${insertErr.message}`);
             } else {
               insertedCount += insertResult.affectedRows || 0;
             }
@@ -1216,7 +1044,6 @@ router.post(
         });
       };
 
-      // Process all users sequentially to avoid overwhelming the database
       let currentIndex = 0;
       const processNext = () => {
         if (currentIndex >= users.length) {
@@ -1250,11 +1077,7 @@ router.post(
       };
 
       if (users.length === 0) {
-        return res.json({
-          message: 'No users found',
-          processed: 0,
-          inserted: 0,
-        });
+        return res.json({ message: 'No users found', processed: 0, inserted: 0 });
       }
 
       processNext();
@@ -1262,58 +1085,34 @@ router.post(
   },
 );
 
-// BULK create schedules for multiple employees and multiple blocks (dates), using one set of day records
+// ─────────────────────────────────────────────────────────────────────────────
+// POST bulk create schedules for multiple employees
+// ─────────────────────────────────────────────────────────────────────────────
+
 router.post(
   '/officialtime/bulk-schedules',
   authenticateToken,
   async (req, res) => {
     const { employeeIDs, blocks, records } = req.body || {};
 
-    if (
-      !employeeIDs ||
-      !Array.isArray(employeeIDs) ||
-      employeeIDs.length === 0
-    ) {
-      return res
-        .status(400)
-        .json({
-          message: 'employeeIDs is required and must be a non-empty array.',
-        });
+    if (!employeeIDs || !Array.isArray(employeeIDs) || employeeIDs.length === 0) {
+      return res.status(400).json({ message: 'employeeIDs is required and must be a non-empty array.' });
     }
     if (!blocks || !Array.isArray(blocks) || blocks.length === 0) {
-      return res
-        .status(400)
-        .json({
-          message:
-            'blocks is required and must contain at least one schedule block.',
-        });
+      return res.status(400).json({ message: 'blocks is required and must contain at least one schedule block.' });
     }
     if (!records || !Array.isArray(records) || records.length === 0) {
-      return res
-        .status(400)
-        .json({
-          message: 'records is required and must contain at least one day row.',
-        });
+      return res.status(400).json({ message: 'records is required and must contain at least one day row.' });
     }
 
-    // Validate time overlaps once for the provided records (applies to all blocks)
+    // Validate time overlaps once for all blocks
     for (const row of records) {
       const segments = getSegmentsForDayRow(row);
       const overlap = findOverlapInSegments(segments);
       if (overlap) {
         return res.status(400).json({
-          message: formatTimeOverlapMessage({
-            day: row.day,
-            employeeID: 'multiple',
-            segA: overlap.a,
-            segB: overlap.b,
-          }),
-          overlap: buildTimeOverlapPayload({
-            day: row.day,
-            employeeID: 'multiple',
-            segA: overlap.a,
-            segB: overlap.b,
-          }),
+          message: formatTimeOverlapMessage({ day: row.day, employeeID: 'multiple', segA: overlap.a, segB: overlap.b }),
+          overlap: buildTimeOverlapPayload({ day: row.day, employeeID: 'multiple', segA: overlap.a, segB: overlap.b }),
         });
       }
     }
@@ -1321,16 +1120,10 @@ router.post(
     // Validate blocks
     for (const b of blocks) {
       if (!b || !b.startDate || !b.endDate) {
-        return res
-          .status(400)
-          .json({ message: 'Each block must have startDate and endDate.' });
+        return res.status(400).json({ message: 'Each block must have startDate and endDate.' });
       }
       if (new Date(b.startDate) > new Date(b.endDate)) {
-        return res
-          .status(400)
-          .json({
-            message: `Block startDate must be on or before endDate (${b.startDate} > ${b.endDate}).`,
-          });
+        return res.status(400).json({ message: `Block startDate must be on or before endDate (${b.startDate} > ${b.endDate}).` });
       }
     }
 
@@ -1342,55 +1135,37 @@ router.post(
 
       const empResult = { employeeID, inserted: 0, errors: [] };
 
-      // Check overlaps against existing schedules for each block
+      // Pre-check overlaps for all blocks before inactivating anything
+      const blockOverlaps = [];
       for (const b of blocks) {
-        const overlaps = await hasOverlappingRange(
-          db,
-          employeeID,
-          b.startDate,
-          b.endDate,
-        );
+        const overlaps = await hasOverlappingRange(db, employeeID, b.startDate, b.endDate);
         if (overlaps) {
-          empResult.errors.push(
-            `Overlap with existing schedule for ${employeeID} on range ${b.startDate}–${b.endDate}`,
-          );
+          blockOverlaps.push(`Overlap with existing schedule for ${employeeID} on range ${b.startDate}–${b.endDate}`);
         }
       }
 
-      // If all blocks overlap, skip inserts
-      if (empResult.errors.length === blocks.length) {
+      if (blockOverlaps.length === blocks.length) {
+        empResult.errors = blockOverlaps;
         results.push(empResult);
         continue;
       }
 
       // Inactivate existing schedules once per employee
       try {
-        await db
-          .promise()
-          .query(
-            "UPDATE officialtime SET status = 'inactive' WHERE employeeID = ?",
-            [employeeID],
-          );
-      } catch (e) {
-        empResult.errors.push(
-          `Error inactivating existing schedules: ${e.message}`,
+        await db.promise().query(
+          "UPDATE officialtime SET status = 'inactive' WHERE employeeID = ?",
+          [employeeID],
         );
+      } catch (e) {
+        empResult.errors.push(`Error inactivating existing schedules: ${e.message}`);
         results.push(empResult);
         continue;
       }
 
       for (const b of blocks) {
-        // Skip blocks that conflict
-        const overlaps = await hasOverlappingRange(
-          db,
-          employeeID,
-          b.startDate,
-          b.endDate,
-        );
+        const overlaps = await hasOverlappingRange(db, employeeID, b.startDate, b.endDate);
         if (overlaps) {
-          empResult.errors.push(
-            `Overlap with existing schedule for ${employeeID} on range ${b.startDate}–${b.endDate}`,
-          );
+          empResult.errors.push(`Overlap with existing schedule for ${employeeID} on range ${b.startDate}–${b.endDate}`);
           continue;
         }
 
@@ -1425,30 +1200,25 @@ router.post(
 
         try {
           const insertSql = `
-          INSERT INTO officialtime (
-            employeeID, academicYear, startDate, endDate, day,
-            officialTimeIN, officialBreaktimeIN, officialBreaktimeOUT, officialTimeOUT,
-            officialHonorariumTimeIN, officialHonorariumTimeOUT,
-            officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
-            officialOverTimeIN, officialOverTimeOUT, status, breaktime
-          ) VALUES ?
-        `;
+            INSERT INTO officialtime (
+              employeeID, academicYear, startDate, endDate, day,
+              officialTimeIN, officialBreaktimeIN, officialBreaktimeOUT, officialTimeOUT,
+              officialHonorariumTimeIN, officialHonorariumTimeOUT,
+              officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
+              officialOverTimeIN, officialOverTimeOUT, status, breaktime
+            ) VALUES ?
+          `;
           const [insertResult] = await db.promise().query(insertSql, [values]);
           empResult.inserted += insertResult.affectedRows || 0;
         } catch (e) {
-          empResult.errors.push(
-            `Error inserting schedule ${b.startDate}–${b.endDate}: ${e.message}`,
-          );
+          empResult.errors.push(`Error inserting schedule ${b.startDate}–${b.endDate}: ${e.message}`);
         }
       }
 
       results.push(empResult);
     }
 
-    const totalInserted = results.reduce(
-      (sum, r) => sum + (r.inserted || 0),
-      0,
-    );
+    const totalInserted = results.reduce((sum, r) => sum + (r.inserted || 0), 0);
     res.json({
       message: 'Bulk schedules processed.',
       totalInserted,

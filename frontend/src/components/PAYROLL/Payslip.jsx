@@ -1,142 +1,359 @@
 import API_BASE_URL from '../../apiConfig';
 import { jwtDecode } from 'jwt-decode';
 import React, { useRef, forwardRef, useState, useEffect } from 'react';
-import {
-  Container,
-  Paper,
-  Typography,
-  Box,
-  Button,
-  CircularProgress,
-  Alert,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  InputAdornment,
-  Grid,
-  Card,
-  CardContent,
-  CardHeader,
-  Avatar,
-  Chip,
-  Divider,
-  Fade,
-  Backdrop,
-  styled,
-  alpha,
-  IconButton,
-  Tooltip,
-  LinearProgress,
-  Stack,
-  Badge,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-} from '@mui/material';
-import Search from '@mui/icons-material/Search';
-import LoadingOverlay from '../LoadingOverlay';
+import { Box, CircularProgress, Alert, Dialog } from '@mui/material';
+import { Refresh, Download } from '@mui/icons-material';
 import WorkIcon from '@mui/icons-material/Work';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import axios from 'axios';
+import logo from '../../assets/logo.png';
+import hrisLogo from '../../assets/hrisLogo.png';
+import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
-import { Refresh, Download } from '@mui/icons-material';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
 
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
-    : '109, 35, 35';
-};
+/* ─── Scoped CSS (matches 1st code exactly) ─────────────────────────────── */
+const css = `
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
 
-const GlassCard = styled(Card)(({ theme }) => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  '&:hover': { transform: 'translateY(-4px)' },
-}));
+  .ps-wrap * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Poppins', sans-serif; }
 
-const ProfessionalButton = styled(Button)(({ theme, variant, color = 'primary' }) => ({
-  borderRadius: 12,
-  fontWeight: 600,
-  padding: '8px 16px',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  textTransform: 'none',
-  fontSize: '0.85rem',
-  letterSpacing: '0.025em',
-  boxShadow: variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
-  '&:hover': {
-    transform: 'translateY(-2px)',
-    boxShadow: variant === 'contained' ? '0 6px 20px rgba(254, 249, 225, 0.35)' : 'none',
-  },
-  '&:active': { transform: 'translateY(0)' },
-}));
+  .ps-wrap {
+    background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
+    min-height: 100vh;
+    display: block;
+    padding: 2rem 1rem;
+    color: #1a1a1a;
+  }
 
-const ModernTextField = styled(TextField)(({ theme }) => ({
-  '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    '&:hover': { transform: 'translateY(-1px)', backgroundColor: 'rgba(255, 255, 255, 0.95)' },
-    '&.Mui-focused': {
-      transform: 'translateY(-1px)',
-      boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
-      backgroundColor: 'rgba(255, 255, 255, 1)',
-    },
-  },
-  '& .MuiInputLabel-root': { fontWeight: 500 },
-}));
+  .ps-container {
+    width: 100%;
+    max-width: 1200px;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    align-items: stretch;
+    margin: 0 auto;
+  }
+
+  /* Glass card — fixed size always, never shifts */
+  .ps-glass {
+    background: rgba(255,255,255,0.75);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.8);
+    border-radius: 24px;
+    box-shadow: 0 10px 40px rgba(109,35,35,0.15);
+    padding: 2rem;
+    overflow: hidden;
+    flex-shrink: 0;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 320px;
+    height: auto;
+  }
+
+  /* Lock controls box height so layout never jumps */
+  .ps-controls {
+    border-top: 1px solid rgba(0,0,0,0.05);
+    padding-top: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    min-height: 220px;
+  }
+
+  .ps-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .ps-title-group {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .ps-icon-box {
+    color: white;
+    padding: 12px;
+    border-radius: 16px;
+    font-size: 2rem;
+    display: flex;
+    align-items: center;
+    box-shadow: 0 4px 12px rgba(109,35,35,0.3);
+  }
+
+  .ps-title { font-size: 1.75rem; font-weight: 700; line-height: 1.2; }
+  .ps-subtitle { font-size: 0.9rem; color: #6c757d; margin-top: 4px; }
+
+  .ps-refresh-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: white;
+    border: 1px solid;
+    font-family: 'Poppins', sans-serif;
+    transition: all 0.2s ease;
+  }
+
+
+  .ps-row { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-end; }
+
+  .ps-input-group { display: flex; flex-direction: column; gap: 0.5rem; min-width: 200px; flex: 1; }
+
+  .ps-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .ps-input {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 2px solid rgba(109,35,35,0.2);
+    background: rgba(255,255,255,0.9);
+    font-size: 0.95rem;
+    font-weight: 500;
+    font-family: 'Poppins', sans-serif;
+    outline: none;
+    transition: all 0.3s ease;
+  }
+
+  .ps-input:disabled {
+    background: rgba(230,230,230,0.5);
+    color: #6c757d;
+    cursor: not-allowed;
+    border-color: transparent;
+  }
+
+  .ps-select {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 2px solid rgba(109,35,35,0.2);
+    background: rgba(255,255,255,0.9);
+    font-size: 0.95rem;
+    font-weight: 600;
+    font-family: 'Poppins', sans-serif;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%236d2323' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 18px;
+    transition: all 0.3s ease;
+  }
+
+  /* Month grid */
+  .ps-month-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+
+  .ps-month-btn {
+    background: rgba(255,255,255,0.6);
+    border-radius: 8px;
+    padding: 12px 0;
+    text-align: center;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: 'Poppins', sans-serif;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    user-select: none;
+  }
+
+  .ps-month-btn:hover {
+    background: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  }
+
+  /* Payslip paper */
+  .ps-paper-wrap { display: flex; justify-content: center; }
+
+  .ps-paper {
+    background: white;
+    width: 100%;
+    max-width: 900px;
+    padding: 2.5rem;
+    border: 2px solid #000;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.1);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ps-watermark {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60%;
+    opacity: 0.05;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .ps-slip-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    border-bottom: 2px solid #000;
+    padding-bottom: 1rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .ps-slip-header-center { text-align: center; }
+  .ps-slip-header-center h2 { font-size: 0.9rem; font-style: italic; margin-bottom: 4px; }
+  .ps-slip-header-center h1 { font-size: 1.1rem; font-weight: 800; text-transform: uppercase; line-height: 1.2; margin-bottom: 4px; }
+  .ps-slip-header-center p  { font-size: 0.8rem; }
+
+  .ps-logo { height: 60px; width: auto; }
+
+  .ps-table { width: 100%; border: 2px solid black; border-bottom: none; position: relative; z-index: 1; }
+
+  .ps-table-row { display: flex; border-bottom: 1px solid black; }
+
+  .ps-table-label {
+    width: 35%;
+    padding: 10px 12px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    border-right: 1px solid black;
+    color: #333;
+  }
+
+  .ps-table-value {
+    flex: 1;
+    padding: 10px 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    text-align: right;
+  }
+
+  .ps-footer {
+    margin-top: auto;
+    padding-top: 2rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .ps-certified { font-size: 0.85rem; margin-bottom: 0.5rem; }
+  .ps-signatory { font-weight: 800; text-decoration: underline; margin-bottom: 2px; font-size: 0.85rem; }
+  .ps-signatory-role { font-size: 0.85rem; }
+
+  /* Floating download FAB */
+  .ps-fab-btn {
+    position: fixed;
+    bottom: 90px;
+    right: 28px;
+    z-index: 1200;
+    color: white;
+    border: none;
+    padding: 14px 22px;
+    border-radius: 50px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 8px 24px rgba(109,35,35,0.45);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    font-family: 'Poppins', sans-serif;
+    white-space: nowrap;
+  }
+
+  .ps-fab-btn:hover:not(:disabled) {
+    transform: translateY(-4px) scale(1.04);
+    box-shadow: 0 14px 30px rgba(109,35,35,0.5);
+  }
+
+  .ps-fab-btn:disabled {
+    background: #6c757d !important;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .ps-fab-label { font-family: 'Poppins', sans-serif; font-size: 0.9rem; font-weight: 600; }
+
+  /* Loading state */
+  .ps-state-msg {
+    text-align: center;
+    padding: 3rem;
+    color: #6c757d;
+    background: rgba(255,255,255,0.5);
+    border-radius: 16px;
+    border: 1px dashed;
+  }
+
+  @media (max-width: 480px) { .ps-month-grid { grid-template-columns: repeat(3, 1fr); } }
+`;
 
 const Payslip = forwardRef(({ employee }, ref) => {
   const payslipRef = ref || useRef();
 
-  const [allPayroll, setAllPayroll] = useState([]);
+  const [allPayroll,      setAllPayroll]      = useState([]);
   const [displayEmployee, setDisplayEmployee] = useState(employee || null);
-  const [loading, setLoading] = useState(!employee);
-  const [error, setError] = useState('');
-  const [sending, setSending] = useState(false);
-  const [modal, setModal] = useState({ open: false, type: 'success', message: '' });
+  const [loading,         setLoading]         = useState(!employee);
+  const [error,           setError]           = useState('');
+  const [sending,         setSending]         = useState(false);
+  const [modal,           setModal]           = useState({ open: false, type: 'success', message: '' });
+  const [selectedMonth,   setSelectedMonth]   = useState(null);
+  const [selectedYear,    setSelectedYear]    = useState(new Date().getFullYear());
+  const [hasSearched,     setHasSearched]     = useState(false);
+  const [personID,        setPersonID]        = useState('');
 
-  const [search, setSearch] = useState('');
-  const [hasSearched, setHasSearched] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState(null);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [filteredPayroll, setFilteredPayroll] = useState([]);
-  const [personID, setPersonID] = useState('');
-
-  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-  const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
+  const monthsShort = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const years = Array.from({ length: 2060 - 1990 + 1 }, (_, i) => 1990 + i);
 
   const { settings } = useSystemSettings();
 
-  const primaryColor      = settings.accentColor       || '#FEF9E1';
-  const secondaryColor    = settings.backgroundColor   || '#FFF8E7';
-  const accentColor       = settings.primaryColor      || '#6d2323';
-  const accentDark        = settings.secondaryColor    || '#8B3333';
-  const textPrimaryColor  = settings.textPrimaryColor  || '#6d2323';
-  const textSecondaryColor= settings.textSecondaryColor|| '#FEF9E1';
-  const hoverColor        = settings.hoverColor        || '#6D2323';
-
-  // ── Logo resolution: prefer settings, fall back to bundled assets ──────────
-  const institutionLogo = settings.institutionLogo || '';
-  const hrisLogo        = settings.hrisLogo        || '';
+  // System settings colors — matches doc 3 mapping exactly
+  const primaryColor      = settings.accentColor      || '#FEF9E1'; // Cards color
+  const secondaryColor    = settings.backgroundColor  || '#FFF8E7'; // Background
+  const accent            = settings.primaryColor     || '#6d2323'; // Primary accent
+  const dark              = settings.secondaryColor   || '#8B3333'; // Darker accent
+  const textPrimaryColor  = settings.textPrimaryColor || '#6d2323';
+  const textSecondaryColor= settings.textSecondaryColor || '#FEF9E1';
+  const hoverColor        = settings.hoverColor       || '#6D2323';
 
   const { hasAccess, loading: accessLoading } = usePageAccess('payslip');
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
-    return { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } };
-  };
+  // ── Auth ─────────────────────────────────────────────────────────────────
+  const getAuthHeaders = () => ({
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+      'Content-Type': 'application/json',
+    },
+  });
 
+  // ── Fetch ─────────────────────────────────────────────────────────────────
   const fetchPayrollData = async () => {
     if (!personID) return;
     try {
@@ -147,9 +364,10 @@ const Payslip = forwardRef(({ employee }, ref) => {
       );
       setAllPayroll(res.data);
       setDisplayEmployee(null);
-      setLoading(false);
     } catch (err) {
+      console.error('Error fetching payroll:', err);
       setError('Failed to fetch payroll data. Please try again.');
+    } finally {
       setLoading(false);
     }
   };
@@ -159,120 +377,25 @@ const Payslip = forwardRef(({ employee }, ref) => {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
-      try { setPersonID(jwtDecode(token).employeeNumber); } catch {}
+      try { setPersonID(jwtDecode(token).employeeNumber); }
+      catch (e) { console.error('Token decode error:', e); }
     }
   }, []);
 
   useEffect(() => { if (!employee) fetchPayrollData(); }, [employee, personID]);
 
-  const getSurname = (name) => {
-    if (!name) return 'EARIST';
-    const parts = name.trim().split(' ');
-    return parts[parts.length - 1] || 'EARIST';
-  };
-
-  const formatPeriod = (startDate, endDate) => {
-    if (!startDate || !endDate) return 'Unknown';
-    const start = new Date(startDate);
-    return `${start.toLocaleString('en-US', { month: 'long' })}_${start.getFullYear()}`;
-  };
-
-  const downloadPDF = async () => {
-    if (!displayEmployee) return;
-    const currentStart  = new Date(displayEmployee.startDate);
-    const currentMonth  = currentStart.getMonth();
-    const currentYr     = currentStart.getFullYear();
-
-    const monthsToGet = [0, 1, 2].map((i) => {
-      const d = new Date(currentYr, currentMonth - i, 1);
-      return { month: d.getMonth(), year: d.getFullYear(),
-               label: d.toLocaleString('en-US', { month: 'long', year: 'numeric' }) };
-    });
-
-    const records = monthsToGet.map(({ month, year, label }) => {
-      const payroll = allPayroll.find(
-        (p) => p.employeeNumber === displayEmployee.employeeNumber &&
-               new Date(p.startDate).getMonth() === month &&
-               new Date(p.startDate).getFullYear() === year
-      );
-      return { payroll, label };
-    });
-
-    const pdf = new jsPDF('l', 'mm', 'a4');
-    const pageWidth  = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 10, gap = 5;
-    const payslipWidth  = (pageWidth - 2 * margin - 2 * gap) / 3;
-    const payslipHeight = pageHeight - 2 * margin;
-    const positions = [margin, margin + payslipWidth + gap, margin + 2 * payslipWidth + 2 * gap];
-
-    const tempContainer = document.createElement('div');
-    tempContainer.style.cssText = 'position:absolute;left:-9999px;width:1200px;background:#fff;';
-    document.body.appendChild(tempContainer);
-
-    for (let i = 0; i < records.length; i++) {
-      const { payroll, label } = records[i];
-      let imgData;
-
-      if (payroll) {
-        setDisplayEmployee(payroll);
-        await new Promise((resolve) => setTimeout(resolve, 300));
-        const input = payslipRef.current;
-        const clone = input.cloneNode(true);
-        clone.style.width = '1200px';
-        clone.style.overflow = 'hidden';
-        tempContainer.innerHTML = '';
-        tempContainer.appendChild(clone);
-        const canvas = await html2canvas(clone, { scale: 2, useCORS: true, width: 1200, height: 1700,
-          windowWidth: 1200, windowHeight: 1700, logging: false });
-        imgData = canvas.toDataURL('image/png');
-      } else {
-        const placeholderCanvas = document.createElement('canvas');
-        placeholderCanvas.width = 1200; placeholderCanvas.height = 1700;
-        const ctx = placeholderCanvas.getContext('2d');
-        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 1200, 1700);
-        ctx.fillStyle = '#6D2323'; ctx.font = 'bold 48px Arial'; ctx.textAlign = 'center';
-        ctx.fillText('No Data', 600, 750); ctx.font = '32px Arial';
-        ctx.fillText(`for ${label}`, 600, 820);
-        imgData = placeholderCanvas.toDataURL('image/png');
-      }
-      pdf.addImage(imgData, 'PNG', positions[i], margin, payslipWidth, payslipHeight);
-    }
-
-    document.body.removeChild(tempContainer);
-    pdf.save(`${getSurname(displayEmployee.name)}_${formatPeriod(displayEmployee.startDate, displayEmployee.endDate)}.pdf`);
-    setModal({ open: true, type: 'success', action: 'download' });
-    setDisplayEmployee(employee);
-  };
-
-  const handleSearch = () => {
-    if (!search.trim()) return;
-    const result = allPayroll.filter(
-      (emp) => emp.employeeNumber.toString().includes(search.trim()) ||
-               emp.name.toLowerCase().includes(search.trim().toLowerCase())
-    );
-    setFilteredPayroll(result);
-    setDisplayEmployee(result.length > 0 ? result[0] : null);
-    setHasSearched(true);
-  };
-
-  const clearSearch = () => {
-    setSearch(''); setHasSearched(false); setSelectedMonth(null);
-    setSelectedYear(new Date().getFullYear()); setFilteredPayroll([]);
-    if (employee) setDisplayEmployee(employee);
-    else if (allPayroll.length > 0) setDisplayEmployee(allPayroll[0]);
-    else setDisplayEmployee(null);
-  };
-
-  const handleMonthSelect = (monthIndex) => {
-    setSelectedMonth(monthIndex);
+  // ── Filters ───────────────────────────────────────────────────────────────
+  const handleMonthSelect = (idx) => {
+    setSelectedMonth(idx);
     const result = allPayroll.filter((emp) => {
       if (!emp.startDate) return false;
       const d = new Date(emp.startDate);
-      return emp.employeeNumber?.toString() === personID.toString() &&
-             d.getMonth() === monthIndex && d.getFullYear() === selectedYear;
+      return (
+        emp.employeeNumber?.toString() === personID.toString() &&
+        d.getMonth()    === idx &&
+        d.getFullYear() === selectedYear
+      );
     });
-    setFilteredPayroll(result);
     setDisplayEmployee(result.length > 0 ? result[0] : null);
     setHasSearched(true);
   };
@@ -283,478 +406,397 @@ const Payslip = forwardRef(({ employee }, ref) => {
       const result = allPayroll.filter((emp) => {
         if (!emp.startDate) return false;
         const d = new Date(emp.startDate);
-        return emp.employeeNumber?.toString() === personID.toString() &&
-               d.getMonth() === selectedMonth && d.getFullYear() === year;
+        return (
+          emp.employeeNumber?.toString() === personID.toString() &&
+          d.getMonth()    === selectedMonth &&
+          d.getFullYear() === year
+        );
       });
-      setFilteredPayroll(result);
       setDisplayEmployee(result.length > 0 ? result[0] : null);
     }
   };
 
-  const formatCurrency = (value) => {
-    const num = parseFloat(value);
-    return !isNaN(num) && num !== 0 ? `₱${num.toLocaleString()}` : '';
+  // ── Formatters ────────────────────────────────────────────────────────────
+  const fmt = (v) => {
+    const n = parseFloat(v);
+    return !isNaN(n) && n !== 0
+      ? `₱${n.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+      : '—';
   };
 
-  const formatRenderedDays = (value) => {
-    const totalHours = Number(value);
-    if (!isNaN(totalHours) && totalHours > 0) {
-      const days = Math.floor(totalHours / 8);
-      const hours = totalHours % 8;
-      return `${days} days${hours > 0 ? ` & ${hours} hrs` : ''}`;
+  const fmtDays = (v) => {
+    const h = Number(v);
+    if (!isNaN(h) && h > 0) {
+      const d = Math.floor(h / 8);
+      const r = (h % 8).toFixed(1);
+      return `${d} days${parseFloat(r) > 0 ? ` & ${r} hrs` : ''}`;
     }
-    return '';
+    return '—';
   };
 
-  if (accessLoading) {
-    return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <CircularProgress sx={{ color: '#6d2323', mb: 2 }} />
-          <Typography variant="h6" sx={{ color: '#6d2323' }}>Loading access information...</Typography>
-        </Box>
-      </Container>
-    );
-  }
-  if (!accessLoading && hasAccess !== true) {
-    return (
-      <AccessDenied title="Access Denied"
-        message="You do not have permission to access Payslip. Contact your administrator to request access."
-        returnPath="/admin-home" returnButtonText="Return to Home" />
-    );
-  }
-const PayslipHeader = () => (
-  <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}
-    sx={{ background: 'linear-gradient(to right, #6d2323, #a31d1d)', borderRadius: '3px', p: 1 }}>
-    
-    {/* Institution Logo */}
-    <Box sx={{ width: 70, height: 70, minWidth: 70, minHeight: 70, flexShrink: 0, borderRadius: '50%', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.6)' }}>
-      {institutionLogo && (
-        <img src={institutionLogo} alt="Institution Logo"
-          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-      )}
-    </Box>
+  const getPeriod = (s, e) => {
+    if (!s || !e) return '—';
+    const sd = new Date(s), ed = new Date(e);
+    return `${sd.toLocaleString('en-US', { month: 'long' }).toUpperCase()} ${sd.getDate()}-${ed.getDate()} ${ed.getFullYear()}`;
+  };
 
-    <Box textAlign="center" flex={1} sx={{ color: 'white', px: 1 }}>
-      <Typography variant="caption" sx={{ fontStyle: 'italic', fontSize: '10px', lineHeight: 1.2 }}>
-        Republic of the Philippines
-      </Typography>
-      <Typography variant="body1" fontWeight="bold" sx={{ fontSize: '12px', lineHeight: 1.2 }}>
-        {settings.institutionName || 'EULOGIO "AMANG" RODRIGUEZ INSTITUTE OF SCIENCE AND TECHNOLOGY'}
-      </Typography>
-      <Typography variant="caption" sx={{ fontSize: '10px' }}>
-        Nagtahan, Sampaloc Manila
-      </Typography>
-    </Box>
+  const getSurname = (name) => {
+    if (!name) return 'EARIST';
+    const p = name.trim().split(' ');
+    return p[p.length - 1] || 'EARIST';
+  };
 
-    {/* HRIS Logo */}
-    <Box sx={{ width: 70, height: 70, minWidth: 70, minHeight: 70, flexShrink: 0, borderRadius: '50%', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.6)' }}>
-      {hrisLogo && (
-        <img src={hrisLogo} alt="HRIS Logo"
-          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-      )}
-    </Box>
+  const fmtFilename = (s) => {
+    if (!s) return 'Unknown';
+    const d = new Date(s);
+    return `${d.toLocaleString('en-US', { month: 'long' })}_${d.getFullYear()}`;
+  };
 
-  </Box>
-);
+  // ── Build rows (same order as 1st code) ──────────────────────────────────
+  const buildRows = (data) => {
+    if (!data) return [];
+    const isJO = (data.employmentCategory ?? -1) === 0;
+
+    const base = [
+      { label: 'PERIOD:',          value: getPeriod(data.startDate, data.endDate) },
+      { label: 'EMPLOYEE NUMBER:', value: data.employeeNumber && parseFloat(data.employeeNumber) !== 0 ? `${parseFloat(data.employeeNumber)}` : '—' },
+      { label: 'NAME:',            value: data.name || '—' },
+      { label: 'GROSS SALARY:',    value: fmt(data.grossSalary) },
+      { label: 'RENDERED DAYS:',   value: fmtDays(data.rh) },
+    ];
+
+    if (isJO) return [
+      ...base,
+      { label: 'SSS:',              value: fmt(data.sss) },
+      { label: 'PAG-IBIG:',        value: fmt(data.pagibigFundCont) },
+      { label: 'TOTAL DEDUCTIONS:', value: fmt(data.totalDeductions) },
+      { label: 'NET SALARY:',       value: fmt(data.netSalary) },
+    ];
+
+    return [
+      ...base,
+      { label: 'ABS:',                 value: fmt(data.abs) },
+      { label: 'WITHHOLDING TAX:',     value: fmt(data.withholdingTax) },
+      { label: 'L.RET:',               value: fmt(data.personalLifeRetIns) },
+      { label: 'GSIS SALARY LOAN:',    value: fmt(data.gsisSalaryLoan) },
+      { label: 'POLICY LOAN:',         value: fmt(data.gsisPolicyLoan) },
+      { label: 'HOUSING LOAN:',        value: fmt(data.gsisHousingLoan) },
+      { label: 'GSIS ARREARS:',        value: fmt(data.gsisArrears) },
+      { label: 'GFAL:',               value: fmt(data.gfal) },
+      { label: 'CPL:',                value: fmt(data.cpl) },
+      { label: 'MPL:',                value: fmt(data.mpl) },
+      { label: 'MPL LITE:',           value: fmt(data.mplLite) },
+      { label: 'ELA:',                value: fmt(data.ela) },
+      { label: 'SSS:',                value: fmt(data.sss) },
+      { label: 'PAG-IBIG:',           value: fmt(data.pagibigFundCont) },
+      { label: 'PHILHEALTH:',         value: fmt(data.PhilHealthContribution) },
+      { label: "PHILHEALTH (DIFF'L):", value: fmt(data.philhealthDiff) },
+      { label: 'PAG-IBIG 2:',         value: fmt(data.pagibig2) },
+      { label: 'LBP LOAN:',           value: fmt(data.lbpLoan) },
+      { label: 'MTSLAI:',             value: fmt(data.mtslai) },
+      { label: 'ECC:',                value: fmt(data.ecc) },
+      { label: 'TO BE REFUNDED:',     value: fmt(data.toBeRefunded) },
+      { label: 'FEU:',                value: fmt(data.feu) },
+      { label: 'ESLAI:',              value: fmt(data.eslai) },
+      { label: 'TOTAL DEDUCTIONS:',   value: fmt(data.totalDeductions) },
+      { label: 'NET SALARY:',         value: fmt(data.netSalary) },
+      { label: '1ST QUINCENA:',       value: fmt(data.pay1st) },
+      { label: '2ND QUINCENA:',       value: fmt(data.pay2nd) },
+    ];
+  };
+
+  // ── PDF Download (3-up landscape, same as 2nd code) ──────────────────────
+  const downloadPDF = async () => {
+    if (!displayEmployee) return;
+    setSending(true);
+
+    const currentStart = new Date(displayEmployee.startDate);
+    const cm = currentStart.getMonth();
+    const cy = currentStart.getFullYear();
+
+    const monthsToGet = [0, 1, 2].map((i) => {
+      const d = new Date(cy, cm - i, 1);
+      return { month: d.getMonth(), year: d.getFullYear(), label: d.toLocaleString('en-US', { month: 'long', year: 'numeric' }) };
+    });
+
+    const records = monthsToGet.map(({ month, year, label }) => ({
+      label,
+      payroll: allPayroll.find(
+        (p) =>
+          p.employeeNumber === displayEmployee.employeeNumber &&
+          new Date(p.startDate).getMonth()    === month &&
+          new Date(p.startDate).getFullYear() === year
+      ),
+    }));
+
+    // A3 landscape = 420 x 297 mm — gives ~126mm per payslip column (vs 89mm on A4)
+    const pdf = new jsPDF('l', 'mm', 'a3');
+    const pw  = pdf.internal.pageSize.getWidth();
+    const ph  = pdf.internal.pageSize.getHeight();
+    const m = 8, g = 6;
+    const sw = (pw - 2 * m - 2 * g) / 3;
+    const sh = ph - 2 * m;
+    const pos = [m, m + sw + g, m + 2 * sw + 2 * g];
+
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:absolute;left:-9999px;top:0;width:1200px;background:#fff;';
+    document.body.appendChild(wrap);
+
+    for (let i = 0; i < records.length; i++) {
+      const { payroll, label } = records[i];
+      let imgData;
+
+      if (payroll) {
+        // Clone the visible payslip ref for capture
+        setDisplayEmployee(payroll);
+        await new Promise((r) => setTimeout(r, 300));
+        const clone = payslipRef.current.cloneNode(true);
+        clone.style.cssText = 'width:1200px;overflow:hidden;';
+        wrap.innerHTML = '';
+        wrap.appendChild(clone);
+        const canvas = await html2canvas(clone, {
+          scale: 2, useCORS: true,
+          width: 1200, height: 2200,
+          windowWidth: 1200, windowHeight: 2200,
+          logging: false,
+        });
+        imgData = canvas.toDataURL('image/png');
+      } else {
+        const pc  = document.createElement('canvas');
+        pc.width = 1200; pc.height = 2200;
+        const ctx = pc.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 1200, 2200);
+        ctx.fillStyle = accent; ctx.font = 'bold 48px Arial'; ctx.textAlign = 'center';
+        ctx.fillText('No Data', 600, 1050); ctx.font = '32px Arial';
+        ctx.fillText(`for ${label}`, 600, 1120);
+        imgData = pc.toDataURL('image/png');
+      }
+
+      pdf.addImage(imgData, 'PNG', pos[i], m, sw, sh);
+    }
+
+    document.body.removeChild(wrap);
+    pdf.save(`${getSurname(displayEmployee.name)}_${fmtFilename(displayEmployee.startDate)}.pdf`);
+    setDisplayEmployee(employee || (allPayroll.find(p => p.employeeNumber === displayEmployee.employeeNumber) || null));
+    setSending(false);
+    setModal({ open: true, type: 'success', action: 'download' });
+  };
+
+  // ── Access guards ─────────────────────────────────────────────────────────
+  if (accessLoading) return (
+    <Box display="flex" flexDirection="column" alignItems="center" py={8}>
+      <CircularProgress sx={{ color: '#6d2323', mb: 2 }} />
+      <span style={{ color: '#6d2323', fontFamily: 'Poppins,sans-serif', fontSize: '1.1rem' }}>
+        Loading access information...
+      </span>
+    </Box>
+  );
+
+  if (!accessLoading && hasAccess !== true) return (
+    <AccessDenied
+      title="Access Denied"
+      message="You do not have permission to access Payslip. Contact your administrator to request access."
+      returnPath="/admin-home"
+      returnButtonText="Return to Home"
+    />
+  );
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const rows = buildRows(displayEmployee);
 
   return (
-    <Box sx={{ py: 4, pt: -10, width: '1200px', mx: 'auto', overflow: 'hidden' }}>
-      <Fade in timeout={500}>
-        <Box sx={{ mb: 3, px: 6 }}>
-          <GlassCard sx={{ background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-            boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-            border: `1px solid ${alpha(accentColor, 0.1)}`,
-            '&:hover': { boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}` } }}>
-            <Box sx={{ p: 3, background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-              color: textPrimaryColor, position: 'relative', overflow: 'hidden' }}>
-              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200,
-                background: 'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)' }} />
-              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150,
-                background: 'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)' }} />
-              <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
-                <Box display="flex" alignItems="center">
-                  <Avatar sx={{ bgcolor: 'rgba(109,35,35,0.15)', mr: 3, width: 48, height: 48,
-                    boxShadow: '0 8px 24px rgba(109,35,35,0.15)' }}>
-                    <WorkIcon sx={{ color: accentColor, fontSize: 24 }} />
-                  </Avatar>
-                  <Box>
-                    <Typography variant="h5" component="h1" sx={{ fontWeight: 700, mb: 0.5, lineHeight: 1.2, color: accentColor }}>
-                      Employee Payslip Record
-                    </Typography>
-                    <Typography variant="body2" sx={{ opacity: 0.8, fontWeight: 400, color: accentDark }}>
-                      View and download employee payslip
-                    </Typography>
-                  </Box>
-                </Box>
-                <Tooltip title="Refresh Data">
-                  <IconButton onClick={() => window.location.reload()}
-                    sx={{ bgcolor: 'rgba(109,35,35,0.1)', '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
-                      color: accentColor, width: 40, height: 40 }}>
-                    <Refresh sx={{ fontSize: 20 }} />
-                  </IconButton>
-                </Tooltip>
-              </Box>
-            </Box>
-          </GlassCard>
-        </Box>
-      </Fade>
+    <>
+      {/* Inject scoped CSS */}
+      <style>{css}</style>
 
-      <Box sx={{ px: 6 }}>
-        <Backdrop sx={{ color: primaryColor, zIndex: (theme) => theme.zIndex.drawer + 1 }} open={loading}>
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: primaryColor }}>Initializing Payroll System...</Typography>
-            <LinearProgress sx={{ width: 400, mt: 3, height: 8, borderRadius: 4,
-              backgroundColor: alpha(accentColor, 0.2) }} />
-          </Box>
-        </Backdrop>
+      <div className="ps-wrap" style={{ background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)` }}>
+        <div className="ps-container">
 
-        {error && (
-          <Fade in timeout={400}>
-            <Alert severity="error" sx={{ mb: 4, borderRadius: 4, fontSize: '1.1rem',
-              '& .MuiAlert-message': { fontWeight: 600 } }}>{error}</Alert>
-          </Fade>
-        )}
+          <LoadingOverlay open={loading} message="Please wait..." />
 
-        <Fade in timeout={700}>
-          <Box sx={{ mb: 3 }}>
-            <GlassCard sx={{ border: `1px solid ${alpha(accentColor, 0.1)}` }}>
-              <CardContent sx={{ p: 3 }}>
-                <Grid container spacing={2} alignItems="center">
-                  <Grid item xs={12} md={6}>
-                    <Typography variant="h6" sx={{ fontWeight: 600, mb: 1, color: accentColor }}>
-                      Employee Information
-                    </Typography>
-                    <ModernTextField fullWidth label="Employee Number" value={personID} disabled
-                      InputProps={{ startAdornment: (
-                        <InputAdornment position="start">
-                          <Search sx={{ color: textPrimaryColor, fontSize: 24 }} />
-                        </InputAdornment>
-                      )}}
-                      sx={{ '& .MuiInputBase-input': { fontSize: '1rem', py: 1.5, fontWeight: 500 },
-                        '& .MuiInputLabel-root': { fontSize: '0.9rem' } }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    {displayEmployee && (
-                      <Box>
-                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 1, color: accentColor }}>Actions</Typography>
-                        <ProfessionalButton variant="contained" fullWidth
-                          startIcon={sending ? <CircularProgress size={20} sx={{ color: primaryColor }} /> : <Download sx={{ fontSize: 20 }} />}
-                          onClick={downloadPDF} disabled={sending}
-                          sx={{ py: 2, backgroundColor: accentColor, color: primaryColor, fontSize: '1rem',
-                            '&:hover': { backgroundColor: accentDark } }}>
-                          {sending ? 'Processing...' : 'Download PDF Document'}
-                        </ProfessionalButton>
-                      </Box>
-                    )}
-                  </Grid>
-                </Grid>
+          {/* ══ GLASS CARD ════════════════════════════════════════════════ */}
+          <div className="ps-glass" style={{ background: `rgba(255,255,255,0.75)`, border: `1px solid ${primaryColor}` }}>
 
-                <Divider sx={{ my: 3, borderColor: 'rgba(109,35,35,0.1)' }} />
+            {/* Title + Refresh */}
+            <div className="ps-header-row">
+              <div className="ps-title-group">
+                <div className="ps-icon-box" style={{ background: accent, color: textSecondaryColor }}>
+                  <WorkIcon style={{ fontSize: '2rem' }} />
+                </div>
+                <div>
+                  <h1 className="ps-title" style={{ color: accent }}>Employee Payslip Record</h1>
+                  <p className="ps-subtitle">View and download employee payslip</p>
+                </div>
+              </div>
 
-                <Box>
-                  <Box sx={{ mb: 1, display: 'flex', flexDirection: { xs: 'column', sm: 'row' },
-                    alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="subtitle1" sx={{ color: accentColor, fontWeight: 600,
-                      display: 'flex', alignItems: 'center', fontSize: '0.95rem' }}>
-                      <Search sx={{ mr: 1, fontSize: 20 }} /> Filter By Year &amp; Month:
-                    </Typography>
-                    <FormControl sx={{ minWidth: 120 }}>
-                      <InputLabel sx={{ fontWeight: 600, fontSize: '0.9rem' }}>Year</InputLabel>
-                      <Select value={selectedYear} label="Year" onChange={(e) => handleYearChange(e.target.value)}
-                        sx={{ backgroundColor: 'white', '& .MuiOutlinedInput-notchedOutline': { borderColor: accentColor },
-                          borderRadius: 2, fontWeight: 600, color: accentColor, height: 40 }}>
-                        {years.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
-                      </Select>
-                    </FormControl>
-                  </Box>
-                  <Box sx={{ display: 'flex', flexWrap: 'nowrap', overflowX: 'auto', gap: 0.5,
-                    alignItems: 'center', pb: 1,
-                    '&::-webkit-scrollbar': { height: '6px' },
-                    '&::-webkit-scrollbar-thumb': { backgroundColor: alpha(accentColor, 0.3), borderRadius: '4px' } }}>
-                    {months.map((month, index) => {
-                      const isSelected = selectedMonth === index;
-                      return (
-                        <ProfessionalButton key={month} variant={isSelected ? 'contained' : 'outlined'} size="small"
-                          onClick={() => handleMonthSelect(index)}
-                          sx={{ borderColor: accentColor, backgroundColor: isSelected ? accentColor : 'transparent',
-                            color: isSelected ? textSecondaryColor : accentColor, minWidth: '84px', flexShrink: 0,
-                            fontSize: '0.75rem', fontWeight: 600, py: 1, px: 1.5,
-                            '&:hover': { backgroundColor: isSelected ? accentDark : alpha(accentColor, 0.1), borderWidth: 2 },
-                            transition: 'all 0.3s ease',
-                            boxShadow: isSelected ? `0 4px 12px ${alpha(accentColor, 0.3)}` : 'none' }}>
-                          {month}
-                        </ProfessionalButton>
-                      );
-                    })}
-                  </Box>
-                </Box>
-              </CardContent>
-            </GlassCard>
-          </Box>
-        </Fade>
+              <button
+                className="ps-refresh-btn"
+                style={{ color: accent, borderColor: accent, background: primaryColor }}
+                onClick={() => window.location.reload()}
+              >
+                <Refresh style={{ fontSize: '1.1rem' }} /> Refresh
+              </button>
+            </div>
 
-        <Grid container spacing={2}>
-          <Grid item xs={12}>
-            {displayEmployee ? (
-              <Fade in timeout={900}>
-                <GlassCard sx={{ mb: 2, border: `1px solid ${alpha(accentColor, 0.1)}`,
-                  height: '100%', display: 'flex', flexDirection: 'column' }}>
-                  <Box sx={{ p: 2, background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: accentColor, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <Typography variant="caption" sx={{ opacity: 0.8, mb: 0.5, textTransform: 'uppercase',
-                        letterSpacing: '0.1em', color: accentDark, fontSize: '0.75rem' }}>
-                        Employee Payslip Record
-                      </Typography>
-                      <Typography variant="h5" sx={{ fontWeight: 600, mb: 0.5, color: accentColor, fontSize: '1.25rem' }}>
-                        {displayEmployee.name}
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-                        <Chip label={`ID: ${displayEmployee.employeeNumber}`} size="small"
-                          sx={{ bgcolor: 'rgba(109,35,35,0.15)', color: accentColor, fontWeight: 500, height: 24, fontSize: '0.75rem' }} />
-                        <Chip label={(() => {
-                          if (!displayEmployee.startDate || !displayEmployee.endDate) return '—';
-                          const start = new Date(displayEmployee.startDate);
-                          const end   = new Date(displayEmployee.endDate);
-                          return `${start.toLocaleString('en-US',{month:'short'}).toUpperCase()} ${start.getDate()}-${end.getDate()}`;
-                        })()} size="small"
-                          sx={{ bgcolor: 'rgba(109,35,35,0.15)', color: accentColor, fontWeight: 500, height: 24, fontSize: '0.75rem' }} />
-                      </Box>
-                    </Box>
-                    <Avatar sx={{ bgcolor: 'rgba(109,35,35,0.15)', width: 56, height: 56,
-                      fontSize: '1.5rem', fontWeight: 600, color: accentColor }}>
-                      {displayEmployee.name ? displayEmployee.name.split(' ').map((n) => n[0]).join('').toUpperCase() : 'E'}
-                    </Avatar>
-                  </Box>
+            {/* Controls */}
+            <div className="ps-controls">
 
-                  <Paper ref={payslipRef} elevation={6}
-                    sx={{ p: 2, mt: 1, borderRadius: 1, backgroundColor: '#fff',
-                      fontFamily: '"Poppins", sans-serif', position: 'relative', overflow: 'hidden',
-                      width: '100%', maxWidth: '100%', margin: '0 auto', fontSize: '0.85rem', boxSizing: 'border-box' }}>
+              {/* Employee Number + Year */}
+              <div className="ps-row">
+                <div className="ps-input-group">
+                  <label className="ps-label" style={{ color: accent }}>Employee Number</label>
+                  <input
+                    className="ps-input"
+                    type="text"
+                    value={personID}
+                    disabled
+                    style={{ color: accent }}
+                  />
+                </div>
 
-                    {/* Watermark — uses hrisLogo from systemSettings */}
-                    <Box component="img" src={hrisLogo} alt="Watermark"
-                      sx={{ position: 'absolute', top: '50%', left: '50%',
-                        transform: 'translate(-50%, -50%)', opacity: 0.07, width: '80%',
-                        pointerEvents: 'none', userSelect: 'none' }} />
+                <div className="ps-input-group">
+                  <label className="ps-label" style={{ color: accent }}>Filter By Year</label>
+                  <select
+                    className="ps-select"
+                    value={selectedYear}
+                    onChange={(e) => handleYearChange(parseInt(e.target.value))}
+                    style={{ color: accent }}
+                  >
+                    {years.map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              </div>
 
-                    {/* Header with dynamic logos */}
-                    <PayslipHeader />
+              {/* Month Grid */}
+              <div className="ps-input-group">
+                <label className="ps-label" style={{ color: accent }}>Filter By Month</label>
+                <div className="ps-month-grid">
+                  {monthsShort.map((m, idx) => (
+                    <button
+                      key={m}
+                      className="ps-month-btn"
+                      onClick={() => handleMonthSelect(idx)}
+                      style={{
+                        border: idx === selectedMonth
+                          ? `1px solid ${accent}`
+                          : '1px solid rgba(109,35,35,0.1)',
+                        background: idx === selectedMonth ? accent : 'rgba(255,255,255,0.6)',
+                        color: idx === selectedMonth ? '#fff' : accent,
+                        boxShadow: idx === selectedMonth ? `0 4px 12px rgba(109,35,35,0.3)` : 'none',
+                      }}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-                    {(() => {
-                      const isJO = (displayEmployee.employmentCategory ?? -1) === 0;
+            </div>
+          </div>
+          {/* ══ END GLASS CARD ════════════════════════════════════════════ */}
 
-                      if (isJO) {
-                        return (
-                          <>
-                            <Box sx={{ border: '1px solid black', borderRadius: '3px', mb: 1.5 }}>
-                              <Box sx={{ backgroundColor: '#6D2323', color: 'white', p: 0.5,
-                                textAlign: 'center', fontWeight: 'bold', fontSize: '11px' }}>EMPLOYEE INFORMATION</Box>
-                              <Box sx={{ p: 1 }}>
-                                <Grid container spacing={1}>
-                                  {[
-                                    { label: 'EMPLOYEE NUMBER:', value: displayEmployee.employeeNumber ? `${parseFloat(displayEmployee.employeeNumber)}` : '—', red: true },
-                                    { label: 'NAME:', value: displayEmployee.name || '—', red: true },
-                                    { label: 'PERIOD:', value: (() => {
-                                      if (!displayEmployee.startDate || !displayEmployee.endDate) return '—';
-                                      const s = new Date(displayEmployee.startDate), e = new Date(displayEmployee.endDate);
-                                      return `${s.toLocaleString('en-US',{month:'long'}).toUpperCase()} ${s.getDate()}-${e.getDate()} ${e.getFullYear()}`;
-                                    })() },
-                                    { label: 'RENDERED DAYS:', value: formatRenderedDays(displayEmployee.rh) || '—' },
-                                  ].map(({ label, value, red }) => (
-                                    <Grid item xs={12} md={6} key={label}>
-                                      <Typography sx={{ fontSize: '10px', fontWeight: 'bold', mb: 0.25, color: accentColor }}>{label}</Typography>
-                                      <Typography sx={{ fontSize: '11px', color: red ? 'red' : 'inherit', fontWeight: red ? 'bold' : 'normal' }}>{value}</Typography>
-                                    </Grid>
-                                  ))}
-                                </Grid>
-                              </Box>
-                            </Box>
-
-                            <Box sx={{ border: '1px solid black', borderRadius: '3px', mb: 1.5 }}>
-                              <Box sx={{ backgroundColor: '#6D2323', color: 'white', p: 0.5,
-                                textAlign: 'center', fontWeight: 'bold', fontSize: '11px' }}>SALARY DETAILS</Box>
-                              <Box sx={{ p: 1 }}>
-                                <Grid container spacing={1}>
-                                  <Grid item xs={12}>
-                                    <Typography sx={{ fontSize: '10px', fontWeight: 'bold', mb: 0.25, color: accentColor }}>GROSS SALARY:</Typography>
-                                    <Typography sx={{ fontSize: '11px' }}>{formatCurrency(displayEmployee.grossSalary) || '—'}</Typography>
-                                  </Grid>
-                                  <Grid item xs={12}>
-                                    <Typography sx={{ fontSize: '10px', fontWeight: 'bold', mb: 0.5, color: accentColor }}>TOTAL DEDUCTIONS:</Typography>
-                                    <Box sx={{ pl: 1, mb: 0.5 }}>
-                                      {[['SSS:', displayEmployee.sss], ['PAGIBIG:', displayEmployee.pagibigFundCont]].map(([lbl, val]) => (
-                                        <Box key={lbl} sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.25 }}>
-                                          <Typography sx={{ fontWeight: 600, fontSize: '10px' }}>{lbl}</Typography>
-                                          <Typography sx={{ fontSize: '11px' }}>{formatCurrency(val) || '—'}</Typography>
-                                        </Box>
-                                      ))}
-                                    </Box>
-                                    <Typography sx={{ fontSize: '11px', fontWeight: 'bold' }}>{formatCurrency(displayEmployee.totalDeductions) || '—'}</Typography>
-                                  </Grid>
-                                  <Grid item xs={12}>
-                                    <Box sx={{ border: '1px solid #6d2323', borderRadius: 2, p: 1,
-                                      textAlign: 'center', background: 'rgba(109,35,35,0.05)' }}>
-                                      <Typography sx={{ fontSize: '11px', fontWeight: 'bold', mb: 0.25, color: accentColor }}>NET AMOUNT:</Typography>
-                                      <Typography sx={{ fontSize: '14px', fontWeight: 'bold', color: '#6d2323' }}>
-                                        {formatCurrency(displayEmployee.netSalary) || '—'}
-                                      </Typography>
-                                    </Box>
-                                  </Grid>
-                                </Grid>
-                              </Box>
-                            </Box>
-
-                            <Box textAlign="center" mt={2} p={1}>
-                              <Typography sx={{ fontSize: '11px', fontWeight: 'bold', mb: 0.5 }}>Certified Correct:</Typography>
-                              <Typography sx={{ fontSize: '12px', fontWeight: 'bold', mb: 0.25 }}>GIOVANNI L. AHUNIN</Typography>
-                              <Typography sx={{ fontSize: '10px' }}>Director, Administrative Services</Typography>
-                            </Box>
-                          </>
-                        );
-                      }
-
-                      // Regular Employee
-                      const allDeductions = [
-                        { label: 'Withholding Tax',  value: displayEmployee.withholdingTax },
-                        { label: 'Life & Retirement', value: displayEmployee.personalLifeRetIns },
-                        { label: 'GSIS Salary Loan', value: displayEmployee.gsisSalaryLoan },
-                        { label: 'Policy Loan',       value: displayEmployee.gsisPolicyLoan },
-                        { label: 'Housing Loan',      value: displayEmployee.gsisHousingLoan },
-                        { label: 'GSIS Arrears',      value: displayEmployee.gsisArrears },
-                        { label: 'GFAL',              value: displayEmployee.gfal },
-                        { label: 'CPL',               value: displayEmployee.cpl },
-                        { label: 'MPL',               value: displayEmployee.mpl },
-                        { label: 'MPL Lite',          value: displayEmployee.mplLite },
-                        { label: 'ELA',               value: displayEmployee.ela },
-                        { label: 'SSS',               value: displayEmployee.sss },
-                        { label: 'Pag-IBIG',          value: displayEmployee.pagibigFundCont },
-                        { label: 'PhilHealth',        value: displayEmployee.PhilHealthContribution },
-                        { label: 'PhilHealth Diff',   value: displayEmployee.philhealthDiff },
-                        { label: 'Pag-IBIG 2',        value: displayEmployee.pagibig2 },
-                        { label: 'LBP Loan',          value: displayEmployee.lbpLoan },
-                        { label: 'MTSLAI',            value: displayEmployee.mtslai },
-                        { label: 'ECC',               value: displayEmployee.ecc },
-                        { label: 'To Be Refunded',    value: displayEmployee.toBeRefunded },
-                        { label: 'FEU',               value: displayEmployee.feu },
-                        { label: 'ESLAI',             value: displayEmployee.eslai },
-                        { label: 'ABS',               value: displayEmployee.abs },
-                      ].filter((item) => { const n = parseFloat(item.value); return !isNaN(n) && n !== 0; });
-
-                      return (
-                        <>
-                          <Box sx={{ border: '1px solid black', borderRadius: '3px', mb: 1.5 }}>
-                            <Box sx={{ backgroundColor: '#6D2323', color: 'white', p: 0.5, textAlign: 'center', fontWeight: 'bold', fontSize: '11px' }}>EMPLOYEE INFORMATION</Box>
-                            <Box sx={{ p: 1 }}>
-                              <Grid container spacing={1}>
-                                <Grid item xs={12} md={6}>
-                                  <Typography sx={{ fontSize: '10px', fontWeight: 'bold', mb: 0.25, color: accentColor }}>PERIOD:</Typography>
-                                  <Typography sx={{ fontSize: '11px', fontWeight: 'bold' }}>
-                                    {(() => {
-                                      if (!displayEmployee.startDate || !displayEmployee.endDate) return '—';
-                                      const s = new Date(displayEmployee.startDate), e = new Date(displayEmployee.endDate);
-                                      return `${s.toLocaleString('en-US',{month:'long'}).toUpperCase()} ${s.getDate()}-${e.getDate()} ${e.getFullYear()}`;
-                                    })()}
-                                  </Typography>
-                                </Grid>
-                                <Grid item xs={12} md={6}>
-                                  <Typography sx={{ fontSize: '10px', fontWeight: 'bold', mb: 0.25, color: accentColor }}>EMPLOYEE NUMBER:</Typography>
-                                  <Typography sx={{ fontSize: '11px', color: 'red', fontWeight: 'bold' }}>
-                                    {displayEmployee.employeeNumber ? `${parseFloat(displayEmployee.employeeNumber)}` : '—'}
-                                  </Typography>
-                                </Grid>
-                                <Grid item xs={12} md={6}>
-                                  <Typography sx={{ fontSize: '10px', fontWeight: 'bold', mb: 0.25, color: accentColor }}>NAME:</Typography>
-                                  <Typography sx={{ fontSize: '11px', color: 'red', fontWeight: 'bold' }}>{displayEmployee.name || '—'}</Typography>
-                                </Grid>
-                              </Grid>
-                            </Box>
-                          </Box>
-
-                          <Box sx={{ border: '1px solid black', borderRadius: '3px', mb: 1.5 }}>
-                            <Box sx={{ backgroundColor: '#6D2323', color: 'white', p: 0.5, textAlign: 'center', fontWeight: 'bold', fontSize: '11px' }}>SALARY DETAILS</Box>
-                            <Box sx={{ p: 1 }}>
-                              <Grid container spacing={1}>
-                                {[
-                                  { label: 'GROSS SALARY:', value: formatCurrency(displayEmployee.grossSalary) },
-                                  { label: 'TOTAL DEDUCTIONS:', value: formatCurrency(displayEmployee.totalDeductions) },
-                                ].map(({ label, value }) => (
-                                  <Grid item xs={12} md={4} key={label}>
-                                    <Typography sx={{ fontSize: '10px', fontWeight: 'bold', mb: 0.25, color: accentColor }}>{label}</Typography>
-                                    <Typography sx={{ fontSize: '11px' }}>{value || '—'}</Typography>
-                                  </Grid>
-                                ))}
-                                <Grid item xs={12} md={4}>
-                                  <Box sx={{ border: '1px solid #6d2323', borderRadius: 2, p: 1, textAlign: 'center', background: 'rgba(109,35,35,0.05)' }}>
-                                    <Typography sx={{ fontSize: '11px', fontWeight: 'bold', mb: 0.25, color: accentColor }}>NET SALARY:</Typography>
-                                    <Typography sx={{ fontSize: '14px', fontWeight: 'bold', color: '#6d2323' }}>{formatCurrency(displayEmployee.netSalary) || '—'}</Typography>
-                                  </Box>
-                                </Grid>
-                              </Grid>
-                            </Box>
-                          </Box>
-
-                          <Box sx={{ border: '1px solid black', borderRadius: '3px', mb: 1.5 }}>
-                            <Box sx={{ backgroundColor: '#6D2323', color: 'white', p: 0.5, textAlign: 'center', fontWeight: 'bold', fontSize: '11px' }}>DEDUCTIONS BREAKDOWN</Box>
-                            <Box sx={{ p: 1 }}>
-                              <Grid container spacing={0.5}>
-                                {allDeductions.map((item, index) => (
-                                  <Grid item xs={12} sm={6} md={4} key={index}>
-                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e0e0e0', pb: 0.25, mb: 0.25 }}>
-                                      <Typography sx={{ fontWeight: 600, fontSize: '10px' }}>{item.label}:</Typography>
-                                      <Typography sx={{ fontSize: '11px' }}>{formatCurrency(item.value) || '—'}</Typography>
-                                    </Box>
-                                  </Grid>
-                                ))}
-                              </Grid>
-                            </Box>
-                          </Box>
-
-                          <Box sx={{ border: '1px solid black', borderRadius: '3px', mb: 1.5 }}>
-                            <Box sx={{ backgroundColor: '#6D2323', color: 'white', p: 0.5, textAlign: 'center', fontWeight: 'bold', fontSize: '11px' }}>PAYMENT BREAKDOWN</Box>
-                            <Box sx={{ p: 1 }}>
-                              <Grid container spacing={1}>
-                                {[['1st Quincena:', displayEmployee.pay1st], ['2nd Quincena:', displayEmployee.pay2nd]].map(([lbl, val]) => (
-                                  <Grid item xs={12} md={6} key={lbl}>
-                                    <Typography sx={{ fontSize: '10px', fontWeight: 'bold', mb: 0.25, color: accentColor }}>{lbl}</Typography>
-                                    <Typography sx={{ fontSize: '11px' }}>{formatCurrency(val)}</Typography>
-                                  </Grid>
-                                ))}
-                              </Grid>
-                            </Box>
-                          </Box>
-
-                          <Box textAlign="center" mt={2} p={1}>
-                            <Typography sx={{ fontSize: '11px', fontWeight: 'bold', mb: 0.5 }}>Certified Correct:</Typography>
-                            <Typography sx={{ fontSize: '12px', fontWeight: 'bold', mb: 0.25 }}>GIOVANNI L. AHUNIN</Typography>
-                            <Typography sx={{ fontSize: '10px' }}>Director, Administrative Services</Typography>
-                          </Box>
-                        </>
-                      );
-                    })()}
-                  </Paper>
-                </GlassCard>
-              </Fade>
-            ) : null}
-          </Grid>
-        </Grid>
-
-        <Dialog open={modal.open} onClose={() => setModal({ ...modal, open: false })}
-          PaperProps={{ sx: { borderRadius: 4, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' } }}>
-          <SuccessfulOverlay open={modal.open && modal.type === 'success'} action={modal.action}
-            onClose={() => setModal({ ...modal, open: false })} />
-          {modal.type === 'error' && (
-            <Box sx={{ p: 4, textAlign: 'center' }}>
-              <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>Error Occurred</Typography>
-              <Typography variant="body1" color="text.secondary">{modal.message || 'An error occurred.'}</Typography>
-            </Box>
+          {error && (
+            <div style={{ color: 'red', padding: '1rem', background: '#fff3f3', borderRadius: '8px', border: '1px solid red' }}>
+              {error}
+            </div>
           )}
-        </Dialog>
-      </Box>
-    </Box>
+
+          {/* Loading indicator */}
+          {loading && (
+            <div className="ps-state-msg" style={{ borderColor: accent, display: 'block' }}>
+              <CircularProgress sx={{ color: accent, mb: 1 }} size={36} />
+              <p style={{ fontFamily: 'Poppins,sans-serif' }}>Fetching payroll records...</p>
+            </div>
+          )}
+
+          {/* ══ PAYSLIP PAPER (exact 1st code layout) ═════════════════════ */}
+          {!loading && !error && displayEmployee && (
+            <div className="ps-paper-wrap">
+              <div className="ps-paper" ref={payslipRef}>
+
+                {/* Watermark */}
+                <img src={hrisLogo} className="ps-watermark" alt="Watermark" />
+
+                {/* Payslip Header */}
+                <div className="ps-slip-header" style={{ background: `linear-gradient(to right, ${accent}, ${dark})`, borderBottom: `2px solid ${accent}` }}>
+                  <img src={logo} className="ps-logo" alt="EARIST Logo" />
+                  <div className="ps-slip-header-center" style={{ color: textSecondaryColor }}>
+                    <h2>Republic of the Philippines</h2>
+                    <h1>EULOGIO "AMANG" RODRIGUEZ INSTITUTE OF SCIENCE AND TECHNOLOGY</h1>
+                    <p>Nagtahan, Sampaloc Manila</p>
+                  </div>
+                  <img src={hrisLogo} className="ps-logo" alt="HRIS Logo" />
+                </div>
+
+                {/* Data rows — single column, exactly as original */}
+                <div className="ps-table">
+                  {rows.map((row, idx) => (
+                    <div className="ps-table-row" key={idx}>
+                      <div className="ps-table-label" style={{ color: textPrimaryColor }}>{row.label}</div>
+                      <div className="ps-table-value" style={{ color: '#1a1a1a' }}>{row.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Footer */}
+                <div className="ps-footer" style={{ textAlign: 'center' }}>
+                  <p className="ps-certified">Certified Correct:</p>
+                  <p className="ps-signatory">GIOVANNI L. AHUNIN</p>
+                  <p className="ps-signatory-role">Director, Administrative Services</p>
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          {/* No data messages */}
+          {!loading && !error && !displayEmployee && selectedMonth !== null && (
+            <div className="ps-state-msg" style={{ borderColor: accent, background: primaryColor, display: 'block' }}>
+              <p style={{ fontFamily: 'Poppins,sans-serif', color: accent }}>
+                There's no payslip saved for the month of <b>{monthsShort[selectedMonth]}</b>.
+              </p>
+            </div>
+          )}
+
+          {!loading && !error && !displayEmployee && selectedMonth === null && hasSearched && (
+            <div className="ps-state-msg" style={{ borderColor: accent, background: primaryColor, display: 'block' }}>
+              <p style={{ fontFamily: 'Poppins,sans-serif', color: accent }}>
+                Please select a month to view your payslip.
+              </p>
+            </div>
+          )}
+
+          {/* ══ DOWNLOAD BUTTON ═══════════════════════════════════════════ */}
+          {!loading && displayEmployee && (
+            <button
+              className="ps-fab-btn"
+              style={{ background: `linear-gradient(135deg, ${accent} 0%, ${dark} 100%)`, color: textSecondaryColor }}
+              onClick={downloadPDF}
+              disabled={sending}
+              title="Download Payslip PDF"
+            >
+              {sending
+                ? <><CircularProgress size={20} sx={{ color: '#fff' }} /><span className="ps-fab-label">Processing...</span></>
+                : <><Download style={{ fontSize: '1.4rem' }} /><span className="ps-fab-label">Download PDF</span></>
+              }
+            </button>
+          )}
+
+        </div>
+      </div>
+
+      {/* Dialog */}
+      <Dialog open={modal.open} onClose={() => setModal({ ...modal, open: false })}>
+        <SuccessfulOverlay
+          open={modal.open && modal.type === 'success'}
+          action={modal.action}
+          onClose={() => setModal({ ...modal, open: false })}
+        />
+        {modal.type === 'error' && (
+          <Box sx={{ color: 'red', p: 3 }}>{modal.message || 'An error occurred'}</Box>
+        )}
+      </Dialog>
+    </>
   );
 });
 
