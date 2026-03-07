@@ -799,5 +799,5 @@ const Payslip = forwardRef(({ employee }, ref) => {
     </>
   );
 });
-
+ 
 export default Payslip;

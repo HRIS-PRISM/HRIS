@@ -1045,4 +1045,4 @@ const DailyTimeRecordHonorarium = () => {
   );
 };
 
-export default DailyTimeRecordHonorarium;
+export default DailyTimeRecordHonorarium; 

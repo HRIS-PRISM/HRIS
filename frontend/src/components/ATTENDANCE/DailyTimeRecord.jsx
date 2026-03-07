@@ -1067,7 +1067,7 @@ const cellOverlay = (ind) ? (cellValue) => {
     </IconButton>
   </Tooltip>
 
-</Box>
+</Box> 
 
       </Box>
     </Container>
