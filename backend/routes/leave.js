@@ -126,7 +126,7 @@ const buildLeaveTransactionMessage = ({
     return `${actorDisplayName} rejected ${requesterDisplayName}'s request for ${leaveCode}`;
   }
 
-  if (action === "manager_approved") {
+  if (action === "immediateSupervisor_approved") {
     return `Immediate supervisor ${actorDisplayName} approve the request ${leaveCode} of ${requesterDisplayName}`;
   }
 
@@ -143,7 +143,7 @@ const buildLeaveTransactionMessage = ({
 
 const statusToLeaveAction = (statusValue) => {
   const s = Number(statusValue);
-  if (s === 1) return "manager_approved";
+  if (s === 1) return "immediateSupervisor_approved";
   if (s === 2) return "hr_approved";
   if (s === 3) return "denied";
   if (s === 4) return "cancelled";
@@ -184,10 +184,10 @@ router.get("/leave_table", (req, res) => {
 });
 
 router.post("/leave_table", (req, res) => {
-  const { leave_code, leave_description, leave_hours } = req.body;
-  db.query(
-    "INSERT INTO leave_table (leave_code, leave_description, leave_hours) VALUES (?, ?, ?)",
-    [leave_code, leave_description, leave_hours || 0],
+ const { leave_code, leave_description, leave_hours, gender_restriction } = req.body;
+db.query(
+  "INSERT INTO leave_table (leave_code, leave_description, leave_hours, gender_restriction) VALUES (?, ?, ?, ?)",
+  [leave_code, leave_description, leave_hours || 0, gender_restriction || null],
     (err, result) => {
       if (err)
         return res.status(500).json({ error: "Failed to create leave type" });
@@ -203,10 +203,10 @@ router.post("/leave_table", (req, res) => {
 
 router.put("/leave_table/:id", (req, res) => {
   const { id } = req.params;
-  const { leave_code, leave_description, leave_hours } = req.body;
-  db.query(
-    "UPDATE leave_table SET leave_code = ?, leave_description = ?, leave_hours = ? WHERE id = ?",
-    [leave_code, leave_description, leave_hours, id],
+ const { leave_code, leave_description, leave_hours, gender_restriction } = req.body;
+db.query(
+  "UPDATE leave_table SET leave_code = ?, leave_description = ?, leave_hours = ?, gender_restriction = ? WHERE id = ?",
+  [leave_code, leave_description, leave_hours, gender_restriction || null, id],
     (err) => {
       if (err)
         return res.status(500).json({ error: "Failed to update leave type" });

@@ -159,8 +159,8 @@ const LeaveRequest = () => {
     },
     {
       value: '1',
-      label: 'Manager Approved',
-      short: 'Manager Approved',
+      label: 'Immediate Supervisor Approved',
+      short: 'Immediate Supervisor Approved',
       color: '#1565C0',
       bg: '#E3F2FD',
       icon: CheckCircle,
@@ -284,7 +284,12 @@ const LeaveRequest = () => {
     const hoursRequested = leaveDates.length * 8;
 
     // Find the leave assignment for this employee and leave type
-    const leaveAssignment = leaveCredits?.assignments?.find(
+    const creditsRes = await axios.get(
+      `${API_BASE_URL}/leaveRoute/leave_assignment`,
+      getAuthHeaders(),
+    );
+    const assignment = creditsRes.data?.assignments || [];
+    const leaveAssignment = assignment.find(
       (a) =>
         a.employeeNumber?.toString() ===
           newRequest.employeeNumber?.toString() &&
@@ -1218,7 +1223,7 @@ const LeaveRequest = () => {
                         color: '#F57C00',
                       },
                       {
-                        label: `Manager (${counts['1']})`,
+                        label: `Immediate Supervisor (${counts['1']})`,
                         value: '1',
                         color: '#1565C0',
                       },
@@ -1662,7 +1667,7 @@ const LeaveRequest = () => {
                         </Box>
 
                         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                          <Tooltip title="Approve as Manager">
+                          <Tooltip title="Approve as Immediate Supervisor">
                             <Button
                               onClick={() => handleBulkStatusUpdate(1)}
                               disabled={
@@ -1684,7 +1689,7 @@ const LeaveRequest = () => {
                                 '&:disabled': { backgroundColor: '#ccc' },
                               }}
                             >
-                              Manager
+                              Immediate Supervisor
                             </Button>
                           </Tooltip>
 

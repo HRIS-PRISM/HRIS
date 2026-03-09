@@ -230,7 +230,7 @@ const LeaveRequestUser = () => {
   const statusOptions = [
     { value: '', label: 'All Status' },
     { value: '0', label: 'Pending' },
-    { value: '1', label: 'Manager Approved' },
+    { value: '1', label: 'Immediate Supervisor Approved' },
     { value: '2', label: 'HR Approved' },
     { value: '3', label: 'Denied' },
     { value: '4', label: 'Cancelled' },
@@ -483,7 +483,7 @@ const LeaveRequestUser = () => {
         icon: AccessTime,
       },
       1: {
-        label: 'Manager Approved',
+        label: 'Immediate Supervisor Approved',
         sublabel: 'Pending HR',
         color: '#1565C0',
         bg: '#E3F2FD',
