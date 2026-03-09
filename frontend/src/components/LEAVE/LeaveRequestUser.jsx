@@ -16,6 +16,7 @@ import {
   IconButton,
   Backdrop,
   Snackbar,
+  Modal,
   styled,
   alpha,
 } from '@mui/material';
@@ -34,6 +35,8 @@ import {
   Add as AddIcon,
   WarningAmber as WarningIcon,
   AccountBalanceWallet as WalletIcon,
+  HistoryToggleOff,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import { MenuItem, Select, TextField, Card, CardContent } from '@mui/material';
 import axios from 'axios';
@@ -125,6 +128,10 @@ const LeaveRequestUser = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [personID, setPersonID] = useState('');
   const [dateModalOpen, setDateModalOpen] = useState(false);
+  const [transactionLogsModalOpen, setTransactionLogsModalOpen] = useState(false);
+  const [transactionLogs, setTransactionLogs] = useState([]);
+  const [transactionLogsLoading, setTransactionLogsLoading] = useState(false);
+  const [transactionLogsError, setTransactionLogsError] = useState('');
   const [selectedDates, setSelectedDates] = useState([]);
 
   const [balanceAlertOpen, setBalanceAlertOpen] = useState(false);
@@ -219,10 +226,11 @@ const LeaveRequestUser = () => {
     { value: '11', label: 'November' },
     { value: '12', label: 'December' },
   ];
+
   const statusOptions = [
     { value: '', label: 'All Status' },
     { value: '0', label: 'Pending' },
-    { value: '1', label: 'Manager Approved' },
+    { value: '1', label: 'Immediate Supervisor Approved' },
     { value: '2', label: 'HR Approved' },
     { value: '3', label: 'Denied' },
     { value: '4', label: 'Cancelled' },
@@ -305,6 +313,31 @@ const LeaveRequestUser = () => {
       console.error('Error fetching assignments:', e);
     }
   };
+
+  const fetchTransactionLogs = async () => {
+    if (!personID) return;
+    setTransactionLogsLoading(true);
+    setTransactionLogsError('');
+    try {
+      const res = await axios.get(
+        `${API_BASE_URL}/leaveRoute/leave_request/transactions/${personID}`,
+        getAuthHeaders(),
+      );
+      setTransactionLogs(Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
+      console.error('Error fetching transaction logs:', e);
+      setTransactionLogsError('Failed to load transaction logs.');
+      setTransactionLogs([]);
+    } finally {
+      setTransactionLogsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (transactionLogsModalOpen) {
+      fetchTransactionLogs();
+    }
+  }, [transactionLogsModalOpen, personID]);
 
   const handleAdd = async () => {
     if (!newLeaveRequest.leave_code) {
@@ -450,7 +483,7 @@ const LeaveRequestUser = () => {
         icon: AccessTime,
       },
       1: {
-        label: 'Manager Approved',
+        label: 'Immediate Supervisor Approved',
         sublabel: 'Pending HR',
         color: '#1565C0',
         bg: '#E3F2FD',
@@ -504,6 +537,51 @@ const LeaveRequestUser = () => {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const renderTransactionMessage = (message) => {
+    const safeMessage = message || 'No message';
+    const lower = safeMessage.toLowerCase();
+
+    const highlights = [];
+
+    if (lower.includes('immediate supervisor')) {
+      highlights.push({ pattern: /\bapprove\b/gi, color: '#1565C0' }); // blue
+    } else if (lower.includes('hr') && lower.includes('approve')) {
+      highlights.push({ pattern: /\bapprove\b/gi, color: '#2E7D32' }); // green
+    } else if (lower.includes('rejected')) {
+      highlights.push({ pattern: /\brejected\b/gi, color: '#C62828' }); // red
+    } else if (lower.includes('requested')) {
+      highlights.push({ pattern: /\brequested\b/gi, color: '#D4A017' }); // yellow
+    }
+
+    if (!highlights.length) return safeMessage;
+
+    let rendered = [safeMessage];
+
+    highlights.forEach(({ pattern, color }, idx) => {
+      rendered = rendered.flatMap((part, partIdx) => {
+        if (typeof part !== 'string') return [part];
+        const chunks = part.split(pattern);
+        const matches = part.match(pattern) || [];
+        if (!matches.length) return [part];
+
+        const out = [];
+        chunks.forEach((chunk, i) => {
+          if (chunk) out.push(chunk);
+          if (i < matches.length) {
+            out.push(
+              <Box component="span" key={`hl-${idx}-${partIdx}-${i}`} sx={{ color, fontWeight: 700 }}>
+                {matches[i]}
+              </Box>,
+            );
+          }
+        });
+        return out;
+      });
+    });
+
+    return <>{rendered}</>;
   };
 
   const remainingDays = getAllocatedRemainingDays();
@@ -709,20 +787,37 @@ const LeaveRequestUser = () => {
                     </Typography>
                   </Box>
                 </Box>
-                <Tooltip title="Refresh Data">
-                  <IconButton
-                    onClick={() => window.location.reload()}
-                    sx={{
-                      bgcolor: 'rgba(109,35,35,0.1)',
-                      '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
-                      color: accentColor,
-                      width: 48,
-                      height: 48,
-                    }}
-                  >
-                    <Refresh />
-                  </IconButton>
-                </Tooltip>
+                <Box>
+                  <Tooltip title="Refresh Data">
+                    <IconButton
+                      onClick={() => window.location.reload()}
+                      sx={{
+                        bgcolor: 'rgba(109,35,35,0.1)',
+                        '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
+                        color: accentColor,
+                        width: 48,
+                        mr: 2,
+                        height: 48,
+                      }}
+                    >
+                      <Refresh />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title=" Transaction Logs">
+                    <IconButton
+                      onClick={() => setTransactionLogsModalOpen(true)}
+                      sx={{
+                        bgcolor: 'rgba(109,35,35,0.1)',
+                        '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
+                        color: accentColor,
+                        width: 48,
+                        height: 48,
+                      }}
+                    >
+                      <HistoryToggleOff />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
               </Box>
             </Box>
           </GlassCard>
@@ -1417,6 +1512,107 @@ const LeaveRequestUser = () => {
           </Fade>
         </Grid>
       </Grid>
+
+      <Modal
+        open={transactionLogsModalOpen}
+        onClose={() => setTransactionLogsModalOpen(false)}
+      >
+        <Fade in={transactionLogsModalOpen}>
+          <Box
+            sx={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: { xs: '92%', sm: '85%', md: 760 },
+              maxHeight: '85vh',
+              bgcolor: primaryColor,
+              border: `1px solid ${alpha(accentColor, 0.2)}`,
+              boxShadow: `0 24px 64px ${alpha(accentColor, 0.3)}`,
+              borderRadius: 3,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <Box
+              sx={{
+                p: 2.5,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                borderBottom: `1px solid ${alpha(accentColor, 0.15)}`,
+                background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+              }}
+            >
+              <Typography variant="h6" sx={{ fontWeight: 700, color: accentColor }}>
+                Transaction Logs
+              </Typography>
+              <IconButton
+                size="small"
+                onClick={() => setTransactionLogsModalOpen(false)}
+                sx={{
+                  color: accentColor,
+                  '&:hover': { backgroundColor: alpha(accentColor, 0.08) },
+                }}
+              >
+                <CloseIcon />
+              </IconButton>
+            </Box>
+
+            <Box sx={{ p: 3, overflowY: 'auto' }}>
+              {transactionLogsLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                  <CircularProgress size={28} sx={{ color: accentColor }} />
+                </Box>
+              ) : transactionLogsError ? (
+                <Typography variant="body2" sx={{ color: '#C62828' }}>
+                  {transactionLogsError}
+                </Typography>
+              ) : transactionLogs.length === 0 ? (
+                <Typography variant="body2" sx={{ color: '#666' }}>
+                  No transaction logs available.
+                </Typography>
+              ) : (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  {transactionLogs.map((log) => {
+                      const loggedAt =
+                        log.created_at ||
+                        log.createdAt ||
+                        log.date_created ||
+                        log.timestamp;
+                      return (
+                        <Paper
+                          key={`log-${log.id}`}
+                          sx={{
+                            p: 2,
+                            borderRadius: 2,
+                            border: `1px solid ${alpha(accentColor, 0.12)}`,
+                            background: '#fff',
+                          }}
+                        >
+                          <Typography sx={{ fontWeight: 600, color: '#333', fontSize: '0.95rem' }}>
+                            {renderTransactionMessage(log.message)}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              display: 'inline-flex',
+                              mt: 1,
+                              color: '#777',
+                            }}
+                          >
+                            {loggedAt ? formatDateTime(loggedAt) : 'No timestamp'}
+                          </Typography>
+                        </Paper>
+                      );
+                    })}
+                </Box>
+              )}
+            </Box>
+          </Box>
+        </Fade>
+      </Modal>
     </Box>
   );
 };
