@@ -114,28 +114,28 @@ const buildLeaveTransactionMessage = ({
   action,
   actorDisplayName,
   requesterDisplayName,
-  leaveCode,
+  leaveDesc,
 }) => {
   if (!action) return null;
 
   if (action === "request") {
-    return `${actorDisplayName} requested ${leaveCode}`;
+    return `${actorDisplayName} requested ${leaveDesc}`;
   }
 
   if (action === "denied") {
-    return `${actorDisplayName} rejected ${requesterDisplayName}'s request for ${leaveCode}`;
+    return `${actorDisplayName} rejected ${requesterDisplayName}'s request for ${leaveDesc}`;
   }
 
   if (action === "immediateSupervisor_approved") {
-    return `Immediate supervisor ${actorDisplayName} approve the request ${leaveCode} of ${requesterDisplayName}`;
+    return `Immediate supervisor ${actorDisplayName} approve the request ${leaveDesc} of ${requesterDisplayName}`;
   }
 
   if (action === "hr_approved") {
-    return `HR ${actorDisplayName} approve the request ${leaveCode} of ${requesterDisplayName}`;
+    return `HR ${actorDisplayName} approve the request ${leaveDesc} of ${requesterDisplayName}`;
   }
 
   if (action === "cancelled") {
-    return `${actorDisplayName} cancelled its requests ${leaveCode}`;
+    return `${actorDisplayName} cancelled its requests ${leaveDesc}`;
   }
 
   return null;
@@ -695,26 +695,52 @@ router.post("/leave_request", (req, res) => {
     );
 
     Promise.all(insertPromises)
-      .then(async () => {
-        const actorFullName = await getEmployeeFullName(actorEmployeeNumber);
-        const actorDisplayName = formatUserDisplayName(
-          actorEmployeeNumber,
-          actorFullName,
-        );
-        const requestMessage = buildLeaveTransactionMessage({
-          action: "request",
-          actorDisplayName,
-          requesterDisplayName: actorDisplayName,
-          leaveCode: leave_code,
-        });
-        await insertTransactionLog(actorEmployeeNumber, requestMessage);
+.then(() => {
+  db.query(
+    "SELECT leave_description FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1",
+    [leave_code],
+    async (err, leaveTypeRows) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: "Leave type lookup failed" });
+      }
 
-        emitLeaveChange("leaveRequestChanged");
-        res.json({
-          message: "Leave requests created successfully",
-          count: dates.length,
-        });
-      })
+      const leave_description =
+        (leaveTypeRows &&
+          leaveTypeRows[0] &&
+          leaveTypeRows[0].leave_description) ||
+        leave_code;
+
+      const actorFullName = await getEmployeeFullName(
+        actorEmployeeNumber
+      );
+
+      const actorDisplayName = formatUserDisplayName(
+        actorEmployeeNumber,
+        actorFullName
+      );
+
+      const requestMessage = buildLeaveTransactionMessage({
+        action: "request",
+        actorDisplayName,
+        requesterDisplayName: actorDisplayName,
+        leaveDesc: leave_description,
+      });
+
+      await insertTransactionLog(
+        actorEmployeeNumber,
+        requestMessage
+      );
+
+      emitLeaveChange("leaveRequestChanged");
+
+      res.json({
+        message: "Leave requests created successfully",
+        count: dates.length,
+      });
+    }
+  );
+})
       .catch((err) => {
         console.error("Error creating leave requests:", err);
         res.status(500).json({ error: "Failed to create leave requests" });
@@ -834,7 +860,7 @@ router.put("/leave_request/bulk-update", (req, res) => {
                       action,
                       actorDisplayName,
                       requesterDisplayName,
-                      leaveCode: request.leave_code,
+                      leaveDesc: request.leave_description,
                     });
                     return insertTransactionLog(actorEmployeeNumber, message);
                   }),
@@ -922,7 +948,7 @@ router.put("/leave_request/bulk-update", (req, res) => {
                     action,
                     actorDisplayName,
                     requesterDisplayName,
-                    leaveCode: request.leave_code,
+                    leaveDesc: request.leave_description,
                   });
                   return insertTransactionLog(actorEmployeeNumber, message);
                 }),
@@ -975,26 +1001,34 @@ router.put("/leave_request/:id", (req, res) => {
           async (updateErr) => {
             if (updateErr)
               return res.status(500).json({ error: "Failed to update status" });
+            db.query(
+              "SELECT leave_description FROM leave_table WHERE leave_code = ?",
+              [leave_code], async (err, leaveRows) => {
+                if (err) {
+                  console.error("[Update Status] Error fetching leave description:", err);
+                  return res.status(500).json({ error: "Failed to fetch leave description" });
+                }
 
-            const action = statusToLeaveAction(newStatus);
-            if (action) {
-              const actorFullName = await getEmployeeFullName(actorEmployeeNumber);
-              const requesterFullName = await getEmployeeFullName(employeeNumber);
-              const actorDisplayName = formatUserDisplayName(
-                actorEmployeeNumber,
-                actorFullName,
-              );
-              const requesterDisplayName = formatUserDisplayName(
-                employeeNumber,
-                requesterFullName,
-              );
-              const message = buildLeaveTransactionMessage({
-                action,
-                actorDisplayName,
-                requesterDisplayName,
-                leaveCode: leave_code,
-              });
-              await insertTransactionLog(actorEmployeeNumber, message);
+                const leave_description = leaveRows[0]?.leave_description || "Unknown Leave Type";
+                const action = statusToLeaveAction(newStatus);
+                if (action) {
+                  const actorFullName = await getEmployeeFullName(actorEmployeeNumber);
+                  const requesterFullName = await getEmployeeFullName(employeeNumber);
+                  const actorDisplayName = formatUserDisplayName(
+                  actorEmployeeNumber,
+                  actorFullName,
+                );
+                const requesterDisplayName = formatUserDisplayName(
+                  employeeNumber,
+                  requesterFullName,
+                );
+                const message = buildLeaveTransactionMessage({
+                  action,
+                  actorDisplayName,
+                  requesterDisplayName,
+                  leaveDesc: leave_description,
+                });
+                await insertTransactionLog(actorEmployeeNumber, message);
             }
 
             emitLeaveChange("leaveRequestChanged");
@@ -1006,7 +1040,8 @@ router.put("/leave_request/:id", (req, res) => {
               status: newStatus,
               message: "Status updated successfully",
             });
-          },
+          })}
+          ,
         );
       };
 
