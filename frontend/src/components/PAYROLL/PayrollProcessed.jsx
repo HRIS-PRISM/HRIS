@@ -1997,6 +1997,12 @@ const PayrollProcessed = () => {
                               isHeader
                               sx={{ color: textPrimaryColor }}
                             >
+                              <b>Net Salary</b>
+                            </PremiumTableCell>
+                            <PremiumTableCell
+                              isHeader
+                              sx={{ color: textPrimaryColor }}
+                            >
                               Withholding Tax
                             </PremiumTableCell>
                             <PremiumTableCell
@@ -2427,6 +2433,18 @@ const PayrollProcessed = () => {
                                           )
                                         : ''}
                                     </ExcelTableCell>
+                                    <ExcelTableCell
+                                      sx={{ color: 'green', fontWeight: 'bold' }}
+                                    >
+                                      {parseFloat(row.netSalary || 0)
+                                        ? Number(
+                                            row.netSalary,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.withholdingTax
                                         ? Number(
@@ -2830,7 +2848,7 @@ const PayrollProcessed = () => {
                           ) : (
                             <TableRow>
                               <PremiumTableCell
-                                colSpan={49}
+                                colSpan={50}
                                 align="center"
                                 sx={{ py: 8 }}
                               >

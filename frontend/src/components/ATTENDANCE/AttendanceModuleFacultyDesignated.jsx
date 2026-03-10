@@ -132,8 +132,8 @@ const AttendanceModuleFaculty = () => {
   };
 
   useEffect(() => {
-    const storedEmployeeNumber = localStorage.getItem('employeeNumber');
-    const storedStartDate = localStorage.getItem('startDate');
+const storedEmployeeNumber = localStorage.getItem('searchedEmployeeNumber');
+if (storedEmployeeNumber) setEmployeeNumber(storedEmployeeNumber);    const storedStartDate = localStorage.getItem('startDate');
     const storedEndDate = localStorage.getItem('endDate');
 
     if (storedEmployeeNumber) setEmployeeNumber(storedEmployeeNumber);
@@ -143,7 +143,7 @@ const AttendanceModuleFaculty = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    localStorage.setItem('employeeNumber', employeeNumber);
+localStorage.setItem('searchedEmployeeNumber', employeeNumber);
     localStorage.setItem('startDate', startDate);
     localStorage.setItem('endDate', endDate);
 
@@ -159,6 +159,13 @@ const AttendanceModuleFaculty = () => {
 
       const processedData = response.data.map((row) => {
         const { timeIN, timeOUT, breaktimeIN, breaktimeOUT, officialBreaktimeIN, officialBreaktimeOUT, officialTimeIN, officialTimeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT, officialOverTimeIN, officialOverTimeOUT } = row;
+
+        const effectiveBreaktimeIN = (officialBreaktimeIN && officialBreaktimeIN !== "00:00:00 AM")
+          ? officialBreaktimeIN
+          : breaktimeIN;
+        const effectiveBreaktimeOUT = (officialBreaktimeOUT && officialBreaktimeOUT !== "00:00:00 AM")
+          ? officialBreaktimeOUT
+          : breaktimeOUT;
 
         const defaultTime = "132:00:00 AM";
         // Parse the times for comparison
@@ -517,8 +524,8 @@ const AttendanceModuleFaculty = () => {
           timeOUT,
           OfficialBreakAM,
           OfficialBreakPM,
-          breaktimeIN,
-          breaktimeOUT,
+          breaktimeIN: effectiveBreaktimeIN,
+          breaktimeOUT: effectiveBreaktimeOUT,
 
           // midnightFaculty,
           // finalcalcFaculty,
@@ -1309,16 +1316,16 @@ const handleMonthClick = (monthIndex) => {
                           <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.day}</PremiumTableCell>
                           <PremiumTableCell>{row.timeIN}</PremiumTableCell>
                           <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.officialTimeIN}</PremiumTableCell>
-                          <PremiumTableCell>{row.breaktimeIN}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.officialBreaktimeIN}</PremiumTableCell>
+                          <PremiumTableCell>{row.timeIN ? row.breaktimeIN : ""}</PremiumTableCell>
+                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.timeIN ? row.officialBreaktimeIN : ""}</PremiumTableCell>
                           <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
                             {!row.officialTimeIN || !row.breaktimeIN || row.formattedFacultyRenderedTimeAM === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeAM}
                           </PremiumTableCell>
                           <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
                             {!row.officialTimeIN || !row.breaktimeIN || row.formattedfinalcalcFacultyAM === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTimeAM : row.formattedfinalcalcFacultyAM}
                           </PremiumTableCell>
-                          <PremiumTableCell>{row.breaktimeOUT}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.officialBreaktimeOUT}</PremiumTableCell>
+                          <PremiumTableCell>{row.timeOUT ? row.breaktimeOUT : ""}</PremiumTableCell>
+                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.timeOUT ? row.officialBreaktimeOUT : ""}</PremiumTableCell>
                           <PremiumTableCell>{row.timeOUT}</PremiumTableCell>
                           <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.officialTimeOUT}</PremiumTableCell>
                           <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>

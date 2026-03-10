@@ -793,151 +793,107 @@ const ViewAttendanceRecord = () => {
       }}
     >
       <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
-        {/* Snackbar */}
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={6000}
-          onClose={handleCloseSnackbar}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        >
-          <Alert
-            onClose={handleCloseSnackbar}
-            severity={snackbar.severity}
-            sx={{
-              width: '100%',
-              backgroundColor:
-                snackbar.severity === 'success' ? '#4caf50' : undefined,
-              color: snackbar.severity === 'success' ? '#ffffff' : undefined,
-              fontWeight: 600,
-              '& .MuiAlert-icon': {
-                color:
-                  snackbar.severity === 'success' ? '#ffffff' : undefined,
-              },
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <span>{snackbar.message}</span>
-              {snackbar.open && snackbarCountdown > 0 && (
-                <Chip
-                  label={`${snackbarCountdown}s`}
-                  size="small"
-                  sx={{
-                    backgroundColor:
-                      snackbar.severity === 'success'
-                        ? 'rgba(255, 255, 255, 0.3)'
-                        : undefined,
-                    color:
-                      snackbar.severity === 'success' ? '#ffffff' : undefined,
-                    fontWeight: 700,
-                  }}
-                />
-              )}
-            </Box>
-          </Alert>
-        </Snackbar>
 
         {/* ✅ Loading Screen (Progress) — white bg, green bar, moving icon, NO NAMES */}
-<Dialog
-  open={progressOpen}
-  maxWidth="xs"
-  fullWidth
-  PaperProps={{
-    sx: {
-      borderRadius: 4,
-      p: 0,
-      backgroundColor: '#ffffff',
-      boxShadow: `0 10px 50px ${alpha(accentColor, 0.12)}`,
-      overflow: 'hidden',
-    },
-  }}
->
-  <Box
-    sx={{
-      p: 4,
-      minHeight: 320,
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'center',
-      alignItems: 'center',
-      textAlign: 'center',
-      gap: 2,
-    }}
-  >
-    {(() => {
-      const total = progressTotal || 0;
-      const done = progressDone || 0;
-      const pct =
-        total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
-
-      return (
-        <>
-          {/* ✅ Title */}
-          <Typography
+        <Dialog
+          open={progressOpen}
+          maxWidth="xs"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: 4,
+              p: 0,
+              backgroundColor: '#ffffff',
+              boxShadow: `0 10px 50px ${alpha(accentColor, 0.12)}`,
+              overflow: 'hidden',
+            },
+          }}
+        >
+          <Box
             sx={{
-              fontWeight: 900,
-              fontSize: '1.4rem',
-              color: '#111',
-              mb: 0.5,
+              p: 4,
+              minHeight: 320,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              alignItems: 'center',
+              textAlign: 'center',
+              gap: 2,
             }}
           >
-            Loading All Users
-          </Typography>
+            {(() => {
+              const total = progressTotal || 0;
+              const done = progressDone || 0;
+              const pct =
+                total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
 
+              return (
+                <>
+                  {/* ✅ Title */}
+                  <Typography
+                    sx={{
+                      fontWeight: 900,
+                      fontSize: '1.4rem',
+                      color: '#111',
+                      mb: 0.5,
+                    }}
+                  >
+                    Loading All Users
+                  </Typography>
 
+                  {/* ✅ Big Spinner Center */}
+                  <CircularProgress
+                    size={90}
+                    thickness={4.2}
+                    sx={{ color: '#2e7d32', my: 1 }}
+                  />
 
-          {/* ✅ Big Spinner Center */}
-          <CircularProgress
-            size={90}
-            thickness={4.2}
-            sx={{ color: '#2e7d32', my: 1 }}
-          />
+                  {/* ✅ Big Percentage */}
+                  <Typography
+                    sx={{
+                      fontWeight: 1000,
+                      fontSize: '1.5rem',
+                      lineHeight: 1,
+                      color: '#2e7d32',
+                      letterSpacing: '-0.02em',
+                    }}
+                  >
+                    {pct}%
+                  </Typography>
 
-                    {/* ✅ Big Percentage */}
-          <Typography
-            sx={{
-              fontWeight: 1000,
-              fontSize: '1.5rem',
-              lineHeight: 1,
-              color: '#2e7d32',
-              letterSpacing: '-0.02em',
-            }}
-          >
-            {pct}%
-          </Typography>
+                  {/* ✅ Green Progress Line */}
+                  <Box sx={{ width: '100%', maxWidth: 420, mt: 1 }}>
+                    <LinearProgress
+                      variant="determinate"
+                      value={pct}
+                      sx={{
+                        height: 14,
+                        borderRadius: 99,
+                        backgroundColor: '#eeeeee',
+                        '& .MuiLinearProgress-bar': {
+                          borderRadius: 99,
+                          backgroundColor: '#2e7d32',
+                        },
+                      }}
+                    />
+                  </Box>
 
-          {/* ✅ Green Progress Line */}
-          <Box sx={{ width: '100%', maxWidth: 420, mt: 1 }}>
-            <LinearProgress
-              variant="determinate"
-              value={pct}
-              sx={{
-                height: 14,
-                borderRadius: 99,
-                backgroundColor: '#eeeeee',
-                '& .MuiLinearProgress-bar': {
-                  borderRadius: 99,
-                  backgroundColor: '#2e7d32',
-                },
-              }}
-            />
+                  {/* ✅ Processed counter */}
+                  <Typography
+                    variant="body2"
+                    sx={{ color: '#444', fontWeight: 700, mt: 1 }}
+                  >
+                    {done} / {total} processed
+                  </Typography>
+
+                  <Typography variant="caption" sx={{ color: '#666' }}>
+                    Please wait while records are being fetched and auto-saved...
+                  </Typography>
+                </>
+              );
+            })()}
           </Box>
-
-          {/* ✅ Processed counter */}
-          <Typography
-            variant="body2"
-            sx={{ color: '#444', fontWeight: 700, mt: 1 }}
-          >
-            {done} / {total} processed
-          </Typography>
-
-          <Typography variant="caption" sx={{ color: '#666' }}>
-            Please wait while records are being fetched and auto-saved...
-          </Typography>
-        </>
-      );
-    })()}
-  </Box>
-</Dialog>
+        </Dialog>
 
         {/* Success Modal */}
         <Dialog
@@ -1499,8 +1455,8 @@ const ViewAttendanceRecord = () => {
                   </Box>
                 </Box>
 
-                {/* Clear Button */}
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                {/* Clear Button + Snackbar below it */}
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
                   <ProfessionalButton
                     variant="outlined"
                     startIcon={<Clear />}
@@ -1516,6 +1472,58 @@ const ViewAttendanceRecord = () => {
                   >
                     Clear All Filters
                   </ProfessionalButton>
+
+                  {/* ✅ Snackbar moved here — visible right below Clear All Filters, no scrolling needed */}
+                  <Snackbar
+                    open={snackbar.open}
+                    autoHideDuration={6000}
+                    onClose={handleCloseSnackbar}
+                    anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+                    sx={{
+                      position: 'relative',
+                      top: 'unset !important',
+                      left: 'unset !important',
+                      right: 'unset !important',
+                      bottom: 'unset !important',
+                      transform: 'none !important',
+                      width: '400px',
+                    }}
+                  >
+                    <Alert
+                      onClose={handleCloseSnackbar}
+                      severity={snackbar.severity}
+                      sx={{
+                        width: '10  0%',
+                        backgroundColor:
+                          snackbar.severity === 'success' ? '#4caf50' : undefined,
+                        color: snackbar.severity === 'success' ? '#ffffff' : undefined,
+                        fontWeight: 600,
+                        '& .MuiAlert-icon': {
+                          color:
+                            snackbar.severity === 'success' ? '#ffffff' : undefined,
+                        },
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <span>{snackbar.message}</span>
+                        {snackbar.open && snackbarCountdown > 0 && (
+                          <Chip
+                            label={`${snackbarCountdown}s`}
+                            size="small"
+                            sx={{
+                              backgroundColor:
+                                snackbar.severity === 'success'
+                                  ? 'rgba(255, 255, 255, 0.3)'
+                                  : undefined,
+                              color:
+                                snackbar.severity === 'success' ? '#ffffff' : undefined,
+                              fontWeight: 700,
+                            }}
+                          />
+                        )}
+                      </Box>
+                    </Alert>
+                  </Snackbar>
                 </Box>
               </Box>
             </CardContent>
@@ -1685,14 +1693,14 @@ const ViewAttendanceRecord = () => {
                                   selectedCountInFiltered > 0 &&
                                   selectedCountInFiltered < filteredUsers.length
                                 }
-                               onChange={(e) =>
-  handleSelectAll(e.target.checked)
-}
-sx={{
-  color: 'rgba(255,255,255,0.7)',
-  '&.Mui-checked': { color: '#ffffff' },
-  '&.MuiCheckbox-indeterminate': { color: '#ffffff' },
-}}
+                                onChange={(e) =>
+                                  handleSelectAll(e.target.checked)
+                                }
+                                sx={{
+                                  color: 'rgba(255,255,255,0.7)',
+                                  '&.Mui-checked': { color: '#ffffff' },
+                                  '&.MuiCheckbox-indeterminate': { color: '#ffffff' },
+                                }}
                               />
                             </PremiumTableCell>
 

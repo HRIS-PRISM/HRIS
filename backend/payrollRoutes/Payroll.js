@@ -4,6 +4,10 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const { notifyPayrollChanged } = require('../socket/socketService');
 
+// ─────────────────────────────────────────────
+// MIDDLEWARE
+// ─────────────────────────────────────────────
+
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -24,6 +28,18 @@ function authenticateToken(req, res, next) {
   });
 }
 
+// ─────────────────────────────────────────────
+// AUDIT HELPERS
+// ─────────────────────────────────────────────
+
+/**
+ * Inserts a record into audit_log.
+ * - employeeNumber      : the HR staff / processor (req.user.employeeNumber)
+ * - action              : e.g. 'PAYROLL_PROCESSED', 'TEVL_DEDUCTED'
+ * - table_name          : affected table
+ * - record_id           : the PK of the affected row (or payroll id)
+ * - targetEmployeeNumber: the employee whose data was changed
+ */
 function logAudit(
   user,
   action,
@@ -37,7 +53,8 @@ function logAudit(
   }
 
   const auditQuery = `
-    INSERT INTO audit_log (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
+    INSERT INTO audit_log
+      (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
     VALUES (?, ?, ?, ?, ?, NOW())
   `;
 
@@ -45,12 +62,82 @@ function logAudit(
     auditQuery,
     [user.employeeNumber, action, tableName, recordId, targetEmployeeNumber],
     (err) => {
-      if (err) {
-        console.error('Error inserting audit log:', err);
-      }
+      if (err) console.error('Error inserting audit log:', err);
     },
   );
 }
+
+/**
+ * Inserts a record into transaction_table.
+ * - employeeId : the employee whose record / leave balance was affected
+ * - message    : human-readable, COA-friendly narrative
+ *
+ * Returns a Promise so it can be awaited inside transactions.
+ */
+function logTransaction(connection, employeeId, message) {
+  return connection.query(
+    `INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)`,
+    [employeeId, message],
+  );
+}
+
+/**
+ * Inserts a record into audit_log using a transaction connection (awaitable).
+ */
+function logAuditAsync(
+  connection,
+  processorId,
+  action,
+  tableName,
+  recordId,
+  targetEmployeeNumber,
+) {
+  return connection.query(
+    `INSERT INTO audit_log
+       (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
+     VALUES (?, ?, ?, ?, ?, NOW())`,
+    [processorId, action, tableName, recordId, targetEmployeeNumber],
+  );
+}
+
+// ─────────────────────────────────────────────
+// UTILITY: time helpers
+// ─────────────────────────────────────────────
+
+const toInt = (v) => {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const toSeconds = (h, m, s) => toInt(h) * 3600 + toInt(m) * 60 + toInt(s);
+
+const secondsToHMS = (totalSeconds) => {
+  const sec = Math.max(0, totalSeconds);
+  return {
+    h: Math.floor(sec / 3600),
+    m: Math.floor((sec % 3600) / 60),
+    s: sec % 60,
+  };
+};
+
+const hmsStringToHours = (hmsString) => {
+  if (!hmsString) return 0;
+  const parts = String(hmsString).split(':');
+  if (parts.length === 3) {
+    return (
+      parseInt(parts[0]) + parseInt(parts[1]) / 60 + parseInt(parts[2]) / 3600
+    );
+  }
+  const num = parseFloat(hmsString);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const formatHMS = (h, m, s) =>
+  `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+
+// ─────────────────────────────────────────────
+// ROUTES
+// ─────────────────────────────────────────────
 
 router.get('/test-auth', authenticateToken, (req, res) => {
   res.json({
@@ -66,7 +153,7 @@ router.get('/payroll', authenticateToken, (req, res) => {
     if (err) return res.status(500).json({ error: err });
 
     let recordId = results.length > 0 ? results[0].id : null;
-    logAudit(req.user, 'view', 'payroll_processing', recordId);
+    logAudit(req.user, 'VIEW_PAYROLL', 'payroll_processing', recordId);
     res.json(results);
   });
 });
@@ -152,29 +239,25 @@ router.get('/payroll/search', authenticateToken, (req, res) => {
     FROM payroll_processing p
     LEFT JOIN person_table pt ON pt.agencyEmployeeNum = p.employeeNumber
     LEFT JOIN (
-      SELECT employeeNumber,
-             MAX(id) as max_id
+      SELECT employeeNumber, MAX(id) as max_id
       FROM remittance_table
       GROUP BY employeeNumber
     ) r_max ON p.employeeNumber = r_max.employeeNumber
     LEFT JOIN remittance_table r ON r.employeeNumber = p.employeeNumber AND r.id = r_max.max_id
     LEFT JOIN (
-      SELECT employeeNumber,
-             MAX(id) as max_id
+      SELECT employeeNumber, MAX(id) as max_id
       FROM philhealth
       GROUP BY employeeNumber
     ) ph_max ON p.employeeNumber = ph_max.employeeNumber
     LEFT JOIN philhealth ph ON ph.employeeNumber = p.employeeNumber AND ph.id = ph_max.max_id
     LEFT JOIN (
-      SELECT employeeNumber,
-             MAX(id) as max_id
+      SELECT employeeNumber, MAX(id) as max_id
       FROM department_assignment
       GROUP BY employeeNumber
     ) da_max ON p.employeeNumber = da_max.employeeNumber
     LEFT JOIN department_assignment da ON da.employeeNumber = p.employeeNumber AND da.id = da_max.max_id
     LEFT JOIN (
-      SELECT employeeID,
-             MAX(id) as max_id
+      SELECT employeeID, MAX(id) as max_id
       FROM item_table
       GROUP BY employeeID
     ) itt_max ON p.employeeNumber = itt_max.employeeID
@@ -212,7 +295,10 @@ router.get('/payroll/search', authenticateToken, (req, res) => {
       AND oar.startDate = p.startDate
       AND oar.endDate = p.endDate
     WHERE (p.rh IS NULL OR p.rh = "")
-      AND (p.employeeNumber LIKE ? OR CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) LIKE ?)
+      AND (
+        p.employeeNumber LIKE ?
+        OR CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) LIKE ?
+      )
   `;
 
   const searchPattern = `%${searchTerm}%`;
@@ -224,13 +310,19 @@ router.get('/payroll/search', authenticateToken, (req, res) => {
     }
 
     let recordId = results.length > 0 ? results[0].id : null;
-    logAudit(req.user, 'search', 'Payroll Processing', recordId, searchTerm);
+    logAudit(
+      req.user,
+      'SEARCH_PAYROLL',
+      'payroll_processing',
+      recordId,
+      `Searched payroll record using keyword: ${searchTerm}`,
+    );
     res.json(results);
   });
 });
 
 router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
-  const { employeeNumber, startDate, endDate } = req.query;
+  const { employeeNumber, startDate, endDate, searchTerm } = req.query; // ← add searchTerm
 
   if (employeeNumber && startDate && endDate) {
     const checkQuery = `
@@ -238,7 +330,6 @@ router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
       WHERE employeeNumber = ? AND startDate = ? AND endDate = ?
         AND (rh IS NULL OR rh = "")
     `;
-
     db.query(
       checkQuery,
       [employeeNumber, startDate, endDate],
@@ -247,16 +338,11 @@ router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
           console.error('Error checking existing payroll data:', err);
           return res.status(500).json({ error: 'Internal server error' });
         }
-
-        if (result.length > 0) {
-          return res.json({ exists: true });
-        }
-
-        res.json({ exists: false });
+        return res.json({ exists: result.length > 0 });
       },
     );
   } else {
-    const query = `
+    let baseQuery = `
       SELECT
         p.id,
         p.department AS code,
@@ -334,29 +420,25 @@ router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
       FROM payroll_processing p
       LEFT JOIN person_table pt ON pt.agencyEmployeeNum = p.employeeNumber
       LEFT JOIN (
-        SELECT employeeNumber,
-               MAX(id) as max_id
+        SELECT employeeNumber, MAX(id) as max_id
         FROM remittance_table
         GROUP BY employeeNumber
       ) r_max ON p.employeeNumber = r_max.employeeNumber
       LEFT JOIN remittance_table r ON r.employeeNumber = p.employeeNumber AND r.id = r_max.max_id
       LEFT JOIN (
-        SELECT employeeNumber,
-               MAX(id) as max_id
+        SELECT employeeNumber, MAX(id) as max_id
         FROM philhealth
         GROUP BY employeeNumber
       ) ph_max ON p.employeeNumber = ph_max.employeeNumber
       LEFT JOIN philhealth ph ON ph.employeeNumber = p.employeeNumber AND ph.id = ph_max.max_id
       LEFT JOIN (
-        SELECT employeeNumber,
-               MAX(id) as max_id
+        SELECT employeeNumber, MAX(id) as max_id
         FROM department_assignment
         GROUP BY employeeNumber
       ) da_max ON p.employeeNumber = da_max.employeeNumber
       LEFT JOIN department_assignment da ON da.employeeNumber = p.employeeNumber AND da.id = da_max.max_id
       LEFT JOIN (
-        SELECT employeeID,
-               MAX(id) as max_id
+        SELECT employeeID, MAX(id) as max_id
         FROM item_table
         GROUP BY employeeID
       ) itt_max ON p.employeeNumber = itt_max.employeeID
@@ -393,31 +475,36 @@ router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
       ) oar ON oar.personID = p.employeeNumber
         AND oar.startDate = p.startDate
         AND oar.endDate = p.endDate
-      WHERE p.rh IS NULL OR p.rh = ""
+      WHERE (p.rh IS NULL OR p.rh = "")
     `;
 
-    db.query(query, (err, results) => {
+    const queryParams = [];
+
+    // ← Add search filter if searchTerm is provided
+    if (searchTerm) {
+      baseQuery += ` AND (
+        p.employeeNumber LIKE ?
+        OR CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) LIKE ?
+      )`;
+      const searchPattern = `%${searchTerm}%`;
+      queryParams.push(searchPattern, searchPattern);
+    }
+
+    db.query(baseQuery, queryParams, (err, results) => {
       if (err) {
         console.error('Error fetching joined payroll data:', err);
         return res.status(500).json({ error: 'Internal server error' });
       }
 
-      console.log('Payroll query results count:', results.length);
-      if (results.length > 0) {
-        console.log('Sample result with attendance data:', {
-          employeeNumber: results[0].employeeNumber,
-          h: results[0].h,
-          m: results[0].m,
-          s: results[0].s,
-          overallRenderedOfficialTime: results[0].overallRenderedOfficialTime,
-          overallRenderedOfficialTimeTardiness:
-            results[0].overallRenderedOfficialTimeTardiness,
-        });
-      }
+      const recordId = results.length > 0 ? results[0].id : null;
+      const action = searchTerm
+        ? 'SEARCH_PAYROLL_WITH_REMITTANCE'
+        : 'VIEW_PAYROLL_WITH_REMITTANCE';
+      const auditMessage = searchTerm
+        ? `Searched payroll records using the keyword: ${searchTerm}.` // ← your format
+        : 'Viewed all payroll with remittance records.';
 
-      if (req.user) {
-        logAudit(req.user, 'view', 'Payroll Processing', null, null);
-      }
+      logAudit(req.user, action, 'payroll_processing', recordId, auditMessage);
 
       res.json(results);
     });
@@ -436,7 +523,6 @@ router.put(
       nbcDiffl597,
       grossSalary,
       tevl,
-      // dvlt and vlb removed
       abs,
       h,
       m,
@@ -477,7 +563,6 @@ router.put(
     } = req.body;
 
     const nameExtensionCandidates = ['Jr.', 'Sr.', 'II', 'III', 'IV'];
-
     let lastName = '';
     let firstName = '';
     let middleName = '';
@@ -485,15 +570,12 @@ router.put(
 
     if (typeof name === 'string') {
       const [last, firstMiddle] = name.split(',').map((part) => part.trim());
-
       if (last && firstMiddle) {
         lastName = last;
-
         const nameParts = firstMiddle.split(' ').filter(Boolean);
         if (nameParts.length > 0) {
           firstName = nameParts[0];
           const middleParts = [];
-
           for (let i = 1; i < nameParts.length; i++) {
             if (nameExtensionCandidates.includes(nameParts[i])) {
               nameExtension = nameParts[i];
@@ -501,7 +583,6 @@ router.put(
               middleParts.push(nameParts[i]);
             }
           }
-
           middleName = middleParts.join(' ');
         }
       }
@@ -510,36 +591,36 @@ router.put(
     }
 
     const payrollQuery = `
-    UPDATE payroll_processing p
-    LEFT JOIN item_table itt ON p.employeeNumber = itt.employeeID
-    SET
-      p.department = ?,
-      p.name = ?,
-      itt.item_description = ?,
-      p.rateNbc584 =?,
-      p.rateNbc594 = ?,
-      p.nbcDiffl597 =?,
-      p.grossSalary = ?,
-      p.tevl = ?,
-      p.abs = ?,
-      p.h = ?,
-      p.m = ?,
-      p.s = ?,
-      p.netSalary = ?,
-      p.withholdingTax = ?,
-      p.personalLifeRetIns = ?,
-      p.totalGsisDeds = ?,
-      p.totalPagibigDeds = ?,
-      p.totalOtherDeds = ?,
-      p.totalDeductions = ?,
-      p.pay1st = ?,
-      p.pay2nd = ?,
-      p.pay1stCompute = ?,
-      p.pay2ndCompute = ?,
-      p.rtIns = ?,
-      p.ec = ?
-    WHERE p.employeeNumber = ? AND p.startDate = ? AND p.endDate = ?
-  `;
+      UPDATE payroll_processing p
+      LEFT JOIN item_table itt ON p.employeeNumber = itt.employeeID
+      SET
+        p.department = ?,
+        p.name = ?,
+        itt.item_description = ?,
+        p.rateNbc584 = ?,
+        p.rateNbc594 = ?,
+        p.nbcDiffl597 = ?,
+        p.grossSalary = ?,
+        p.tevl = ?,
+        p.abs = ?,
+        p.h = ?,
+        p.m = ?,
+        p.s = ?,
+        p.netSalary = ?,
+        p.withholdingTax = ?,
+        p.personalLifeRetIns = ?,
+        p.totalGsisDeds = ?,
+        p.totalPagibigDeds = ?,
+        p.totalOtherDeds = ?,
+        p.totalDeductions = ?,
+        p.pay1st = ?,
+        p.pay2nd = ?,
+        p.pay1stCompute = ?,
+        p.pay2ndCompute = ?,
+        p.rtIns = ?,
+        p.ec = ?
+      WHERE p.employeeNumber = ? AND p.startDate = ? AND p.endDate = ?
+    `;
 
     const payrollValues = [
       department,
@@ -550,7 +631,6 @@ router.put(
       nbcDiffl597,
       grossSalary,
       tevl,
-      // dvlt and vlb removed from values
       abs,
       h,
       m,
@@ -583,38 +663,25 @@ router.put(
         return res.status(404).json({ error: 'Employee not found' });
       }
 
-      // Fetch the payroll record id for audit logging
       const getIdQuery =
         'SELECT id FROM payroll_processing WHERE employeeNumber = ? AND startDate = ? AND endDate = ? LIMIT 1';
       db.query(
         getIdQuery,
         [employeeNumber, startDate, endDate],
         (idErr, idResult) => {
-          if (idErr || !idResult || idResult.length === 0) {
-            console.error('Error fetching payroll id for audit log:', idErr);
-            // Proceed without id
-            logAudit(
-              req.user,
-              'update',
-              'Payroll Processing',
-              null,
-              employeeNumber,
-            );
-          } else {
-            logAudit(
-              req.user,
-              'update',
-              'Payroll Processing',
-              idResult[0].id,
-              employeeNumber,
-            );
-          }
-
+          const recordId =
+            !idErr && idResult && idResult.length > 0 ? idResult[0].id : null;
+          logAudit(
+            req.user.employeeNumber,
+            `Updated payroll with remittance details for employee ${employeeNumber} from ${startDate} to ${endDate}.`,
+            'payroll_processing',
+            recordId,
+            employeeNumber,
+          );
           const checkRemittanceQuery = `
           SELECT id FROM remittance_table
           WHERE employeeNumber = ?
-          ORDER BY id DESC
-          LIMIT 1
+          ORDER BY id DESC LIMIT 1
         `;
 
           db.query(
@@ -648,27 +715,15 @@ router.put(
 
               if (checkResult.length > 0) {
                 const updateRemittanceQuery = `
-            UPDATE remittance_table SET
-              nbc594 = ?,
-              increment = ?,
-              gsisSalaryLoan = ?,
-              gsisPolicyLoan = ?,
-              gsisArrears = ?,
-              cpl = ?,
-              mpl = ?,
-              eal = ?,
-              mplLite = ?,
-              emergencyLoan = ?,
-              pagibigFundCont = ?,
-              pagibig2 = ?,
-              multiPurpLoan = ?,
-              liquidatingCash = ?,
-              landbankSalaryLoan = ?,
-              earistCreditCoop = ?,
-              feu = ?
-            WHERE employeeNumber = ?
-          `;
-
+              UPDATE remittance_table SET
+                nbc594 = ?, increment = ?,
+                gsisSalaryLoan = ?, gsisPolicyLoan = ?, gsisArrears = ?,
+                cpl = ?, mpl = ?, eal = ?, mplLite = ?, emergencyLoan = ?,
+                pagibigFundCont = ?, pagibig2 = ?, multiPurpLoan = ?,
+                liquidatingCash = ?, landbankSalaryLoan = ?,
+                earistCreditCoop = ?, feu = ?
+              WHERE employeeNumber = ?
+            `;
                 db.query(
                   updateRemittanceQuery,
                   [...remittanceValues, employeeNumber],
@@ -679,37 +734,20 @@ router.put(
                         .status(500)
                         .json({ error: 'Internal server error' });
                     }
-                    console.log(
-                      'Remittance record updated for employee:',
-                      employeeNumber,
-                    );
                     proceedWithPersonUpdate();
                   },
                 );
               } else {
                 const insertRemittanceQuery = `
-            INSERT INTO remittance_table (
-              employeeNumber,
-              nbc594,
-              increment,
-              gsisSalaryLoan,
-              gsisPolicyLoan,
-              gsisArrears,
-              cpl,
-              mpl,
-              eal,
-              mplLite,
-              emergencyLoan,
-              pagibigFundCont,
-              pagibig2,
-              multiPurpLoan,
-              liquidatingCash,
-              landbankSalaryLoan,
-              earistCreditCoop,
-              feu
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `;
-
+              INSERT INTO remittance_table (
+                employeeNumber, nbc594, increment,
+                gsisSalaryLoan, gsisPolicyLoan, gsisArrears,
+                cpl, mpl, eal, mplLite, emergencyLoan,
+                pagibigFundCont, pagibig2, multiPurpLoan,
+                liquidatingCash, landbankSalaryLoan,
+                earistCreditCoop, feu
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `;
                 db.query(
                   insertRemittanceQuery,
                   [employeeNumber, ...remittanceValues],
@@ -720,10 +758,6 @@ router.put(
                         .status(500)
                         .json({ error: 'Internal server error' });
                     }
-                    console.log(
-                      'New remittance record created for employee:',
-                      employeeNumber,
-                    );
                     proceedWithPersonUpdate();
                   },
                 );
@@ -731,11 +765,10 @@ router.put(
 
               function proceedWithPersonUpdate() {
                 const personQuery = `
-            UPDATE person_table
-            SET firstName = ?, middleName = ?, lastName = ?, nameExtension = ?
-            WHERE agencyEmployeeNum = ?
-          `;
-
+              UPDATE person_table
+              SET firstName = ?, middleName = ?, lastName = ?, nameExtension = ?
+              WHERE agencyEmployeeNum = ?
+            `;
                 db.query(
                   personQuery,
                   [
@@ -753,41 +786,23 @@ router.put(
                         .json({ error: 'Internal server error' });
                     }
 
-                    const philHealthQuery = `
-                UPDATE philhealth
-                SET PhilHealthContribution = ?
-                WHERE employeeNumber = ?
-              `;
-
                     db.query(
-                      philHealthQuery,
+                      'UPDATE philhealth SET PhilHealthContribution = ? WHERE employeeNumber = ?',
                       [PhilHealthContribution, employeeNumber],
                       (err4) => {
                         if (err4) {
-                          console.error(
-                            'Error updating PhilHealth contribution:',
-                            err4,
-                          );
+                          console.error('Error updating PhilHealth:', err4);
                           return res
                             .status(500)
                             .json({ error: 'Internal server error' });
                         }
 
-                        const departmentAssignmentQuery = `
-                    UPDATE department_assignment
-                    SET code = ?
-                    WHERE employeeNumber = ?
-                  `;
-
                         db.query(
-                          departmentAssignmentQuery,
+                          'UPDATE department_assignment SET code = ? WHERE employeeNumber = ?',
                           [department, employeeNumber],
                           (err5) => {
                             if (err5) {
-                              console.error(
-                                'Error updating department assignment:',
-                                err5,
-                              );
+                              console.error('Error updating department:', err5);
                               return res
                                 .status(500)
                                 .json({ error: 'Internal server error' });
@@ -797,7 +812,6 @@ router.put(
                               module: 'payroll-processing',
                               employeeNumber,
                             });
-
                             res.json({
                               message: 'Payroll record updated successfully',
                             });
@@ -823,9 +837,9 @@ router.delete(
     const { id, employeeNumber } = req.params;
 
     const query = `
-    DELETE FROM payroll_processing
-    WHERE id = ? AND employeeNumber = ?
-  `;
+      DELETE FROM payroll_processing
+      WHERE id = ? AND employeeNumber = ?
+    `;
 
     db.query(query, [id, employeeNumber], (err, result) => {
       if (err) {
@@ -839,7 +853,13 @@ router.delete(
           .json({ error: 'Payroll record not found or employee mismatch' });
       }
 
-      logAudit(req.user, 'delete', 'Payroll Processing', id, employeeNumber);
+      logAudit(
+        req.user.employeeNumber,
+        `Deleted payroll record with remittance details for employee ${employeeNumber}.`,
+        'payroll_processing',
+        id,
+        employeeNumber,
+      );
       notifyPayrollChanged('deleted', {
         module: 'payroll-processing',
         id,
@@ -852,8 +872,6 @@ router.delete(
 
 router.post('/add-rendered-time', authenticateToken, async (req, res) => {
   const attendanceData = req.body;
-
-  console.log('Received attendance data for payroll:', attendanceData);
 
   if (!Array.isArray(attendanceData)) {
     return res.status(400).json({ error: 'Expected an array of data.' });
@@ -868,30 +886,26 @@ router.post('/add-rendered-time', authenticateToken, async (req, res) => {
         overallRenderedOfficialTimeTardiness,
       } = record;
 
-      const departmentQuery = `
-        SELECT code FROM department_assignment
-        WHERE employeeNumber = ?
-        ORDER BY id DESC
-        LIMIT 1
-      `;
-
       const [departmentRows] = await db
         .promise()
-        .query(departmentQuery, [employeeNumber]);
+        .query(
+          'SELECT code FROM department_assignment WHERE employeeNumber = ? ORDER BY id DESC LIMIT 1',
+          [employeeNumber],
+        );
 
       if (departmentRows.length === 0) {
-        return res.status(404).json({
-          error: `Department not found for employee ${employeeNumber}.`,
-        });
+        return res
+          .status(404)
+          .json({
+            error: `Department not found for employee ${employeeNumber}.`,
+          });
       }
 
       const departmentCode = departmentRows[0].code;
 
-      // Parse HH:MM:SS (TARDINESS ONLY) into h, m, s
-      let h = '00';
-      let m = '00';
-      let s = '00';
-
+      let h = '00',
+        m = '00',
+        s = '00';
       if (overallRenderedOfficialTimeTardiness) {
         const parts = overallRenderedOfficialTimeTardiness.split(':');
         if (parts.length === 3) {
@@ -901,41 +915,27 @@ router.post('/add-rendered-time', authenticateToken, async (req, res) => {
         }
       }
 
-      // Avoid duplicate payroll entries
-      const existsQuery = `
-        SELECT id FROM payroll_processing
-        WHERE employeeNumber = ? AND startDate = ? AND endDate = ?
-        LIMIT 1
-      `;
-
       const [existingRows] = await db
         .promise()
-        .query(existsQuery, [employeeNumber, startDate, endDate]);
+        .query(
+          'SELECT id FROM payroll_processing WHERE employeeNumber = ? AND startDate = ? AND endDate = ? LIMIT 1',
+          [employeeNumber, startDate, endDate],
+        );
 
       if (existingRows.length === 0) {
-        const insertQuery = `
-          INSERT INTO payroll_processing (employeeNumber, startDate, endDate, h, m, s, department)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `;
-
         await db
           .promise()
-          .query(insertQuery, [
-            employeeNumber,
-            startDate,
-            endDate,
-            h,
-            m,
-            s,
-            departmentCode,
-          ]);
+          .query(
+            'INSERT INTO payroll_processing (employeeNumber, startDate, endDate, h, m, s, department) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [employeeNumber, startDate, endDate, h, m, s, departmentCode],
+          );
       }
 
       logAudit(
         req.user,
-        'insert',
-        'Payroll Processing (tardiness only)',
-        `${startDate} && ${endDate}`,
+        'IMPORT_ATTENDANCE',
+        'payroll_processing',
+        `${startDate}&&${endDate}`,
         employeeNumber,
       );
     }
@@ -944,7 +944,6 @@ router.post('/add-rendered-time', authenticateToken, async (req, res) => {
       module: 'payroll-processing',
       count: attendanceData.length,
     });
-
     res
       .status(200)
       .json({ message: 'Records added to payroll with time data.' });
@@ -954,7 +953,10 @@ router.post('/add-rendered-time', authenticateToken, async (req, res) => {
   }
 });
 
-// Updated route name to match database table name
+// ─────────────────────────────────────────────
+// GET payroll-processed
+// ─────────────────────────────────────────────
+
 router.get('/payroll-processed', authenticateToken, (req, res) => {
   const query = `
     SELECT pp.*, COALESCE(ec.employmentCategory, -1) AS employmentCategory
@@ -969,105 +971,52 @@ router.get('/payroll-processed', authenticateToken, (req, res) => {
       return res.status(500).json({ error: 'Internal server error' });
     }
 
-    // Audit log
     logAudit(
       req.user,
-      'view',
+      'VIEW_PAYROLL_PROCESSED',
       'payroll_processed',
       results.length > 0 ? results[0].id : null,
     );
-
     res.json(results);
   });
 });
 
-// Keep old route for backward compatibility (deprecated)
-router.get('/finalized-payroll', authenticateToken, (req, res) => {
-  const query = `
-    SELECT pp.*, COALESCE(ec.employmentCategory, -1) AS employmentCategory
-    FROM payroll_processed pp
-    LEFT JOIN employment_category ec ON pp.employeeNumber = ec.employeeNumber
-    ORDER BY pp.dateCreated DESC
-  `;
+// ─────────────────────────────────────────────
+// POST payroll-processed  ← MAIN ROUTE WITH FULL AUDIT LOGGING
+// ─────────────────────────────────────────────
 
-  db.query(query, (err, results) => {
-    if (err) {
-      console.error('Error fetching finalized payroll:', err);
-      return res.status(500).json({ error: 'Internal server error' });
-    }
-
-    // Audit log
-    logAudit(
-      req.user,
-      'view',
-      'payroll_processed',
-      results.length > 0 ? results[0].id : null,
-    );
-
-    res.json(results);
-  });
-});
-
-// GET finalized payroll for Regular employees only
-router.get('/finalized-payroll-regular', authenticateToken, (req, res) => {
-  const query = 'SELECT * FROM payroll_processed ORDER BY dateCreated DESC';
-
-  db.query(query, (err, results) => {
-    if (err) {
-      console.error('Error fetching finalized regular payroll:', err);
-      return res.status(500).json({ error: 'Internal server error' });
-    }
-
-    // Audit log
-    logAudit(
-      req.user,
-      'view',
-      'payroll_processed_regular',
-      results.length > 0 ? results[0].id : null,
-    );
-
-    res.json(results);
-  });
-});
-
-router.post('/finalized-payroll', authenticateToken, async (req, res) => {
+router.post('/payroll-processed', authenticateToken, async (req, res) => {
   const payrollData = req.body;
 
   if (!Array.isArray(payrollData) || payrollData.length === 0) {
     return res.status(400).json({ error: 'No payroll data received.' });
   }
 
+  const processorId = req.user.employeeNumber;
   const connection = await db.promise().getConnection();
 
   try {
     await connection.beginTransaction();
 
-    const toInt = (v) => {
-      const n = parseInt(v, 10);
-      return Number.isFinite(n) ? n : 0;
-    };
-
-    const toSeconds = (h, m, s) => toInt(h) * 3600 + toInt(m) * 60 + toInt(s);
-
-    const secondsToHMS = (totalSeconds) => {
-      const sec = Math.max(0, totalSeconds);
-      return {
-        h: Math.floor(sec / 3600),
-        m: Math.floor((sec % 3600) / 60),
-        s: sec % 60,
-      };
-    };
-
+    // ── Build INSERT values for payroll_processed ──────────────────────────
     const values = payrollData.map((entry) => {
-      // ORIGINAL tardiness from payroll_processing
       const originalSeconds = toSeconds(entry.h, entry.m, entry.s);
 
-      // TEVL deduction in seconds
+      // The frontend already sent tevl with +10 included.
+      // We store tevl as-is; we record the +10 credit separately in the audit.
       const tevlSeconds = toInt(entry.tevl) * 3600;
 
-      // Compute adjusted tardiness
-      const remainingSeconds = originalSeconds - tevlSeconds;
+      // Compute how many seconds of tardiness are absorbed by VL (DVLT)
+      const dvltSeconds = Math.min(tevlSeconds, originalSeconds);
+      const vlbSeconds = Math.max(0, tevlSeconds - dvltSeconds);
+
+      const dvlt = formatHMS(...Object.values(secondsToHMS(dvltSeconds)));
+      const vlb = formatHMS(...Object.values(secondsToHMS(vlbSeconds)));
+
+      // Remaining tardiness after VL absorption (used for ABS computation)
+      const remainingSeconds = Math.max(0, originalSeconds - tevlSeconds);
       const adjusted = secondsToHMS(remainingSeconds);
+
       const absHours =
         parseFloat(entry.grossSalary) * 0.0055555525544423 * adjusted.h;
       const absMinutes =
@@ -1084,17 +1033,13 @@ router.post('/finalized-payroll', authenticateToken, async (req, res) => {
         entry.rateNbc594,
         entry.nbcDiffl597,
         entry.grossSalary,
-
-        entry.tevl ?? 0,
-        entry.dvlt ?? '00:00:00',
-        entry.vlb ?? '00:00:00',
+        entry.tevl ?? 0, // stored WITH the +10 already included
+        dvlt,
+        vlb,
         calculatedABS,
-
-        // ✅ INSERT COMPUTED TIME (NOT ORIGINAL)
         adjusted.h,
         adjusted.m,
         adjusted.s,
-
         entry.rh ?? 0,
         entry.netSalary,
         entry.withholdingTax,
@@ -1151,44 +1096,121 @@ router.post('/finalized-payroll', authenticateToken, async (req, res) => {
 
     await connection.query(insertQuery, [values]);
 
-    // Only update status in payroll_processing
-    try {
-      await connection.beginTransaction();
+    // ── Per-employee updates + FULL AUDIT LOGGING ─────────────────────────
+    for (const entry of payrollData) {
+      // ── 1. Recompute DVLT / VLB for audit messages ──────────────────────
+      const tardySeconds = toSeconds(entry.h, entry.m, entry.s);
 
-      for (const entry of payrollData) {
-        // Update payroll_processing status
-        await connection.query(
-          `UPDATE payroll_processing
-          SET status = 1
-          WHERE employeeNumber = ?
-          AND startDate = ?
-          AND endDate = ?`,
-          [entry.employeeNumber, entry.startDate, entry.endDate],
-        );
+      // tevl already includes the +10 monthly credit added by the frontend.
+      // We separate out the credit amount for clarity in the audit trail.
+      const VL_MONTHLY_CREDIT_HOURS = 10; // 1.25 days × 8 hrs (CSC Rule XVI)
+      const tevlBeforeCredit = Math.max(
+        0,
+        (parseFloat(entry.tevl) || 0) - VL_MONTHLY_CREDIT_HOURS,
+      );
+      const tevlAfterCredit = parseFloat(entry.tevl) || 0; // = tevlBeforeCredit + 10
 
-        // Update VL remaining hours
-        await connection.query(
-          `UPDATE leave_assignment
-          SET remaining_hours = ?
-          WHERE employeeNumber = ?
-          AND leave_code = 'VL'`,
-          [entry.vlb, entry.employeeNumber],
-        );
-      }
+      const tevlSeconds = tevlAfterCredit * 3600;
+      const dvltSeconds = Math.min(tevlSeconds, tardySeconds);
+      const vlbSeconds = Math.max(0, tevlSeconds - dvltSeconds);
 
-      await connection.commit();
-      console.log('Payroll processed successfully');
-    } catch (error) {
-      await connection.rollback();
-      console.error('Payroll processing failed:', error);
-      throw error;
+      const dvltHours = dvltSeconds / 3600;
+      const vlbHours = vlbSeconds / 3600;
+
+      const tardyHMS = formatHMS(...Object.values(secondsToHMS(tardySeconds)));
+      const dvltHMS = formatHMS(...Object.values(secondsToHMS(dvltSeconds)));
+      const vlbHMS = formatHMS(...Object.values(secondsToHMS(vlbSeconds)));
+
+      const period = `${entry.startDate} - ${entry.endDate}`;
+      const tardinessPart = `[DVLT DEDUCTED] Tardiness: ${tardyHMS} absorbed by VL | DVLT: ${dvltHMS}`;
+
+      // ── 2. Determine final leave balance written to leave_assignment ─────
+      const finalLeaveHours =
+        tardySeconds === 0
+          ? tevlAfterCredit // no tardiness → full credited balance
+          : vlbHours; // has tardiness → balance after DVLT
+
+      // ── 3. Update payroll_processing status ─────────────────────────────
+      await connection.query(
+        `UPDATE payroll_processing
+         SET status = 1
+         WHERE employeeNumber = ? AND startDate = ? AND endDate = ?`,
+        [entry.employeeNumber, entry.startDate, entry.endDate],
+      );
+
+      // ── 4. Update leave_assignment ───────────────────────────────────────
+      await connection.query(
+        `UPDATE leave_assignment
+         SET remaining_hours = ?
+         WHERE employeeNumber = ? AND leave_code = 'VL'`,
+        [finalLeaveHours, entry.employeeNumber],
+      );
+
+      // ════════════════════════════════════════════════════════════════════
+      // AUDIT LOG ENTRIES  (3 entries per employee for full COA traceability)
+      // ════════════════════════════════════════════════════════════════════
+
+      // ── ENTRY 1: Monthly VL Credit (the +10) ────────────────────────────
+      await logTransaction(
+        connection,
+        entry.employeeNumber,
+        `VL Credit +${VL_MONTHLY_CREDIT_HOURS}hrs | ${tevlBeforeCredit.toFixed(2)}hrs → ${tevlAfterCredit.toFixed(2)}hrs | ${period} | By: Emp#${processorId}`,
+      );
+
+      await logAuditAsync(
+        connection,
+        processorId,
+        'VL_CREDIT_APPLIED',
+        'leave_assignment',
+        entry.employeeNumber, // record_id — identifies the leave record
+        entry.employeeNumber, // targetEmployeeNumber
+      );
+
+      // ── ENTRY 2: DVLT Deduction (tardiness absorbed by VL) ──────────────
+      await logTransaction(
+        connection,
+        entry.employeeNumber,
+        `${tardinessPart} | Final VL Balance: ${finalLeaveHours.toFixed(2)}hrs | ${period} | By: Emp#${processorId}`,
+      );
+
+      await logAuditAsync(
+        connection,
+        processorId,
+        'DVLT_DEDUCTED',
+        'leave_assignment',
+        entry.employeeNumber,
+        entry.employeeNumber,
+      );
+
+      // ── ENTRY 3: Final Leave Balance Update ─────────────────────────────
+      await logTransaction(
+        connection,
+        entry.employeeNumber,
+        `[VLB FINAL BALANCE] ` +
+          `Payroll Period: ${entry.startDate} to ${entry.endDate} | ` +
+          `Final VL Balance Written to System: ${finalLeaveHours.toFixed(4)}hrs | ` +
+          `Computation: TEVL(${tevlAfterCredit.toFixed(4)}hrs) - DVLT(${dvltHours.toFixed(4)}hrs) = VLB(${vlbHours.toFixed(4)}hrs) | ` +
+          `Processed by Employee#: ${processorId}`,
+      );
+
+      // ── ENTRY 4: audit_log — payroll finalization record ────────────────
+      // This is the primary accountability entry:
+      // "Employee #processorId finalized payroll for Employee #targetEmployee"
+      await logAuditAsync(
+        connection,
+        processorId, // HR staff / processor
+        'PAYROLL_FINALIZED',
+        'payroll_processed',
+        entry.employeeNumber, // reference ID
+        entry.employeeNumber, // employee being processed
+      );
     }
 
     await connection.commit();
 
     res.json({
-      message:
-        'Payroll finalized successfully. Original time preserved. Processed time computed.',
+      message: 'Payroll finalized successfully. Audit trail recorded.',
+      processedCount: payrollData.length,
     });
   } catch (error) {
     await connection.rollback();
@@ -1199,124 +1221,93 @@ router.post('/finalized-payroll', authenticateToken, async (req, res) => {
   }
 });
 
-// Updated DELETE route to match new endpoint naming
-router.delete('/payroll-processed/:id', authenticateToken, (req, res) => {
+// ─────────────────────────────────────────────
+// DELETE payroll-processed/:id
+// ─────────────────────────────────────────────
+
+router.delete('/payroll-processed/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
+  const processorId = req.user.employeeNumber;
 
-  const selectQuery = `
-    SELECT employeeNumber, startDate, endDate, tevl
-    FROM payroll_processed
-    WHERE id = ?
-    LIMIT 1
-  `;
+  const connection = await db.promise().getConnection();
 
-  const deleteQuery = 'DELETE FROM payroll_processed WHERE id = ?';
-  const updateStatusQuery = `
-    UPDATE payroll_processing
-    SET status = 0
-    WHERE employeeNumber = ? AND startDate = ? AND endDate = ?
-  `;
+  try {
+    await connection.beginTransaction();
 
-  db.query(selectQuery, [id], (selectErr, rows) => {
-    if (selectErr) return res.status(500).json({ error: selectErr.message });
+    const [rows] = await connection.query(
+      'SELECT employeeNumber, startDate, endDate, tevl FROM payroll_processed WHERE id = ? LIMIT 1',
+      [id],
+    );
+
     if (!rows || rows.length === 0) {
+      await connection.rollback();
       return res.status(404).json({ message: 'Payroll record not found' });
     }
 
     const { employeeNumber, startDate, endDate, tevl } = rows[0];
 
-    // tevl in payroll_processed already has +10 added during finalization
-    // So original leave balance = tevl - 10
-    const originalLeaveHours = Math.max(0, (parseFloat(tevl) || 0) - 10);
-
-    db.query(deleteQuery, [id], (err, results) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (results.affectedRows === 0) {
-        return res.status(404).json({ message: 'Payroll record not found' });
-      }
-
-      // Restore leave_assignment back to the original value before finalization
-      const restoreLeaveQuery = `
-        UPDATE leave_assignment
-        SET remaining_hours = ?
-        WHERE employeeNumber = ?
-        AND leave_code = 'VL'
-      `;
-
-      db.query(restoreLeaveQuery, [originalLeaveHours, employeeNumber], (leaveErr) => {
-        if (leaveErr) {
-          console.error('Error restoring leave balance:', leaveErr);
-        }
-
-        db.query(
-          updateStatusQuery,
-          [employeeNumber, startDate, endDate],
-          (updateErr, updateResult) => {
-            if (updateErr) {
-              return res
-                .status(500)
-                .json({ error: 'Deleted but failed to update status.' });
-            }
-
-            logAudit(req.user, 'delete', 'payroll_processed', id, employeeNumber);
-            notifyPayrollChanged('deleted', { module: 'payroll-processed', id });
-
-            res.json({
-              message: 'Deleted, status updated, and leave balance restored to original.',
-              deleted: results.affectedRows,
-              updated: updateResult.affectedRows,
-              restoredLeaveHours: originalLeaveHours,
-            });
-          },
-        );
-      });
-    });
-  });
-});
-
-// Keep old DELETE route for backward compatibility (deprecated)
-router.delete('/finalized-payroll/:id', authenticateToken, (req, res) => {
-  const { id } = req.params;
-  const { employeeNumber, startDate, endDate } = req.body;
-
-  const deleteQuery = 'DELETE FROM payroll_processed WHERE id = ?';
-  const updateQuery = `
-	  UPDATE payroll_processing
-	  SET status = 0
-	  WHERE employeeNumber = ? AND startDate = ? AND endDate = ?
-	`;
-
-  db.query(deleteQuery, [id], (err, results) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    if (results.affectedRows === 0) {
-      return res.status(404).json({ message: 'Payroll record not found' });
-    }
-
-    db.query(
-      updateQuery,
-      [employeeNumber, startDate, endDate],
-      (updateErr, updateResult) => {
-        if (updateErr) {
-          return res
-            .status(500)
-            .json({ error: 'Deleted but failed to update status.' });
-        }
-
-        // Audit log
-        logAudit(req.user, 'delete', 'payroll_processed', id, employeeNumber);
-
-        notifyPayrollChanged('deleted', { module: 'payroll-processed', id });
-
-        res.json({
-          message: 'Deleted and status updated.',
-          deleted: results.affectedRows,
-          updated: updateResult.affectedRows,
-        });
-      },
+    // tevl in payroll_processed already has +10 included.
+    // To restore leave balance: subtract the +10 credit that was added during finalization.
+    const VL_MONTHLY_CREDIT_HOURS = 10;
+    const originalLeaveHours = Math.max(
+      0,
+      (parseFloat(tevl) || 0) - VL_MONTHLY_CREDIT_HOURS,
     );
-  });
+
+    // ── Delete the record ────────────────────────────────────────────────
+    await connection.query('DELETE FROM payroll_processed WHERE id = ?', [id]);
+
+    // ── Restore leave balance ────────────────────────────────────────────
+    await connection.query(
+      `UPDATE leave_assignment
+       SET remaining_hours = ?
+       WHERE employeeNumber = ? AND leave_code = 'VL'`,
+      [originalLeaveHours, employeeNumber],
+    );
+
+    // ── Revert payroll_processing status ────────────────────────────────
+    await connection.query(
+      `UPDATE payroll_processing
+       SET status = 0
+       WHERE employeeNumber = ? AND startDate = ? AND endDate = ?`,
+      [employeeNumber, startDate, endDate],
+    );
+
+    // ── Audit: transaction_table ─────────────────────────────────────────
+    const period = `${startDate} - ${endDate}`;
+    await logTransaction(
+      connection,
+      employeeNumber,
+      `Payroll deleted #${id} | +${VL_MONTHLY_CREDIT_HOURS}hrs credit reversed | Final VL Balance: ${originalLeaveHours.toFixed(2)}hrs | ${period} | By: Emp#${processorId}`,
+    );
+
+    // ── Audit: audit_log ─────────────────────────────────────────────────
+    await logAuditAsync(
+      connection,
+      processorId,
+      'PAYROLL_DELETED',
+      'payroll_processed',
+      id,
+      employeeNumber,
+    );
+
+    await connection.commit();
+
+    notifyPayrollChanged('deleted', { module: 'payroll-processed', id });
+
+    res.json({
+      message:
+        'Payroll record deleted, status reverted, and VL balance restored.',
+      deleted: 1,
+      restoredLeaveHours: originalLeaveHours,
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error deleting payroll processed:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    connection.release();
+  }
 });
 
 module.exports = router;

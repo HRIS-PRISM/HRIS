@@ -342,7 +342,7 @@ const PayrollProcess = () => {
   const fetchFinalizedPayroll = async () => {
     try {
       const res = await axios.get(
-        `${API_BASE_URL}/PayrollRoute/finalized-payroll`,
+        `${API_BASE_URL}/PayrollRoute/payroll-processed`,
         getAuthHeaders(),
       );
       setFinalizedPayroll(res.data);
@@ -650,166 +650,178 @@ const PayrollProcess = () => {
     setPage(0);
   };
 
-  const handleSubmitPayroll = async () => {
-    try {
-      // Step 1: Recalculate all payroll values
-      const updatedData = filteredData.map((item) => {
-        const calculatedItem = calculatePayroll(item) || item;
+const handleSubmitPayroll = async () => {
+  try {
+    // Step 1: Recalculate all payroll values
+    const updatedData = filteredData.map((item) => {
+      const calculatedItem = calculatePayroll(item) || item;
 
-        return {
-          ...calculatedItem,
-          totalGsisDeds: (parseFloat(calculatedItem.totalGsisDeds) || 0).toFixed(2),
-          totalPagibigDeds: (parseFloat(calculatedItem.totalPagibigDeds) || 0).toFixed(2),
-          totalOtherDeds: (parseFloat(calculatedItem.totalOtherDeds) || 0).toFixed(2),
-          grossSalary: (parseFloat(calculatedItem.grossSalary) || 0).toFixed(2),
-          abs: (parseFloat(calculatedItem.abs) || 0).toFixed(2),
-          netSalary: (parseFloat(calculatedItem.netSalary) || 0).toFixed(2),
-          totalDeductions: (parseFloat(calculatedItem.totalDeductions) || 0).toFixed(2),
-          PhilHealthContribution: (parseFloat(calculatedItem.PhilHealthContribution) || 0).toFixed(2),
-          personalLifeRetIns: (parseFloat(calculatedItem.personalLifeRetIns) || 0).toFixed(2),
-          pay1stCompute: (parseFloat(calculatedItem.pay1stCompute) || 0).toFixed(2),
-          pay2ndCompute: (parseFloat(calculatedItem.pay2ndCompute) || 0).toFixed(2),
-          pay1st: (parseFloat(calculatedItem.pay1st) || 0).toFixed(0),
-          pay2nd: (parseFloat(calculatedItem.pay2nd) || 0).toFixed(2),
-          rtIns: (parseFloat(calculatedItem.rtIns) || 0).toFixed(2),
-          status: 'Processed',
-        };
-      });
-
-      // Helper functions
-      const toInt = (v) => {
-        const n = parseInt(v, 10);
-        return Number.isFinite(n) ? n : 0;
+      return {
+        ...calculatedItem,
+        totalGsisDeds: (parseFloat(calculatedItem.totalGsisDeds) || 0).toFixed(2),
+        totalPagibigDeds: (parseFloat(calculatedItem.totalPagibigDeds) || 0).toFixed(2),
+        totalOtherDeds: (parseFloat(calculatedItem.totalOtherDeds) || 0).toFixed(2),
+        grossSalary: (parseFloat(calculatedItem.grossSalary) || 0).toFixed(2),
+        abs: (parseFloat(calculatedItem.abs) || 0).toLocaleString('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }),
+        netSalary: (parseFloat(calculatedItem.netSalary) || 0).toFixed(2),
+        totalDeductions: (parseFloat(calculatedItem.totalDeductions) || 0).toFixed(2),
+        PhilHealthContribution: (parseFloat(calculatedItem.PhilHealthContribution) || 0).toFixed(2),
+        personalLifeRetIns: (parseFloat(calculatedItem.personalLifeRetIns) || 0).toFixed(2),
+        pay1stCompute: (parseFloat(calculatedItem.pay1stCompute) || 0).toFixed(2),
+        pay2ndCompute: (parseFloat(calculatedItem.pay2ndCompute) || 0).toFixed(2),
+        pay1st: (parseFloat(calculatedItem.pay1st) || 0).toFixed(0),
+        pay2nd: (parseFloat(calculatedItem.pay2nd) || 0).toFixed(2),
+        rtIns: (parseFloat(calculatedItem.rtIns) || 0).toFixed(2),
+        status: 'Processed',
       };
+    });
 
-      const toSecondsFromHMS = (h, m, s) =>
-        toInt(h) * 3600 + toInt(m) * 60 + toInt(s);
+    // Helper functions
+    const toInt = (v) => {
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) ? n : 0;
+    };
 
-      const secondsToHMS = (totalSeconds) => {
-        const sec = Math.max(0, totalSeconds);
-        const hh = Math.floor(sec / 3600);
-        const mm = Math.floor((sec % 3600) / 60);
-        const ss = sec % 60;
-        const pad = (n) => String(n).padStart(2, '0');
+    const toSecondsFromHMS = (h, m, s) =>
+      toInt(h) * 3600 + toInt(m) * 60 + toInt(s);
 
-        return {
-          h: hh,
-          m: mm,
-          s: ss,
-          text: `${pad(hh)}:${pad(mm)}:${pad(ss)}`,
-        };
+    const secondsToHMS = (totalSeconds) => {
+      const sec = Math.max(0, totalSeconds);
+      const hh = Math.floor(sec / 3600);
+      const mm = Math.floor((sec % 3600) / 60);
+      const ss = sec % 60;
+      const pad = (n) => String(n).padStart(2, '0');
+
+      return {
+        h: hh,
+        m: mm,
+        s: ss,
+        text: `${pad(hh)}:${pad(mm)}:${pad(ss)}`,
       };
+    };
 
-      const computeVLTimeOffset = (item) => {
-        const tevl = toInt(item.tevl) + 10
-        const tevlSeconds = toInt(tevl) * 3600;
-        const tardySeconds = toSecondsFromHMS(item.h, item.m, item.s);
+    const computeVLTimeOffset = (item) => {
+      const tevl = toInt(item.tevl);
+      const tevlSeconds = tevl * 3600;
+      const tardySeconds = toSecondsFromHMS(item.h, item.m, item.s);
 
-        const dvltSeconds = Math.min(tevlSeconds, tardySeconds);
-        const vlbSeconds = tevlSeconds - dvltSeconds;
-
+      // Kung walang tardiness O walang tevl
+      if (tardySeconds === 0 || tevlSeconds === 0) {
         return {
-          dvlt: secondsToHMS(dvltSeconds).text,
-          vlb: secondsToHMS(vlbSeconds).text,
+          dvlt: '00:00:00',
+          vlb: secondsToHMS(tevlSeconds).text, // buong tevl ang vlb
         };
-      };
-
-      // Step 2: Filter selected & not finalized
-      const rowsToSubmit = updatedData.filter(
-        (item) =>
-          selectedRows.includes(item.employeeNumber) &&
-          !finalizedPayroll.some(
-            (fp) =>
-              fp.employeeNumber === item.employeeNumber &&
-              fp.startDate === item.startDate &&
-              fp.endDate === item.endDate,
-          ),
-      );
-
-      // Step 3: Prepare clean payload (DO NOT MODIFY h,m,s)
-      const processedRowsToSubmit = rowsToSubmit.map((item) => {
-        const { dvlt, vlb } = computeVLTimeOffset(item);
-
-        return {
-          ...item,
-
-          // KEEP ORIGINAL TIME
-          h: toInt(item.h),
-          m: toInt(item.m),
-          s: toInt(item.s),
-
-          tevl: toInt(item.tevl) + 10,
-          dvlt,
-          vlb,
-          grossSalary: parseFloat(item.grossSalary) || 0,
-          abs: parseFloat(item.abs) || 0,
-          netSalary: parseFloat(item.netSalary) || 0,
-          withholdingTax: parseFloat(item.withholdingTax) || 0,
-          personalLifeRetIns: parseFloat(item.personalLifeRetIns) || 0,
-          totalGsisDeds: parseFloat(item.totalGsisDeds) || 0,
-          totalPagibigDeds: parseFloat(item.totalPagibigDeds) || 0,
-          totalOtherDeds: parseFloat(item.totalOtherDeds) || 0,
-          totalDeductions: parseFloat(item.totalDeductions) || 0,
-          pay1st: parseFloat(item.pay1st) || 0,
-          pay2nd: parseFloat(item.pay2nd) || 0,
-          pay1stCompute: parseFloat(item.pay1stCompute) || 0,
-          pay2ndCompute: parseFloat(item.pay2ndCompute) || 0,
-          rtIns: parseFloat(item.rtIns) || 0,
-          ec: parseFloat(item.ec) || 0,
-          rateNbc584: parseFloat(item.rateNbc584) || 0,
-          nbc594: parseFloat(item.nbc594) || 0,
-          rateNbc594: parseFloat(item.rateNbc594) || 0,
-          nbcDiffl597: parseFloat(item.nbcDiffl597) || 0,
-          increment: parseFloat(item.increment) || 0,
-          gsisSalaryLoan: parseFloat(item.gsisSalaryLoan) || 0,
-          gsisPolicyLoan: parseFloat(item.gsisPolicyLoan) || 0,
-          gsisArrears: parseFloat(item.gsisArrears) || 0,
-          cpl: parseFloat(item.cpl) || 0,
-          mpl: parseFloat(item.mpl) || 0,
-          eal: parseFloat(item.eal) || 0,
-          mplLite: parseFloat(item.mplLite) || 0,
-          emergencyLoan: parseFloat(item.emergencyLoan) || 0,
-          pagibigFundCont: parseFloat(item.pagibigFundCont) || 0,
-          pagibig2: parseFloat(item.pagibig2) || 0,
-          multiPurpLoan: parseFloat(item.multiPurpLoan) || 0,
-          liquidatingCash: parseFloat(item.liquidatingCash) || 0,
-          landbankSalaryLoan: parseFloat(item.landbankSalaryLoan) || 0,
-          earistCreditCoop: parseFloat(item.earistCreditCoop) || 0,
-          feu: parseFloat(item.feu) || 0,
-          PhilHealthContribution: parseFloat(item.PhilHealthContribution) || 0,
-        };
-      });
-
-      if (processedRowsToSubmit.length === 0) {
-        alert('No payroll records selected for submission.');
-        return;
       }
 
-      // Step 4: Update payroll-with-remittance
-      for (const item of updatedData) {
-        await axios.put(
-          `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${item.employeeNumber}/${item.startDate}/${item.endDate}`,
-          item,
-          getAuthHeaders(),
-        );
-      }
+      // Kung may tardiness — bawasan ang tevl
+      const dvltSeconds = Math.min(tevlSeconds, tardySeconds);
+      const vlbSeconds = tevlSeconds - dvltSeconds;
 
-      // Step 5: Send to finalized payroll
-      await axios.post(
-        `${API_BASE_URL}/PayrollRoute/finalized-payroll`,
-        processedRowsToSubmit,
+      return {
+        dvlt: secondsToHMS(dvltSeconds).text,
+        vlb: secondsToHMS(vlbSeconds).text,
+      };
+    };
+
+    // Step 2: Filter selected & not finalized
+    const rowsToSubmit = updatedData.filter(
+      (item) =>
+        selectedRows.includes(`${item.employeeNumber}_${item.startDate}_${item.endDate}`) &&
+        !finalizedPayroll.some(
+          (fp) =>
+            fp.employeeNumber === item.employeeNumber &&
+            fp.startDate === item.startDate &&
+            fp.endDate === item.endDate,
+        ),
+    );
+
+    // Step 3: Prepare clean payload
+    const processedRowsToSubmit = rowsToSubmit.map((item) => {
+      const { dvlt, vlb } = computeVLTimeOffset(item);
+
+      return {
+        ...item,
+
+        // KEEP ORIGINAL TIME
+        h: toInt(item.h),
+        m: toInt(item.m),
+        s: toInt(item.s),
+
+        tevl: toInt(item.tevl) + 10,
+        dvlt,
+        vlb,
+        grossSalary: parseFloat(item.grossSalary) || 0,
+        abs: parseFloat(item.abs) || 0,
+        netSalary: parseFloat(item.netSalary) || 0,
+        withholdingTax: parseFloat(item.withholdingTax) || 0,
+        personalLifeRetIns: parseFloat(item.personalLifeRetIns) || 0,
+        totalGsisDeds: parseFloat(item.totalGsisDeds) || 0,
+        totalPagibigDeds: parseFloat(item.totalPagibigDeds) || 0,
+        totalOtherDeds: parseFloat(item.totalOtherDeds) || 0,
+        totalDeductions: parseFloat(item.totalDeductions) || 0,
+        pay1st: parseFloat(item.pay1st) || 0,
+        pay2nd: parseFloat(item.pay2nd) || 0,
+        pay1stCompute: parseFloat(item.pay1stCompute) || 0,
+        pay2ndCompute: parseFloat(item.pay2ndCompute) || 0,
+        rtIns: parseFloat(item.rtIns) || 0,
+        ec: parseFloat(item.ec) || 0,
+        rateNbc584: parseFloat(item.rateNbc584) || 0,
+        nbc594: parseFloat(item.nbc594) || 0,
+        rateNbc594: parseFloat(item.rateNbc594) || 0,
+        nbcDiffl597: parseFloat(item.nbcDiffl597) || 0,
+        increment: parseFloat(item.increment) || 0,
+        gsisSalaryLoan: parseFloat(item.gsisSalaryLoan) || 0,
+        gsisPolicyLoan: parseFloat(item.gsisPolicyLoan) || 0,
+        gsisArrears: parseFloat(item.gsisArrears) || 0,
+        cpl: parseFloat(item.cpl) || 0,
+        mpl: parseFloat(item.mpl) || 0,
+        eal: parseFloat(item.eal) || 0,
+        mplLite: parseFloat(item.mplLite) || 0,
+        emergencyLoan: parseFloat(item.emergencyLoan) || 0,
+        pagibigFundCont: parseFloat(item.pagibigFundCont) || 0,
+        pagibig2: parseFloat(item.pagibig2) || 0,
+        multiPurpLoan: parseFloat(item.multiPurpLoan) || 0,
+        liquidatingCash: parseFloat(item.liquidatingCash) || 0,
+        landbankSalaryLoan: parseFloat(item.landbankSalaryLoan) || 0,
+        earistCreditCoop: parseFloat(item.earistCreditCoop) || 0,
+        feu: parseFloat(item.feu) || 0,
+        PhilHealthContribution: parseFloat(item.PhilHealthContribution) || 0,
+      };
+    });
+
+    if (processedRowsToSubmit.length === 0) {
+      alert('No payroll records selected for submission.');
+      return;
+    }
+
+    // Step 4: Update payroll-with-remittance
+    for (const item of updatedData) {
+      await axios.put(
+        `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${item.employeeNumber}/${item.startDate}/${item.endDate}`,
+        item,
         getAuthHeaders(),
       );
-
-    } catch (error) {
-      console.error('Error submitting payroll:', error);
-      alert(
-        error.response?.data?.error ||
-          error.message ||
-          'An error occurred while submitting payroll.',
-      );
     }
-  };  
+
+    // Step 5: Send to payroll-processed
+    await axios.post(
+      `${API_BASE_URL}/PayrollRoute/payroll-processed`,
+      processedRowsToSubmit,
+      getAuthHeaders(),
+    );
+
+  } catch (error) {
+    console.error('Error submitting payroll:', error);
+    alert(
+      error.response?.data?.error ||
+        error.message ||
+        'An error occurred while submitting payroll.',
+    );
+  }
+};
 
   const handleDelete = async (rowId, employeeNumber) => {
     try {
@@ -973,7 +985,7 @@ const PayrollProcess = () => {
     'increment',
   ];
   
-  const SalaryComputation = ['tevl', 'abs', 'h', 'm'];
+  const SalaryComputation = ['tevl', 'h', 'm', 'abs'];
   
   const MandatoryDeductions = [
     'withholdingTax',
@@ -2009,7 +2021,7 @@ const PayrollProcess = () => {
                                             fp.endDate === row.endDate,
                                         ),
                                     )
-                                    .map((row) => row.employeeNumber),
+                                    .map((row) => `${row.employeeNumber}_${row.startDate}_${row.endDate}`),
                                 );
                               } else {
                                 setSelectedRows([]);
@@ -2098,12 +2110,6 @@ const PayrollProcess = () => {
                           isHeader
                           sx={{ color: textPrimaryColor }}
                         >
-                          <b>ABS</b>
-                        </PremiumTableCell>
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
                           H
                         </PremiumTableCell>
                         <PremiumTableCell
@@ -2111,6 +2117,12 @@ const PayrollProcess = () => {
                           sx={{ color: textPrimaryColor }}
                         >
                           M
+                        </PremiumTableCell>
+                        <PremiumTableCell
+                          isHeader
+                          sx={{ color: textPrimaryColor }}
+                        >
+                          <b>ABS</b>
                         </PremiumTableCell>
                         <PremiumTableCell
                           isHeader
@@ -2408,23 +2420,24 @@ const PayrollProcess = () => {
                                 <PremiumTableCell padding="checkbox">
                                   <Checkbox
                                     checked={selectedRows.includes(
-                                      row.employeeNumber,
+                                      `${row.employeeNumber}_${row.startDate}_${row.endDate}`,
                                     )}
                                     onChange={() => {
+                                      const rowKey = `${row.employeeNumber}_${row.startDate}_${row.endDate}`;
                                       if (
                                         selectedRows.includes(
-                                          row.employeeNumber,
+                                          rowKey,
                                         )
                                       ) {
                                         setSelectedRows((prev) =>
                                           prev.filter(
-                                            (id) => id !== row.employeeNumber,
+                                            (id) => id !== rowKey,
                                           ),
                                         );
                                       } else {
                                         setSelectedRows((prev) => [
                                           ...prev,
-                                          row.employeeNumber,
+                                          rowKey,
                                         ]);
                                       }
                                     }}
@@ -2487,11 +2500,11 @@ const PayrollProcess = () => {
                                   <b>{row.tevl}</b>
                                 </ExcelTableCell>
 
+                                <ExcelTableCell>{row.h}</ExcelTableCell>
+                                <ExcelTableCell>{row.m}</ExcelTableCell>
                                 <ExcelTableCell>
                                   <b>{row.abs}</b>
                                 </ExcelTableCell>
-                                <ExcelTableCell>{row.h}</ExcelTableCell>
-                                <ExcelTableCell>{row.m}</ExcelTableCell>
                                 <ExcelTableCell>{row.netSalary}</ExcelTableCell>
                                 <ExcelTableCell>
                                   {row.withholdingTax}

@@ -706,7 +706,7 @@ const PayrollJO = () => {
   const fetchFinalizedPayroll = async () => {
     try {
       const res = await axios.get(
-        `${API_BASE_URL}/PayrollRoute/finalized-payroll`,
+        `${API_BASE_URL}/PayrollRoute/payroll-processed`,
         getAuthHeaders()
       );
       setFinalizedPayroll(res.data);
