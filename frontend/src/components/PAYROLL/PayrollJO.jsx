@@ -100,7 +100,7 @@ const hexToRgb = (hex) => {
   return result
     ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(
         result[3],
-        16
+        16,
       )}`
     : '109, 35, 35';
 };
@@ -135,7 +135,7 @@ const ProfessionalButton = styled(Button)(
     '&:active': {
       transform: 'translateY(0)',
     },
-  })
+  }),
 );
 
 const ModernTextField = styled(TextField)(({ theme }) => ({
@@ -223,7 +223,7 @@ const PayrollJO = () => {
   const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedYear, setSelectedYear] = useState(
-    new Date().getFullYear().toString()
+    new Date().getFullYear().toString(),
   );
   const [departments, setDepartments] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -294,7 +294,7 @@ const PayrollJO = () => {
       setLoading(true);
       const response = await axios.get(
         `${API_BASE_URL}/PayrollJORoutes/payroll-jo`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
 
       let payroll = response.data;
@@ -313,11 +313,11 @@ const PayrollJO = () => {
                 startDate: row.startDate,
                 endDate: row.endDate,
               },
-              getAuthHeaders()
+              getAuthHeaders(),
             );
 
             const completeAttendance = attendanceRes.data.filter(
-              (rec) => rec.timeIN && rec.timeOUT
+              (rec) => rec.timeIN && rec.timeOUT,
             );
 
             const uniqueDays = [
@@ -325,7 +325,7 @@ const PayrollJO = () => {
                 completeAttendance.map((rec) => {
                   const dateObj = new Date(rec.date);
                   return dateObj.getDate();
-                })
+                }),
               ),
             ].sort((a, b) => a - b);
 
@@ -335,7 +335,7 @@ const PayrollJO = () => {
                 'en-US',
                 {
                   month: 'short',
-                }
+                },
               );
               renderedDays = `${monthName} ${uniqueDays.join(', ')}`;
             }
@@ -344,7 +344,7 @@ const PayrollJO = () => {
             if (!officialTimeCache[row.employeeNumber]) {
               const officialTimeRes = await axios.get(
                 `${API_BASE_URL}/PayrollJORoutes/official-time/${row.employeeNumber}`,
-                getAuthHeaders()
+                getAuthHeaders(),
               );
               officialTimeCache[row.employeeNumber] = officialTimeRes.data;
             }
@@ -378,7 +378,7 @@ const PayrollJO = () => {
               pagibigContribution: row.pagibigContribution || 0, // Include pagibigContribution
             };
           }
-        })
+        }),
       );
 
       setPayrollData(updatedPayroll);
@@ -387,12 +387,12 @@ const PayrollJO = () => {
 
       // Calculate summary data
       const processedCount = updatedPayroll.filter(
-        (item) => item.status === 1
+        (item) => item.status === 1,
       ).length;
 
       const totalGross = updatedPayroll.reduce(
         (sum, item) => sum + parseFloat(item.grossAmount || 0),
-        0
+        0,
       );
 
       const totalNet = updatedPayroll.reduce(
@@ -405,10 +405,10 @@ const PayrollJO = () => {
               item.h,
               item.m,
               item.sssContribution,
-              item.pagibigContribution
-            ) || 0
+              item.pagibigContribution,
+            ) || 0,
           ),
-        0
+        0,
       );
 
       setSummaryData({
@@ -432,7 +432,7 @@ const PayrollJO = () => {
     // Filter by department
     if (selectedDepartment) {
       filtered = filtered.filter(
-        (item) => item.department === selectedDepartment
+        (item) => item.department === selectedDepartment,
       );
     }
 
@@ -491,7 +491,7 @@ const PayrollJO = () => {
 
     try {
       const selectedData = payrollData.filter((row) =>
-        selectedRows.includes(row.id)
+        selectedRows.includes(row.id),
       );
 
       // This single request now handles both insert AND status update
@@ -504,7 +504,7 @@ const PayrollJO = () => {
         const pagibigContribution = parseFloat(row.pagibigContribution) || 0;
         const rh = parseFloat(row.rh) || 0;
         const ratePerDay = parseFloat(row.ratePerDay) || 0;
-        
+
         return {
           employeeNumber: row.employeeNumber,
           department: row.department || '',
@@ -523,7 +523,7 @@ const PayrollJO = () => {
             h,
             m,
             sssContribution,
-            pagibigContribution
+            pagibigContribution,
           ),
           sssContribution: sssContribution,
           sss: sssContribution, // Also send as sss for backend compatibility
@@ -536,7 +536,7 @@ const PayrollJO = () => {
       await axios.post(
         `${API_BASE_URL}/PayrollJORoutes/export-to-finalized`,
         payload,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
 
       setTimeout(() => {
@@ -555,10 +555,11 @@ const PayrollJO = () => {
     } catch (error) {
       console.error('Error exporting payroll:', error);
       setLoadingOverlay(false);
-      const errorMessage = error.response?.data?.details || 
-                          error.response?.data?.error || 
-                          error.message || 
-                          'Failed to process payroll. Please try again.';
+      const errorMessage =
+        error.response?.data?.details ||
+        error.response?.data?.error ||
+        error.message ||
+        'Failed to process payroll. Please try again.';
       alert(`Error: ${errorMessage}`);
     } finally {
       setProcessing(false);
@@ -593,7 +594,14 @@ const PayrollJO = () => {
     return hourDeduction + minuteDeduction;
   };
 
-  const computeNetAmount = (grossAmount, ratePerDay, hours, minutes, sss, pagibig) => {
+  const computeNetAmount = (
+    grossAmount,
+    ratePerDay,
+    hours,
+    minutes,
+    sss,
+    pagibig,
+  ) => {
     const totalDeduction = computeTotalDeduction(ratePerDay, hours, minutes);
     const sssContribution = parseFloat(sss) || 0;
     const pagibigContribution = parseFloat(pagibig) || 0;
@@ -629,7 +637,7 @@ const PayrollJO = () => {
     try {
       await axios.delete(
         `${API_BASE_URL}/PayrollJORoutes/payroll-jo/${recordToDelete.id}`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       fetchPayrollData();
       setDeleteDialogOpen(false);
@@ -679,9 +687,10 @@ const PayrollJO = () => {
         {
           employeeNumber: editingRow.employeeNumber,
           sssContribution: parseFloat(editContributions.sssContribution) || 0,
-          pagibigContribution: parseFloat(editContributions.pagibigContribution) || 0,
+          pagibigContribution:
+            parseFloat(editContributions.pagibigContribution) || 0,
         },
-        getAuthHeaders()
+        getAuthHeaders(),
       );
 
       // Refresh payroll data to get updated values
@@ -707,7 +716,7 @@ const PayrollJO = () => {
     try {
       const res = await axios.get(
         `${API_BASE_URL}/PayrollRoute/payroll-processed`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setFinalizedPayroll(res.data);
     } catch (err) {
@@ -747,7 +756,7 @@ const PayrollJO = () => {
         row.h,
         row.m,
         row.sssContribution,
-        row.pagibigContribution
+        row.pagibigContribution,
       ),
     }));
 
@@ -764,7 +773,7 @@ const PayrollJO = () => {
     try {
       const response = await axios.get(
         `${API_BASE_URL}/api/department-table`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setDepartments(response.data);
     } catch (err) {
@@ -850,21 +859,21 @@ const PayrollJO = () => {
   //ACCESSING END2
 
   return (
-     <Box
-          sx={{
-            py: 4,
-            borderRadius: "14px",
-            width: "100%",
-            mx: "auto",
-            maxWidth: "100%",
-            overflow: "hidden",
-            position: "relative",
-            left: "50%",
-            transform: "translateX(-50%)",
-          }}
-        >
+    <Box
+      sx={{
+        py: 4,
+        borderRadius: '14px',
+        width: '100%',
+        mx: 'auto',
+        maxWidth: '100%',
+        overflow: 'hidden',
+        position: 'relative',
+        left: '50%',
+        transform: 'translateX(-50%)',
+      }}
+    >
       {/* Wider Container */}
-     <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
+      <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
         {/* Header */}
         <Fade in timeout={500}>
           <Box sx={{ mb: 4 }}>
@@ -1170,7 +1179,7 @@ const PayrollJO = () => {
                               {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
-                              }
+                              },
                             )}
                           </Typography>
                         </Box>
@@ -1553,7 +1562,7 @@ const PayrollJO = () => {
                             indeterminate={(() => {
                               const currentPageRows = filteredData.slice(
                                 page * rowsPerPage,
-                                page * rowsPerPage + rowsPerPage
+                                page * rowsPerPage + rowsPerPage,
                               );
                               // Filter out already finalized rows AND processed rows
                               const selectableRows = currentPageRows.filter(
@@ -1564,11 +1573,11 @@ const PayrollJO = () => {
                                       fp.employeeNumber ===
                                         row.employeeNumber &&
                                       fp.startDate === row.startDate &&
-                                      fp.endDate === row.endDate
-                                  )
+                                      fp.endDate === row.endDate,
+                                  ),
                               );
                               const selectedOnPage = selectedRows.filter((id) =>
-                                selectableRows.some((row) => row.id === id)
+                                selectableRows.some((row) => row.id === id),
                               );
                               return (
                                 selectedOnPage.length > 0 &&
@@ -1578,7 +1587,7 @@ const PayrollJO = () => {
                             checked={(() => {
                               const currentPageRows = filteredData.slice(
                                 page * rowsPerPage,
-                                page * rowsPerPage + rowsPerPage
+                                page * rowsPerPage + rowsPerPage,
                               );
                               // Filter out already finalized rows AND processed rows
                               const selectableRows = currentPageRows.filter(
@@ -1589,18 +1598,18 @@ const PayrollJO = () => {
                                       fp.employeeNumber ===
                                         row.employeeNumber &&
                                       fp.startDate === row.startDate &&
-                                      fp.endDate === row.endDate
-                                  )
+                                      fp.endDate === row.endDate,
+                                  ),
                               );
                               if (selectableRows.length === 0) return false;
                               return selectableRows.every((row) =>
-                                selectedRows.includes(row.id)
+                                selectedRows.includes(row.id),
                               );
                             })()}
                             onChange={(e) => {
                               const currentPageRows = filteredData.slice(
                                 page * rowsPerPage,
-                                page * rowsPerPage + rowsPerPage
+                                page * rowsPerPage + rowsPerPage,
                               );
                               // Filter out already finalized rows AND processed rows
                               const selectableRows = currentPageRows.filter(
@@ -1611,11 +1620,11 @@ const PayrollJO = () => {
                                       fp.employeeNumber ===
                                         row.employeeNumber &&
                                       fp.startDate === row.startDate &&
-                                      fp.endDate === row.endDate
-                                  )
+                                      fp.endDate === row.endDate,
+                                  ),
                               );
                               const currentIds = selectableRows.map(
-                                (row) => row.id
+                                (row) => row.id,
                               );
                               if (e.target.checked) {
                                 setSelectedRows((prev) => [
@@ -1623,7 +1632,7 @@ const PayrollJO = () => {
                                 ]);
                               } else {
                                 setSelectedRows((prev) =>
-                                  prev.filter((id) => !currentIds.includes(id))
+                                  prev.filter((id) => !currentIds.includes(id)),
                                 );
                               }
                             }}
@@ -1792,7 +1801,7 @@ const PayrollJO = () => {
                         filteredData
                           .slice(
                             page * rowsPerPage,
-                            page * rowsPerPage + rowsPerPage
+                            page * rowsPerPage + rowsPerPage,
                           )
                           .map((row, index) => (
                             <TableRow
@@ -1816,7 +1825,7 @@ const PayrollJO = () => {
                                       fp.employeeNumber ===
                                         row.employeeNumber &&
                                       fp.startDate === row.startDate &&
-                                      fp.endDate === row.endDate
+                                      fp.endDate === row.endDate,
                                   )}
                                   onChange={(e) => {
                                     const isFinalized = finalizedPayroll.some(
@@ -1824,13 +1833,13 @@ const PayrollJO = () => {
                                         fp.employeeNumber ===
                                           row.employeeNumber &&
                                         fp.startDate === row.startDate &&
-                                        fp.endDate === row.endDate
+                                        fp.endDate === row.endDate,
                                     );
                                     if (isFinalized) return;
                                     e.stopPropagation();
                                     if (selectedRows.includes(row.id)) {
                                       setSelectedRows((prev) =>
-                                        prev.filter((id) => id !== row.id)
+                                        prev.filter((id) => id !== row.id),
                                       );
                                     } else {
                                       setSelectedRows((prev) => [
@@ -1882,8 +1891,8 @@ const PayrollJO = () => {
                                   computeTotalDeduction(
                                     row.ratePerDay,
                                     row.h,
-                                    row.m
-                                  )
+                                    row.m,
+                                  ),
                                 )}
                               </TableCell>
                               <TableCell>
@@ -1906,8 +1915,8 @@ const PayrollJO = () => {
                                     row.h,
                                     row.m,
                                     row.sssContribution,
-                                    row.pagibigContribution
-                                  )
+                                    row.pagibigContribution,
+                                  ),
                                 )}
                               </TableCell>
                             </TableRow>
@@ -1969,7 +1978,7 @@ const PayrollJO = () => {
                             textAlign: 'center',
                             borderBottom: `1px solid ${alpha(
                               accentColor,
-                              0.06
+                              0.06,
                             )}`,
                             padding: '16px',
                           }}
@@ -1981,7 +1990,7 @@ const PayrollJO = () => {
                       filteredData
                         .slice(
                           page * rowsPerPage,
-                          page * rowsPerPage + rowsPerPage
+                          page * rowsPerPage + rowsPerPage,
                         )
                         .map((row, index) => {
                           return (
@@ -2004,7 +2013,7 @@ const PayrollJO = () => {
                                   textAlign: 'center',
                                   borderBottom: `1px solid ${alpha(
                                     accentColor,
-                                    0.06
+                                    0.06,
                                   )}`,
                                 }}
                               >
@@ -2039,7 +2048,7 @@ const PayrollJO = () => {
                             textAlign: 'center',
                             borderBottom: `1px solid ${alpha(
                               accentColor,
-                              0.06
+                              0.06,
                             )}`,
                             padding: '16px',
                           }}
@@ -2095,7 +2104,7 @@ const PayrollJO = () => {
                             textAlign: 'center',
                             borderBottom: `1px solid ${alpha(
                               accentColor,
-                              0.06
+                              0.06,
                             )}`,
                             padding: '16px',
                           }}
@@ -2107,7 +2116,7 @@ const PayrollJO = () => {
                       filteredData
                         .slice(
                           page * rowsPerPage,
-                          page * rowsPerPage + rowsPerPage
+                          page * rowsPerPage + rowsPerPage,
                         )
                         .map((row, index) => {
                           return (
@@ -2130,7 +2139,7 @@ const PayrollJO = () => {
                                   textAlign: 'center',
                                   borderBottom: `1px solid ${alpha(
                                     accentColor,
-                                    0.06
+                                    0.06,
                                   )}`,
                                 }}
                               >
@@ -2141,19 +2150,29 @@ const PayrollJO = () => {
                                     gap: 0.5,
                                   }}
                                 >
-                                  <Tooltip title={row.status === 1 ? "Cannot edit processed records" : "Edit Contributions"}>
+                                  <Tooltip
+                                    title={
+                                      row.status === 1
+                                        ? 'Cannot edit processed records'
+                                        : 'Edit Contributions'
+                                    }
+                                  >
                                     <IconButton
                                       size="small"
                                       disabled={row.status === 1}
                                       sx={{
                                         color:
-                                          row.status === 1 ? '#ccc' : accentColor,
+                                          row.status === 1
+                                            ? '#ccc'
+                                            : accentColor,
                                         backgroundColor:
                                           row.status === 1
                                             ? '#f5f5f5'
                                             : 'white',
                                         border: `1px solid ${
-                                          row.status === 1 ? '#ccc' : accentColor
+                                          row.status === 1
+                                            ? '#ccc'
+                                            : accentColor
                                         }`,
                                         '&:hover': {
                                           backgroundColor:
@@ -2163,12 +2182,20 @@ const PayrollJO = () => {
                                         },
                                         padding: '4px',
                                       }}
-                                      onClick={() => handleEditContributionsClick(row)}
+                                      onClick={() =>
+                                        handleEditContributionsClick(row)
+                                      }
                                     >
                                       <EditIcon fontSize="small" />
                                     </IconButton>
                                   </Tooltip>
-                                  <Tooltip title={row.status === 1 ? "Cannot delete processed records" : "Delete"}>
+                                  <Tooltip
+                                    title={
+                                      row.status === 1
+                                        ? 'Cannot delete processed records'
+                                        : 'Delete'
+                                    }
+                                  >
                                     <IconButton
                                       size="small"
                                       disabled={row.status === 1}
@@ -2207,7 +2234,7 @@ const PayrollJO = () => {
                             textAlign: 'center',
                             borderBottom: `1px solid ${alpha(
                               accentColor,
-                              0.06
+                              0.06,
                             )}`,
                             padding: '16px',
                           }}
@@ -2301,7 +2328,7 @@ const PayrollJO = () => {
                   (fp) =>
                     fp.employeeNumber === row?.employeeNumber &&
                     fp.startDate === row?.startDate &&
-                    fp.endDate === row?.endDate
+                    fp.endDate === row?.endDate,
                 );
               })
             }
@@ -2621,9 +2648,7 @@ const PayrollJO = () => {
                 p: 2.5,
                 bgcolor: '#f9f9f9',
                 borderRadius: 2,
-                border: `2px solid ${
-                  confirmChecked ? accentColor : '#e0e0e0'
-                }`,
+                border: `2px solid ${confirmChecked ? accentColor : '#e0e0e0'}`,
                 mb: 3,
                 display: 'flex',
                 alignItems: 'flex-start',
@@ -2653,8 +2678,8 @@ const PayrollJO = () => {
                   I confirm that I have reviewed all payroll records
                 </Typography>
                 <Typography variant="body2" sx={{ color: '#666' }}>
-                  All information is accurate and ready for export. I
-                  understand this action cannot be undone.
+                  All information is accurate and ready for export. I understand
+                  this action cannot be undone.
                 </Typography>
               </Box>
             </Box>
@@ -2720,8 +2745,8 @@ const PayrollJO = () => {
             isProcessingDelete
               ? 'Deleting payroll record...'
               : isUpdatingContributions
-              ? 'Updating contributions...'
-              : 'Processing payroll records...'
+                ? 'Updating contributions...'
+                : 'Processing payroll records...'
           }
         />
 

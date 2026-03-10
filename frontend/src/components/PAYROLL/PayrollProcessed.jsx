@@ -1949,7 +1949,10 @@ const PayrollProcessed = () => {
                               isHeader
                               sx={{ color: textPrimaryColor }}
                             >
-                              <Tooltip title="Total Earned Vacation Leave" arrow>
+                              <Tooltip
+                                title="Total Earned Vacation Leave"
+                                arrow
+                              >
                                 TEVL
                               </Tooltip>
                             </PremiumTableCell>
@@ -1957,7 +1960,10 @@ const PayrollProcessed = () => {
                               isHeader
                               sx={{ color: textPrimaryColor }}
                             >
-                              <Tooltip title="Deducted Vacation Leave Tardiness" arrow>
+                              <Tooltip
+                                title="Deducted Vacation Leave Tardiness"
+                                arrow
+                              >
                                 DVLT
                               </Tooltip>
                             </PremiumTableCell>
@@ -2434,15 +2440,19 @@ const PayrollProcessed = () => {
                                         : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell
-                                      sx={{ color: 'green', fontWeight: 'bold' }}
+                                      sx={{
+                                        color: 'green',
+                                        fontWeight: 'bold',
+                                      }}
                                     >
                                       {parseFloat(row.netSalary || 0)
-                                        ? Number(
-                                            row.netSalary,
-                                          ).toLocaleString('en-US', {
-                                            minimumFractionDigits: 2,
-                                            maximumFractionDigits: 2,
-                                          })
+                                        ? Number(row.netSalary).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
                                         : ''}
                                     </ExcelTableCell>
                                     <ExcelTableCell>
