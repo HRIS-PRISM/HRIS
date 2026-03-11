@@ -470,8 +470,6 @@ const ViewAttendanceRecord = () => {
 
   const fetchRecordsRef     = useRef(null);
   const fetchAllUsersDTRRef = useRef(null);
-  // ── AUTO-SCROLL ref — points to the Single User Results card ──
-  const resultsRef          = useRef(null);
 
   const { hasAccess, loading: accessLoading } = usePageAccess('view-attendance');
 
@@ -507,15 +505,6 @@ const ViewAttendanceRecord = () => {
 
   // Dismiss wireframe once access resolves
   useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
-
-  // ── AUTO-SCROLL: when records load in single-user mode, scroll to results ──
-  useEffect(() => {
-    if (records.length > 0 && viewMode === 'single' && resultsRef.current) {
-      setTimeout(() => {
-        resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 30);
-    }
-  }, [records, viewMode]);
 
   const fetchDepartmentsAndAssignments = async () => {
     setLoadingDepartments(true);
@@ -877,7 +866,7 @@ const ViewAttendanceRecord = () => {
                           <Typography variant="body2" sx={{ color: alpha(textPrimaryColor,0.7) }}>Choose a year, then click any month to set the range</Typography>
                         </Box>
 
-                        {/* ── Year selector ── */}
+                        {/* ── Year selector — copied from DailyTimeRecord, fires snackbar on change ── */}
                         <FormControl sx={{ minWidth: 140 }}>
                           <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>
                           <Select
@@ -1043,8 +1032,7 @@ const ViewAttendanceRecord = () => {
           {/* ── Single User Results ── */}
           {viewMode === 'single' && personName && (
             <Fade in={!loading} timeout={500}>
-              {/* ref attached here so the page auto-scrolls when records arrive */}
-              <GlassCard ref={resultsRef} sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
+              <GlassCard sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
                 <Box sx={{ p: 4, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, color: textPrimaryColor, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Box>
                     <Typography variant="body2" sx={{ opacity: 0.8, mb: 1, textTransform: 'uppercase', letterSpacing: '0.1em', color: textPrimaryColor }}>Device Record Summary (Auto-Saved)</Typography>

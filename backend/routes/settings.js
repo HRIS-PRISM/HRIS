@@ -19,9 +19,10 @@ const DEFAULT_SETTINGS = {
   institutionLogo:             '',
   hrisLogo:                    '',
   institutionName:             'Institution Name',
-  systemName:                  'Human Resource Information System',
-  institutionAbbreviation:     'INST',
-  footerText:                  '© 2026 - HUMAN RESOURCE INFORMATION SYSTEM.  ALL RIGHTS RESERVED.',
+  institutionAddress:          'Institute Address',
+  systemName:                  'Human Resources Information System',
+  institutionAbbreviation:     'INST ABBREV',
+  footerText:                  '© 2026 - HUMAN RESOURCES INFORMATION SYSTEM.  ALL RIGHTS RESERVED.',
   copyrightSymbol:             '©',
   enableWatermark:             'true',
   actionButtonColor:           '#6d2323',
@@ -36,6 +37,9 @@ const DEFAULT_SETTINGS = {
   modalBorderColor:            '#894444',
   // Footer contact
   adminEmail:                  'hrinformationsystemhris@gmail.com',
+  // Payslip certifier
+  certifierName:               'Default Certifier',
+  certifierPosition:           'Default Position',
 };
 
 // ── Helper: convert DB rows array → settings object ──────────────────────────

@@ -3468,12 +3468,12 @@ const Sidebar = ({
                         <ReceiptLong />
                       </ListItemIcon>
                       <ListItemText
-                        primary="Payslip Distribution"
+                        primary="Payslip Records & Distribution"
                         sx={{ marginLeft: "-10px" }}
                       />
                     </ListItem>
 
-                    <ListItem
+                    {/* <ListItem
                       button
                       component={Link}
                       to="/overall-payslip"
@@ -3517,7 +3517,7 @@ const Sidebar = ({
                         primary="Payslip Records"
                         sx={{ marginLeft: "-10px" }}
                       />
-                    </ListItem>
+                    </ListItem> */}
 
                     <ListSubheader
                       component="div"

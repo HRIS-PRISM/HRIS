@@ -119,7 +119,7 @@ import PDS3 from "./components/PDS/PDS3";
 import PDS4 from "./components/PDS/PDS4";
 
 import Payslip from "./components/PAYROLL/Payslip";
-import PayslipOverall from "./components/PAYROLL/PayslipOverall";
+import PayslipOverall from "./components/PAYROLL/RETIRED-PayslipOverall";
 import PayslipDistribution from "./components/PAYROLL/PayslipDistribution";
 
 import LeaveRequestUser from "./components/LEAVE/LeaveRequestUser";
