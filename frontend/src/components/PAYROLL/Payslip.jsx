@@ -573,6 +573,18 @@ const Payslip = forwardRef(({ employee }, ref) => {
     const surname = getSurname(displayEmployee.name);
     const period = formatPeriod(displayEmployee.startDate, displayEmployee.endDate);
     pdf.save(`${surname}_${period}.pdf`);
+
+    // Audit log for print
+    try {
+      await axios.post(
+        `${API_BASE_URL}/PayrollReleasedRoute/log-print`,
+        { employeeNumber: displayEmployee.employeeNumber },
+        getAuthHeaders(),
+      );
+    } catch (e) {
+      console.error('Print audit log error:', e);
+    }
+
     setDisplayEmployee(employee || null);
     setSending(false);
     setModal({ open: true, type: 'success', action: 'download' });

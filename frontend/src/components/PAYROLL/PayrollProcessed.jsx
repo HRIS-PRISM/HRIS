@@ -29,6 +29,7 @@ import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
+import { usePayrollFormulas } from '../../hooks/usePayrollFormulas';
 import {
   CloudUpload,
   DeleteForever,
@@ -166,6 +167,7 @@ const PayrollProcessed = () => {
   const grayColor = '#6c757d';
 
   const { hasAccess, loading: accessLoading, error: accessError } = usePageAccess('payroll-processed');
+  const { calculatePayroll } = usePayrollFormulas();
 
   const [finalizedData, setFinalizedData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -266,13 +268,11 @@ const PayrollProcessed = () => {
     return (
       <Tooltip title={tooltipContent} arrow placement="top">
         <span
-          style={{
-            cursor: 'help',
-            borderBottom: '1px dashed currentColor',
-            paddingBottom: '1px',
-            display: 'inline-block',
-          }}
-        >
+  style={{
+    cursor: 'help',
+    display: 'inline-block',
+  }}
+>
           {children}
         </span>
       </Tooltip>
@@ -757,6 +757,14 @@ const PayrollProcessed = () => {
     );
   }
 
+  const computedRows = filteredFinalizedData.map((item) => {
+    const calculatedItem = calculatePayroll(item) || item;
+    return {
+      ...calculatedItem,
+      netSalary: (parseFloat(calculatedItem.netSalary) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    };
+  });
+
   return (
     <Box sx={{ py: 4, borderRadius: '14px', width: '100%', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '50%', transform: 'translateX(-50%)' }}>
       <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
@@ -967,15 +975,19 @@ const PayrollProcessed = () => {
                             </PremiumTableCell>
 
                             <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              <HeaderTooltip fieldKey="abs" fullName="Absence Deductions — Amount deducted for absences"><b>ABS</b></HeaderTooltip>
-                            </PremiumTableCell>
-
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                               <HeaderTooltip fieldKey="h" fullName="Hours Late / Undertime">H</HeaderTooltip>
                             </PremiumTableCell>
 
                             <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                               <HeaderTooltip fieldKey="m" fullName="Minutes Late / Undertime">M</HeaderTooltip>
+                            </PremiumTableCell>
+
+                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
+                              <HeaderTooltip fieldKey="abs" fullName="Absence Deductions — Amount deducted for absences"><b>ABS</b></HeaderTooltip>
+                            </PremiumTableCell>
+
+                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
+                              <HeaderTooltip fieldKey="netSalary" fullName="Net Salary — Take-home pay after all deductions">Net Salary</HeaderTooltip>
                             </PremiumTableCell>
 
                             <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>SSS</PremiumTableCell>
@@ -1146,7 +1158,7 @@ const PayrollProcessed = () => {
 
                         <TableBody>
                           {filteredFinalizedData.length > 0 ? (
-                            filteredFinalizedData
+                            computedRows
                               .slice(
                                 page * rowsPerPage,
                                 page * rowsPerPage + rowsPerPage,
@@ -1299,6 +1311,8 @@ const PayrollProcessed = () => {
                                     <ExcelTableCell>{row.tevl}</ExcelTableCell>
                                     <ExcelTableCell>{row.dvlt}</ExcelTableCell>
                                     <ExcelTableCell>{row.vlb}</ExcelTableCell>
+                                    <ExcelTableCell>{row.h}</ExcelTableCell>
+                                    <ExcelTableCell>{row.m}</ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.abs
                                         ? Number(row.abs).toLocaleString(
@@ -1310,8 +1324,9 @@ const PayrollProcessed = () => {
                                           )
                                         : ''}
                                     </ExcelTableCell>
-                                    <ExcelTableCell>{row.h}</ExcelTableCell>
-                                    <ExcelTableCell>{row.m}</ExcelTableCell>
+                                    <ExcelTableCell sx={{ fontWeight: 'bold', color: '#2e7d32' }}>
+                                      {row.netSalary}
+                                    </ExcelTableCell>
                                     <ExcelTableCell>
                                       {row.sss
                                         ? Number(row.sss).toLocaleString(

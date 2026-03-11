@@ -1,63 +1,8 @@
 const db = require("../db");
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const { notifyPayrollChanged } = require('../socket/socketService');
-
-
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-
-  console.log('Auth header:', authHeader);
-  console.log('Token:', token ? 'Token exists' : 'No token');
-
-
-  if (!token) return res.status(401).json({ error: 'No token provided' });
-
-
-  jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, user) => {
-    if (err) {
-      console.log('JWT verification error:', err.message);
-      return res.status(403).json({ error: 'Invalid token' });
-    }
-    console.log('Decoded JWT:', user);
-    req.user = user;
-    next();
-  });
-}
-
-
-function logAudit(
-  user,
-  action,
-  tableName,
-  recordId,
-  targetEmployeeNumber = null
-) {
-  if (!user || !user.employeeNumber) {
-    console.error('Invalid user object for audit logging:', user);
-    return;
-  }
-
-
-  const auditQuery = `
-    INSERT INTO audit_log (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
-    VALUES (?, ?, ?, ?, ?, NOW())
-  `;
-
-
-  db.query(
-    auditQuery,
-    [user.employeeNumber, action, tableName, recordId, targetEmployeeNumber],
-    (err) => {
-      if (err) {
-        console.error('Error inserting audit log:', err);
-      }
-    }
-  );
-}
+const { authenticateToken, logAudit } = require('../middleware/auth');
 
 
 
@@ -76,14 +21,6 @@ router.get('/released-payroll', authenticateToken, (req, res) => {
 
 
     // Audit log: viewing released payroll
-    logAudit(
-      req.user,
-      'view',
-      'payroll_released',
-      results.length > 0 ? results[0].id : null
-    );
-
-
     res.json(results);
   });
 });
@@ -141,18 +78,6 @@ router.get('/released-payroll-detailed', authenticateToken, (req, res) => {
         // Success with fallback - return results with default employmentCategory
         console.log('Fallback query succeeded, returning results without employmentCategory data');
         
-        // Audit log (non-blocking)
-        try {
-          logAudit(
-            req.user,
-            'view',
-            'payroll_released_detailed',
-            fallbackResults.length > 0 ? fallbackResults[0].id : null
-          );
-        } catch (auditErr) {
-          console.error('Error logging audit (non-blocking):', auditErr);
-        }
-        
         return res.json(fallbackResults);
       });
       
@@ -161,17 +86,6 @@ router.get('/released-payroll-detailed', authenticateToken, (req, res) => {
 
     // Audit log: viewing detailed released payroll (non-blocking)
     // Don't let audit logging failure prevent the response
-    try {
-      logAudit(
-        req.user,
-        'view',
-        'payroll_released_detailed',
-        results.length > 0 ? results[0].id : null
-      );
-    } catch (auditErr) {
-      console.error('Error logging audit (non-blocking):', auditErr);
-      // Continue with response even if audit logging fails
-    }
 
     res.json(results);
   });
@@ -355,10 +269,10 @@ router.post('/release-payroll', authenticateToken, (req, res) => {
             });
             logAudit(
               req.user,
-              'create_failed',
+              'CREATE_FAILED',
               'payroll_released',
               null,
-              payrollIds.join(', ')
+              recordsToRelease.map(r => r.employeeNumber).join(', ')
             );
             return res.status(500).json({ 
               error: 'Internal server error',
@@ -367,14 +281,16 @@ router.post('/release-payroll', authenticateToken, (req, res) => {
           }
 
 
-          // Log successful insertion
-          logAudit(
-            req.user,
-            'create',
-            'payroll_released',
-            result.insertId,
-            payrollIds.join(', ')
-          );
+          // Log successful insertion — one audit entry per released employee
+          for (const record of recordsToRelease) {
+            logAudit(
+              req.user,
+              'CREATE',
+              'payroll_released',
+              record.id,
+              record.employeeNumber
+            );
+          }
 
           notifyPayrollChanged('released', {
             module: 'payroll-released',
@@ -458,6 +374,21 @@ router.delete('/released-payroll/:id', authenticateToken, (req, res) => {
   });
 });
 
+
+// POST - Log payslip print (download)
+router.post('/log-print', authenticateToken, (req, res) => {
+  const { employeeNumber } = req.body;
+  if (!employeeNumber) {
+    return res.status(400).json({ error: 'Missing employeeNumber' });
+  }
+  try {
+    logAudit(req.user, 'Print Payslip', 'payslip_print', null, employeeNumber);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Audit log error:', e);
+    res.status(500).json({ error: 'Failed to log audit' });
+  }
+});
 
 // GET released payroll statistics
 router.get('/released-payroll-stats', authenticateToken, (req, res) => {

@@ -293,14 +293,12 @@ const PayrollJO = () => {
     );
     return (
       <Tooltip title={tooltipContent} arrow placement="top">
-        <span
-          style={{
-            cursor: 'help',
-            borderBottom: '1px dashed currentColor',
-            paddingBottom: '1px',
-            display: 'inline-block',
-          }}
-        >
+       <span
+  style={{
+    cursor: 'help',
+    display: 'inline-block',
+  }}
+>
           {children}
         </span>
       </Tooltip>

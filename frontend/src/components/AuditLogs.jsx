@@ -76,6 +76,7 @@ import {
 import { getUserInfo } from "../utils/auth";
 import usePageAccess from '../hooks/usePageAccess';
 import AccessDenied from './AccessDenied';
+import { useSocket } from '../contexts/SocketContext';
 
 // Get auth headers function
 const getAuthHeaders = () => {
@@ -146,6 +147,7 @@ const AuditLogs = () => {
   const [actionFilter, setActionFilter] = useState("");
   const [moduleFilter, setModuleFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
+  const [employeeFilter, setEmployeeFilter] = useState("");
   const [toast, setToast] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(true);
@@ -165,6 +167,7 @@ const AuditLogs = () => {
   const LOG_OVERSCAN = 8;
 
   const settings = useSystemSettings();
+  const { socket, connected } = useSocket();
 
     //ACCESSING
     // Dynamic page access control using component identifier
@@ -352,6 +355,22 @@ const AuditLogs = () => {
     return () => clearInterval(interval);
   }, [isAuthenticated, sessionWarningShown]);
 
+  // Real-time: listen for new audit log entries via WebSocket
+  useEffect(() => {
+    if (!socket || !isAuthenticated) return;
+
+    const handleNewAuditLog = (newLog) => {
+      setAuditLogs((prev) => {
+        // Deduplicate by id in case both role-room and personal-room deliver the same event
+        if (prev.some((l) => l.id === newLog.id)) return prev;
+        return [newLog, ...prev];
+      });
+    };
+
+    socket.on('auditLogCreated', handleNewAuditLog);
+    return () => socket.off('auditLogCreated', handleNewAuditLog);
+  }, [socket, isAuthenticated]);
+
   // Load audit logs
   const loadAuditLogs = async () => {
     if (!isAuthenticated) return;
@@ -388,7 +407,9 @@ const AuditLogs = () => {
     if (logScrollRef.current) {
       logScrollRef.current.scrollTop = 0;
     }
-  }, [actionFilter, moduleFilter, dateFilter, isAuthenticated]);
+  }, [actionFilter, moduleFilter, dateFilter, employeeFilter, isAuthenticated]);
+
+
 
   // Filter logs
   useEffect(() => {
@@ -400,15 +421,21 @@ const AuditLogs = () => {
       );
     }
 
+    if (employeeFilter) {
+      filtered = filtered.filter((log) =>
+        log.employeeNumber?.toLowerCase().includes(employeeFilter.toLowerCase())
+      );
+    }
+
     if (actionFilter) {
       filtered = filtered.filter((log) =>
-        log.action?.toLowerCase().includes(actionFilter.toLowerCase())
+        normalizeAction(log.action) === actionFilter
       );
     }
 
     if (moduleFilter) {
       filtered = filtered.filter((log) =>
-        log.table_name?.toLowerCase().includes(moduleFilter.toLowerCase())
+        log.table_name?.toLowerCase() === moduleFilter.toLowerCase()
       );
     }
 
@@ -431,6 +458,7 @@ const AuditLogs = () => {
     actionFilter,
     moduleFilter,
     dateFilter,
+    employeeFilter,
     auditLogs,
     userRole,
     currentUser,
@@ -646,6 +674,12 @@ const AuditLogs = () => {
       ...new Set(auditLogs.map((log) => log.table_name).filter(Boolean)),
     ];
     return modules.sort();
+  };
+
+  // Format module name to match how it appears in log entries (e.g. "audit-logs" → "AUDIT_LOGS")
+  const formatModuleName = (tableName) => {
+    if (!tableName) return "";
+    return tableName.toUpperCase().replace(/[\s\-]+/g, "_");
   };
 
   const virtualizationRange = useMemo(() => {
@@ -1249,7 +1283,30 @@ const AuditLogs = () => {
             />
             <CardContent sx={{ p: 4 }}>
               <Grid container spacing={3}>
-                <Grid item xs={12} md={4}>
+                <Grid item xs={12} md={3}>
+                  <ModernTextField
+                    fullWidth
+                    label="Search Employee Number"
+                    placeholder="e.g. 2024-001"
+                    value={employeeFilter}
+                    onChange={(e) => setEmployeeFilter(e.target.value)}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <SearchIcon sx={{ color: settings?.primaryColor || "#894444", fontSize: 20 }} />
+                        </InputAdornment>
+                      ),
+                      endAdornment: employeeFilter ? (
+                        <InputAdornment position="end">
+                          <IconButton size="small" onClick={() => setEmployeeFilter("")}>
+                            <CloseIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </InputAdornment>
+                      ) : null,
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} md={3}>
                   <ModernTextField
                     select
                     fullWidth
@@ -1277,7 +1334,7 @@ const AuditLogs = () => {
                     ))}
                   </ModernTextField>
                 </Grid>
-                <Grid item xs={12} md={4}>
+                <Grid item xs={12} md={3}>
                   <ModernTextField
                     select
                     fullWidth
@@ -1288,12 +1345,12 @@ const AuditLogs = () => {
                     <MenuItem value="">All Modules</MenuItem>
                     {getUniqueModules().map((module) => (
                       <MenuItem key={module} value={module}>
-                        {module}
+                        {formatModuleName(module)}
                       </MenuItem>
                     ))}
                   </ModernTextField>
                 </Grid>
-                <Grid item xs={12} md={4}>
+                <Grid item xs={12} md={3}>
                   <ModernTextField
                     type="date"
                     fullWidth

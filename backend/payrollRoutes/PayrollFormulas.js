@@ -1,52 +1,9 @@
 const db = require('../db');
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const { validateFormula } = require('../services/PayrollCalculator');
 const { notifyPayrollChanged } = require('../socket/socketService');
-
-// Audit logging function
-function logAudit(user, action, tableName, recordId, targetEmployeeNumber = null) {
-  if (!user || !user.employeeNumber) {
-    console.error('Invalid user object for audit logging:', user);
-    return;
-  }
-
-  const auditQuery = `
-    INSERT INTO audit_log (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
-    VALUES (?, ?, ?, ?, ?, NOW())
-  `;
-
-  db.query(
-    auditQuery,
-    [user.employeeNumber, action, tableName, recordId, targetEmployeeNumber],
-    (err) => {
-      if (err) {
-        console.error('Error inserting audit log:', err);
-      }
-    }
-  );
-}
-
-/**
- * Authenticate token middleware
- */
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'No token provided' });
-  }
-
-  jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid token' });
-    }
-    req.user = user;
-    next();
-  });
-}
+const { authenticateToken, logAudit } = require('../middleware/auth');
 
 /**
  * GET /api/payroll-formulas

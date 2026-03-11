@@ -3,6 +3,12 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const { notifyPayrollChanged } = require('../socket/socketService');
+const { logAudit } = require('../middleware/auth');
+
+const getUserDisplayName = (user) => {
+  const parts = [user.firstName, user.lastName].filter(Boolean);
+  return parts.length > 0 ? parts.join(' ') : (user.username || user.employeeNumber || 'Unknown');
+};
 
 // ─────────────────────────────────────────────
 // MIDDLEWARE
@@ -28,77 +34,7 @@ function authenticateToken(req, res, next) {
   });
 }
 
-// ─────────────────────────────────────────────
-// AUDIT HELPERS
-// ─────────────────────────────────────────────
 
-/**
- * Inserts a record into audit_log.
- * - employeeNumber      : the HR staff / processor (req.user.employeeNumber)
- * - action              : e.g. 'PAYROLL_PROCESSED', 'TEVL_DEDUCTED'
- * - table_name          : affected table
- * - record_id           : the PK of the affected row (or payroll id)
- * - targetEmployeeNumber: the employee whose data was changed
- */
-function logAudit(
-  user,
-  action,
-  tableName,
-  recordId,
-  targetEmployeeNumber = null,
-) {
-  if (!user || !user.employeeNumber) {
-    console.error('Invalid user object for audit logging:', user);
-    return;
-  }
-
-  const auditQuery = `
-    INSERT INTO audit_log
-      (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
-    VALUES (?, ?, ?, ?, ?, NOW())
-  `;
-
-  db.query(
-    auditQuery,
-    [user.employeeNumber, action, tableName, recordId, targetEmployeeNumber],
-    (err) => {
-      if (err) console.error('Error inserting audit log:', err);
-    },
-  );
-}
-
-/**
- * Inserts a record into transaction_table.
- * - employeeId : the employee whose record / leave balance was affected
- * - message    : human-readable, COA-friendly narrative
- *
- * Returns a Promise so it can be awaited inside transactions.
- */
-function logTransaction(connection, employeeId, message) {
-  return connection.query(
-    `INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)`,
-    [employeeId, message],
-  );
-}
-
-/**
- * Inserts a record into audit_log using a transaction connection (awaitable).
- */
-function logAuditAsync(
-  connection,
-  processorId,
-  action,
-  tableName,
-  recordId,
-  targetEmployeeNumber,
-) {
-  return connection.query(
-    `INSERT INTO audit_log
-       (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
-     VALUES (?, ?, ?, ?, ?, NOW())`,
-    [processorId, action, tableName, recordId, targetEmployeeNumber],
-  );
-}
 
 // ─────────────────────────────────────────────
 // UTILITY: time helpers
@@ -151,9 +87,6 @@ router.get('/payroll', authenticateToken, (req, res) => {
   const sql = 'SELECT * FROM payroll_processing WHERE rh IS NULL OR rh = ""';
   db.query(sql, (err, results) => {
     if (err) return res.status(500).json({ error: err });
-
-    let recordId = results.length > 0 ? results[0].id : null;
-    logAudit(req.user, 'VIEW_PAYROLL', 'payroll_processing', recordId);
     res.json(results);
   });
 });
@@ -308,15 +241,6 @@ router.get('/payroll/search', authenticateToken, (req, res) => {
       console.error('Error searching payroll data:', err);
       return res.status(500).json({ error: 'Internal server error' });
     }
-
-    let recordId = results.length > 0 ? results[0].id : null;
-    logAudit(
-      req.user,
-      'SEARCH_PAYROLL',
-      'payroll_processing',
-      recordId,
-      `Searched payroll record using keyword: ${searchTerm}`,
-    );
     res.json(results);
   });
 });
@@ -495,17 +419,6 @@ router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
         console.error('Error fetching joined payroll data:', err);
         return res.status(500).json({ error: 'Internal server error' });
       }
-
-      const recordId = results.length > 0 ? results[0].id : null;
-      const action = searchTerm
-        ? 'SEARCH_PAYROLL_WITH_REMITTANCE'
-        : 'VIEW_PAYROLL_WITH_REMITTANCE';
-      const auditMessage = searchTerm
-        ? `Searched payroll records using the keyword: ${searchTerm}.` // ← your format
-        : 'Viewed all payroll with remittance records.';
-
-      logAudit(req.user, action, 'payroll_processing', recordId, auditMessage);
-
       res.json(results);
     });
   }
@@ -669,15 +582,6 @@ router.put(
         getIdQuery,
         [employeeNumber, startDate, endDate],
         (idErr, idResult) => {
-          const recordId =
-            !idErr && idResult && idResult.length > 0 ? idResult[0].id : null;
-          logAudit(
-            req.user.employeeNumber,
-            `Updated payroll with remittance details for employee ${employeeNumber} from ${startDate} to ${endDate}.`,
-            'payroll_processing',
-            recordId,
-            employeeNumber,
-          );
           const checkRemittanceQuery = `
           SELECT id FROM remittance_table
           WHERE employeeNumber = ?
@@ -812,6 +716,9 @@ router.put(
                               module: 'payroll-processing',
                               employeeNumber,
                             });
+                            try {
+                              logAudit(req.user, 'UPDATE', 'payroll_processing', employeeNumber, employeeNumber);
+                            } catch (e) { console.error('Audit log error:', e); }
                             res.json({
                               message: 'Payroll record updated successfully',
                             });
@@ -853,18 +760,14 @@ router.delete(
           .json({ error: 'Payroll record not found or employee mismatch' });
       }
 
-      logAudit(
-        req.user.employeeNumber,
-        `Deleted payroll record with remittance details for employee ${employeeNumber}.`,
-        'payroll_processing',
-        id,
-        employeeNumber,
-      );
       notifyPayrollChanged('deleted', {
         module: 'payroll-processing',
         id,
         employeeNumber,
       });
+      try {
+        logAudit(req.user, 'DELETE', 'payroll_processing', id, employeeNumber);
+      } catch (e) { console.error('Audit log error:', e); }
       res.json({ message: 'Payroll record deleted successfully' });
     });
   },
@@ -876,6 +779,8 @@ router.post('/add-rendered-time', authenticateToken, async (req, res) => {
   if (!Array.isArray(attendanceData)) {
     return res.status(400).json({ error: 'Expected an array of data.' });
   }
+
+  let newCount = 0;
 
   try {
     for (const record of attendanceData) {
@@ -929,24 +834,33 @@ router.post('/add-rendered-time', authenticateToken, async (req, res) => {
             'INSERT INTO payroll_processing (employeeNumber, startDate, endDate, h, m, s, department) VALUES (?, ?, ?, ?, ?, ?, ?)',
             [employeeNumber, startDate, endDate, h, m, s, departmentCode],
           );
+        newCount++;
+
+        // ── transaction_table per new record ─────────────────────────────
+        const tardiness = overallRenderedOfficialTimeTardiness || '00:00:00';
+        await db.promise().query(
+          'INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)',
+          [employeeNumber, `Tardiness recorded: ${tardiness} for period ${startDate}–${endDate}.`],
+        );
+
+        // ── audit log per new record ──────────────────────────────────────
+        try {
+          logAudit(req.user, 'ADD', 'payroll_processing', employeeNumber, employeeNumber);
+        } catch (e) { console.error('Audit log error:', e); }
       }
 
-      logAudit(
-        req.user,
-        'IMPORT_ATTENDANCE',
-        'payroll_processing',
-        `${startDate}&&${endDate}`,
-        employeeNumber,
-      );
     }
 
     notifyPayrollChanged('imported', {
       module: 'payroll-processing',
-      count: attendanceData.length,
+      count: newCount,
     });
+    try {
+      logAudit(req.user, 'ADD', 'payroll_processing', null, null);
+    } catch (e) { console.error('Audit log error:', e); }
     res
       .status(200)
-      .json({ message: 'Records added to payroll with time data.' });
+      .json({ message: 'Records added to payroll with time data.', newCount, totalSubmitted: attendanceData.length });
   } catch (err) {
     console.error('Error inserting into payroll:', err);
     res.status(500).json({ error: 'Failed to insert payroll records.' });
@@ -971,19 +885,10 @@ router.get('/payroll-processed', authenticateToken, (req, res) => {
       return res.status(500).json({ error: 'Internal server error' });
     }
 
-    logAudit(
-      req.user,
-      'VIEW_PAYROLL_PROCESSED',
-      'payroll_processed',
-      results.length > 0 ? results[0].id : null,
-    );
     res.json(results);
   });
 });
 
-// ─────────────────────────────────────────────
-// POST payroll-processed  ← MAIN ROUTE WITH FULL AUDIT LOGGING
-// ─────────────────────────────────────────────
 
 router.post('/payroll-processed', authenticateToken, async (req, res) => {
   const payrollData = req.body;
@@ -992,7 +897,6 @@ router.post('/payroll-processed', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'No payroll data received.' });
   }
 
-  const processorId = req.user.employeeNumber;
   const connection = await db.promise().getConnection();
 
   try {
@@ -1096,39 +1000,18 @@ router.post('/payroll-processed', authenticateToken, async (req, res) => {
 
     await connection.query(insertQuery, [values]);
 
-    // ── Per-employee updates + FULL AUDIT LOGGING ─────────────────────────
     for (const entry of payrollData) {
-      // ── 1. Recompute DVLT / VLB for audit messages ──────────────────────
       const tardySeconds = toSeconds(entry.h, entry.m, entry.s);
-
-      // tevl already includes the +10 monthly credit added by the frontend.
-      // We separate out the credit amount for clarity in the audit trail.
-      const VL_MONTHLY_CREDIT_HOURS = 10; // 1.25 days × 8 hrs (CSC Rule XVI)
-      const tevlBeforeCredit = Math.max(
-        0,
-        (parseFloat(entry.tevl) || 0) - VL_MONTHLY_CREDIT_HOURS,
-      );
-      const tevlAfterCredit = parseFloat(entry.tevl) || 0; // = tevlBeforeCredit + 10
-
+      const tevlAfterCredit = parseFloat(entry.tevl) || 0;
       const tevlSeconds = tevlAfterCredit * 3600;
       const dvltSeconds = Math.min(tevlSeconds, tardySeconds);
       const vlbSeconds = Math.max(0, tevlSeconds - dvltSeconds);
-
-      const dvltHours = dvltSeconds / 3600;
       const vlbHours = vlbSeconds / 3600;
 
-      const tardyHMS = formatHMS(...Object.values(secondsToHMS(tardySeconds)));
-      const dvltHMS = formatHMS(...Object.values(secondsToHMS(dvltSeconds)));
-      const vlbHMS = formatHMS(...Object.values(secondsToHMS(vlbSeconds)));
-
-      const period = `${entry.startDate} - ${entry.endDate}`;
-      const tardinessPart = `[DVLT DEDUCTED] Tardiness: ${tardyHMS} absorbed by VL | DVLT: ${dvltHMS}`;
-
-      // ── 2. Determine final leave balance written to leave_assignment ─────
       const finalLeaveHours =
         tardySeconds === 0
-          ? tevlAfterCredit // no tardiness → full credited balance
-          : vlbHours; // has tardiness → balance after DVLT
+          ? tevlAfterCredit
+          : vlbHours;
 
       // ── 3. Update payroll_processing status ─────────────────────────────
       await connection.query(
@@ -1146,70 +1029,51 @@ router.post('/payroll-processed', authenticateToken, async (req, res) => {
         [finalLeaveHours, entry.employeeNumber],
       );
 
-      // ════════════════════════════════════════════════════════════════════
-      // AUDIT LOG ENTRIES  (3 entries per employee for full COA traceability)
-      // ════════════════════════════════════════════════════════════════════
+      // ── 5. Insert transaction_table records per employee ─────────────────
+      const VL_CREDIT = 10;
+      const tevlBefore = Math.max(0, tevlAfterCredit - VL_CREDIT);
+      const dvltHours = dvltSeconds / 3600;
 
-      // ── ENTRY 1: Monthly VL Credit (the +10) ────────────────────────────
-      await logTransaction(
-        connection,
-        entry.employeeNumber,
-        `VL Credit +${VL_MONTHLY_CREDIT_HOURS}hrs | ${tevlBeforeCredit.toFixed(2)}hrs → ${tevlAfterCredit.toFixed(2)}hrs | ${period} | By: Emp#${processorId}`,
+      // 5a. VL credit added
+      await connection.query(
+        `INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)`,
+        [entry.employeeNumber, `VL monthly credit of +${VL_CREDIT} hrs added. TEVL updated from ${tevlBefore.toFixed(2)} hrs to ${tevlAfterCredit.toFixed(2)} hrs.`],
       );
 
-      await logAuditAsync(
-        connection,
-        processorId,
-        'VL_CREDIT_APPLIED',
-        'leave_assignment',
-        entry.employeeNumber, // record_id — identifies the leave record
-        entry.employeeNumber, // targetEmployeeNumber
+      // 5b. Tardiness absorbed by VL (only if there is tardiness)
+      if (tardySeconds > 0) {
+        await connection.query(
+          `INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)`,
+          [entry.employeeNumber, `Tardiness of ${(tardySeconds / 3600).toFixed(2)} hrs deducted from TEVL (used to cover ABS). DVLT applied: ${dvltHours.toFixed(2)} hrs. This offsets the absence deduction from gross salary.`],
+        );
+      }
+
+      // 5c. Remaining VL balance after deduction
+      await connection.query(
+        `INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)`,
+        [entry.employeeNumber, `VL balance after deduction: ${finalLeaveHours.toFixed(2)} hrs remaining.`],
       );
 
-      // ── ENTRY 2: DVLT Deduction (tardiness absorbed by VL) ──────────────
-      await logTransaction(
-        connection,
-        entry.employeeNumber,
-        `${tardinessPart} | Final VL Balance: ${finalLeaveHours.toFixed(2)}hrs | ${period} | By: Emp#${processorId}`,
-      );
+      // ── 6. Audit log per employee ────────────────────────────────────────
+      try {
+        logAudit(req.user, 'ADD', 'payroll_processed', entry.employeeNumber, entry.employeeNumber);
+        logAudit(req.user, 'TEVL +10', 'leave_assignment', entry.employeeNumber, entry.employeeNumber);
+        if (dvltSeconds > 0) {
+          logAudit(req.user, 'DEDUCTED TEVL', 'leave_assignment', entry.employeeNumber, entry.employeeNumber);
+        }
+        logAudit(req.user, 'VL BALANCE', 'leave_assignment', entry.employeeNumber, entry.employeeNumber);
+      } catch (e) { console.error('Audit log error:', e); }
 
-      await logAuditAsync(
-        connection,
-        processorId,
-        'DVLT_DEDUCTED',
-        'leave_assignment',
-        entry.employeeNumber,
-        entry.employeeNumber,
-      );
-
-      // ── ENTRY 3: Final Leave Balance Update ─────────────────────────────
-      await logTransaction(
-        connection,
-        entry.employeeNumber,
-        `[VLB FINAL BALANCE] ` +
-          `Payroll Period: ${entry.startDate} to ${entry.endDate} | ` +
-          `Final VL Balance Written to System: ${finalLeaveHours.toFixed(4)}hrs | ` +
-          `Computation: TEVL(${tevlAfterCredit.toFixed(4)}hrs) - DVLT(${dvltHours.toFixed(4)}hrs) = VLB(${vlbHours.toFixed(4)}hrs) | ` +
-          `Processed by Employee#: ${processorId}`,
-      );
-
-      // ── ENTRY 4: audit_log — payroll finalization record ────────────────
-      // This is the primary accountability entry:
-      // "Employee #processorId finalized payroll for Employee #targetEmployee"
-      await logAuditAsync(
-        connection,
-        processorId, // HR staff / processor
-        'PAYROLL_FINALIZED',
-        'payroll_processed',
-        entry.employeeNumber, // reference ID
-        entry.employeeNumber, // employee being processed
-      );
     }
 
     await connection.commit();
 
+    try {
+      logAudit(req.user, 'ADD', 'payroll_processed', null, null);
+    } catch (e) { console.error('Audit log error:', e); }
+
     res.json({
-      message: 'Payroll finalized successfully. Audit trail recorded.',
+      message: 'Payroll finalized successfully.',
       processedCount: payrollData.length,
     });
   } catch (error) {
@@ -1227,7 +1091,6 @@ router.post('/payroll-processed', authenticateToken, async (req, res) => {
 
 router.delete('/payroll-processed/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const processorId = req.user.employeeNumber;
 
   const connection = await db.promise().getConnection();
 
@@ -1273,27 +1136,20 @@ router.delete('/payroll-processed/:id', authenticateToken, async (req, res) => {
       [employeeNumber, startDate, endDate],
     );
 
-    // ── Audit: transaction_table ─────────────────────────────────────────
-    const period = `${startDate} - ${endDate}`;
-    await logTransaction(
-      connection,
-      employeeNumber,
-      `Payroll deleted #${id} | +${VL_MONTHLY_CREDIT_HOURS}hrs credit reversed | Final VL Balance: ${originalLeaveHours.toFixed(2)}hrs | ${period} | By: Emp#${processorId}`,
-    );
-
-    // ── Audit: audit_log ─────────────────────────────────────────────────
-    await logAuditAsync(
-      connection,
-      processorId,
-      'PAYROLL_DELETED',
-      'payroll_processed',
-      id,
-      employeeNumber,
+    // ── Insert transaction_table record for deletion ─────────────────────
+    await connection.query(
+      'INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)',
+      [employeeNumber, `VL credit of −${VL_MONTHLY_CREDIT_HOURS} hrs reversed. VL balance restored from ${(parseFloat(tevl) || 0).toFixed(2)} hrs to ${originalLeaveHours.toFixed(2)} hrs.`],
     );
 
     await connection.commit();
 
     notifyPayrollChanged('deleted', { module: 'payroll-processed', id });
+
+    try {
+      logAudit(req.user, 'DELETE', 'payroll_processed', id, employeeNumber);
+      logAudit(req.user, 'VL BALANCE', 'leave_assignment', employeeNumber, employeeNumber);
+    } catch (e) { console.error('Audit log error:', e); }
 
     res.json({
       message:
