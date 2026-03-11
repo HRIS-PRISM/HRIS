@@ -609,6 +609,16 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
       pdf.save(
         `${getSurname(payslipModal.emp.name)}_${formatPeriod(payslipModal.emp.startDate)}.pdf`,
       );
+      // Audit log for print
+      try {
+        await axios.post(
+          `${API_BASE_URL}/PayrollReleasedRoute/log-print`,
+          { employeeNumber: payslipModal.emp.employeeNumber },
+          getAuthHeaders(),
+        );
+      } catch (e) {
+        console.error('Print audit log error:', e);
+      }
       setModalActionModal({ open: true, type: "success", action: "download" });
     } catch {
       setModalActionModal({
@@ -998,6 +1008,16 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
       pdf.save(
         `${getSurname(displayEmployee.name)}_${formatPeriod(displayEmployee.startDate)}.pdf`,
       );
+      // Audit log for print
+      try {
+        await axios.post(
+          `${API_BASE_URL}/PayrollReleasedRoute/log-print`,
+          { employeeNumber: displayEmployee.employeeNumber },
+          getAuthHeaders(),
+        );
+      } catch (e) {
+        console.error('Print audit log error:', e);
+      }
       setIndivModal({ open: true, type: "success", action: "download" });
     } catch {
       setIndivModal({

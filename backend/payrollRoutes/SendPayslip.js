@@ -1,69 +1,14 @@
-const db = require("../db");
+const db = require('../db');
 const express = require('express');
 const router = express.Router();
 const nodemailer = require('nodemailer');
 const multer = require('multer');
-const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const { notifyPayrollChanged } = require('../socket/socketService');
-
+const { authenticateToken, logAudit } = require('../middleware/auth');
 
 // Configure multer for handling file uploads
 const upload = multer({ storage: multer.memoryStorage() });
-
-
-
-
-// Authentication middleware
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-
-  console.log('Auth header:', authHeader);
-  console.log('Token:', token ? 'Token exists' : 'No token');
-
-
-  if (!token) return res.status(401).json({ error: 'No token provided' });
-
-
-  jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, user) => {
-    if (err) {
-      console.log('JWT verification error:', err.message);
-      return res.status(403).json({ error: 'Invalid token' });
-    }
-    console.log('Decoded JWT:', user);
-    req.user = user;
-    next();
-  });
-}
-
-
-// Audit logging function
-function logAudit(
-  user,
-  action,
-  tableName,
-  recordId,
-  targetEmployeeNumber = null
-) {
-  const auditQuery = `
-    INSERT INTO audit_log (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
-    VALUES (?, ?, ?, ?, ?, NOW())
-  `;
-
-
-  db.query(
-    auditQuery,
-    [user.employeeNumber, action, tableName, recordId, targetEmployeeNumber],
-    (err) => {
-      if (err) {
-        console.error('Error inserting audit log:', err);
-      }
-    }
-  );
-}
-
 
 // ✅ GET all users
 router.get('/users', authenticateToken, (req, res) => {
@@ -71,18 +16,9 @@ router.get('/users', authenticateToken, (req, res) => {
   db.query(sql, (err, results) => {
     if (err) return res.status(500).json({ error: err });
 
-
-    try {
-      logAudit(req.user, 'View', 'users', null, null);
-    } catch (e) {
-      console.error('Audit log error:', e);
-    }
-
-
     res.json(results);
   });
 });
-
 
 // ✅ TEST endpoint
 router.get('/test', (req, res) => {
@@ -92,7 +28,6 @@ router.get('/test', (req, res) => {
     gmailConfigured: !!(process.env.GMAIL_USER && process.env.GMAIL_PASS),
   });
 });
-
 
 // ✅ SEND payslip via Gmail
 router.post(
@@ -104,14 +39,12 @@ router.post(
       const { name, employeeNumber } = req.body;
       const pdfFile = req.file;
 
-
       if (!name || !employeeNumber || !pdfFile) {
         return res.status(400).json({
           error: 'Missing required fields',
           received: { name, employeeNumber, hasFile: !!pdfFile },
         });
       }
-
 
       // ✅ Lookup only by employeeNumber
       const sql = 'SELECT email FROM users WHERE employeeNumber = ?';
@@ -123,14 +56,11 @@ router.post(
         if (results.length === 0)
           return res.status(404).json({ error: 'User not found' });
 
-
         const email = results[0].email;
-
 
         if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
           console.error('❌ Gmail credentials are missing in .env file');
         }
-
 
         const transporter = nodemailer.createTransport({
           service: 'gmail',
@@ -143,7 +73,6 @@ router.post(
           },
         });
 
-
         // ✅ Verify Gmail connection at startup
         transporter.verify((error, success) => {
           if (error) {
@@ -152,7 +81,6 @@ router.post(
             console.log('✅ Gmail is ready to send emails');
           }
         });
-
 
         const mailOptions = {
           from: `"EARIST HR Testing Notice" <${process.env.GMAIL_USER}>`,
@@ -167,9 +95,7 @@ router.post(
           ],
         };
 
-
         await transporter.sendMail(mailOptions);
-
 
         try {
           logAudit(
@@ -177,7 +103,7 @@ router.post(
             'Send Payslip',
             'payslip_email',
             null,
-            employeeNumber
+            employeeNumber,
           );
         } catch (e) {
           console.error('Audit log error:', e);
@@ -188,15 +114,13 @@ router.post(
           employeeNumber,
         });
 
-
         res.json({ success: true, message: 'Payslip sent successfully' });
       });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
-  }
+  },
 );
-
 
 // ✅ SEND payslips to selected employees only
 router.post(
@@ -209,11 +133,9 @@ router.post(
       const payslips = req.body.payslips ? JSON.parse(req.body.payslips) : [];
       const pdfFiles = req.files;
 
-
       if (!payslips.length || !pdfFiles.length) {
         return res.status(400).json({ error: 'Missing payslips or pdf files' });
       }
-
 
       const transporter = nodemailer.createTransport({
         service: 'gmail',
@@ -224,14 +146,11 @@ router.post(
         tls: { rejectUnauthorized: false },
       });
 
-
       let results = [];
-
 
       for (let i = 0; i < payslips.length; i++) {
         const { name, employeeNumber } = payslips[i];
         const pdfFile = pdfFiles[i];
-
 
         // ✅ Fetch Gmail from DB
         const [rows] = await db
@@ -239,7 +158,6 @@ router.post(
           .query('SELECT email FROM users WHERE employeeNumber = ?', [
             employeeNumber,
           ]);
-
 
         if (rows.length === 0) {
           results.push({
@@ -250,9 +168,7 @@ router.post(
           continue;
         }
 
-
         const email = rows[0].email;
-
 
         // ✨ Updated HTML email with envelope animation
         const mailOptions = {
@@ -322,10 +238,8 @@ EARIST HR Testing Team`,
           ],
         };
 
-
         try {
           await transporter.sendMail(mailOptions);
-
 
           // Audit log after successful send
           try {
@@ -338,7 +252,7 @@ EARIST HR Testing Team`,
               'insert',
               'Send Payslip (bulk)',
               periodLabel,
-              employeeNumber
+              employeeNumber,
             );
           } catch (e) {
             console.error('Audit log error:', e);
@@ -351,7 +265,7 @@ EARIST HR Testing Team`,
               year: 'numeric',
             });
             const notificationDescription = `Your payslip for ${periodLabel} has been processed and sent to your email. Click to view your payslip.`;
-            
+
             // Check if notification_type and action_link columns exist, if not use description only
             db.query(
               `INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) 
@@ -368,10 +282,10 @@ EARIST HR Testing Team`,
                       if (fallbackErr) {
                         console.error('Notification error:', fallbackErr);
                       }
-                    }
+                    },
                   );
                 }
-              }
+              },
             );
           } catch (notifError) {
             console.error('Error creating notification:', notifError);
@@ -389,17 +303,12 @@ EARIST HR Testing Team`,
         sentCount,
       });
 
-
       res.json({ success: true, results });
     } catch (err) {
       console.error('Bulk send error:', err);
       res.status(500).json({ success: false, error: err.message });
     }
-  }
+  },
 );
 
-
 module.exports = router;
-
-
-

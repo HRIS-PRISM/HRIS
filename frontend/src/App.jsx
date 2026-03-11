@@ -1463,7 +1463,7 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            <Route
+            {/* <Route
               path="/overall-payslip"
               element={
                 <ProtectedRoute
@@ -1477,7 +1477,7 @@ function App() {
                   <PayslipOverall />
                 </ProtectedRoute>
               }
-            />
+            /> */}
             <Route
               path="/distribution-payslip"
               element={

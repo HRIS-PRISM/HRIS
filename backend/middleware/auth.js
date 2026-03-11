@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const db = require('../db');
+const { broadcastNewAuditLog } = require('../socket/socketService');
 
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
@@ -28,13 +29,27 @@ function logAudit(
     VALUES (?, ?, ?, ?, ?, NOW())
   `;
 
+  const timestamp = new Date().toISOString();
+
   db.query(
     auditQuery,
     [user.employeeNumber, action, tableName, recordId, targetEmployeeNumber],
-    (err) => {
+    (err, result) => {
       if (err) {
         console.error('Error inserting audit log:', err);
+        return;
       }
+
+      // Broadcast the new log entry via WebSocket for real-time updates
+      broadcastNewAuditLog({
+        id: result.insertId,
+        employeeNumber: user.employeeNumber,
+        action,
+        table_name: tableName,
+        record_id: recordId,
+        targetEmployeeNumber: targetEmployeeNumber || null,
+        timestamp,
+      });
     }
   );
 }

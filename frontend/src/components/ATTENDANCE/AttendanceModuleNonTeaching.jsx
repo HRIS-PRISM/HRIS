@@ -1,5 +1,5 @@
 import API_BASE_URL from "../../apiConfig";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import {
   Box,
@@ -329,6 +329,9 @@ const AttendanceModuleNonTeachingStaff = () => {
   const [pageLoading, setPageLoading]       = useState(true);
   const navigate = useNavigate();
 
+  // ── Auto-scroll ref ───────────────────────────────────────────────────────
+  const resultsRef = useRef(null);
+
   // Colors from system settings
   const primaryColor       = settings.accentColor        || "#FEF9E1";
   const secondaryColor     = settings.backgroundColor    || "#FFF8E7";
@@ -376,6 +379,15 @@ const AttendanceModuleNonTeachingStaff = () => {
     if (storedStartDate)      setStartDate(storedStartDate);
     if (storedEndDate)        setEndDate(storedEndDate);
   }, []);
+
+  // ── Auto-scroll when data loads ───────────────────────────────────────────
+  useEffect(() => {
+    if (attendanceData.length > 0 && resultsRef.current) {
+      setTimeout(() => {
+        resultsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    }
+  }, [attendanceData]);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem("token");
@@ -870,7 +882,7 @@ const AttendanceModuleNonTeachingStaff = () => {
         px: { xs: 2, sm: 3, md: 6 },
       }}>
 
-        {/* ── Snackbar — bottom center ── */}
+        {/* ── Snackbar — top center ── */}
         <Snackbar
           open={snackbar.open}
           autoHideDuration={6000}
@@ -904,19 +916,6 @@ const AttendanceModuleNonTeachingStaff = () => {
             </Box>
           </Alert>
         </Snackbar>
-
-        {/* ── Loading Backdrop ── */}
-        <Backdrop
-          sx={{ color: primaryColor, zIndex: (theme) => theme.zIndex.drawer + 1 }}
-          open={loading}
-        >
-          <Box sx={{ textAlign: "center" }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: primaryColor }}>
-              Generating attendance records...
-            </Typography>
-          </Box>
-        </Backdrop>
 
         {/* ── Hero Header ── */}
         <Fade in timeout={500}>
@@ -1091,7 +1090,7 @@ const AttendanceModuleNonTeachingStaff = () => {
         {/* ── Results Table ── */}
         {attendanceData.length > 0 && (
           <Fade in={!loading} timeout={500}>
-            <GlassCard sx={{ mb: 4, border: `1px solid ${alpha(accentColor,0.1)}` }}>
+            <GlassCard ref={resultsRef} sx={{ mb: 4, border: `1px solid ${alpha(accentColor,0.1)}` }}>
               <Box sx={{
                 p: 4,
                 background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`,

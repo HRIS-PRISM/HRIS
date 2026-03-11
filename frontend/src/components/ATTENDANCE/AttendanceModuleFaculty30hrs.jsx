@@ -1,5 +1,5 @@
 import API_BASE_URL from "../../apiConfig";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import {
   Box,
@@ -151,7 +151,6 @@ const AttendanceFacultyWireframe = ({
           bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
         }}>
           <Box sx={{ p: 4 }}>
-            {/* 3 input fields */}
             <Box sx={{ display: "flex", gap: 3, mb: 3, flexWrap: "wrap" }}>
               {[0, 1, 2].map((fi) => (
                 <Box key={fi} sx={{ flex: 1, minWidth: 160 }}>
@@ -163,12 +162,8 @@ const AttendanceFacultyWireframe = ({
                 </Box>
               ))}
             </Box>
-
             <Box sx={{ height: 1, bgcolor: alpha(ac, 0.1), my: 3 }} />
-
-            {/* Dashed month picker box */}
             <Box sx={{ p: 3, borderRadius: 2, border: `2px dashed ${alpha(ac, 0.20)}`, bgcolor: alpha(primaryColor, 0.30), mb: 4 }}>
-              {/* Header row: title+desc left, year selector right */}
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
                 <Box sx={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                   <S w={185} h={14} r={4} accent={ac} />
@@ -179,15 +174,12 @@ const AttendanceFacultyWireframe = ({
                   <Placeholder w={18} h={18} r={3} color={alpha(ac, 0.15)} sx={{ ml: "auto" }} />
                 </Box>
               </Box>
-              {/* Month buttons */}
               <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, justifyContent: "center" }}>
                 {Array.from({ length: 12 }, (_, i) => (
                   <S key={i} w={64} h={44} r={10} accent={ac} sx={{ animation: `amsShimmer 1.6s infinite linear ${i * 0.05}s` }} />
                 ))}
               </Box>
             </Box>
-
-            {/* Action buttons row: Clear left, Search right */}
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <Box sx={{ width: 160, height: 48, borderRadius: "12px", border: "1px solid rgba(211,47,47,0.30)" }} />
               <Box sx={{ width: 180, height: 48, borderRadius: "12px", bgcolor: alpha(ac, 0.85) }} />
@@ -203,7 +195,6 @@ const AttendanceFacultyWireframe = ({
           animation: "amsPulse 2.2s ease-in-out 0.15s infinite",
           bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
         }}>
-          {/* Table header banner */}
           <Box sx={{ p: 4, background: grad, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Box>
               <S w={200} h={10} r={3} accent={ac} sx={{ mb: "6px" }} />
@@ -215,15 +206,11 @@ const AttendanceFacultyWireframe = ({
             </Box>
             <Placeholder w={80} h={80} r="50%" color={alpha(ac, 0.13)} />
           </Box>
-
-          {/* Table column headers — multiple cols */}
           <Box sx={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 1, px: 3, py: 2, bgcolor: alpha(primaryColor, 0.7), borderBottom: `2px solid ${alpha(ac, 0.1)}` }}>
             {[100, 70, 90, 120, 90, 120, 160, 160].map((w, i) => (
               <S key={i} w={w} h={10} r={3} accent={ac} />
             ))}
           </Box>
-
-          {/* Table rows */}
           {Array.from({ length: 5 }).map((_, i) => (
             <Box key={i} sx={{
               display: "grid", gridTemplateColumns: "repeat(8, 1fr)",
@@ -342,6 +329,9 @@ const AttendanceModuleFaculty = () => {
   const [pageLoading, setPageLoading] = useState(true);
   const navigate = useNavigate();
 
+  // ── Auto-scroll ref ───────────────────────────────────────────────────────
+  const resultsRef = useRef(null);
+
   // Colors from system settings
   const primaryColor       = settings.accentColor        || "#FEF9E1";
   const secondaryColor     = settings.backgroundColor    || "#FFF8E7";
@@ -392,6 +382,15 @@ const AttendanceModuleFaculty = () => {
     if (storedStartDate)      setStartDate(storedStartDate);
     if (storedEndDate)        setEndDate(storedEndDate);
   }, []);
+
+  // ── Auto-scroll when data loads ───────────────────────────────────────────
+  useEffect(() => {
+    if (attendanceData.length > 0 && resultsRef.current) {
+      setTimeout(() => {
+        resultsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 300);
+    }
+  }, [attendanceData]);
 
   // ── Furlough helper ───────────────────────────────────────────────────────
   const isFurloughDate = (date, suspMap, leaveMap, holidayMap) =>
@@ -726,7 +725,7 @@ const AttendanceModuleFaculty = () => {
 
   const calculateTotalRenderedTimeTardiness = () =>
     sumTime(attendanceData, (row) => {
-      if (Boolean(getStatusLabelForDate(row.date))) return null; // skip furlough
+      if (Boolean(getStatusLabelForDate(row.date))) return null;
       return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFaculty === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTime : row.formattedfinalcalcFaculty;
     });
 
@@ -907,19 +906,6 @@ const AttendanceModuleFaculty = () => {
             </Box>
           </Alert>
         </Snackbar>
-
-        {/* ── Loading Backdrop ── */}
-        <Backdrop
-          sx={{ color: primaryColor, zIndex: (theme) => theme.zIndex.drawer + 1 }}
-          open={loading}
-        >
-          <Box sx={{ textAlign: "center" }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: primaryColor }}>
-              Generating attendance records...
-            </Typography>
-          </Box>
-        </Backdrop>
 
         {/* ── Hero Header ── */}
         <Fade in timeout={500}>
@@ -1104,7 +1090,8 @@ const AttendanceModuleFaculty = () => {
         {/* ── Results Table ── */}
         {attendanceData.length > 0 && (
           <Fade in={!loading} timeout={500}>
-            <GlassCard sx={{ mb: 4, border: `1px solid ${alpha(accentColor,0.1)}` }}>
+            {/* Auto-scroll anchor attached to GlassCard */}
+            <GlassCard ref={resultsRef} sx={{ mb: 4, border: `1px solid ${alpha(accentColor,0.1)}` }}>
               <Box sx={{
                 p: 4,
                 background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`,
@@ -1201,13 +1188,11 @@ const AttendanceModuleFaculty = () => {
                             <PremiumTableCell>{row.timeOUT}</PremiumTableCell>
                             <PremiumTableCell bgColor={alpha(primaryColor,0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.officialTimeOUT}</PremiumTableCell>
 
-                            {/* Regular Duty rendered */}
                             <PremiumTableCell bgColor={alpha(accentColor,0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
                               {isFurlough
                                 ? (!row.formattedFacultyMaxRenderedTime || row.formattedFacultyMaxRenderedTime === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyMaxRenderedTime)
                                 : (!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTime === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTime)}
                             </PremiumTableCell>
-                            {/* Regular Duty tardiness */}
                             <PremiumTableCell bgColor={alpha(accentColor,0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
                               {isFurlough
                                 ? "00:00:00"
@@ -1223,13 +1208,11 @@ const AttendanceModuleFaculty = () => {
                               {row.officialHonorariumTimeOUT === "00:00:00 AM" ? "N/A" : row.officialHonorariumTimeOUT}
                             </PremiumTableCell>
 
-                            {/* Honorarium rendered */}
                             <PremiumTableCell bgColor={alpha(accentColor,0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
                               {isFurlough
                                 ? (!row.formattedFacultyMaxRenderedTimeHN || row.formattedFacultyMaxRenderedTimeHN === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyMaxRenderedTimeHN)
                                 : (!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeHN === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeHN)}
                             </PremiumTableCell>
-                            {/* Honorarium tardiness */}
                             <PremiumTableCell bgColor={alpha(accentColor,0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
                               {isFurlough
                                 ? "00:00:00"
@@ -1245,13 +1228,11 @@ const AttendanceModuleFaculty = () => {
                               {row.officialServiceCreditTimeOUT === "00:00:00 AM" ? "N/A" : row.officialServiceCreditTimeOUT}
                             </PremiumTableCell>
 
-                            {/* Service Credit rendered */}
                             <PremiumTableCell bgColor={alpha(accentColor,0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
                               {isFurlough
                                 ? (!row.formattedFacultyMaxRenderedTimeSC || row.formattedFacultyMaxRenderedTimeSC === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyMaxRenderedTimeSC)
                                 : (!row.officialTimeSC || !row.timeOUT || row.formattedFacultyRenderedTimeSC === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeSC)}
                             </PremiumTableCell>
-                            {/* Service Credit tardiness */}
                             <PremiumTableCell bgColor={alpha(accentColor,0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
                               {isFurlough
                                 ? "00:00:00"
@@ -1267,13 +1248,11 @@ const AttendanceModuleFaculty = () => {
                               {row.officialOverTimeOUT === "00:00:00 AM" ? "N/A" : row.officialOverTimeOUT}
                             </PremiumTableCell>
 
-                            {/* Overtime rendered */}
                             <PremiumTableCell bgColor={alpha(accentColor,0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
                               {isFurlough
                                 ? (!row.formattedFacultyMaxRenderedTimeOT || row.formattedFacultyMaxRenderedTimeOT === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyMaxRenderedTimeOT)
                                 : (!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeOT === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeOT)}
                             </PremiumTableCell>
-                            {/* Overtime tardiness */}
                             <PremiumTableCell bgColor={alpha(accentColor,0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
                               {isFurlough
                                 ? "00:00:00"

@@ -98,7 +98,10 @@ import DeleteForever from '@mui/icons-material/DeleteForever';
 const hexToRgb = (hex) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
+    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(
+        result[3],
+        16
+      )}`
     : '109, 35, 35';
 };
 
@@ -110,21 +113,29 @@ const GlassCard = styled(Card)(({ theme }) => ({
   position: 'relative',
 }));
 
-const ProfessionalButton = styled(Button)(({ theme, variant, color = 'primary' }) => ({
-  borderRadius: 12,
-  fontWeight: 600,
-  padding: '12px 24px',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  textTransform: 'none',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-  boxShadow: variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
-  '&:hover': {
-    transform: 'translateY(-2px)',
-    boxShadow: variant === 'contained' ? '0 6px 20px rgba(254, 249, 225, 0.35)' : 'none',
-  },
-  '&:active': { transform: 'translateY(0)' },
-}));
+const ProfessionalButton = styled(Button)(
+  ({ theme, variant, color = 'primary' }) => ({
+    borderRadius: 12,
+    fontWeight: 600,
+    padding: '12px 24px',
+    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    textTransform: 'none',
+    fontSize: '0.95rem',
+    letterSpacing: '0.025em',
+    boxShadow:
+      variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
+    '&:hover': {
+      transform: 'translateY(-2px)',
+      boxShadow:
+        variant === 'contained'
+          ? '0 6px 20px rgba(254, 249, 225, 0.35)'
+          : 'none',
+    },
+    '&:active': {
+      transform: 'translateY(0)',
+    },
+  })
+);
 
 const ModernTextField = styled(TextField)(({ theme }) => ({
   '& .MuiOutlinedInput-root': {
@@ -195,7 +206,9 @@ const PayrollJO = () => {
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  const [selectedYear, setSelectedYear] = useState(
+    new Date().getFullYear().toString()
+  );
   const [departments, setDepartments] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [summaryData, setSummaryData] = useState({
@@ -280,14 +293,12 @@ const PayrollJO = () => {
     );
     return (
       <Tooltip title={tooltipContent} arrow placement="top">
-        <span
-          style={{
-            cursor: 'help',
-            borderBottom: '1px dashed currentColor',
-            paddingBottom: '1px',
-            display: 'inline-block',
-          }}
-        >
+       <span
+  style={{
+    cursor: 'help',
+    display: 'inline-block',
+  }}
+>
           {children}
         </span>
       </Tooltip>
@@ -343,7 +354,11 @@ const PayrollJO = () => {
   const fetchPayrollData = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/PayrollJORoutes/payroll-jo`, getAuthHeaders());
+      const response = await axios.get(
+        `${API_BASE_URL}/PayrollJORoutes/payroll-jo`,
+        getAuthHeaders()
+      );
+
       let payroll = response.data;
       const officialTimeCache = {};
 
@@ -352,25 +367,42 @@ const PayrollJO = () => {
           try {
             const attendanceRes = await axios.post(
               `${API_BASE_URL}/attendance/api/attendance-records`,
-              { personID: row.employeeNumber, startDate: row.startDate, endDate: row.endDate },
+              {
+                personID: row.employeeNumber,
+                startDate: row.startDate,
+                endDate: row.endDate,
+              },
               getAuthHeaders()
             );
 
-            const completeAttendance = attendanceRes.data.filter((rec) => rec.timeIN && rec.timeOUT);
+            const completeAttendance = attendanceRes.data.filter(
+              (rec) => rec.timeIN && rec.timeOUT
+            );
+
             const uniqueDays = [
-              ...new Set(completeAttendance.map((rec) => new Date(rec.date).getDate())),
+              ...new Set(
+                completeAttendance.map((rec) => {
+                  const dateObj = new Date(rec.date);
+                  return dateObj.getDate();
+                })
+              ),
             ].sort((a, b) => a - b);
 
             let renderedDays = '';
             if (uniqueDays.length > 0) {
-              const monthName = new Date(row.startDate).toLocaleString('en-US', { month: 'short' });
+              const monthName = new Date(row.startDate).toLocaleString(
+                'en-US',
+                {
+                  month: 'short',
+                }
+              );
               renderedDays = `${monthName} ${uniqueDays.join(', ')}`;
             }
 
             if (!officialTimeCache[row.employeeNumber]) {
               const officialTimeRes = await axios.get(
                 `${API_BASE_URL}/PayrollJORoutes/official-time/${row.employeeNumber}`,
-                getAuthHeaders()
+                getAuthHeaders(),
               );
               officialTimeCache[row.employeeNumber] = officialTimeRes.data;
             }
@@ -401,22 +433,37 @@ const PayrollJO = () => {
               pagibigContribution: row.pagibigContribution || 0,
             };
           }
-        })
+        }),
       );
 
       setPayrollData(updatedPayroll);
       setFilteredData(updatedPayroll);
       setError('');
 
-      const processedCount = updatedPayroll.filter((item) => item.status === 1).length;
-      const totalGross = updatedPayroll.reduce((sum, item) => sum + parseFloat(item.grossAmount || 0), 0);
+      // Calculate summary data
+      const processedCount = updatedPayroll.filter(
+        (item) => item.status === 1
+      ).length;
+
+      const totalGross = updatedPayroll.reduce(
+        (sum, item) => sum + parseFloat(item.grossAmount || 0),
+        0
+      );
+
       const totalNet = updatedPayroll.reduce(
         (sum, item) =>
           sum +
           parseFloat(
-            computeNetAmount(item.grossAmount, item.ratePerDay, item.h, item.m, item.sssContribution, item.pagibigContribution) || 0
+            computeNetAmount(
+              item.grossAmount,
+              item.ratePerDay,
+              item.h,
+              item.m,
+              item.sssContribution,
+              item.pagibigContribution
+            ) || 0
           ),
-        0
+        0,
       );
 
       setSummaryData({
@@ -436,9 +483,22 @@ const PayrollJO = () => {
 
   useEffect(() => {
     let filtered = [...payrollData];
-    if (selectedDepartment) filtered = filtered.filter((item) => item.department === selectedDepartment);
-    if (selectedStatus === 'Processed') filtered = filtered.filter((item) => item.status === 1);
-    else if (selectedStatus === 'Unprocessed') filtered = filtered.filter((item) => item.status === 0);
+
+    // Filter by department
+    if (selectedDepartment) {
+      filtered = filtered.filter(
+        (item) => item.department === selectedDepartment
+      );
+    }
+
+    // Filter by status
+    if (selectedStatus === 'Processed') {
+      filtered = filtered.filter((item) => item.status === 1);
+    } else if (selectedStatus === 'Unprocessed') {
+      filtered = filtered.filter((item) => item.status === 0);
+    }
+
+    // Filter by month and year
     if (selectedMonth || selectedYear) {
       filtered = filtered.filter((item) => {
         if (!item.startDate) return false;
@@ -471,7 +531,11 @@ const PayrollJO = () => {
     setProcessing(true);
     setLoadingOverlay(true);
     try {
-      const selectedData = payrollData.filter((row) => selectedRows.includes(row.id));
+      const selectedData = payrollData.filter((row) =>
+        selectedRows.includes(row.id)
+      );
+
+      // This single request now handles both insert AND status update
       const payload = selectedData.map((row) => {
         const grossAmount = parseFloat(row.grossAmount) || 0;
         const h = parseInt(row.h) || 0;
@@ -481,6 +545,7 @@ const PayrollJO = () => {
         const pagibigContribution = parseFloat(row.pagibigContribution) || 0;
         const rh = parseFloat(row.rh) || 0;
         const ratePerDay = parseFloat(row.ratePerDay) || 0;
+        
         return {
           employeeNumber: row.employeeNumber,
           department: row.department || '',
@@ -488,19 +553,33 @@ const PayrollJO = () => {
           endDate: row.endDate,
           name: row.name || '',
           position: row.position || '',
-          grossAmount,
-          grossSalary: grossAmount,
-          h, m, s,
-          netSalary: computeNetAmount(grossAmount, ratePerDay, h, m, sssContribution, pagibigContribution),
-          sssContribution,
-          sss: sssContribution,
-          pagibigContribution,
-          rh,
+          grossAmount: grossAmount,
+          grossSalary: grossAmount, // Also send as grossSalary for backend compatibility
+          h: h,
+          m: m,
+          s: s,
+          netSalary: computeNetAmount(
+            grossAmount,
+            ratePerDay,
+            h,
+            m,
+            sssContribution,
+            pagibigContribution
+          ),
+          sssContribution: sssContribution,
+          sss: sssContribution, // Also send as sss for backend compatibility
+          pagibigContribution: pagibigContribution,
+          rh: rh,
           abs: computeTotalDeduction(ratePerDay, h, m),
         };
       });
 
-      await axios.post(`${API_BASE_URL}/PayrollJORoutes/export-to-finalized`, payload, getAuthHeaders());
+      await axios.post(
+        `${API_BASE_URL}/PayrollJORoutes/export-to-finalized`,
+        payload,
+        getAuthHeaders()
+      );
+
       setTimeout(() => {
         setLoadingOverlay(false);
         setSuccessAction('processing payroll');
@@ -546,7 +625,14 @@ const PayrollJO = () => {
     return computeHourDeduction(ratePerDay, hours) + computeMinuteDeduction(ratePerDay, minutes);
   };
 
-  const computeNetAmount = (grossAmount, ratePerDay, hours, minutes, sss, pagibig) => {
+  const computeNetAmount = (
+    grossAmount,
+    ratePerDay,
+    hours,
+    minutes,
+    sss,
+    pagibig,
+  ) => {
     const totalDeduction = computeTotalDeduction(ratePerDay, hours, minutes);
     const sssContribution = parseFloat(sss) || 0;
     const pagibigContribution = parseFloat(pagibig) || 0;
@@ -569,7 +655,10 @@ const PayrollJO = () => {
     if (!recordToDelete || !recordToDelete.id) return;
     setIsProcessingDelete(true);
     try {
-      await axios.delete(`${API_BASE_URL}/PayrollJORoutes/payroll-jo/${recordToDelete.id}`, getAuthHeaders());
+      await axios.delete(
+        `${API_BASE_URL}/PayrollJORoutes/payroll-jo/${recordToDelete.id}`,
+        getAuthHeaders()
+      );
       fetchPayrollData();
       setDeleteDialogOpen(false);
       setRecordToDelete(null);
@@ -608,9 +697,10 @@ const PayrollJO = () => {
         {
           employeeNumber: editingRow.employeeNumber,
           sssContribution: parseFloat(editContributions.sssContribution) || 0,
-          pagibigContribution: parseFloat(editContributions.pagibigContribution) || 0,
+          pagibigContribution:
+            parseFloat(editContributions.pagibigContribution) || 0,
         },
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       await fetchPayrollData();
       handleEditContributionsClose();
@@ -632,7 +722,10 @@ const PayrollJO = () => {
 
   const fetchFinalizedPayroll = async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/PayrollRoute/finalized-payroll`, getAuthHeaders());
+      const res = await axios.get(
+        `${API_BASE_URL}/PayrollRoute/finalized-payroll`,
+        getAuthHeaders()
+      );
       setFinalizedPayroll(res.data);
     } catch (err) {
       console.error('Error fetching finalized JO payroll:', err);
@@ -660,7 +753,14 @@ const PayrollJO = () => {
       'Total Deduction': computeTotalDeduction(row.ratePerDay, row.h, row.m),
       'SSS Contribution': row.sssContribution || 0,
       'PAGIBIG Contribution': row.pagibigContribution || 0,
-      'Net Amount': computeNetAmount(row.grossAmount, row.ratePerDay, row.h, row.m, row.sssContribution, row.pagibigContribution),
+      'Net Amount': computeNetAmount(
+        row.grossAmount,
+        row.ratePerDay,
+        row.h,
+        row.m,
+        row.sssContribution,
+        row.pagibigContribution
+      ),
     }));
     const worksheet = XLSX.utils.json_to_sheet(excelData);
     const workbook = XLSX.utils.book_new();
@@ -670,7 +770,10 @@ const PayrollJO = () => {
 
   const fetchDepartments = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/department-table`, getAuthHeaders());
+      const response = await axios.get(
+        `${API_BASE_URL}/api/department-table`,
+        getAuthHeaders()
+      );
       setDepartments(response.data);
     } catch (err) {
       console.error('Error fetching departments:', err);
@@ -714,9 +817,21 @@ const PayrollJO = () => {
   }
 
   return (
-    <Box sx={{ py: 4, borderRadius: '14px', width: '100%', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '50%', transform: 'translateX(-50%)' }}>
-      <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
-
+     <Box
+          sx={{
+            py: 4,
+            borderRadius: "14px",
+            width: "100%",
+            mx: "auto",
+            maxWidth: "100%",
+            overflow: "hidden",
+            position: "relative",
+            left: "50%",
+            transform: "translateX(-50%)",
+          }}
+        >
+      {/* Wider Container */}
+     <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
         {/* Header */}
         <Fade in timeout={500}>
           <Box sx={{ mb: 4 }}>
@@ -745,30 +860,201 @@ const PayrollJO = () => {
                 </Box>
 
                 {/* Summary Cards */}
-                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
-                  {[
-                    { label: 'Total Employees', value: summaryData.totalEmployees, icon: <PeopleIcon sx={{ color: accentColor, fontSize: 32 }} />, color: textPrimaryColor },
-                    { label: 'Processed', value: summaryData.processedEmployees, icon: <CheckCircleIcon sx={{ color: '#4caf50', fontSize: 32 }} />, color: '#4caf50' },
-                    { label: 'Unprocessed', value: summaryData.unprocessedEmployees, icon: <PendingIcon sx={{ color: '#ff9800', fontSize: 32 }} />, color: '#ff9800' },
-                    {
-                      label: 'Total Net Amount',
-                      value: `₱${summaryData.totalNetAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                      icon: <TrendingUpIcon sx={{ color: accentColor, fontSize: 32 }} />,
-                      color: textPrimaryColor,
-                    },
-                  ].map((card) => (
-                    <Card key={card.label} sx={{ minWidth: 180, flex: 1, border: `1px solid ${alpha(accentColor, 0.1)}`, background: `rgba(${hexToRgb(whiteColor)}, 0.9)`, boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`, '&:hover': { boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`, transform: 'translateY(-2px)' }, transition: 'all 0.3s ease' }}>
-                      <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                        <Box display="flex" alignItems="center" justifyContent="space-between">
-                          <Box>
-                            <Typography variant="caption" sx={{ color: textPrimaryColor, opacity: 0.7, fontWeight: 500 }}>{card.label}</Typography>
-                            <Typography variant="h6" fontWeight="bold" sx={{ color: card.color }}>{card.value}</Typography>
-                          </Box>
-                          {card.icon}
+                <Box
+                  sx={{
+                    display: 'flex',
+                    gap: 2,
+                    flexWrap: 'wrap',
+                    position: 'relative',
+                    zIndex: 1,
+                  }}
+                >
+                  <Card
+                    sx={{
+                      minWidth: 180,
+                      flex: 1,
+                      border: `1px solid ${alpha(accentColor, 0.1)}`,
+                      background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
+                      boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
+                      '&:hover': {
+                        boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
+                        transform: 'translateY(-2px)',
+                      },
+                      transition: 'all 0.3s ease',
+                    }}
+                  >
+                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                      <Box
+                        display="flex"
+                        alignItems="center"
+                        justifyContent="space-between"
+                      >
+                        <Box>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: textPrimaryColor,
+                              opacity: 0.7,
+                              fontWeight: 500,
+                            }}
+                          >
+                            Total Employees
+                          </Typography>
+                          <Typography
+                            variant="h6"
+                            fontWeight="bold"
+                            sx={{ color: textPrimaryColor }}
+                          >
+                            {summaryData.totalEmployees}
+                          </Typography>
                         </Box>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        <PeopleIcon sx={{ color: accentColor, fontSize: 32 }} />
+                      </Box>
+                    </CardContent>
+                  </Card>
+
+                  <Card
+                    sx={{
+                      minWidth: 180,
+                      flex: 1,
+                      border: `1px solid ${alpha(accentColor, 0.1)}`,
+                      background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
+                      boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
+                      '&:hover': {
+                        boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
+                        transform: 'translateY(-2px)',
+                      },
+                      transition: 'all 0.3s ease',
+                    }}
+                  >
+                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                      <Box
+                        display="flex"
+                        alignItems="center"
+                        justifyContent="space-between"
+                      >
+                        <Box>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: textPrimaryColor,
+                              opacity: 0.7,
+                              fontWeight: 500,
+                            }}
+                          >
+                            Processed
+                          </Typography>
+                          <Typography
+                            variant="h6"
+                            fontWeight="bold"
+                            sx={{ color: '#4caf50' }}
+                          >
+                            {summaryData.processedEmployees}
+                          </Typography>
+                        </Box>
+                        <CheckCircleIcon
+                          sx={{ color: '#4caf50', fontSize: 32 }}
+                        />
+                      </Box>
+                    </CardContent>
+                  </Card>
+
+                  <Card
+                    sx={{
+                      minWidth: 180,
+                      flex: 1,
+                      border: `1px solid ${alpha(accentColor, 0.1)}`,
+                      background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
+                      boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
+                      '&:hover': {
+                        boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
+                        transform: 'translateY(-2px)',
+                      },
+                      transition: 'all 0.3s ease',
+                    }}
+                  >
+                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                      <Box
+                        display="flex"
+                        alignItems="center"
+                        justifyContent="space-between"
+                      >
+                        <Box>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: textPrimaryColor,
+                              opacity: 0.7,
+                              fontWeight: 500,
+                            }}
+                          >
+                            Unprocessed
+                          </Typography>
+                          <Typography
+                            variant="h6"
+                            fontWeight="bold"
+                            sx={{ color: '#ff9800' }}
+                          >
+                            {summaryData.unprocessedEmployees}
+                          </Typography>
+                        </Box>
+                        <PendingIcon sx={{ color: '#ff9800', fontSize: 32 }} />
+                      </Box>
+                    </CardContent>
+                  </Card>
+
+                  <Card
+                    sx={{
+                      minWidth: 180,
+                      flex: 1,
+                      border: `1px solid ${alpha(accentColor, 0.1)}`,
+                      background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
+                      boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
+                      '&:hover': {
+                        boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
+                        transform: 'translateY(-2px)',
+                      },
+                      transition: 'all 0.3s ease',
+                    }}
+                  >
+                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                      <Box
+                        display="flex"
+                        alignItems="center"
+                        justifyContent="space-between"
+                      >
+                        <Box>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: textPrimaryColor,
+                              opacity: 0.7,
+                              fontWeight: 500,
+                            }}
+                          >
+                            Total Net Amount
+                          </Typography>
+                          <Typography
+                            variant="h6"
+                            fontWeight="bold"
+                            sx={{ color: textPrimaryColor }}
+                          >
+                            ₱
+                            {summaryData.totalNetAmount.toLocaleString(
+                              'en-US',
+                              {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              }
+                            )}
+                          </Typography>
+                        </Box>
+                        <TrendingUpIcon
+                          sx={{ color: accentColor, fontSize: 32 }}
+                        />
+                      </Box>
+                    </CardContent>
+                  </Card>
                 </Box>
               </Box>
             </GlassCard>
@@ -875,25 +1161,78 @@ const PayrollJO = () => {
                         <PremiumTableCell padding="checkbox" rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>
                           <Checkbox
                             indeterminate={(() => {
-                              const currentPageRows = filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-                              const selectableRows = currentPageRows.filter((row) => row.status !== 1 && !finalizedPayroll.some((fp) => fp.employeeNumber === row.employeeNumber && fp.startDate === row.startDate && fp.endDate === row.endDate));
-                              const selectedOnPage = selectedRows.filter((id) => selectableRows.some((row) => row.id === id));
-                              return selectedOnPage.length > 0 && selectedOnPage.length < selectableRows.length;
+                              const currentPageRows = filteredData.slice(
+                                page * rowsPerPage,
+                                page * rowsPerPage + rowsPerPage
+                              );
+                              // Filter out already finalized rows AND processed rows
+                              const selectableRows = currentPageRows.filter(
+                                (row) =>
+                                  row.status !== 1 && // Exclude processed
+                                  !finalizedPayroll.some(
+                                    (fp) =>
+                                      fp.employeeNumber ===
+                                        row.employeeNumber &&
+                                      fp.startDate === row.startDate &&
+                                      fp.endDate === row.endDate
+                                  )
+                              );
+                              const selectedOnPage = selectedRows.filter((id) =>
+                                selectableRows.some((row) => row.id === id)
+                              );
+                              return (
+                                selectedOnPage.length > 0 &&
+                                selectedOnPage.length < selectableRows.length
+                              );
                             })()}
                             checked={(() => {
-                              const currentPageRows = filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-                              const selectableRows = currentPageRows.filter((row) => row.status !== 1 && !finalizedPayroll.some((fp) => fp.employeeNumber === row.employeeNumber && fp.startDate === row.startDate && fp.endDate === row.endDate));
+                              const currentPageRows = filteredData.slice(
+                                page * rowsPerPage,
+                                page * rowsPerPage + rowsPerPage
+                              );
+                              // Filter out already finalized rows AND processed rows
+                              const selectableRows = currentPageRows.filter(
+                                (row) =>
+                                  row.status !== 1 && // Exclude processed
+                                  !finalizedPayroll.some(
+                                    (fp) =>
+                                      fp.employeeNumber ===
+                                        row.employeeNumber &&
+                                      fp.startDate === row.startDate &&
+                                      fp.endDate === row.endDate
+                                  )
+                              );
                               if (selectableRows.length === 0) return false;
-                              return selectableRows.every((row) => selectedRows.includes(row.id));
+                              return selectableRows.every((row) =>
+                                selectedRows.includes(row.id)
+                              );
                             })()}
                             onChange={(e) => {
-                              const currentPageRows = filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-                              const selectableRows = currentPageRows.filter((row) => row.status !== 1 && !finalizedPayroll.some((fp) => fp.employeeNumber === row.employeeNumber && fp.startDate === row.startDate && fp.endDate === row.endDate));
-                              const currentIds = selectableRows.map((row) => row.id);
+                              const currentPageRows = filteredData.slice(
+                                page * rowsPerPage,
+                                page * rowsPerPage + rowsPerPage
+                              );
+                              // Filter out already finalized rows AND processed rows
+                              const selectableRows = currentPageRows.filter(
+                                (row) =>
+                                  row.status !== 1 && // Exclude processed
+                                  !finalizedPayroll.some(
+                                    (fp) =>
+                                      fp.employeeNumber ===
+                                        row.employeeNumber &&
+                                      fp.startDate === row.startDate &&
+                                      fp.endDate === row.endDate
+                                  )
+                              );
+                              const currentIds = selectableRows.map(
+                                (row) => row.id
+                              );
                               if (e.target.checked) {
                                 setSelectedRows((prev) => [...new Set([...prev, ...currentIds])]);
                               } else {
-                                setSelectedRows((prev) => prev.filter((id) => !currentIds.includes(id)));
+                                setSelectedRows((prev) =>
+                                  prev.filter((id) => !currentIds.includes(id))
+                                );
                               }
                             }}
                           />
@@ -964,49 +1303,129 @@ const PayrollJO = () => {
                           </TableCell>
                         </TableRow>
                       ) : filteredData.length > 0 ? (
-                        filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((row, index) => (
-                          <TableRow key={row.id} sx={{ '&:nth-of-type(even)': { bgcolor: alpha(primaryColor, 0.3) }, '&:hover': { backgroundColor: alpha(accentColor, 0.05) + ' !important' }, transition: 'all 0.2s ease' }}>
-                            <TableCell padding="checkbox">
-                              <Checkbox
-                                checked={selectedRows.includes(row.id)}
-                                disabled={finalizedPayroll.some((fp) => fp.employeeNumber === row.employeeNumber && fp.startDate === row.startDate && fp.endDate === row.endDate)}
-                                onChange={(e) => {
-                                  const isFinalized = finalizedPayroll.some((fp) => fp.employeeNumber === row.employeeNumber && fp.startDate === row.startDate && fp.endDate === row.endDate);
-                                  if (isFinalized) return;
-                                  e.stopPropagation();
-                                  if (selectedRows.includes(row.id)) {
-                                    setSelectedRows((prev) => prev.filter((id) => id !== row.id));
-                                  } else {
-                                    setSelectedRows((prev) => [...prev, row.id]);
-                                  }
+                        filteredData
+                          .slice(
+                            page * rowsPerPage,
+                            page * rowsPerPage + rowsPerPage
+                          )
+                          .map((row, index) => (
+                            <TableRow
+                              key={row.id}
+                              sx={{
+                                '&:nth-of-type(even)': {
+                                  bgcolor: alpha(primaryColor, 0.3),
+                                },
+                                '&:hover': {
+                                  backgroundColor:
+                                    alpha(accentColor, 0.05) + ' !important',
+                                },
+                                transition: 'all 0.2s ease',
+                              }}
+                            >
+                              <TableCell padding="checkbox">
+                                <Checkbox
+                                  checked={selectedRows.includes(row.id)}
+                                  disabled={finalizedPayroll.some(
+                                    (fp) =>
+                                      fp.employeeNumber ===
+                                        row.employeeNumber &&
+                                      fp.startDate === row.startDate &&
+                                      fp.endDate === row.endDate
+                                  )}
+                                  onChange={(e) => {
+                                    const isFinalized = finalizedPayroll.some(
+                                      (fp) =>
+                                        fp.employeeNumber ===
+                                          row.employeeNumber &&
+                                        fp.startDate === row.startDate &&
+                                        fp.endDate === row.endDate
+                                    );
+                                    if (isFinalized) return;
+                                    e.stopPropagation();
+                                    if (selectedRows.includes(row.id)) {
+                                      setSelectedRows((prev) =>
+                                        prev.filter((id) => id !== row.id)
+                                      );
+                                    } else {
+                                      setSelectedRows((prev) => [
+                                        ...prev,
+                                        row.id,
+                                      ]);
+                                    }
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                {page * rowsPerPage + index + 1}
+                              </TableCell>
+                              <TableCell>{row.employeeNumber || '—'}</TableCell>
+                              <TableCell>{row.name || '—'}</TableCell>
+                              <TableCell>{row.position || '—'}</TableCell>
+                              <TableCell>
+                                {row.ratePerDay
+                                  ? formatCurrency(row.ratePerDay)
+                                  : '—'}
+                              </TableCell>
+                              <TableCell>{row.department || '—'}</TableCell>
+                              <TableCell>{row.days || '—'}</TableCell>
+                              <TableCell>{row.numberOfDays || '—'}</TableCell>
+                              <TableCell>{row.officialTime || '—'}</TableCell>
+                              <TableCell> {row.renderedDays || '—'}</TableCell>
+                              <TableCell>
+                                {row.rh
+                                  ? Math.floor(parseFloat(row.rh) / 8)
+                                  : '—'}
+                              </TableCell>
+                              <TableCell>
+                                {row.rh ? parseFloat(row.rh) % 8 : '—'}
+                              </TableCell>
+                              <TableCell>
+                                {row.grossAmount
+                                  ? formatCurrency(row.grossAmount)
+                                  : '—'}
+                              </TableCell>
+                              <TableCell>{row.h || 0}</TableCell>
+                              <TableCell>{row.m || 0}</TableCell>
+                              <TableCell
+                                sx={{
+                                  fontWeight: 'bold',
+                                  color: '#6D2323',
                                 }}
-                              />
-                            </TableCell>
-                            <TableCell>{page * rowsPerPage + index + 1}</TableCell>
-                            <TableCell>{row.employeeNumber || '—'}</TableCell>
-                            <TableCell>{row.name || '—'}</TableCell>
-                            <TableCell>{row.position || '—'}</TableCell>
-                            <TableCell>{row.ratePerDay ? formatCurrency(row.ratePerDay) : '—'}</TableCell>
-                            <TableCell>{row.department || '—'}</TableCell>
-                            <TableCell>{row.days || '—'}</TableCell>
-                            <TableCell>{row.numberOfDays || '—'}</TableCell>
-                            <TableCell>{row.officialTime || '—'}</TableCell>
-                            <TableCell>{row.renderedDays || '—'}</TableCell>
-                            <TableCell>{row.rh ? Math.floor(parseFloat(row.rh) / 8) : '—'}</TableCell>
-                            <TableCell>{row.rh ? parseFloat(row.rh) % 8 : '—'}</TableCell>
-                            <TableCell>{row.grossAmount ? formatCurrency(row.grossAmount) : '—'}</TableCell>
-                            <TableCell>{row.h || 0}</TableCell>
-                            <TableCell>{row.m || 0}</TableCell>
-                            <TableCell sx={{ fontWeight: 'bold', color: '#6D2323' }}>
-                              {formatCurrency(computeTotalDeduction(row.ratePerDay, row.h, row.m))}
-                            </TableCell>
-                            <TableCell>{row.sssContribution ? formatCurrency(row.sssContribution) : '—'}</TableCell>
-                            <TableCell>{row.pagibigContribution ? formatCurrency(row.pagibigContribution) : '—'}</TableCell>
-                            <TableCell sx={{ fontWeight: 'bold', color: '#6D2323' }}>
-                              {formatCurrency(computeNetAmount(row.grossAmount, row.ratePerDay, row.h, row.m, row.sssContribution, row.pagibigContribution))}
-                            </TableCell>
-                          </TableRow>
-                        ))
+                              >
+                                {formatCurrency(
+                                  computeTotalDeduction(
+                                    row.ratePerDay,
+                                    row.h,
+                                    row.m
+                                  )
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {row.sssContribution
+                                  ? formatCurrency(row.sssContribution)
+                                  : '—'}
+                              </TableCell>
+                              <TableCell>
+                                {row.pagibigContribution
+                                  ? formatCurrency(row.pagibigContribution)
+                                  : '—'}
+                              </TableCell>
+                              <TableCell
+                                sx={{ fontWeight: 'bold', color: '#6D2323' }}
+                              >
+                                {formatCurrency(
+                                  computeNetAmount(
+                                    row.grossAmount,
+                                    row.ratePerDay,
+                                    row.h,
+                                    row.m,
+                                    row.sssContribution,
+                                    row.pagibigContribution
+                                  )
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))
                       ) : (
                         <TableRow>
                           <TableCell colSpan={22} align="center" sx={{ py: 4 }}>
@@ -1029,21 +1448,90 @@ const PayrollJO = () => {
                   </TableHead>
                   <TableBody>
                     {loading ? (
-                      <TableRow><TableCell sx={{ textAlign: 'center', borderBottom: `1px solid ${alpha(accentColor, 0.06)}`, padding: '16px' }}><CircularProgress size={20} /></TableCell></TableRow>
+                      <TableRow>
+                        <TableCell
+                          sx={{
+                            textAlign: 'center',
+                            borderBottom: `1px solid ${alpha(
+                              accentColor,
+                              0.06
+                            )}`,
+                            padding: '16px',
+                          }}
+                        >
+                          <CircularProgress size={20} />
+                        </TableCell>
+                      </TableRow>
                     ) : filteredData.length > 0 ? (
-                      filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((row) => (
-                        <TableRow key={`status-${row.id}`} sx={{ '&:nth-of-type(even)': { bgcolor: alpha(primaryColor, 0.3) }, '&:hover': { backgroundColor: alpha(accentColor, 0.05) + ' !important' }, transition: 'all 0.2s ease' }}>
-                          <TableCell sx={{ padding: '16px', textAlign: 'center', borderBottom: `1px solid ${alpha(accentColor, 0.06)}` }}>
-                            <Chip
-                              label={row.status === 1 ? 'Processed' : 'Unprocessed'}
-                              size="small"
-                              sx={{ fontWeight: 'bold', backgroundColor: row.status === 1 ? '#4caf50' : '#ff9800', color: 'white', '&:hover': { backgroundColor: row.status === 1 ? '#45a049' : '#fb8c00' } }}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))
+                      filteredData
+                        .slice(
+                          page * rowsPerPage,
+                          page * rowsPerPage + rowsPerPage
+                        )
+                        .map((row, index) => {
+                          return (
+                            <TableRow
+                              key={`status-${row.id}`}
+                              sx={{
+                                '&:nth-of-type(even)': {
+                                  bgcolor: alpha(primaryColor, 0.3),
+                                },
+                                '&:hover': {
+                                  backgroundColor:
+                                    alpha(accentColor, 0.05) + ' !important',
+                                },
+                                transition: 'all 0.2s ease',
+                              }}
+                            >
+                              <TableCell
+                                sx={{
+                                  padding: '16px',
+                                  textAlign: 'center',
+                                  borderBottom: `1px solid ${alpha(
+                                    accentColor,
+                                    0.06
+                                  )}`,
+                                }}
+                              >
+                                <Chip
+                                  label={
+                                    row.status === 1
+                                      ? 'Processed'
+                                      : 'Unprocessed'
+                                  }
+                                  size="small"
+                                  sx={{
+                                    fontWeight: 'bold',
+                                    backgroundColor:
+                                      row.status === 1 ? '#4caf50' : '#ff9800',
+                                    color: 'white',
+                                    '&:hover': {
+                                      backgroundColor:
+                                        row.status === 1
+                                          ? '#45a049'
+                                          : '#fb8c00',
+                                    },
+                                  }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
                     ) : (
-                      <TableRow><TableCell sx={{ textAlign: 'center', borderBottom: `1px solid ${alpha(accentColor, 0.06)}`, padding: '16px' }}>-</TableCell></TableRow>
+                      <TableRow>
+                        <TableCell
+                          sx={{
+                            textAlign: 'center',
+                            borderBottom: `1px solid ${alpha(
+                              accentColor,
+                              0.06
+                            )}`,
+                            padding: '16px',
+                          }}
+                        >
+                          -
+                        </TableCell>
+                      </TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -1059,30 +1547,132 @@ const PayrollJO = () => {
                   </TableHead>
                   <TableBody>
                     {loading ? (
-                      <TableRow><TableCell sx={{ textAlign: 'center', borderBottom: `1px solid ${alpha(accentColor, 0.06)}`, padding: '16px' }}><CircularProgress size={20} /></TableCell></TableRow>
+                      <TableRow>
+                        <TableCell
+                          sx={{
+                            textAlign: 'center',
+                            borderBottom: `1px solid ${alpha(
+                              accentColor,
+                              0.06
+                            )}`,
+                            padding: '16px',
+                          }}
+                        >
+                          <CircularProgress size={20} />
+                        </TableCell>
+                      </TableRow>
                     ) : filteredData.length > 0 ? (
-                      filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((row) => (
-                        <TableRow key={`actions-${row.id}`} sx={{ '&:nth-of-type(even)': { bgcolor: alpha(primaryColor, 0.3) }, '&:hover': { backgroundColor: alpha(accentColor, 0.05) + ' !important' }, transition: 'all 0.2s ease' }}>
-                          <TableCell sx={{ padding: '16px', textAlign: 'center', borderBottom: `1px solid ${alpha(accentColor, 0.06)}` }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
-                              <Tooltip title={row.status === 1 ? 'Cannot edit processed records' : 'Edit Contributions'}>
-                                <IconButton size="small" disabled={row.status === 1} onClick={() => handleEditContributionsClick(row)}
-                                  sx={{ color: row.status === 1 ? '#ccc' : accentColor, backgroundColor: row.status === 1 ? '#f5f5f5' : 'white', border: `1px solid ${row.status === 1 ? '#ccc' : accentColor}`, '&:hover': { backgroundColor: row.status === 1 ? '#f5f5f5' : alpha(accentColor, 0.1) }, padding: '4px' }}>
-                                  <EditIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title={row.status === 1 ? 'Cannot delete processed records' : 'Delete'}>
-                                <IconButton size="small" disabled={row.status === 1} onClick={() => handleDeleteClick(row)}
-                                  sx={{ color: row.status === 1 ? '#ccc' : '#d32f2f', backgroundColor: row.status === 1 ? '#f5f5f5' : 'white', border: `1px solid ${row.status === 1 ? '#ccc' : '#d32f2f'}`, '&:hover': { backgroundColor: row.status === 1 ? '#f5f5f5' : 'rgba(211, 47, 47, 0.1)' }, padding: '4px' }}>
-                                  <DeleteIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            </Box>
-                          </TableCell>
-                        </TableRow>
-                      ))
+                      filteredData
+                        .slice(
+                          page * rowsPerPage,
+                          page * rowsPerPage + rowsPerPage
+                        )
+                        .map((row, index) => {
+                          return (
+                            <TableRow
+                              key={`actions-${row.id}`}
+                              sx={{
+                                '&:nth-of-type(even)': {
+                                  bgcolor: alpha(primaryColor, 0.3),
+                                },
+                                '&:hover': {
+                                  backgroundColor:
+                                    alpha(accentColor, 0.05) + ' !important',
+                                },
+                                transition: 'all 0.2s ease',
+                              }}
+                            >
+                              <TableCell
+                                sx={{
+                                  padding: '16px',
+                                  textAlign: 'center',
+                                  borderBottom: `1px solid ${alpha(
+                                    accentColor,
+                                    0.06
+                                  )}`,
+                                }}
+                              >
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    justifyContent: 'center',
+                                    gap: 0.5,
+                                  }}
+                                >
+                                  <Tooltip title={row.status === 1 ? "Cannot edit processed records" : "Edit Contributions"}>
+                                    <IconButton
+                                      size="small"
+                                      disabled={row.status === 1}
+                                      sx={{
+                                        color:
+                                          row.status === 1 ? '#ccc' : accentColor,
+                                        backgroundColor:
+                                          row.status === 1
+                                            ? '#f5f5f5'
+                                            : 'white',
+                                        border: `1px solid ${
+                                          row.status === 1 ? '#ccc' : accentColor
+                                        }`,
+                                        '&:hover': {
+                                          backgroundColor:
+                                            row.status === 1
+                                              ? '#f5f5f5'
+                                              : alpha(accentColor, 0.1),
+                                        },
+                                        padding: '4px',
+                                      }}
+                                      onClick={() => handleEditContributionsClick(row)}
+                                    >
+                                      <EditIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title={row.status === 1 ? "Cannot delete processed records" : "Delete"}>
+                                    <IconButton
+                                      size="small"
+                                      disabled={row.status === 1}
+                                      sx={{
+                                        color:
+                                          row.status === 1 ? '#ccc' : '#d32f2f',
+                                        backgroundColor:
+                                          row.status === 1
+                                            ? '#f5f5f5'
+                                            : 'white',
+                                        border: `1px solid ${
+                                          row.status === 1 ? '#ccc' : '#d32f2f'
+                                        }`,
+                                        '&:hover': {
+                                          backgroundColor:
+                                            row.status === 1
+                                              ? '#f5f5f5'
+                                              : 'rgba(211, 47, 47, 0.1)',
+                                        },
+                                        padding: '4px',
+                                      }}
+                                      onClick={() => handleDeleteClick(row)}
+                                    >
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
                     ) : (
-                      <TableRow><TableCell sx={{ textAlign: 'center', borderBottom: `1px solid ${alpha(accentColor, 0.06)}`, padding: '16px' }}>No actions</TableCell></TableRow>
+                      <TableRow>
+                        <TableCell
+                          sx={{
+                            textAlign: 'center',
+                            borderBottom: `1px solid ${alpha(
+                              accentColor,
+                              0.06
+                            )}`,
+                            padding: '16px',
+                          }}
+                        >
+                          No actions
+                        </TableCell>
+                      </TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -1116,10 +1706,35 @@ const PayrollJO = () => {
             startIcon={<GetApp />}>
             Save as Excel
           </ProfessionalButton>
-          <ProfessionalButton variant="contained" onClick={handleOpenConfirm} size="large"
-            disabled={processing || selectedRows.length === 0 || selectedRows.every((id) => { const row = payrollData.find((r) => r.id === id); return finalizedPayroll.some((fp) => fp.employeeNumber === row?.employeeNumber && fp.startDate === row?.startDate && fp.endDate === row?.endDate); })}
-            sx={{ backgroundColor: accentColor, color: textSecondaryColor, '&:hover': { backgroundColor: accentDark }, '&:disabled': { backgroundColor: alpha(accentColor, 0.3), color: alpha(textSecondaryColor, 0.5) } }}
-            startIcon={<ExitToApp />}>
+
+          <ProfessionalButton
+            variant="contained"
+            onClick={handleOpenConfirm}
+            disabled={
+              processing ||
+              selectedRows.length === 0 ||
+              selectedRows.every((id) => {
+                const row = payrollData.find((r) => r.id === id);
+                return finalizedPayroll.some(
+                  (fp) =>
+                    fp.employeeNumber === row?.employeeNumber &&
+                    fp.startDate === row?.startDate &&
+                    fp.endDate === row?.endDate
+                );
+              })
+            }
+            size="large"
+            sx={{
+              backgroundColor: accentColor,
+              color: textSecondaryColor,
+              '&:hover': { backgroundColor: accentDark },
+              '&:disabled': {
+                backgroundColor: alpha(accentColor, 0.3),
+                color: alpha(textSecondaryColor, 0.5),
+              },
+            }}
+            startIcon={<ExitToApp />}
+          >
             Export to Payroll Processed ({selectedRows.length})
           </ProfessionalButton>
         </Box>
@@ -1193,11 +1808,48 @@ const PayrollJO = () => {
               <Typography variant="body1" sx={{ fontWeight: 600, mb: 1, color: '#333' }}>Export {selectedRows.length} Payroll Record(s)</Typography>
               <Typography variant="body2" sx={{ color: '#666' }}>Please review all selected payroll records before proceeding. This action will finalize and export the payroll data.</Typography>
             </Alert>
-            <Box sx={{ p: 2.5, bgcolor: '#f9f9f9', borderRadius: 2, border: `2px solid ${confirmChecked ? accentColor : '#e0e0e0'}`, mb: 3, display: 'flex', alignItems: 'flex-start', gap: 2, transition: 'all 0.2s ease', ...(confirmChecked && { bgcolor: alpha(accentColor, 0.05) }) }}>
-              <Checkbox checked={confirmChecked} onChange={(e) => setConfirmChecked(e.target.checked)} sx={{ color: accentColor, '&.Mui-checked': { color: accentColor }, mt: -0.5 }} />
+
+            {/* Confirmation Checkbox */}
+            <Box
+              sx={{
+                p: 2.5,
+                bgcolor: '#f9f9f9',
+                borderRadius: 2,
+                border: `2px solid ${
+                  confirmChecked ? accentColor : '#e0e0e0'
+                }`,
+                mb: 3,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 2,
+                transition: 'all 0.2s ease',
+                ...(confirmChecked && {
+                  bgcolor: alpha(accentColor, 0.05),
+                }),
+              }}
+            >
+              <Checkbox
+                checked={confirmChecked}
+                onChange={(e) => setConfirmChecked(e.target.checked)}
+                sx={{
+                  color: accentColor,
+                  '&.Mui-checked': {
+                    color: accentColor,
+                  },
+                  mt: -0.5,
+                }}
+              />
               <Box sx={{ flex: 1 }}>
-                <Typography variant="body1" sx={{ fontWeight: 600, color: '#333', mb: 0.5 }}>I confirm that I have reviewed all payroll records</Typography>
-                <Typography variant="body2" sx={{ color: '#666' }}>All information is accurate and ready for export. I understand this action cannot be undone.</Typography>
+                <Typography
+                  variant="body1"
+                  sx={{ fontWeight: 600, color: '#333', mb: 0.5 }}
+                >
+                  I confirm that I have reviewed all payroll records
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#666' }}>
+                  All information is accurate and ready for export. I
+                  understand this action cannot be undone.
+                </Typography>
               </Box>
             </Box>
           </DialogContent>
@@ -1210,8 +1862,24 @@ const PayrollJO = () => {
           </DialogActions>
         </Dialog>
 
-        <LoadingOverlay open={loadingOverlay || isProcessingDelete || isUpdatingContributions} message={isProcessingDelete ? 'Deleting payroll record...' : isUpdatingContributions ? 'Updating contributions...' : 'Processing payroll records...'} />
-        <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
+        {/* Loading Overlay */}
+        <LoadingOverlay
+          open={loadingOverlay || isProcessingDelete || isUpdatingContributions}
+          message={
+            isProcessingDelete
+              ? 'Deleting payroll record...'
+              : isUpdatingContributions
+              ? 'Updating contributions...'
+              : 'Processing payroll records...'
+          }
+        />
+
+        {/* Success Overlay */}
+        <SuccessfulOverlay
+          open={successOpen}
+          action={successAction}
+          onClose={() => setSuccessOpen(false)}
+        />
       </Box>
     </Box>
   );

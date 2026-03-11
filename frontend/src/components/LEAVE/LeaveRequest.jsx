@@ -547,7 +547,9 @@ const LeaveRequest = () => {
     setTransactionLogsLoading(true); setTransactionLogsError('');
     try {
       const res = await axios.get(`${API_BASE_URL}/leaveRoute/leave_request/transactions`, getAuthHeaders());
-      setTransactionLogs(Array.isArray(res.data) ? res.data : []);
+      const sorted = (Array.isArray(res.data) ? res.data : [])
+        .sort((a, b) => new Date(b.created_at || b.createdAt || b.timestamp) - new Date(a.created_at || a.createdAt || a.timestamp));
+      setTransactionLogs(sorted);
     } catch (e) { console.error(e); setTransactionLogsError('Failed to load transaction logs.'); setTransactionLogs([]); }
     finally { setTransactionLogsLoading(false); }
   };

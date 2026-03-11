@@ -8,13 +8,6 @@ const { notifyPayrollChanged } = require('../socket/socketService');
 router.get('/api/department-table', authenticateToken, (req, res) => {
   db.query('SELECT * FROM department_table', (err, results) => {
     if (err) return res.status(500).send(err);
-
-    try {
-      logAudit(req.user, 'View', 'department_table', null, null);
-    } catch (e) {
-      console.error('Audit log error:', e);
-    }
-
     res.json(results);
   });
 });
@@ -29,13 +22,6 @@ router.get('/api/department-table/:id', authenticateToken, (req, res) => {
       if (err) return res.status(500).send(err);
       if (result.length === 0)
         return res.status(404).send('Department not found');
-
-      try {
-        logAudit(req.user, 'View', 'department_table', id, null);
-      } catch (e) {
-        console.error('Audit log error:', e);
-      }
-
       res.json(result[0]);
     }
   );
@@ -110,13 +96,6 @@ router.delete('/api/department-table/:id', authenticateToken, (req, res) => {
 router.get('/api/department-assignment', authenticateToken, (req, res) => {
   db.query('SELECT * FROM department_assignment', (err, results) => {
     if (err) return res.status(500).send(err);
-
-    try {
-      logAudit(req.user, 'View', 'department_assignment', null, null);
-    } catch (e) {
-      console.error('Audit log error:', e);
-    }
-
     res.json(results);
   });
 });
@@ -131,13 +110,6 @@ router.get('/api/department-assignment/:id', authenticateToken, (req, res) => {
       if (err) return res.status(500).send(err);
       if (result.length === 0)
         return res.status(404).send('Department Assignment not found');
-
-      try {
-        logAudit(req.user, 'View', 'department_assignment', id, null);
-      } catch (e) {
-        console.error('Audit log error:', e);
-      }
-
       res.json(result[0]);
     }
   );
@@ -151,7 +123,14 @@ router.post('/api/department-assignment', authenticateToken, (req, res) => {
 
   const sql = `INSERT INTO department_assignment (code, name, employeeNumber) VALUES (?, ?, ?)`;
   db.query(sql, [code, name, employeeNumber], (err, result) => {
-    if (err) return res.status(500).send(err);
+    if (err) {
+      try {
+        logAudit(req.user, 'Insert Failed', 'department_assignment', null, employeeNumber);
+      } catch (e) {
+        console.error('Audit log error:', e);
+      }
+      return res.status(500).send(err);
+    }
 
     try {
       logAudit(
@@ -183,7 +162,14 @@ router.put('/api/department-assignment/:id', authenticateToken, (req, res) => {
 
   const sql = `UPDATE department_assignment SET code = ?, name = ?, employeeNumber = ? WHERE id = ?`;
   db.query(sql, [code, name, employeeNumber, id], (err, result) => {
-    if (err) return res.status(500).send(err);
+    if (err) {
+      try {
+        logAudit(req.user, 'Update Failed', 'department_assignment', id, employeeNumber);
+      } catch (e) {
+        console.error('Audit log error:', e);
+      }
+      return res.status(500).send(err);
+    }
 
     try {
       logAudit(req.user, 'Update', 'department_assignment', id, employeeNumber);
@@ -209,7 +195,14 @@ router.delete('/api/department-assignment/:id', authenticateToken, (req, res) =>
     'DELETE FROM department_assignment WHERE id = ?',
     [id],
     (err, result) => {
-      if (err) return res.status(500).send(err);
+      if (err) {
+        try {
+          logAudit(req.user, 'Delete Failed', 'department_assignment', id, null);
+        } catch (e) {
+          console.error('Audit log error:', e);
+        }
+        return res.status(500).send(err);
+      }
 
       try {
         logAudit(req.user, 'Delete', 'department_assignment', id, null);

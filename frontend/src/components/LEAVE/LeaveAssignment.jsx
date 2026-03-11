@@ -1165,7 +1165,7 @@ const LeaveAssignment = () => {
     setCommuteLoading(true);
     try {
       const token = localStorage.getItem('token');
-      await axios.post(`${API_BASE_URL}/commutationRoute/leave_commutation/commute/${commutePeriod.id}`, { commuted_by: token ? 'admin' : null });
+      await axios.post(`${API_BASE_URL}/commutationRoute/leave_commutation/commute/${commutePeriod.id}`, { commuted_by: token ? 'admin' : null }, { headers: { Authorization: `Bearer ${token}` } });
       setCommuteDialogOpen(false);
       setCommuteLoading(false);
       setCommuteSuccess(`Successfully commuted ${(toNum(commutePeriod.remaining_hours) / 8).toFixed(2)} days.`);

@@ -1,62 +1,8 @@
 const db = require("../db");
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const { notifyPayrollChanged } = require('../socket/socketService');
-
-
-
-
-
-// Authentication middleware
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-
-  console.log('Auth header:', authHeader);
-  console.log('Token:', token ? 'Token exists' : 'No token');
-
-
-  if (!token) return res.status(401).json({ error: 'No token provided' });
-
-
-  jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, user) => {
-    if (err) {
-      console.log('JWT verification error:', err.message);
-      return res.status(403).json({ error: 'Invalid token' });
-    }
-    console.log('Decoded JWT:', user);
-    req.user = user;
-    next();
-  });
-}
-
-
-// Audit logging function
-function logAudit(
-  user,
-  action,
-  tableName,
-  recordId,
-  targetEmployeeNumber = null
-) {
-  const auditQuery = `
-    INSERT INTO audit_log (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
-    VALUES (?, ?, ?, ?, ?, NOW())
-  `;
-
-
-  db.query(
-    auditQuery,
-    [user.employeeNumber, action, tableName, recordId, targetEmployeeNumber],
-    (err) => {
-      if (err) {
-        console.error('Error inserting audit log:', err);
-      }
-    }
-  );
-}
+const { authenticateToken, logAudit } = require('../middleware/auth');
 
 
 // Function to construct full name from person_table columns
@@ -110,11 +56,6 @@ router.get('/employees/search', authenticateToken, (req, res) => {
       console.error('Error fetching employees:', err);
       res.status(500).json({ message: 'Error fetching employees' });
     } else {
-      try {
-        logAudit(req.user, 'Search', 'employees', null, null);
-      } catch (e) {
-        console.error('Audit log error:', e);
-      }
       res.json(result);
     }
   });
@@ -141,11 +82,6 @@ router.get('/employees/:employeeNumber', authenticateToken, (req, res) => {
     } else if (result.length === 0) {
       res.status(404).json({ message: 'Employee not found' });
     } else {
-      try {
-        logAudit(req.user, 'View', 'employees', employeeNumber, employeeNumber);
-      } catch (e) {
-        console.error('Audit log error:', e);
-      }
       res.json(result[0]);
     }
   });
@@ -186,11 +122,6 @@ router.get('/employee-remittance', authenticateToken, (req, res) => {
         .status(500)
         .json({ message: 'Error fetching data', error: err.message });
     } else {
-      try {
-        logAudit(req.user, 'View', 'remittance_table', null, null);
-      } catch (e) {
-        console.error('Audit log error:', e);
-      }
       res.json(result);
     }
   });
@@ -219,11 +150,6 @@ router.get('/debug/person-structure', authenticateToken, (req, res) => {
       console.error('Error fetching sample data:', err);
       res.status(500).json({ message: 'Error fetching sample data' });
     } else {
-      try {
-        logAudit(req.user, 'Debug', 'person_table', null, null);
-      } catch (e) {
-        console.error('Audit log error:', e);
-      }
       res.json({
         message: 'Sample person data with constructed full names',
         sampleData: result,
@@ -343,6 +269,11 @@ router.post('/employee-remittance', authenticateToken, (req, res) => {
       db.query(sql, values, (err, result) => {
         if (err) {
           console.error('Error during POST request:', err);
+          try {
+            logAudit(req.user, 'Insert Failed', 'remittance_table', null, employeeNumber);
+          } catch (e) {
+            console.error('Audit log error:', e);
+          }
           res.status(500).json({ message: 'Error adding data' });
         } else {
           try {
@@ -500,6 +431,11 @@ router.put('/employee-remittance/:id', authenticateToken, (req, res) => {
         db.query(sql, values, (err, result) => {
           if (err) {
             console.error('Error updating data:', err);
+            try {
+              logAudit(req.user, 'Update Failed', 'remittance_table', id, employeeNumber);
+            } catch (e) {
+              console.error('Audit log error:', e);
+            }
             res.status(500).json({ message: 'Error updating data' });
           } else {
             if (result.affectedRows === 0) {
@@ -630,6 +566,11 @@ router.put('/employee-remittance/:id', authenticateToken, (req, res) => {
     db.query(sql, values, (err, result) => {
       if (err) {
         console.error('Error updating data:', err);
+        try {
+          logAudit(req.user, 'Update Failed', 'remittance_table', id, employeeNumber);
+        } catch (e) {
+          console.error('Audit log error:', e);
+        }
         res.status(500).json({ message: 'Error updating data' });
       } else {
         if (result.affectedRows === 0) {
@@ -668,6 +609,11 @@ router.delete('/employee-remittance/:id', authenticateToken, (req, res) => {
   db.query(sql, [id], (err, result) => {
     if (err) {
       console.error('Error deleting data:', err);
+      try {
+        logAudit(req.user, 'Delete Failed', 'remittance_table', id, null);
+      } catch (e) {
+        console.error('Audit log error:', e);
+      }
       res.status(500).json({ message: 'Error deleting data' });
     } else {
       if (result.affectedRows === 0) {

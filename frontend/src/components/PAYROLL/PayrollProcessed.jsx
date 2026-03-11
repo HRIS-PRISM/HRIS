@@ -29,6 +29,7 @@ import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
+import { usePayrollFormulas } from '../../hooks/usePayrollFormulas';
 import {
   CloudUpload,
   DeleteForever,
@@ -166,6 +167,7 @@ const PayrollProcessed = () => {
   const grayColor = '#6c757d';
 
   const { hasAccess, loading: accessLoading, error: accessError } = usePageAccess('payroll-processed');
+  const { calculatePayroll } = usePayrollFormulas();
 
   const [finalizedData, setFinalizedData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -266,13 +268,11 @@ const PayrollProcessed = () => {
     return (
       <Tooltip title={tooltipContent} arrow placement="top">
         <span
-          style={{
-            cursor: 'help',
-            borderBottom: '1px dashed currentColor',
-            paddingBottom: '1px',
-            display: 'inline-block',
-          }}
-        >
+  style={{
+    cursor: 'help',
+    display: 'inline-block',
+  }}
+>
           {children}
         </span>
       </Tooltip>
@@ -757,6 +757,14 @@ const PayrollProcessed = () => {
     );
   }
 
+  const computedRows = filteredFinalizedData.map((item) => {
+    const calculatedItem = calculatePayroll(item) || item;
+    return {
+      ...calculatedItem,
+      netSalary: (parseFloat(calculatedItem.netSalary) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    };
+  });
+
   return (
     <Box sx={{ py: 4, borderRadius: '14px', width: '100%', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '50%', transform: 'translateX(-50%)' }}>
       <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
@@ -967,15 +975,19 @@ const PayrollProcessed = () => {
                             </PremiumTableCell>
 
                             <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              <HeaderTooltip fieldKey="abs" fullName="Absence Deductions — Amount deducted for absences"><b>ABS</b></HeaderTooltip>
-                            </PremiumTableCell>
-
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                               <HeaderTooltip fieldKey="h" fullName="Hours Late / Undertime">H</HeaderTooltip>
                             </PremiumTableCell>
 
                             <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                               <HeaderTooltip fieldKey="m" fullName="Minutes Late / Undertime">M</HeaderTooltip>
+                            </PremiumTableCell>
+
+                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
+                              <HeaderTooltip fieldKey="abs" fullName="Absence Deductions — Amount deducted for absences"><b>ABS</b></HeaderTooltip>
+                            </PremiumTableCell>
+
+                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
+                              <HeaderTooltip fieldKey="netSalary" fullName="Net Salary — Take-home pay after all deductions">Net Salary</HeaderTooltip>
                             </PremiumTableCell>
 
                             <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>SSS</PremiumTableCell>
@@ -991,13 +1003,21 @@ const PayrollProcessed = () => {
                             <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                               <HeaderTooltip fieldKey="totalPagibigDeds" fullName="Total Pag-IBIG Deductions — Sum of all Pag-IBIG contributions and loans"><b>Total Pag-ibig Deductions</b></HeaderTooltip>
                             </PremiumTableCell>
-
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              <HeaderTooltip fieldKey="PhilHealthContribution" fullName="PhilHealth Contribution — Monthly health insurance premium">PhilHealth</HeaderTooltip>
+                            <PremiumTableCell
+                              isHeader
+                              sx={{ color: textPrimaryColor }}
+                            >
+                              <Tooltip title="Total Earned Vacation Leave" arrow>
+                                TEVL
+                              </Tooltip>
                             </PremiumTableCell>
-
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              <HeaderTooltip fieldKey="totalOtherDeds" fullName="Total Other Deductions — Sum of all miscellaneous deductions"><b>Total Other Deductions</b></HeaderTooltip>
+                            <PremiumTableCell
+                              isHeader
+                              sx={{ color: textPrimaryColor }}
+                            >
+                              <Tooltip title="Deducted Vacation Leave Tardiness" arrow>
+                                DVLT
+                              </Tooltip>
                             </PremiumTableCell>
 
                             <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
@@ -1021,9 +1041,11 @@ const PayrollProcessed = () => {
                             <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                               <HeaderTooltip fieldKey="ec" fullName="Employees' Compensation — EC program contribution">EC</HeaderTooltip>
                             </PremiumTableCell>
-
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              <HeaderTooltip fieldKey="PhilHealthContribution" fullName="PhilHealth Contribution — Monthly health insurance premium">PhilHealth</HeaderTooltip>
+                            <PremiumTableCell
+                              isHeader
+                              sx={{ color: textPrimaryColor }}
+                            >
+                              Withholding Tax
                             </PremiumTableCell>
 
                             <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
@@ -1136,93 +1158,593 @@ const PayrollProcessed = () => {
 
                         <TableBody>
                           {filteredFinalizedData.length > 0 ? (
-                            filteredFinalizedData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((row, index) => {
-                              const key = getRecordKey(row);
-                              const isRowReleased = releasedIdSet.has(key);
-                              return (
-                                <TableRow key={row.id} sx={{ '&:nth-of-type(even)': { bgcolor: alpha(primaryColor, 0.3) }, '&:hover': { backgroundColor: alpha(accentColor, 0.05) + ' !important' }, transition: 'all 0.2s ease' }}>
-                                  <PremiumTableCell padding="checkbox">
-                                    <Checkbox
-                                      checked={selectedRows.includes(row.id)}
-                                      disabled={releasedIdSet.has(getRecordKey(row))}
-                                      onChange={(e) => {
-                                        e.stopPropagation();
-                                        if (releasedIdSet.has(getRecordKey(row))) return;
-                                        if (selectedRows.includes(row.id)) {
-                                          setSelectedRows((prev) => prev.filter((id) => id !== row.id));
-                                        } else {
-                                          setSelectedRows((prev) => [...prev, row.id]);
-                                        }
+                            computedRows
+                              .slice(
+                                page * rowsPerPage,
+                                page * rowsPerPage + rowsPerPage,
+                              )
+                              .map((row, index) => {
+                                const key = getRecordKey(row);
+                                const isRowReleased = releasedIdSet.has(key);
+                                const isSelected = selectedRows.includes(
+                                  row.id,
+                                );
+                                const shouldDisable = isSelected
+                                  ? selectedRows.some((id) => {
+                                      const selectedRecord =
+                                        filteredFinalizedData.find(
+                                          (item) => item.id === id,
+                                        );
+                                      if (!selectedRecord) return false;
+                                      const selectedKey =
+                                        getRecordKey(selectedRecord);
+                                      return releasedIdSet.has(selectedKey);
+                                    })
+                                  : isRowReleased;
+
+                                return (
+                                  <TableRow
+                                    key={row.id}
+                                    sx={{
+                                      '&:nth-of-type(even)': {
+                                        bgcolor: alpha(primaryColor, 0.3),
+                                      },
+                                      '&:hover': {
+                                        backgroundColor:
+                                          alpha(accentColor, 0.05) +
+                                          ' !important',
+                                      },
+                                      transition: 'all 0.2s ease',
+                                    }}
+                                  >
+                                    <PremiumTableCell padding="checkbox">
+                                      <Checkbox
+                                        checked={selectedRows.includes(row.id)}
+                                        disabled={releasedIdSet.has(
+                                          getRecordKey(row),
+                                        )}
+                                        onChange={(e) => {
+                                          e.stopPropagation();
+                                          if (
+                                            releasedIdSet.has(getRecordKey(row))
+                                          )
+                                            return;
+                                          if (selectedRows.includes(row.id)) {
+                                            setSelectedRows((prev) =>
+                                              prev.filter(
+                                                (id) => id !== row.id,
+                                              ),
+                                            );
+                                          } else {
+                                            setSelectedRows((prev) => [
+                                              ...prev,
+                                              row.id,
+                                            ]);
+                                          }
+                                        }}
+                                      />
+                                    </PremiumTableCell>
+                                    <ExcelTableCell>
+                                      {page * rowsPerPage + index + 1}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.department}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.employeeNumber}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.startDate}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.endDate}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>{row.name}</ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.position}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.rateNbc584
+                                        ? Number(row.rateNbc584).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.nbc594
+                                        ? Number(row.nbc594).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.rateNbc594
+                                        ? Number(row.rateNbc594).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.nbcDiffl597
+                                        ? Number(
+                                            row.nbcDiffl597,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.increment
+                                        ? Number(row.increment).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.grossSalary
+                                        ? Number(
+                                            row.grossSalary,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    {/* Rendered days removed in processed view (JO-only) */}
+                                    <ExcelTableCell>{row.tevl}</ExcelTableCell>
+                                    <ExcelTableCell>{row.dvlt}</ExcelTableCell>
+                                    <ExcelTableCell>{row.vlb}</ExcelTableCell>
+                                    <ExcelTableCell>{row.h}</ExcelTableCell>
+                                    <ExcelTableCell>{row.m}</ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.abs
+                                        ? Number(row.abs).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell sx={{ fontWeight: 'bold', color: '#2e7d32' }}>
+                                      {row.netSalary}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.sss
+                                        ? Number(row.sss).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.withholdingTax
+                                        ? Number(
+                                            row.withholdingTax,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.totalGsisDeds
+                                        ? Number(
+                                            row.totalGsisDeds,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.totalPagibigDeds
+                                        ? Number(
+                                            row.totalPagibigDeds,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.PhilHealthContribution
+                                        ? Number(
+                                            row.PhilHealthContribution,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.totalOtherDeds
+                                        ? Number(
+                                            row.totalOtherDeds,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.totalDeductions
+                                        ? Number(
+                                            row.totalDeductions,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell
+                                      sx={{ color: 'red', fontWeight: 'bold' }}
+                                    >
+                                      {row.pay1st
+                                        ? Number(row.pay1st).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}{' '}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell
+                                      sx={{ color: 'red', fontWeight: 'bold' }}
+                                    >
+                                      {row.pay2nd
+                                        ? Number(row.pay2nd).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>{index + 1}</ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.rtIns
+                                        ? Number(row.rtIns).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.ec
+                                        ? Number(row.ec).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.PhilHealthContribution
+                                        ? Number(
+                                            row.PhilHealthContribution,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.pagibigFundCont
+                                        ? Number(
+                                            row.pagibigFundCont,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell
+                                      sx={{
+                                        borderLeft: '2px solid black',
+                                        color: 'red',
+                                        fontWeight: 'bold',
                                       }}
-                                    />
-                                  </PremiumTableCell>
-                                  <ExcelTableCell>{page * rowsPerPage + index + 1}</ExcelTableCell>
-                                  <ExcelTableCell>{row.department}</ExcelTableCell>
-                                  <ExcelTableCell>{row.employeeNumber}</ExcelTableCell>
-                                  <ExcelTableCell>{row.startDate}</ExcelTableCell>
-                                  <ExcelTableCell>{row.endDate}</ExcelTableCell>
-                                  <ExcelTableCell>{row.name}</ExcelTableCell>
-                                  <ExcelTableCell>{row.position}</ExcelTableCell>
-                                  <ExcelTableCell>{row.rateNbc584 ? Number(row.rateNbc584).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.nbc594 ? Number(row.nbc594).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.rateNbc594 ? Number(row.rateNbc594).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.nbcDiffl597 ? Number(row.nbcDiffl597).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.increment ? Number(row.increment).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.grossSalary ? Number(row.grossSalary).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.tevl}</ExcelTableCell>
-                                  <ExcelTableCell>{row.dvlt}</ExcelTableCell>
-                                  <ExcelTableCell>{row.vlb}</ExcelTableCell>
-                                  <ExcelTableCell>{row.abs ? Number(row.abs).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.h}</ExcelTableCell>
-                                  <ExcelTableCell>{row.m}</ExcelTableCell>
-                                  <ExcelTableCell>{row.sss ? Number(row.sss).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.withholdingTax ? Number(row.withholdingTax).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.totalGsisDeds ? Number(row.totalGsisDeds).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.totalPagibigDeds ? Number(row.totalPagibigDeds).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.PhilHealthContribution ? Number(row.PhilHealthContribution).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.totalOtherDeds ? Number(row.totalOtherDeds).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.totalDeductions ? Number(row.totalDeductions).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell sx={{ color: 'red', fontWeight: 'bold' }}>{row.pay1st ? Number(row.pay1st).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell sx={{ color: 'red', fontWeight: 'bold' }}>{row.pay2nd ? Number(row.pay2nd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{index + 1}</ExcelTableCell>
-                                  <ExcelTableCell>{row.rtIns ? Number(row.rtIns).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.ec ? Number(row.ec).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.PhilHealthContribution ? Number(row.PhilHealthContribution).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.pagibigFundCont ? Number(row.pagibigFundCont).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell sx={{ borderLeft: '2px solid black', color: 'red', fontWeight: 'bold' }}>{row.pay1stCompute ? Number(row.pay1stCompute).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell sx={{ color: 'red', fontWeight: 'bold' }}>{row.pay2ndCompute ? Number(row.pay2ndCompute).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell sx={{ borderLeft: '2px solid black' }}>{index + 1}</ExcelTableCell>
-                                  <ExcelTableCell>{row.name}</ExcelTableCell>
-                                  <ExcelTableCell>{row.position}</ExcelTableCell>
-                                  <ExcelTableCell>{row.withholdingTax ? Number(row.withholdingTax).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.personalLifeRetIns ? Number(row.personalLifeRetIns).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.gsisSalaryLoan ? Number(row.gsisSalaryLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.gsisPolicyLoan ? Number(row.gsisPolicyLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.gsisArrears ? Number(row.gsisArrears).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.cpl ? Number(row.cpl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.mpl ? Number(row.mpl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.eal ? Number(row.eal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.mplLite ? Number(row.mplLite).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.emergencyLoan ? Number(row.emergencyLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.totalGsisDeds ? Number(row.totalGsisDeds).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.pagibigFundCont ? Number(row.pagibigFundCont).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.pagibig2 ? Number(row.pagibig2).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.multiPurpLoan ? Number(row.multiPurpLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.totalPagibigDeds ? Number(row.totalPagibigDeds).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.PhilHealthContribution ? Number(row.PhilHealthContribution).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.liquidatingCash ? Number(row.liquidatingCash).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.landbankSalaryLoan ? Number(row.landbankSalaryLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.earistCreditCoop ? Number(row.earistCreditCoop).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.feu ? Number(row.feu).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.totalOtherDeds ? Number(row.totalOtherDeds).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{row.totalDeductions ? Number(row.totalDeductions).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                                  <ExcelTableCell>{new Date(row.dateCreated).toLocaleString()}</ExcelTableCell>
-                                </TableRow>
-                              );
-                            })
+                                    >
+                                      {row.pay1stCompute
+                                        ? Number(
+                                            row.pay1stCompute,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell
+                                      sx={{ color: 'red', fontWeight: 'bold' }}
+                                    >
+                                      {row.pay2ndCompute
+                                        ? Number(
+                                            row.pay2ndCompute,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell
+                                      sx={{ borderLeft: '2px solid black' }}
+                                    >
+                                      {index + 1}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>{row.name}</ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.position}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.withholdingTax
+                                        ? Number(
+                                            row.withholdingTax,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.personalLifeRetIns
+                                        ? Number(
+                                            row.personalLifeRetIns,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.gsisSalaryLoan
+                                        ? Number(
+                                            row.gsisSalaryLoan,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.gsisPolicyLoan
+                                        ? Number(
+                                            row.gsisPolicyLoan,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.gsisArrears
+                                        ? Number(
+                                            row.gsisArrears,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.cpl
+                                        ? Number(row.cpl).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.mpl
+                                        ? Number(row.mpl).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.eal
+                                        ? Number(row.eal).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.mplLite
+                                        ? Number(row.mplLite).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.emergencyLoan
+                                        ? Number(
+                                            row.emergencyLoan,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.totalGsisDeds
+                                        ? Number(
+                                            row.totalGsisDeds,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.pagibigFundCont
+                                        ? Number(
+                                            row.pagibigFundCont,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.pagibig2
+                                        ? Number(row.pagibig2).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.multiPurpLoan
+                                        ? Number(
+                                            row.multiPurpLoan,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.totalPagibigDeds
+                                        ? Number(
+                                            row.totalPagibigDeds,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.PhilHealthContribution
+                                        ? Number(
+                                            row.PhilHealthContribution,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.liquidatingCash
+                                        ? Number(
+                                            row.liquidatingCash,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.landbankSalaryLoan
+                                        ? Number(
+                                            row.landbankSalaryLoan,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.earistCreditCoop
+                                        ? Number(
+                                            row.earistCreditCoop,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.feu
+                                        ? Number(row.feu).toLocaleString(
+                                            'en-US',
+                                            {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            },
+                                          )
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.totalOtherDeds
+                                        ? Number(
+                                            row.totalOtherDeds,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {row.totalDeductions
+                                        ? Number(
+                                            row.totalDeductions,
+                                          ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })
+                                        : ''}
+                                    </ExcelTableCell>
+                                    <ExcelTableCell>
+                                      {new Date(
+                                        row.dateCreated,
+                                      ).toLocaleString()}
+                                    </ExcelTableCell>
+                                  </TableRow>
+                                );
+                              })
                           ) : (
                             <TableRow>
-                              <PremiumTableCell colSpan={65} align="center" sx={{ py: 8 }}>
+                              <PremiumTableCell
+                                colSpan={49}
+                                align="center"
+                                sx={{ py: 8 }}
+                              >
                                 <Box sx={{ textAlign: 'center' }}>
                                   <Info sx={{ fontSize: 80, color: alpha(accentColor, 0.3), mb: 3 }} />
                                   <Typography variant="h5" sx={{ color: alpha(accentColor, 0.6), fontWeight: 600 }} gutterBottom>No Records Found</Typography>

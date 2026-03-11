@@ -310,13 +310,11 @@ const PayrollProcess = () => {
     return (
       <Tooltip title={tooltipContent} arrow placement="top">
         <span
-          style={{
-            cursor: 'help',
-            borderBottom: '1px dashed currentColor',
-            paddingBottom: '1px',
-            display: 'inline-block',
-          }}
-        >
+  style={{
+    cursor: 'help',
+    display: 'inline-block',
+  }}
+>
           {children}
         </span>
       </Tooltip>
@@ -406,7 +404,7 @@ const PayrollProcess = () => {
   const fetchFinalizedPayroll = async () => {
     try {
       const res = await axios.get(
-        `${API_BASE_URL}/PayrollRoute/finalized-payroll`,
+        `${API_BASE_URL}/PayrollRoute/payroll-processed`,
         getAuthHeaders(),
       );
       setFinalizedPayroll(res.data);
@@ -691,7 +689,7 @@ const PayrollProcess = () => {
 
       const rowsToSubmit = updatedData.filter(
         (item) =>
-          selectedRows.includes(item.employeeNumber) &&
+          selectedRows.includes(`${item.employeeNumber}|${item.startDate}|${item.endDate}`) &&
           !finalizedPayroll.some(
             (fp) =>
               fp.employeeNumber === item.employeeNumber &&
@@ -763,7 +761,7 @@ const PayrollProcess = () => {
       }
 
       await axios.post(
-        `${API_BASE_URL}/PayrollRoute/finalized-payroll`,
+        `${API_BASE_URL}/PayrollRoute/payroll-processed`,
         processedRowsToSubmit,
         getAuthHeaders(),
       );
@@ -1235,10 +1233,10 @@ const PayrollProcess = () => {
                           <Checkbox
                             sx={{ color: 'white', '&.Mui-checked': { color: 'white' }, '&:hover': { color: '#F5F5F5' }, '&.MuiCheckbox-indeterminate': { color: 'white' } }}
                             indeterminate={selectedRows.length > 0 && selectedRows.length < computedRows.filter((row) => !finalizedPayroll.some((fp) => fp.employeeNumber === row.employeeNumber && fp.startDate === row.startDate && fp.endDate === row.endDate)).length}
-                            checked={selectedRows.length === computedRows.filter((row) => !finalizedPayroll.some((fp) => fp.employeeNumber === row.employeeNumber && fp.startDate === row.startDate && fp.endDate === row.endDate)).length}
+                            checked={selectedRows.length > 0 && selectedRows.length === computedRows.filter((row) => !finalizedPayroll.some((fp) => fp.employeeNumber === row.employeeNumber && fp.startDate === row.startDate && fp.endDate === row.endDate)).length}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setSelectedRows(computedRows.filter((row) => !finalizedPayroll.some((fp) => fp.employeeNumber === row.employeeNumber && fp.startDate === row.startDate && fp.endDate === row.endDate)).map((row) => row.employeeNumber));
+                                setSelectedRows(computedRows.filter((row) => !finalizedPayroll.some((fp) => fp.employeeNumber === row.employeeNumber && fp.startDate === row.startDate && fp.endDate === row.endDate)).map((row) => `${row.employeeNumber}|${row.startDate}|${row.endDate}`));
                               } else {
                                 setSelectedRows([]);
                               }
@@ -1284,13 +1282,7 @@ const PayrollProcess = () => {
                           </HeaderTooltip>
                         </PremiumTableCell>
 
-                        <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                          <HeaderTooltip fieldKey="abs" fullName="Absence Deductions — Amount deducted for absences">
-                            <b>ABS</b>
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
+                       <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                           <HeaderTooltip fieldKey="h" fullName="Hours Late / Undertime">
                             H
                           </HeaderTooltip>
@@ -1299,6 +1291,12 @@ const PayrollProcess = () => {
                         <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
                           <HeaderTooltip fieldKey="m" fullName="Minutes Late / Undertime">
                             M
+                          </HeaderTooltip>
+                        </PremiumTableCell>
+
+                        <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
+                          <HeaderTooltip fieldKey="abs" fullName="Absence Deductions — Amount deducted for absences">
+                            <b>ABS</b>
                           </HeaderTooltip>
                         </PremiumTableCell>
 
@@ -1548,12 +1546,13 @@ const PayrollProcess = () => {
                             >
                               <PremiumTableCell padding="checkbox">
                                 <Checkbox
-                                  checked={selectedRows.includes(row.employeeNumber)}
+                                  checked={selectedRows.includes(`${row.employeeNumber}|${row.startDate}|${row.endDate}`)}
                                   onChange={() => {
-                                    if (selectedRows.includes(row.employeeNumber)) {
-                                      setSelectedRows((prev) => prev.filter((id) => id !== row.employeeNumber));
+                                    const rowKey = `${row.employeeNumber}|${row.startDate}|${row.endDate}`;
+                                    if (selectedRows.includes(rowKey)) {
+                                      setSelectedRows((prev) => prev.filter((id) => id !== rowKey));
                                     } else {
-                                      setSelectedRows((prev) => [...prev, row.employeeNumber]);
+                                      setSelectedRows((prev) => [...prev, rowKey]);
                                     }
                                   }}
                                   disabled={isRowProcessed(row)}
@@ -1570,10 +1569,10 @@ const PayrollProcess = () => {
                               <ExcelTableCell>{row.nbcDiffl597 ? Number(row.nbcDiffl597).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
                               <ExcelTableCell>{row.increment ? Number(row.increment).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
                               <ExcelTableCell>{row.grossSalary}</ExcelTableCell>
-                              <ExcelTableCell><b>{row.tevl}</b></ExcelTableCell>
-                              <ExcelTableCell><b>{row.abs}</b></ExcelTableCell>
+                             <ExcelTableCell><b>{row.tevl}</b></ExcelTableCell>
                               <ExcelTableCell>{row.h}</ExcelTableCell>
                               <ExcelTableCell>{row.m}</ExcelTableCell>
+                              <ExcelTableCell><b>{row.abs}</b></ExcelTableCell>
                               <ExcelTableCell>{row.netSalary}</ExcelTableCell>
                               <ExcelTableCell>{row.withholdingTax}</ExcelTableCell>
                               <ExcelTableCell>{row.totalGsisDeds}</ExcelTableCell>
