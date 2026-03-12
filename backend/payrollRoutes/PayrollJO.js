@@ -10,6 +10,26 @@ const { authenticateToken, logAudit } = require('../middleware/auth');
 
 // GET all JO payroll records with item_table and department joins
 router.get('/payroll-jo', authenticateToken, (req, res) => {
+  const { employeeNumber, startDate, endDate } = req.query;
+
+  // When called with specific params, just check for existence (used by duplicate pre-check)
+  if (employeeNumber && startDate && endDate) {
+    const checkQuery = `
+      SELECT id FROM payroll_processing
+      WHERE employeeNumber = ? AND startDate = ? AND endDate = ?
+        AND rh IS NOT NULL AND rh != ''
+      LIMIT 1
+    `;
+    db.query(checkQuery, [employeeNumber, startDate, endDate], (err, result) => {
+      if (err) {
+        console.error('Error checking JO payroll record:', err);
+        return res.status(500).json({ message: 'Error checking record' });
+      }
+      return res.json(result);
+    });
+    return;
+  }
+
   const sql = `
   SELECT 
     p.id,

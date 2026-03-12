@@ -434,10 +434,12 @@ const PayrollProcessed = () => {
     }
   };
 
+  const REGULAR_CATEGORIES = [2, 3, 4, -1];
+
   const fetchFinalizedPayroll = async () => {
     try {
       const res = await axios.get(`${API_BASE_URL}/PayrollRoute/payroll-processed`, getAuthHeaders());
-      const regularData = res.data.filter((item) => item.employmentCategory === 1);
+      const regularData = (Array.isArray(res.data) ? res.data : []).filter((item) => REGULAR_CATEGORIES.includes(item.employmentCategory));
       setFinalizedData(regularData);
       setFilteredFinalizedData(regularData);
       setLoading(false);
@@ -570,7 +572,7 @@ const PayrollProcessed = () => {
       console.error('Error deleting payroll data:', error);
       setOverlayLoading(false);
       const res = await axios.get(`${API_BASE_URL}/PayrollRoute/payroll-processed`, getAuthHeaders());
-      const regularData = res.data.filter((item) => item.employmentCategory === 1);
+      const regularData = (Array.isArray(res.data) ? res.data : []).filter((item) => REGULAR_CATEGORIES.includes(item.employmentCategory));
       setFinalizedData(regularData);
       setFilteredFinalizedData(regularData);
       alert('Failed to delete record. Please try again.');
@@ -663,7 +665,7 @@ const PayrollProcessed = () => {
           console.error('Error deleting record:', error);
           setOverlayLoading(false);
           const res = await axios.get(`${API_BASE_URL}/PayrollRoute/payroll-processed`, getAuthHeaders());
-          const regularData = res.data.filter((item) => item.employmentCategory === 1);
+          const regularData = (Array.isArray(res.data) ? res.data : []).filter((item) => REGULAR_CATEGORIES.includes(item.employmentCategory));
           setFinalizedData(regularData);
           applyFilters(selectedDepartment, searchTerm, selectedDate);
           alert('Failed to delete record(s). Please try again.');

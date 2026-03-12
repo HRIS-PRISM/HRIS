@@ -505,8 +505,9 @@ const OverallAttendance = () => {
         const empNum = record.personID || record.employeeNumber;
         const employmentCategory = await fetchEmploymentCategory(empNum);
         if (employmentCategory === null) { invalidRecords.push({ employeeNumber: empNum, reason: 'Employment category not found in system' }); continue; }
-        if (employmentCategory === 1) filteredRecords.push(record);
-        else if (employmentCategory === 0) invalidRecords.push({ employeeNumber: empNum, reason: 'Job Order (JO)' });
+        if (employmentCategory === 2 || employmentCategory === 3 || employmentCategory === 4) filteredRecords.push(record);
+        else if (employmentCategory === 0 || employmentCategory === 1) invalidRecords.push({ employeeNumber: empNum, reason: 'Job Order (JO)' });
+        else invalidRecords.push({ employeeNumber: empNum, reason: `Unknown employment category (${employmentCategory})` });
       }
 
       if (invalidRecords.length > 0) {
@@ -561,7 +562,12 @@ const OverallAttendance = () => {
 
       const submitResponse = await axios.post(`${API_BASE_URL}/PayrollRoute/add-rendered-time`, payload, getAuthHeaders());
       if (submitResponse.status === 200 || submitResponse.status === 201) {
-        setProcessingOverlay(false); setSuccessAction('send'); setSuccessRedirect('/payroll-table'); setSuccessOverlay(true);
+        if (submitResponse.data.newCount === 0) {
+          setProcessingOverlay(false);
+          showModal('Already Exists', 'All records already exist in payroll processing. No new entries were added.', 'warning');
+        } else {
+          setProcessingOverlay(false); setSuccessAction('send'); setSuccessRedirect('/payroll-table'); setSuccessOverlay(true);
+        }
       } else { throw new Error(`Unexpected response status: ${submitResponse.status}`); }
     } catch (error) { handleSubmissionError(error); }
   };
@@ -592,8 +598,9 @@ const OverallAttendance = () => {
         const empNum = record.personID || record.employeeNumber;
         const employmentCategory = await fetchEmploymentCategory(empNum);
         if (employmentCategory === null) { invalidRecords.push({ employeeNumber: empNum, reason: 'Employment category not found in system' }); continue; }
-        if (employmentCategory === 0) filteredRecords.push(record);
-        else if (employmentCategory === 1) invalidRecords.push({ employeeNumber: empNum, reason: 'Employment category is Regular' });
+        if (employmentCategory === 0 || employmentCategory === 1) filteredRecords.push(record);
+        else if (employmentCategory === 2 || employmentCategory === 3 || employmentCategory === 4) invalidRecords.push({ employeeNumber: empNum, reason: 'Employment category is Regular' });
+        else invalidRecords.push({ employeeNumber: empNum, reason: `Unknown employment category (${employmentCategory})` });
       }
 
       if (invalidRecords.length > 0) {
