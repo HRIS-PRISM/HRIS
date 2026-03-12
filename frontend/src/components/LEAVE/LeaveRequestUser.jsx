@@ -338,6 +338,9 @@ const LeaveRequestWireframe = ({
 const LeaveRequestUser = () => {
   const { socket, connected } = useSocket();
   const refreshRef = useRef(null);
+  const fetchTransactionRef = useRef(null);
+  const fetchAssignmentsRef = useRef(null);
+  const transactionOpenRef = useRef(false);
 
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
@@ -356,6 +359,8 @@ const LeaveRequestUser = () => {
   const [transactionLogs, setTransactionLogs] = useState([]);
   const [transactionLogsLoading, setTransactionLogsLoading] = useState(false);
   const [transactionLogsError, setTransactionLogsError] = useState('');
+  const [auditLogPage, setAuditLogPage] = useState(1);
+  const AUDIT_LOGS_PER_PAGE = 5;
   const [selectedDates, setSelectedDates] = useState([]);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
@@ -451,11 +456,22 @@ const LeaveRequestUser = () => {
   }, [personID]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { refreshRef.current = fetchLeaveRequests; });
+  useEffect(() => { fetchTransactionRef.current = fetchTransactionLogs; });
+  useEffect(() => { fetchAssignmentsRef.current = fetchAssignments; });
+  useEffect(() => { transactionOpenRef.current = transactionLogsModalOpen; }, [transactionLogsModalOpen]);
 
   useEffect(() => {
     if (!socket || !connected) return;
-    const handleReq = () => { refreshRef.current?.(); fetchAssignments(); };
-    const handleAssign = () => fetchAssignments();
+    const handleReq = () => {
+      refreshRef.current?.();
+      fetchAssignmentsRef.current?.();
+      fetchTransactionRef.current?.();
+    };
+    const handleAssign = () => {
+      fetchAssignmentsRef.current?.();
+      refreshRef.current?.();
+      fetchTransactionRef.current?.();
+    };
     socket.on('leaveRequestChanged', handleReq);
     socket.on('leaveAssignmentChanged', handleAssign);
     return () => { socket.off('leaveRequestChanged', handleReq); socket.off('leaveAssignmentChanged', handleAssign); };
@@ -726,7 +742,7 @@ const LeaveRequestUser = () => {
                     </Box>
                     <Box display="flex" alignItems="center" gap={2}>
                       <Button
-                        onClick={() => setTransactionLogsModalOpen(true)}
+                        onClick={() => { setTransactionLogsModalOpen(true); setAuditLogPage(1); }}
                         startIcon={<HistoryToggleOff />}
                         sx={{
                           bgcolor: alpha(accentColor, 0.1),
@@ -996,18 +1012,18 @@ const LeaveRequestUser = () => {
                     background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                     borderBottom: `1px solid ${alpha(accentColor, 0.08)}`,
                   }}>
-                    <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <Avatar sx={{ bgcolor: alpha(accentColor, 0.12), width: 40, height: 40, mr: 2 }}>
-                          <ReorderIcon sx={{ color: accentColor, fontSize: 22 }} />
-                        </Avatar>
-                        <Box>
-                          <Typography variant="h6" sx={{ fontWeight: 700, color: accentColor, lineHeight: 1.2 }}>My Leave Request Records</Typography>
-                          <Typography variant="caption" sx={{ color: accentDark, opacity: 0.8 }}>
-                            {filteredLeaveRequests.length} record(s) found
-                          </Typography>
-                        </Box>
+                    {/* Row 1 — title + subtitle */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2.5 }}>
+                      <Avatar sx={{ bgcolor: alpha(accentColor, 0.12), width: 40, height: 40, mr: 2 }}>
+                        <ReorderIcon sx={{ color: accentColor, fontSize: 22 }} />
+                      </Avatar>
+                      <Box>
+                        <Typography variant="h6" sx={{ fontWeight: 700, color: accentColor, lineHeight: 1.2 }}>My Leave Request Records</Typography>
+                        <Typography variant="caption" sx={{ color: accentDark, opacity: 0.8 }}>
+                          {filteredLeaveRequests.length} record(s) found
+                        </Typography>
                       </Box>
+                    </Box>
 
                       {/* Filters */}
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
@@ -1032,7 +1048,6 @@ const LeaveRequestUser = () => {
                           </ModernSelect>
                         </FormControl>
                       </Box>
-                    </Box>
                   </Box>
 
                   <Box sx={{
@@ -1082,7 +1097,7 @@ const LeaveRequestUser = () => {
                                     <Typography variant="caption" sx={{ color: '#999', display: 'block', mb: 0.5, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.7rem' }}>Submitted</Typography>
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                       <ScheduleIcon sx={{ fontSize: 14, color: '#aaa' }} />
-                                      <Typography variant="body2" sx={{ fontWeight: 500, color: '#555', fontSize: '0.82rem' }}>{formatDateTime(leaveRequest.createdAt || leaveRequest.dateSubmitted)}</Typography>
+                                      <Typography variant="body2" sx={{ fontWeight: 500, color: '#555', fontSize: '0.82rem' }}>{leaveRequest.created_at ? new Date(leaveRequest.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</Typography>
                                     </Box>
                                   </Grid>
 
@@ -1126,67 +1141,346 @@ const LeaveRequestUser = () => {
             </Grid>
           </Grid>
 
-          {/* ── Transaction Logs Modal ── */}
-          <Modal open={transactionLogsModalOpen} onClose={() => setTransactionLogsModalOpen(false)}>
-            <Fade in={transactionLogsModalOpen}>
-              <Box sx={{
-                position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-                width: { xs: '92%', sm: '85%', md: 760 }, maxHeight: '85vh',
-                bgcolor: primaryColor, border: `1px solid ${alpha(accentColor, 0.15)}`,
-                boxShadow: `0 24px 64px ${alpha(accentColor, 0.25)}`, borderRadius: 3,
-                overflow: 'hidden', display: 'flex', flexDirection: 'column',
+{/* ── Transaction Logs Modal ── */}
+<Modal open={transactionLogsModalOpen} onClose={() => setTransactionLogsModalOpen(false)}>
+  <Fade in={transactionLogsModalOpen}>
+    <Box sx={{
+      position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+      width: { xs: '92%', sm: '85%', md: 680 }, maxHeight: '85vh',
+      bgcolor: '#fff', border: `1px solid ${alpha(accentColor, 0.15)}`,
+      boxShadow: `0 24px 64px ${alpha(accentColor, 0.25)}`, borderRadius: 3,
+      overflow: 'hidden', display: 'flex', flexDirection: 'column',
+    }}>
+
+      {/* ── Modal Header ── */}
+      <Box sx={{
+        p: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        borderBottom: `1px solid ${alpha(accentColor, 0.12)}`,
+        background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+        flexShrink: 0,
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Avatar sx={{ bgcolor: alpha(accentColor, 0.12), width: 40, height: 40 }}>
+            <HistoryToggleOff sx={{ color: accentColor, fontSize: 22 }} />
+          </Avatar>
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 700, color: accentColor, lineHeight: 1.2 }}>
+              Transaction Logs
+            </Typography>
+            <Typography variant="caption" sx={{ color: accentDark, opacity: 0.75 }}>
+              {transactionLogs.length > 0
+                ? `${transactionLogs.length} recorded action(s)`
+                : 'All activity on your leave requests'}
+            </Typography>
+          </Box>
+        </Box>
+        <IconButton size="small" onClick={() => setTransactionLogsModalOpen(false)}
+          sx={{ color: accentColor, '&:hover': { bgcolor: alpha(accentColor, 0.08) } }}>
+          <CloseIcon />
+        </IconButton>
+      </Box>
+
+      {/* ── Modal Body ── */}
+      <Box sx={{
+        p: 3, overflowY: 'auto', flexGrow: 1,
+        bgcolor: alpha(primaryColor, 0.25),
+        '&::-webkit-scrollbar': { width: 5 },
+        '&::-webkit-scrollbar-track': { background: 'transparent' },
+        '&::-webkit-scrollbar-thumb': { background: alpha(accentColor, 0.25), borderRadius: 3 },
+      }}>
+        {transactionLogsLoading ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {[...Array(AUDIT_LOGS_PER_PAGE)].map((_, i) => (
+              <Box key={i} sx={{
+                p: 2.5, borderRadius: 2, bgcolor: '#fff',
+                border: `1px solid ${alpha(accentColor, 0.08)}`,
+                boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                animation: 'lruPulse 1.6s ease-in-out infinite',
+                animationDelay: `${i * 0.1}s`,
               }}>
-                <Box sx={{
-                  p: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  borderBottom: `1px solid ${alpha(accentColor, 0.12)}`,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar sx={{ bgcolor: alpha(accentColor, 0.12), width: 36, height: 36 }}>
-                      <HistoryToggleOff sx={{ color: accentColor, fontSize: 20 }} />
-                    </Avatar>
-                    <Typography variant="h6" sx={{ fontWeight: 700, color: accentColor }}>Transaction Logs</Typography>
-                  </Box>
-                  <IconButton size="small" onClick={() => setTransactionLogsModalOpen(false)} sx={{ color: accentColor, '&:hover': { bgcolor: alpha(accentColor, 0.08) } }}>
-                    <CloseIcon />
-                  </IconButton>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.25 }}>
+                  <Box sx={{ height: 20, width: 90, borderRadius: 1, bgcolor: alpha(accentColor, 0.08) }} />
+                  <Box sx={{ height: 12, width: 110, borderRadius: 1, bgcolor: alpha(accentColor, 0.05) }} />
                 </Box>
-                <Box sx={{
-                  p: 3, overflowY: 'auto',
-                  '&::-webkit-scrollbar': { width: 6 },
-                  '&::-webkit-scrollbar-track': { background: alpha(primaryColor, 0.5), borderRadius: 3 },
-                  '&::-webkit-scrollbar-thumb': { background: alpha(accentColor, 0.3), borderRadius: 3 },
-                }}>
-                  {transactionLogsLoading ? (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress size={28} sx={{ color: accentColor }} /></Box>
-                  ) : transactionLogsError ? (
-                    <Alert severity="error" sx={{ borderRadius: 2 }}>{transactionLogsError}</Alert>
-                  ) : transactionLogs.length === 0 ? (
-                    <Box sx={{ textAlign: 'center', py: 6 }}>
-                      <HistoryToggleOff sx={{ fontSize: 48, color: alpha(accentColor, 0.2), mb: 2 }} />
-                      <Typography variant="body2" sx={{ color: '#666' }}>No transaction logs available.</Typography>
-                    </Box>
-                  ) : (
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                      {transactionLogs.map((log) => {
-                        const loggedAt = log.created_at || log.createdAt || log.date_created || log.timestamp;
-                        return (
-                          <Paper key={`log-${log.id}`} sx={{ p: 2.5, borderRadius: 2, border: `1px solid ${alpha(accentColor, 0.1)}`, background: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-                            <Typography sx={{ fontWeight: 600, color: '#333', fontSize: '0.9rem' }}>{renderTransactionMessage(log.message)}</Typography>
-                            <Divider sx={{ my: 1, borderColor: alpha(accentColor, 0.08) }} />
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <ScheduleIcon sx={{ fontSize: 13, color: '#aaa' }} />
-                              <Typography variant="caption" sx={{ color: '#999' }}>{loggedAt ? formatDateTime(loggedAt) : 'No timestamp'}</Typography>
-                            </Box>
-                          </Paper>
-                        );
-                      })}
-                    </Box>
-                  )}
-                </Box>
+                <Box sx={{ height: 14, width: '80%', borderRadius: 1, bgcolor: alpha(accentColor, 0.06), mb: 0.75 }} />
+                <Box sx={{ height: 14, width: '55%', borderRadius: 1, bgcolor: alpha(accentColor, 0.04) }} />
               </Box>
-            </Fade>
-          </Modal>
+            ))}
+          </Box>
+        ) : transactionLogsError ? (
+          <Alert severity="error" sx={{ borderRadius: 2 }}>{transactionLogsError}</Alert>
+        ) : transactionLogs.length === 0 ? (
+          <Box sx={{ textAlign: 'center', py: 8 }}>
+            <HistoryToggleOff sx={{ fontSize: 52, color: alpha(accentColor, 0.2), mb: 2 }} />
+            <Typography variant="body1" sx={{ color: '#888', fontWeight: 500 }}>No activity yet.</Typography>
+            <Typography variant="caption" sx={{ color: '#bbb' }}>
+              Actions on your leave requests will appear here.
+            </Typography>
+          </Box>
+        ) : (() => {
+          const totalPages = Math.ceil(transactionLogs.length / AUDIT_LOGS_PER_PAGE);
+          const paginated = transactionLogs.slice(
+            (auditLogPage - 1) * AUDIT_LOGS_PER_PAGE,
+            auditLogPage * AUDIT_LOGS_PER_PAGE
+          );
+
+          return (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              {paginated.map((log) => {
+                const loggedAt = log.created_at || log.createdAt || log.date_created || log.timestamp;
+                const raw = (log.message || '').trim();
+                const lower = raw.toLowerCase();
+                const actor = log.actor || log.performed_by || log.action_by || null;
+                const eventType = log.event_type || log.action || null;
+
+                /* ── Classify ── */
+                let kind = 'activity';
+                if (lower.includes('hr') && lower.includes('approv'))                                                    kind = 'hr_approved';
+                else if ((lower.includes('immediate supervisor') || lower.includes('supervisor')) && lower.includes('approv')) kind = 'supervisor_approved';
+                else if (lower.includes('approv'))                                                                         kind = 'approved';
+                else if (lower.includes('reject') || lower.includes('denied') || lower.includes('deny'))                  kind = 'denied';
+                else if (lower.includes('cancel'))                                                                         kind = 'cancelled';
+                else if (lower.includes('deleted') || lower.includes('delete') || lower.includes('removed'))              kind = 'deleted';
+                else if (lower.includes('reversed') || lower.includes('reversal') || (lower.includes('restored') && lower.includes('balance'))) kind = 'reversal';
+                else if (lower.includes('tardiness') || (lower.includes('deducted') && lower.includes('hrs')))            kind = 'deduction';
+                else if (lower.includes('credit') && (lower.includes('added') || lower.includes('monthly')))              kind = 'credit_added';
+                else if (lower.includes('balance') && (lower.includes('remaining') || lower.includes('adjusted') || lower.includes('deduction'))) kind = 'balance_update';
+                else if (lower.includes('assigned') && (lower.includes('leave') || lower.includes('hrs')))                kind = 'assigned';
+                else if (lower.includes('submit') || lower.includes('request') || lower.includes('filed'))                kind = 'submitted';
+                else if (lower.includes('pending'))                                                                        kind = 'pending';
+                if (eventType) {
+                  const et = eventType.toLowerCase();
+                  if (et.includes('submit'))                          kind = 'submitted';
+                  else if (et.includes('approve') && et.includes('hr')) kind = 'hr_approved';
+                  else if (et.includes('approve'))                    kind = 'approved';
+                  else if (et.includes('reject') || et.includes('den')) kind = 'denied';
+                  else if (et.includes('cancel'))                     kind = 'cancelled';
+                }
+
+                const kindMap = {
+                  submitted:           { label: 'Submitted',           color: accentColor, bg: alpha(accentColor, 0.08), Icon: AddIcon       },
+                  pending:             { label: 'Pending',             color: '#F57C00',   bg: '#FFF8E1',                Icon: AccessTime    },
+                  supervisor_approved: { label: 'Supervisor Approved', color: '#1565C0',   bg: '#E3F2FD',                Icon: CheckCircle   },
+                  hr_approved:         { label: 'HR Approved',         color: '#2E7D32',   bg: '#E8F5E9',                Icon: CheckCircle   },
+                  approved:            { label: 'Approved',            color: '#2E7D32',   bg: '#E8F5E9',                Icon: CheckCircle   },
+                  denied:              { label: 'Denied',              color: '#C62828',   bg: '#FFEBEE',                Icon: Block         },
+                  cancelled:           { label: 'Cancelled',           color: '#757575',   bg: '#F5F5F5',                Icon: CancelIcon    },
+                  deleted:             { label: 'Deleted',             color: '#C62828',   bg: '#FFEBEE',                Icon: Block         },
+                  reversal:            { label: 'VL Reversal',         color: '#B71C1C',   bg: '#FFEBEE',                Icon: Block         },
+                  deduction:           { label: 'Deduction',           color: '#E65100',   bg: '#FFF3E0',                Icon: AccessTime    },
+                  credit_added:        { label: 'Credit Added',        color: '#2E7D32',   bg: '#E8F5E9',                Icon: AddIcon       },
+                  balance_update:      { label: 'Balance Update',      color: '#1565C0',   bg: '#E3F2FD',                Icon: WalletIcon    },
+                  assigned:            { label: 'Leave Assigned',       color: '#1565C0',   bg: '#E3F2FD',                Icon: AddIcon       },
+                  activity:            { label: 'Activity',            color: '#546E7A',   bg: '#ECEFF1',                Icon: ScheduleIcon  },
+                };
+                const { label, color, bg, Icon } = kindMap[kind] || kindMap.activity;
+
+                /* ── Privacy helper: strip "Full Name (ID)" → "employee ID" ── */
+                const stripNamesFromMessage = (text) => {
+                  if (!text) return '';
+                  return text.replace(
+                    /[A-Z][a-zA-ZÀ-ÿ'.\-]+(?:\s+[A-Z][a-zA-ZÀ-ÿ'.\-]+)+\s*\((\w+)\)/g,
+                    (_, id) => `employee ${id}`
+                  );
+                };
+
+                /* Extract employee-number-only label from an actor string */
+                const safeActorLabel = (() => {
+                  if (!actor) return null;
+                  const idInParens = actor.match(/\((\d{5,})\)/);
+                  if (idInParens) return `employee ${idInParens[1]}`;
+                  if (/^\d{5,}$/.test(actor.trim())) return actor.trim();
+                  const bareId = actor.match(/\b(\d{5,})\b/);
+                  if (bareId) return `employee ${bareId[1]}`;
+                  return null; // name-only actor — hide for privacy
+                })();
+
+                /* ── Sentence builder ── */
+                const buildSentence = () => {
+                  const codeMatch = raw.match(/\b([A-Z]{2,4})\b/);
+                  const leaveCode = codeMatch ? codeMatch[1] : 'leave';
+                  const isoDate = raw.match(/\d{4}-\d{2}-\d{2}/);
+                  const dateHint = isoDate ? formatDate(isoDate[0]) : null;
+                  const actorLabel = safeActorLabel ? `by ${safeActorLabel}`
+                    : kind === 'hr_approved' ? 'by HR'
+                    : kind === 'supervisor_approved' ? 'by your Immediate Supervisor'
+                    : '';
+                  switch (kind) {
+                    case 'submitted':           return dateHint ? `You filed a ${leaveCode} request for ${dateHint}.` : `You submitted a ${leaveCode} leave request.`;
+                    case 'supervisor_approved': return dateHint ? `Your ${leaveCode} request for ${dateHint} was approved by your Immediate Supervisor.` : `Your ${leaveCode} leave request was approved by your Immediate Supervisor.`;
+                    case 'hr_approved':         return dateHint ? `Your ${leaveCode} request for ${dateHint} was fully approved by HR.` : `Your ${leaveCode} leave request was fully approved by HR.`;
+                    case 'approved':            return `Your ${leaveCode} leave request was approved${actorLabel ? ` ${actorLabel}` : ''}.`;
+                    case 'denied':              return dateHint ? `Your ${leaveCode} request for ${dateHint} was denied${actorLabel ? ` ${actorLabel}` : ''}.` : `Your ${leaveCode} leave request was denied${actorLabel ? ` ${actorLabel}` : ''}.`;
+                    case 'cancelled':           return dateHint ? `You cancelled your ${leaveCode} request for ${dateHint}.` : `Your ${leaveCode} leave request was cancelled.`;
+                    case 'deleted': {
+                      if (lower.includes('payroll')) return `A payroll record was deleted by Admin/HR. Your VL monthly credit has been reversed and your balance adjusted.`;
+                      return dateHint ? `Your ${leaveCode} record for ${dateHint} was deleted by Admin/HR.` : `A record was deleted by Admin/HR.`;
+                    }
+                    case 'reversal': {
+                      const creditMatch = raw.match(/\+?\s*([\d.]+)\s*hrs?\s*(has been\s*)?reversed/i);
+                      const fromMatch   = raw.match(/from\s+([\d.]+)\s*hrs?/i);
+                      const toMatch     = raw.match(/to\s+([\d.]+)\s*hrs?/i);
+                      const creditAmt   = creditMatch ? creditMatch[1] : null;
+                      if (creditAmt && fromMatch && toMatch)
+                        return `VL credit of \u221210 hrs reversed. VL balance restored from ${fromMatch[1]} to ${toMatch[1]} hrs.`.replace('10', creditAmt);
+                      if (fromMatch && toMatch)
+                        return `VL balance restored from ${fromMatch[1]} to ${toMatch[1]} hrs.`;
+                      return `Your VL credit was reversed as a result of a payroll record deletion.`;
+                    }
+                    case 'deduction': {
+                      const hrsMatch = raw.match(/([\d.]+)\s*hrs?/i);
+                      if (lower.includes('tardiness')) return `Tardiness deduction of ${hrsMatch ? hrsMatch[1] : ''} hrs applied to your VL balance.`;
+                      return `A deduction was applied to your leave balance.`;
+                    }
+                    case 'credit_added': {
+                      const addHrs  = raw.match(/\+([\d.]+)\s*hrs?/i);
+                      const fromHrs = raw.match(/from\s+([\d.]+)\s*hrs?/i);
+                      const toHrs   = raw.match(/to\s+([\d.]+)\s*hrs?/i);
+                      if (fromHrs && toHrs) return `Monthly VL credit of +${addHrs ? addHrs[1] : ''} hrs added. Balance updated from ${fromHrs[1]} hrs to ${toHrs[1]} hrs.`;
+                      return `Monthly VL credit${addHrs ? ` of +${addHrs[1]} hrs` : ''} was added to your balance.`;
+                    }
+                    case 'balance_update': {
+                      const remMatch = raw.match(/([\d.]+)\s*hrs?\s*remaining/i);
+                      if (remMatch) return `Your VL balance after deduction is ${remMatch[1]} hrs.`;
+                      return `Your leave balance has been updated.`;
+                    }
+                    case 'pending':             return `Your ${leaveCode} leave request is pending approval.`;
+                    case 'assigned': {
+                      const assignMatch = raw.match(/assigned\s+(.+?)\s*\(/i);
+                      const leaveTypeName = assignMatch ? assignMatch[1].trim() : leaveCode;
+                      const assignerIdMatch = raw.match(/\((\d{5,})\)/);
+                      const assignerId = assignerIdMatch ? assignerIdMatch[1]
+                        : safeActorLabel || 'HR';
+                      return `${leaveTypeName} was credited to your account by employee ${assignerId}.`;
+                    }
+                    default: {
+                      const sanitized = stripNamesFromMessage(raw);
+                      return sanitized.charAt(0).toUpperCase() + sanitized.slice(1) + (sanitized.endsWith('.') ? '' : '.');
+                    }
+                  }
+                };
+
+                /* ── Timestamp ── */
+                const timeLabel = (() => {
+                  if (!loggedAt) return null;
+                  const d = new Date(loggedAt);
+                  return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+                })();
+
+                return (
+                  <Box key={`log-${log.id}`} sx={{
+                    bgcolor: '#fff',
+                    border: `1px solid ${alpha(color, 0.18)}`,
+                    borderLeft: `4px solid ${color}`,
+                    borderRadius: 2,
+                    p: 2.5,
+                    boxShadow: '0 1px 6px rgba(0,0,0,0.05)',
+                    transition: 'box-shadow 0.2s ease',
+                    '&:hover': { boxShadow: `0 4px 16px ${alpha(color, 0.12)}` },
+                  }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
+                      <Box sx={{
+                        display: 'inline-flex', alignItems: 'center', gap: 0.6,
+                        px: 1.25, py: 0.35, borderRadius: '6px',
+                        bgcolor: bg, border: `1px solid ${alpha(color, 0.2)}`,
+                      }}>
+                        <Icon sx={{ fontSize: 13, color }} />
+                        <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color, lineHeight: 1 }}>{label}</Typography>
+                      </Box>
+                      {timeLabel && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <ScheduleIcon sx={{ fontSize: 12, color: '#c0c0c0' }} />
+                          <Typography variant="caption" sx={{ color: '#b0b0b0', fontSize: '0.72rem' }}>{timeLabel}</Typography>
+                        </Box>
+                      )}
+                    </Box>
+                    <Typography sx={{ fontSize: '0.88rem', color: '#2c2c2c', lineHeight: 1.65, fontWeight: 400 }}>
+                      {buildSentence()}
+                    </Typography>
+                    {safeActorLabel && (
+                      <Box sx={{ mt: 0.75, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <PersonIcon sx={{ fontSize: 13, color: '#bbb' }} />
+                        <Typography variant="caption" sx={{ color: '#aaa', fontSize: '0.72rem' }}>Action by: {safeActorLabel}</Typography>
+                      </Box>
+                    )}
+                  </Box>
+                );
+              })}
+
+              {/* ── Pagination ── */}
+              {totalPages > 1 && (
+                <Box sx={{
+                  mt: 1, pt: 2,
+                  borderTop: `1px solid ${alpha(accentColor, 0.1)}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}>
+                  {/* Page info */}
+                  <Typography variant="caption" sx={{ color: '#aaa', fontSize: '0.75rem' }}>
+                    Showing {((auditLogPage - 1) * AUDIT_LOGS_PER_PAGE) + 1}–{Math.min(auditLogPage * AUDIT_LOGS_PER_PAGE, transactionLogs.length)} of {transactionLogs.length}
+                  </Typography>
+
+                  {/* Page buttons */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    {/* Prev */}
+                    <IconButton
+                      size="small"
+                      disabled={auditLogPage === 1}
+                      onClick={() => setAuditLogPage((p) => p - 1)}
+                      sx={{
+                        width: 30, height: 30, borderRadius: '8px',
+                        border: `1px solid ${alpha(accentColor, auditLogPage === 1 ? 0.1 : 0.25)}`,
+                        color: auditLogPage === 1 ? '#ccc' : accentColor,
+                        '&:hover': { bgcolor: alpha(accentColor, 0.06) },
+                      }}
+                    >
+                      <Box component="span" sx={{ fontSize: '1rem', lineHeight: 1, fontWeight: 600 }}>‹</Box>
+                    </IconButton>
+
+                    {/* Numbered pages */}
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                      <IconButton
+                        key={page}
+                        size="small"
+                        onClick={() => setAuditLogPage(page)}
+                        sx={{
+                          width: 30, height: 30, borderRadius: '8px',
+                          fontSize: '0.78rem', fontWeight: page === auditLogPage ? 700 : 400,
+                          bgcolor: page === auditLogPage ? accentColor : 'transparent',
+                          color: page === auditLogPage ? '#fff' : '#666',
+                          border: `1px solid ${page === auditLogPage ? accentColor : alpha(accentColor, 0.15)}`,
+                          '&:hover': {
+                            bgcolor: page === auditLogPage ? accentColor : alpha(accentColor, 0.06),
+                          },
+                        }}
+                      >
+                        {page}
+                      </IconButton>
+                    ))}
+
+                    {/* Next */}
+                    <IconButton
+                      size="small"
+                      disabled={auditLogPage === totalPages}
+                      onClick={() => setAuditLogPage((p) => p + 1)}
+                      sx={{
+                        width: 30, height: 30, borderRadius: '8px',
+                        border: `1px solid ${alpha(accentColor, auditLogPage === totalPages ? 0.1 : 0.25)}`,
+                        color: auditLogPage === totalPages ? '#ccc' : accentColor,
+                        '&:hover': { bgcolor: alpha(accentColor, 0.06) },
+                      }}
+                    >
+                      <Box component="span" sx={{ fontSize: '1rem', lineHeight: 1, fontWeight: 600 }}>›</Box>
+                    </IconButton>
+                  </Box>
+                </Box>
+              )}
+            </Box>
+          );
+        })()}
+      </Box>
+    </Box>
+  </Fade>
+</Modal>
 
           {/* Scroll to Top FAB */}
           <Fade in={showScrollTop}>
@@ -1204,6 +1498,7 @@ const LeaveRequestUser = () => {
             >
               <KeyboardArrowUp />
             </Box>
+
           </Fade>
 
         </Box>

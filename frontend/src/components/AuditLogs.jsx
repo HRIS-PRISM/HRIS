@@ -60,6 +60,7 @@ import {
   Home,
   Refresh,
   Person,
+  AccessTime,
   ViewList,
   SupervisorAccount,
   AdminPanelSettings,
@@ -158,13 +159,12 @@ const AuditLogs = () => {
   const [sessionTimer, setSessionTimer] = useState(600); // 10 minutes in seconds
   const [sessionWarningShown, setSessionWarningShown] = useState(false);
   const [sessionWarningOpen, setSessionWarningOpen] = useState(false);
-  const [virtualScrollTop, setVirtualScrollTop] = useState(0);
+  const [auditPage, setAuditPage] = useState(1);
+  const LOGS_PER_PAGE = 10;
   const logScrollRef = useRef(null);
 
   const SESSION_DURATION = 10 * 60 * 1000; // 10 minutes in milliseconds
   const LOG_LIST_HEIGHT = 500;
-  const LOG_ROW_HEIGHT = 120;
-  const LOG_OVERSCAN = 8;
 
   const settings = useSystemSettings();
   const { socket, connected } = useSocket();
@@ -403,7 +403,7 @@ const AuditLogs = () => {
   }, [isAuthenticated]);
 
   useEffect(() => {
-    setVirtualScrollTop(0);
+    setAuditPage(1);
     if (logScrollRef.current) {
       logScrollRef.current.scrollTop = 0;
     }
@@ -415,7 +415,7 @@ const AuditLogs = () => {
   useEffect(() => {
     let filtered = [...auditLogs];
 
-    if (userRole && userRole !== "administrator" && userRole !== "superadmin") {
+    if (userRole && userRole !== "administrator" && userRole !== "superadmin" && userRole !== "technical") {
       filtered = filtered.filter(
         (log) => log.employeeNumber === currentUser?.employeeNumber
       );
@@ -463,6 +463,11 @@ const AuditLogs = () => {
     userRole,
     currentUser,
   ]);
+
+  // Reset to page 1 whenever filteredLogs change
+  useEffect(() => {
+    setAuditPage(1);
+  }, [filteredLogs.length]);
 
   // Auto-hide toast
   useEffect(() => {
@@ -521,62 +526,53 @@ const AuditLogs = () => {
 
   // ENHANCED: Get action color with distinct colors for each action type
   const getActionColor = (action) => {
-    if (!action) return "#6b7280";
-    const actionUpper = action.toUpperCase();
-    const colors = {
-      // Creation actions - Green shades
-      CREATE: "#10b981", // Emerald green
-      INSERT: "#059669", // Darker green
-
-      // Modification actions - Blue shades
-      UPDATE: "#3b82f6", // Blue
-      EDIT: "#2563eb", // Darker blue
-
-      // Deletion actions - Red shades
-      DELETE: "#ef4444", // Red
-      REMOVE: "#dc2626", // Darker red
-
-      // Authentication actions - Purple shades
-      LOGIN: "#8b5cf6", // Purple
-      LOGOUT: "#7c3aed", // Darker purple
-
-      // View/Read actions - Cyan shades
-      VIEW: "#06b6d4", // Cyan
-      SEARCH: "#0891b2", // Darker cyan
-
-      // Export/Report actions - Orange shades
-      EXPORT: "#f59e0b", // Orange
-      REPORT: "#d97706", // Darker orange
-
-      // Default
-      DEFAULT: "#6b7280", // Gray
-    };
-    return colors[actionUpper] || colors.DEFAULT;
+    if (!action) return "#10b981";
+    const a = action.toUpperCase();
+    if (['DELETE','REMOVE','DESTROY'].some((k) => a.includes(k)))       return "#ef4444"; // red
+    if (['RESTORE','REVERS'].some((k) => a.includes(k)))                return "#ec4899"; // rose
+    if (['DEDUCT','TARDINESS'].some((k) => a.includes(k)))              return "#f97316"; // orange
+    if (a.includes('ASSIGN'))                                           return "#6366f1"; // indigo
+    if (a.includes('TEVL'))                                             return "#f59e0b"; // amber
+    if (a.includes('VL BALANCE'))                                       return "#0d9488"; // teal
+    if (['UPDATE','EDIT','MODIFY','CHANGE'].some((k) => a.includes(k))) return "#3b82f6"; // blue
+    if (['VIEW','OPEN','READ'].some((k) => a.includes(k)))              return "#06b6d4"; // cyan
+    if (a.includes('LOGOUT'))                                           return "#7c3aed"; // purple
+    if (a.includes('LOGIN'))                                            return "#8b5cf6"; // light purple
+    return "#10b981"; // green — CREATE / ADD / etc.
   };
 
   // ENHANCED: Get action icon for each action type
   const getActionIcon = (action) => {
-    if (!action) return <CheckCircleIcon sx={{ fontSize: 16 }} />;
-    const actionUpper = action.toUpperCase();
-    const icons = {
-      CREATE: <AddIcon sx={{ fontSize: 16 }} />,
-      INSERT: <AddIcon sx={{ fontSize: 16 }} />,
-      UPDATE: <EditIcon sx={{ fontSize: 16 }} />,
-      EDIT: <EditIcon sx={{ fontSize: 16 }} />,
-      DELETE: <RemoveIcon sx={{ fontSize: 16 }} />,
-      REMOVE: <DeleteIcon sx={{ fontSize: 16 }} />,
-      LOGIN: <LockOpenIcon sx={{ fontSize: 16 }} />,
-      LOGOUT: <LockIcon sx={{ fontSize: 16 }} />,
-      VIEW: <VisibilityIcon sx={{ fontSize: 16 }} />,
-      SEARCH: <SearchIcon sx={{ fontSize: 16 }} />,
-      EXPORT: <FileDownloadIcon sx={{ fontSize: 16 }} />,
-      REPORT: <Assessment sx={{ fontSize: 16 }} />,
-    };
-    return icons[actionUpper] || <CheckCircleIcon sx={{ fontSize: 16 }} />;
+    if (!action) return <AddIcon sx={{ fontSize: 16 }} />;
+    const a = action.toUpperCase();
+    if (['DELETE','REMOVE','DESTROY'].some((k) => a.includes(k)))       return <DeleteIcon sx={{ fontSize: 16 }} />;
+    if (['RESTORE','REVERS'].some((k) => a.includes(k)))                return <RefreshIcon sx={{ fontSize: 16 }} />;
+    if (['DEDUCT','TARDINESS'].some((k) => a.includes(k)))              return <RemoveIcon sx={{ fontSize: 16 }} />;
+    if (a.includes('ASSIGN'))                                           return <Assignment sx={{ fontSize: 16 }} />;
+    if (a.includes('TEVL'))                                             return <AddIcon sx={{ fontSize: 16 }} />;
+    if (a.includes('VL BALANCE'))                                       return <Assessment sx={{ fontSize: 16 }} />;
+    if (['UPDATE','EDIT','MODIFY','CHANGE'].some((k) => a.includes(k))) return <EditIcon sx={{ fontSize: 16 }} />;
+    if (['VIEW','OPEN','READ'].some((k) => a.includes(k)))              return <VisibilityIcon sx={{ fontSize: 16 }} />;
+    if (a.includes('LOGOUT'))                                           return <LockIcon sx={{ fontSize: 16 }} />;
+    if (a.includes('LOGIN'))                                            return <LockOpenIcon sx={{ fontSize: 16 }} />;
+    return <AddIcon sx={{ fontSize: 16 }} />;
   };
 
   // Format audit log entry with color-coded action
   const formatAuditLog = (log) => {
+    if (log.table_name === 'leave_transaction' || log._isTransaction) {
+      const ts = log.timestamp ? new Date(log.timestamp) : null;
+      const formattedTime =
+        ts && !isNaN(ts)
+          ? `${ts.toLocaleDateString()} ${ts.toLocaleTimeString()}`
+          : "No Date";
+      const safeMessage = (log.action || log.message || "No message")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      return `[${formattedTime}] - <strong>Employee ${log.employeeNumber || "Unknown"}</strong>: ${safeMessage}`;
+    }
+
     const timestamp = new Date(log.timestamp);
     const formattedTime = `${timestamp.toLocaleDateString()} ${timestamp.toLocaleTimeString()}`;
     const employeeNumber = log.employeeNumber || "Unknown";
@@ -632,12 +628,15 @@ const AuditLogs = () => {
 
   // Store first the action needed to normalize
   const ACTION_MAP = {
-    CREATE: ["ADD", "INSERT", "CREATE", "REGISTER", "SEND", ],
-    VIEW: ["VIEW", "OPEN", "READ"],
-    SEARCH: ["SEARCH", "FILTER", "FIND"],
-    UPDATE: ["UPDATE", "UPDATED", "EDIT", "MODIFY", "CHANGE"],
-    DELETE: ["DELETE", "REMOVE", "DESTROY"],
-    PRINT: ["PRINT", "EXPORT", "DOWNLOAD"],
+    DELETED:          ["DELETE", "REMOVE", "DESTROY"],
+    REVERSED:         ["RESTORE", "REVERS"],
+    DEDUCTED:         ["DEDUCT", "TARDINESS"],
+    "ASSIGNED LEAVE": ["ASSIGN"],
+    TEVL:             ["TEVL"],
+    "VL BALANCE":     ["VL BALANCE"],
+    UPDATE:           ["UPDATE", "EDIT", "MODIFY", "CHANGE"],
+    VIEW:             ["VIEW", "OPEN", "READ"],
+    CREATE:           ["ADD", "INSERT", "CREATE", "REGISTER"],
   };
 
   // Normalize first the action before putting on map
@@ -654,7 +653,7 @@ const AuditLogs = () => {
       }
     }
 
-    return normalized;
+    return null;
   };
 
   // Get unique actions for filter
@@ -682,40 +681,23 @@ const AuditLogs = () => {
     return tableName.toUpperCase().replace(/[\s\-]+/g, "_");
   };
 
-  const virtualizationRange = useMemo(() => {
-    const totalItems = filteredLogs.length;
-    if (totalItems === 0) {
-      return { startIndex: 0, endIndex: -1 };
-    }
+  // Build a clean readable sentence for each audit log entry
+  const buildLogDescription = (log) => {
+    const actor = log.employeeNumber ? `Employee #${log.employeeNumber}` : 'Unknown user';
+    const action = log.action?.toLowerCase() || 'performed an action';
+    const module = log.table_name ? formatModuleName(log.table_name) : 'the system';
+    const recordHint = log.record_id ? ` (Record #${log.record_id})` : '';
+    const targetHint = log.targetEmployeeNumber ? ` on employee #${log.targetEmployeeNumber}` : '';
+    return `${actor} performed ${action} on ${module}${recordHint}${targetHint}.`;
+  };
 
-    const startIndex = Math.max(
-      Math.floor(virtualScrollTop / LOG_ROW_HEIGHT) - LOG_OVERSCAN,
-      0
-    );
-    const endIndex = Math.min(
-      totalItems - 1,
-      Math.ceil((virtualScrollTop + LOG_LIST_HEIGHT) / LOG_ROW_HEIGHT) +
-        LOG_OVERSCAN
-    );
+  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / LOGS_PER_PAGE));
+  const pagedLogs = filteredLogs.slice((auditPage - 1) * LOGS_PER_PAGE, auditPage * LOGS_PER_PAGE);
 
-    return { startIndex, endIndex };
-  }, [filteredLogs.length, virtualScrollTop]);
-
-  const visibleLogs = useMemo(() => {
-    if (virtualizationRange.endIndex < virtualizationRange.startIndex) {
-      return [];
-    }
-
-    return filteredLogs.slice(
-      virtualizationRange.startIndex,
-      virtualizationRange.endIndex + 1
-    );
-  }, [filteredLogs, virtualizationRange]);
-
-  const topSpacerHeight = virtualizationRange.startIndex * LOG_ROW_HEIGHT;
-  const bottomSpacerHeight =
-    Math.max(filteredLogs.length - virtualizationRange.endIndex - 1, 0) *
-    LOG_ROW_HEIGHT;
+  const virtualizationRange = { startIndex: 0, endIndex: -1 }; // kept to avoid ref errors
+  const visibleLogs = pagedLogs;
+  const topSpacerHeight = 0;
+  const bottomSpacerHeight = 0;
 
 
   // ACCESSING 2
@@ -1434,30 +1416,13 @@ const AuditLogs = () => {
               {/* Scrollable container for log entries */}
               <Box
                 ref={logScrollRef}
-                onScroll={(event) =>
-                  setVirtualScrollTop(event.currentTarget.scrollTop)
-                }
                 sx={{
-                  height: `${LOG_LIST_HEIGHT}px`,
+                  minHeight: `${LOG_LIST_HEIGHT}px`,
                   overflowY: "auto",
                   p: 3,
-                  "&::-webkit-scrollbar": {
-                    width: "8px",
-                  },
-                  "&::-webkit-scrollbar-track": {
-                    background: alpha(settings?.accentColor || "#FEF9E1", 0.2),
-                    borderRadius: "4px",
-                  },
-                  "&::-webkit-scrollbar-thumb": {
-                    background: alpha(settings?.primaryColor || "#894444", 0.5),
-                    borderRadius: "4px",
-                    "&:hover": {
-                      background: alpha(
-                        settings?.primaryColor || "#894444",
-                        0.7
-                      ),
-                    },
-                  },
+                  "&::-webkit-scrollbar": { width: "8px" },
+                  "&::-webkit-scrollbar-track": { background: alpha(settings?.accentColor || "#FEF9E1", 0.2), borderRadius: "4px" },
+                  "&::-webkit-scrollbar-thumb": { background: alpha(settings?.primaryColor || "#894444", 0.5), borderRadius: "4px", "&:hover": { background: alpha(settings?.primaryColor || "#894444", 0.7) } },
                 }}
               >
                 {filteredLogs.length === 0 ? (
@@ -1498,100 +1463,112 @@ const AuditLogs = () => {
                       <Box sx={{ height: `${topSpacerHeight}px` }} />
                     )}
                     {visibleLogs.map((log, index) => {
-                      const virtualIndex = virtualizationRange.startIndex + index;
+                      const virtualIndex = index;
                       const actionColor = getActionColor(log.action);
+                      const actionBg = alpha(actionColor, 0.1);
+
+                      const ts = log.timestamp ? new Date(log.timestamp) : null;
+                      const timeLabel = ts && !isNaN(ts)
+                        ? `${ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
+                        : null;
+
+                      const description = buildLogDescription(log);
 
                       return (
                         <Box
                           key={log.id || virtualIndex}
                           sx={{
-                            p: 2,
-                            mb: 1.5,
-                            minHeight: `${LOG_ROW_HEIGHT - 12}px`,
-                            backgroundColor: "#f9fafb",
+                            bgcolor: '#fff',
+                            border: `1px solid ${alpha(actionColor, 0.18)}`,
                             borderLeft: `4px solid ${actionColor}`,
-                            borderRadius: "8px",
-                            fontFamily: "monospace",
-                            fontSize: "13px",
-                            lineHeight: 1.8,
-                            transition: "all 0.2s ease",
-                            "&:hover": {
-                              backgroundColor: alpha(
-                                settings?.accentColor || "#FEF9E1",
-                                0.3
-                              ),
-                              transform: "translateX(4px)",
-                              boxShadow: `0 2px 8px ${alpha(actionColor, 0.2)}`,
-                            },
+                            borderRadius: 2,
+                            p: 2.5,
+                            mb: 1.5,
+                            boxShadow: '0 1px 6px rgba(0,0,0,0.05)',
+                            transition: 'box-shadow 0.2s ease',
+                            '&:hover': { boxShadow: `0 4px 16px ${alpha(actionColor, 0.12)}` },
                           }}
                         >
-                          <Box
-                            sx={{
-                              color: "#1f2937",
-                              display: "-webkit-box",
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: "vertical",
-                              overflow: "hidden",
-                              "& strong": {
-                                fontWeight: 600,
-                              },
-                            }}
-                            dangerouslySetInnerHTML={{
-                              __html: formatAuditLog(log),
-                            }}
-                          />
-                          <Box
-                            sx={{
-                              mt: 1,
-                              pt: 1,
-                              borderTop: "1px solid #e5e7eb",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              gap: 1,
-                              fontSize: "11px",
-                              color: "#6b7280",
-                              fontFamily: "sans-serif",
-                            }}
-                          >
-                            <Box
-                              sx={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 1,
-                              }}
-                            >
-                              <Chip
-                                icon={getActionIcon(log.action)}
-                                label={log.action?.toUpperCase() || "UNKNOWN"}
-                                size="small"
-                                sx={{
-                                  height: 20,
-                                  fontSize: "10px",
-                                  backgroundColor: actionColor,
-                                  color: "white",
-                                  fontWeight: 600,
-                                  "& .MuiChip-icon": {
-                                    color: "white",
-                                  },
-                                }}
-                              />
-                              <Box
-                                sx={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 0.5,
-                                }}
-                              >
-                                <CheckCircleIcon
-                                  sx={{ fontSize: 14, color: "#10b981" }}
-                                />
-                                <Typography sx={{ fontSize: "11px" }}>
-                                  Status: Success
+                          {/* Row 1: WHAT + WHEN */}
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.25, flexWrap: 'wrap', gap: 1 }}>
+                            <Box sx={{
+                              display: 'inline-flex', alignItems: 'center', gap: 0.6,
+                              px: 1.25, py: 0.35, borderRadius: '6px',
+                              bgcolor: actionBg, border: `1px solid ${alpha(actionColor, 0.2)}`,
+                            }}>
+                              {React.cloneElement(getActionIcon(log.action), { sx: { fontSize: 13, color: actionColor } })}
+                              <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: actionColor, lineHeight: 1 }}>
+                                {log.action?.toUpperCase() || 'UNKNOWN'}
+                              </Typography>
+                            </Box>
+                            {timeLabel && (
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <AccessTime sx={{ fontSize: 12, color: '#c0c0c0' }} />
+                                <Typography variant="caption" sx={{ color: '#b0b0b0', fontSize: '0.72rem' }}>
+                                  {timeLabel}
                                 </Typography>
                               </Box>
-                            </Box>
+                            )}
                           </Box>
+
+                          {/* Row 2: WHO */}
+                          <Box sx={{ display: 'flex', gap: 1.5, mb: 1.25, flexWrap: 'wrap' }}>
+                            {log.employeeNumber && (
+                              <Box sx={{
+                                display: 'flex', alignItems: 'center', gap: 0.75,
+                                px: 1.25, py: 0.6,
+                                bgcolor: alpha(settings?.primaryColor || '#894444', 0.06),
+                                borderRadius: '8px',
+                                border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.15)}`,
+                              }}>
+                                <Person sx={{ fontSize: 14, color: settings?.primaryColor || '#894444' }} />
+                                <Box>
+                                  <Typography sx={{ fontSize: '0.62rem', color: '#aaa', lineHeight: 1, mb: 0.2, fontWeight: 600, letterSpacing: '0.04em' }}>
+                                    PERFORMED BY
+                                  </Typography>
+                                  {log.actorName && (
+                                    <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: settings?.primaryColor || '#894444', lineHeight: 1.2 }}>
+                                      {log.actorName}
+                                    </Typography>
+                                  )}
+                                  <Typography sx={{ fontSize: '0.68rem', color: '#888', lineHeight: 1, mt: log.actorName ? 0.2 : 0 }}>
+                                    #{log.employeeNumber}
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            )}
+
+                            {log.targetEmployeeNumber && (
+                              <Box sx={{
+                                display: 'flex', alignItems: 'center', gap: 0.75,
+                                px: 1.25, py: 0.6,
+                                bgcolor: alpha('#1565C0', 0.05),
+                                borderRadius: '8px',
+                                border: '1px solid rgba(21,101,192,0.15)',
+                                ml: 'auto',
+                              }}>
+                                <Person sx={{ fontSize: 14, color: '#1565C0' }} />
+                                <Box>
+                                  <Typography sx={{ fontSize: '0.62rem', color: '#aaa', lineHeight: 1, mb: 0.2, fontWeight: 600, letterSpacing: '0.04em' }}>
+                                    EMPLOYEE
+                                  </Typography>
+                                  {log.targetName && (
+                                    <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: '#1565C0', lineHeight: 1.2 }}>
+                                      {log.targetName}
+                                    </Typography>
+                                  )}
+                                  <Typography sx={{ fontSize: '0.68rem', color: '#888', lineHeight: 1, mt: log.targetName ? 0.2 : 0 }}>
+                                    #{log.targetEmployeeNumber}
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            )}
+                          </Box>
+
+                          {/* Row 3: Clean sentence */}
+                          <Typography sx={{ fontSize: '0.85rem', color: '#444', lineHeight: 1.65, fontWeight: 400 }}>
+                            {description}
+                          </Typography>
                         </Box>
                       );
                     })}
@@ -1602,7 +1579,7 @@ const AuditLogs = () => {
                 )}
               </Box>
 
-              {/* Footer */}
+              {/* Footer with pagination */}
               <Box
                 sx={{
                   mt: 0,
@@ -1613,21 +1590,81 @@ const AuditLogs = () => {
                   justifyContent: "space-between",
                   alignItems: "center",
                   px: 3,
-                  backgroundColor: alpha(
-                    settings?.accentColor || "#FEF9E1",
-                    0.5
-                  ),
+                  flexWrap: "wrap",
+                  gap: 2,
+                  backgroundColor: alpha(settings?.accentColor || "#FEF9E1", 0.5),
                 }}
               >
                 <Typography sx={{ color: "#666", fontSize: "14px" }}>
                   <strong>Total Logs:</strong> {filteredLogs.length}{" "}
                   <span style={{ color: "#999" }}>
-                    |{" "}
-                    {actionFilter || moduleFilter || dateFilter
-                      ? `Showing ${filteredLogs.length} of ${auditLogs.length} entries`
-                      : "Showing all entries"}
+                    | Showing {filteredLogs.length === 0 ? 0 : (auditPage - 1) * LOGS_PER_PAGE + 1}–{Math.min(auditPage * LOGS_PER_PAGE, filteredLogs.length)} of {filteredLogs.length}
                   </span>
                 </Typography>
+
+                {/* Pagination controls */}
+                {totalPages > 1 && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <IconButton
+                      size="small"
+                      disabled={auditPage === 1}
+                      onClick={() => { setAuditPage((p) => p - 1); logScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                      sx={{
+                        width: 30, height: 30, borderRadius: '8px',
+                        border: `1px solid ${alpha(settings?.primaryColor || '#894444', auditPage === 1 ? 0.1 : 0.25)}`,
+                        color: auditPage === 1 ? '#ccc' : settings?.primaryColor || '#894444',
+                        '&:hover': { bgcolor: alpha(settings?.primaryColor || '#894444', 0.06) },
+                      }}
+                    >
+                      <Box component="span" sx={{ fontSize: '1rem', lineHeight: 1, fontWeight: 600 }}>‹</Box>
+                    </IconButton>
+
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter((p) => p === 1 || p === totalPages || Math.abs(p - auditPage) <= 2)
+                      .reduce((acc, p, idx, arr) => {
+                        if (idx > 0 && p - arr[idx - 1] > 1) acc.push('...');
+                        acc.push(p);
+                        return acc;
+                      }, [])
+                      .map((item, idx) =>
+                        item === '...' ? (
+                          <Typography key={`ellipsis-${idx}`} sx={{ px: 0.5, color: '#aaa', fontSize: '0.85rem' }}>…</Typography>
+                        ) : (
+                          <IconButton
+                            key={item}
+                            size="small"
+                            onClick={() => { setAuditPage(item); logScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                            sx={{
+                              width: 30, height: 30, borderRadius: '8px',
+                              fontSize: '0.78rem',
+                              fontWeight: item === auditPage ? 700 : 400,
+                              bgcolor: item === auditPage ? (settings?.primaryColor || '#894444') : 'transparent',
+                              color: item === auditPage ? '#fff' : '#666',
+                              border: `1px solid ${item === auditPage ? (settings?.primaryColor || '#894444') : alpha(settings?.primaryColor || '#894444', 0.15)}`,
+                              '&:hover': { bgcolor: item === auditPage ? (settings?.primaryColor || '#894444') : alpha(settings?.primaryColor || '#894444', 0.06) },
+                            }}
+                          >
+                            {item}
+                          </IconButton>
+                        )
+                      )
+                    }
+
+                    <IconButton
+                      size="small"
+                      disabled={auditPage === totalPages}
+                      onClick={() => { setAuditPage((p) => p + 1); logScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                      sx={{
+                        width: 30, height: 30, borderRadius: '8px',
+                        border: `1px solid ${alpha(settings?.primaryColor || '#894444', auditPage === totalPages ? 0.1 : 0.25)}`,
+                        color: auditPage === totalPages ? '#ccc' : settings?.primaryColor || '#894444',
+                        '&:hover': { bgcolor: alpha(settings?.primaryColor || '#894444', 0.06) },
+                      }}
+                    >
+                      <Box component="span" sx={{ fontSize: '1rem', lineHeight: 1, fontWeight: 600 }}>›</Box>
+                    </IconButton>
+                  </Box>
+                )}
               </Box>
             </GlassCard>
           </Fade>

@@ -285,6 +285,10 @@ const server = http.createServer(app);
 // Initialize Socket.IO
 const io = initializeSocket(server);
 
+// Wire up Socket.IO to route files that use it for real-time events
+leaveRoutes.setSocketIO(io);
+commutationRoute.setSocketIO(io);
+
 // Make io accessible to routes via app.locals
 app.locals.io = io;
 

@@ -69,16 +69,29 @@ const getActorEmployeeNumber = (req, fallback = null) => {
   return fallback ? String(fallback) : "unknown";
 };
 
-const insertTransactionLog = (employeeId, message) =>
+const insertTransactionLog = (employeeId, message, actorEmployeeNumber = null) =>
   new Promise((resolve) => {
     if (!employeeId || !message) return resolve();
 
     db.query(
       "INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)",
       [employeeId, message],
-      (err) => {
+      (err, result) => {
         if (err) {
           console.error("[leave] Failed to insert transaction log:", err.message);
+          return resolve();
+        }
+        // Mirror to audit_log so it appears in the Audit Trail in real-time
+        try {
+          logAudit(
+            { employeeNumber: actorEmployeeNumber || employeeId },
+            message,
+            'leave_transaction',
+            result.insertId,
+            employeeId,
+          );
+        } catch (e) {
+          console.error("[leave] Failed to mirror to audit_log:", e.message);
         }
         resolve();
       },
@@ -116,27 +129,39 @@ const buildLeaveTransactionMessage = ({
   actorDisplayName,
   requesterDisplayName,
   leaveDesc,
+  leaveDates,
 }) => {
   if (!action) return null;
 
+  const dateStr = (() => {
+    if (!leaveDates) return '';
+    const arr = Array.isArray(leaveDates)
+      ? leaveDates.filter(Boolean)
+      : String(leaveDates).split(',').map((s) => s.trim()).filter(Boolean);
+    if (!arr.length) return '';
+    if (arr.length === 1) return ` on ${arr[0]}`;
+    const sorted = [...arr].sort();
+    return ` from ${sorted[0]} to ${sorted[sorted.length - 1]} (${arr.length} day(s))`;
+  })();
+
   if (action === "request") {
-    return `${actorDisplayName} requested ${leaveDesc}`;
+    return `${actorDisplayName} submitted a ${leaveDesc} request${dateStr}.`;
   }
 
   if (action === "denied") {
-    return `${actorDisplayName} rejected ${requesterDisplayName}'s request for ${leaveDesc}`;
+    return `${actorDisplayName} denied ${requesterDisplayName}'s ${leaveDesc} request.`;
   }
 
   if (action === "immediateSupervisor_approved") {
-    return `Immediate supervisor ${actorDisplayName} approve the request ${leaveDesc} of ${requesterDisplayName}`;
+    return `Immediate Supervisor ${actorDisplayName} approved ${requesterDisplayName}'s ${leaveDesc} request.`;
   }
 
   if (action === "hr_approved") {
-    return `HR ${actorDisplayName} approve the request ${leaveDesc} of ${requesterDisplayName}`;
+    return `HR Officer ${actorDisplayName} fully approved ${requesterDisplayName}'s ${leaveDesc} request.`;
   }
 
   if (action === "cancelled") {
-    return `${actorDisplayName} cancelled its requests ${leaveDesc}`;
+    return `${actorDisplayName} cancelled their ${leaveDesc} request.`;
   }
 
   return null;
@@ -399,7 +424,7 @@ router.post("/leave_assignment", (req, res) => {
                 const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
                 const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
                 logAudit({ employeeNumber: actorEmpNum }, `Assign Leave - ${leaveDesc} (${customHours} hrs)`, 'leave_assignment', insertedId, employeeNumber);
-                await insertTransactionLog(String(employeeNumber), `${actorDisplay} assigned ${leaveDesc} (${customHours} hrs) to ${empDisplay}`);
+                await insertTransactionLog(String(employeeNumber), `${actorDisplay} assigned ${leaveDesc} (${customHours} hrs) to ${empDisplay}`, actorEmpNum);
               } catch (e) { console.error('[leave] Assign log error:', e.message); }
             })();
             emitLeaveChange("leaveAssignmentChanged");
@@ -469,7 +494,7 @@ router.post("/leave_assignment", (req, res) => {
                     const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
                     const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
                     logAudit({ employeeNumber: actorEmpNum }, `Assign Leave - ${leaveDescDefault} (${defaultHours} hrs)`, 'leave_assignment', insertedId, employeeNumber);
-                    await insertTransactionLog(String(employeeNumber), `${actorDisplay} assigned ${leaveDescDefault} (${defaultHours} hrs) to ${empDisplay}`);
+                    await insertTransactionLog(String(employeeNumber), `${actorDisplay} assigned ${leaveDescDefault} (${defaultHours} hrs) to ${empDisplay}`, actorEmpNum);
                   } catch (e) { console.error('[leave] Assign log error:', e.message); }
                 })();
                 emitLeaveChange("leaveAssignmentChanged");
@@ -587,7 +612,7 @@ router.put("/leave_assignment/:id", (req, res) => {
               const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
               const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
               logAudit({ employeeNumber: actorEmpNum }, `Update Leave Assignment - ${leaveDesc} (${newTotal} hrs)`, 'leave_assignment', id, employeeNumber);
-              await insertTransactionLog(String(employeeNumber), `${actorDisplay} updated ${leaveDesc} assignment for ${empDisplay} (${newTotal} hrs total, ${newRemaining} hrs remaining)`);
+              await insertTransactionLog(String(employeeNumber), `${actorDisplay} updated ${leaveDesc} assignment for ${empDisplay} (${newTotal} hrs total, ${newRemaining} hrs remaining)`, actorEmpNum);
             } catch (e) { console.error('[leave] Update assignment log error:', e.message); }
           })();
           emitLeaveChange("leaveAssignmentChanged");
@@ -642,7 +667,7 @@ router.delete("/leave_assignment/:id", (req, res) => {
                 const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
                 const empDisplay = formatUserDisplayName(String(targetRecord.employeeNumber), empName);
                 logAudit({ employeeNumber: actorEmpNum }, `Delete Leave Assignment - ${leaveDesc}`, 'leave_assignment', req.params.id, targetRecord.employeeNumber);
-                await insertTransactionLog(String(targetRecord.employeeNumber), `${actorDisplay} deleted ${leaveDesc} assignment for ${empDisplay}`);
+                await insertTransactionLog(String(targetRecord.employeeNumber), `${actorDisplay} deleted ${leaveDesc} assignment for ${empDisplay}`, actorEmpNum);
               } catch (e) { console.error('[leave] Delete assignment log error:', e.message); }
             })();
           }
@@ -679,7 +704,7 @@ router.get("/leave_request/transactions", (req, res) => {
   const query = `
     SELECT *
     FROM transaction_table
-    ORDER BY id DESC
+    ORDER BY id ASC
   `;
   db.query(query, (err, results) => {
     if (err) {
@@ -712,7 +737,7 @@ router.get("/leave_request/transactions/:employeeNumber", (req, res) => {
     SELECT *
     FROM transaction_table
     WHERE employee_id = ?
-    ORDER BY id DESC
+    ORDER BY id ASC
   `;
   db.query(query, [req.params.employeeNumber], (err, results) => {
     if (err) {
@@ -827,11 +852,13 @@ router.post("/leave_request", (req, res) => {
         actorDisplayName,
         requesterDisplayName: actorDisplayName,
         leaveDesc: leave_description,
+        leaveDates: dates,
       });
 
       await insertTransactionLog(
         actorEmployeeNumber,
-        requestMessage
+        requestMessage,
+        actorEmployeeNumber
       );
 
       logAudit({ employeeNumber: actorEmployeeNumber }, `Submit Leave Request - ${leave_description} (${dates.length} day(s))`, 'leave_request', null, employeeNumber);
@@ -882,7 +909,7 @@ router.put("/leave_request/bulk-update", (req, res) => {
 
   const placeholders = ids.map(() => "?").join(",");
   db.query(
-    `SELECT id, employeeNumber, leave_code, leave_date, status FROM leave_request WHERE id IN (${placeholders})`,
+    `SELECT lr.id, lr.employeeNumber, lr.leave_code, lr.leave_date, lr.status, lt.leave_description FROM leave_request lr LEFT JOIN leave_table lt ON lr.leave_code = lt.leave_code WHERE lr.id IN (${placeholders})`,
     ids,
     (err, requests) => {
       if (err) return res.status(500).json({ error: err.message });
@@ -966,7 +993,7 @@ router.put("/leave_request/bulk-update", (req, res) => {
                       requesterDisplayName,
                       leaveDesc: request.leave_description,
                     });
-                    return insertTransactionLog(actorEmployeeNumber, message);
+                    return insertTransactionLog(String(request.employeeNumber), message, actorEmployeeNumber);
                   }),
                 );
               })();
@@ -1053,8 +1080,9 @@ router.put("/leave_request/bulk-update", (req, res) => {
                     actorDisplayName,
                     requesterDisplayName,
                     leaveDesc: request.leave_description,
+                    leaveDates: request.leave_date,
                   });
-                  return insertTransactionLog(actorEmployeeNumber, message);
+                  return insertTransactionLog(String(request.employeeNumber), message, actorEmployeeNumber);
                 }),
               );
             })();
@@ -1133,8 +1161,9 @@ router.put("/leave_request/:id", (req, res) => {
                   actorDisplayName,
                   requesterDisplayName,
                   leaveDesc: leave_description,
+                  leaveDates: leave_date,
                 });
-                await insertTransactionLog(actorEmployeeNumber, message);
+                await insertTransactionLog(String(employeeNumber), message, actorEmployeeNumber);
             }
 
             const auditActionStr = {
@@ -1288,7 +1317,7 @@ router.delete("/leave_request/:id", (req, res) => {
             const leaveDesc = targetRecord.leave_description || targetRecord.leave_code;
             const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
             const empDisplay = formatUserDisplayName(String(targetRecord.employeeNumber), empName);
-            await insertTransactionLog(String(targetRecord.employeeNumber), `${actorDisplay} deleted leave request for ${leaveDesc} of ${empDisplay}`);
+            await insertTransactionLog(String(targetRecord.employeeNumber), `${actorDisplay} deleted leave request for ${leaveDesc} of ${empDisplay}`, actorEmpNum);
           } catch (e) { console.error('[leave] Delete request log error:', e.message); }
         }
         emitLeaveChange("leaveRequestChanged");

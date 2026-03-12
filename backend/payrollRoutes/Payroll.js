@@ -158,6 +158,7 @@ router.get('/payroll/search', authenticateToken, (req, res) => {
       oar.totalRenderedServiceCreditTardiness,
       oar.totalRenderedOvertime,
       oar.totalRenderedOvertimeTardiness,
+      COALESCE(ec.employmentCategory, -1) AS employmentCategory,
       CASE itt.step
         WHEN 'step1' THEN sgt.step1
         WHEN 'step2' THEN sgt.step2
@@ -171,6 +172,7 @@ router.get('/payroll/search', authenticateToken, (req, res) => {
       END AS rateNbc594
     FROM payroll_processing p
     LEFT JOIN person_table pt ON pt.agencyEmployeeNum = p.employeeNumber
+    LEFT JOIN employment_category ec ON CAST(ec.employeeNumber AS CHAR) = CAST(p.employeeNumber AS CHAR)
     LEFT JOIN (
       SELECT employeeNumber, MAX(id) as max_id
       FROM remittance_table
@@ -228,6 +230,7 @@ router.get('/payroll/search', authenticateToken, (req, res) => {
       AND oar.startDate = p.startDate
       AND oar.endDate = p.endDate
     WHERE (p.rh IS NULL OR p.rh = "")
+      AND COALESCE(ec.employmentCategory, -1) IN (2, 3, 4, -1)
       AND (
         p.employeeNumber LIKE ?
         OR CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) LIKE ?
@@ -330,6 +333,7 @@ router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
         oar.totalRenderedServiceCreditTardiness,
         oar.totalRenderedOvertime,
         oar.totalRenderedOvertimeTardiness,
+        COALESCE(ec.employmentCategory, -1) AS employmentCategory,
         CASE itt.step
           WHEN 'step1' THEN sgt.step1
           WHEN 'step2' THEN sgt.step2
@@ -343,6 +347,7 @@ router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
         END AS rateNbc594
       FROM payroll_processing p
       LEFT JOIN person_table pt ON pt.agencyEmployeeNum = p.employeeNumber
+      LEFT JOIN employment_category ec ON CAST(ec.employeeNumber AS CHAR) = CAST(p.employeeNumber AS CHAR)
       LEFT JOIN (
         SELECT employeeNumber, MAX(id) as max_id
         FROM remittance_table
@@ -400,6 +405,7 @@ router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
         AND oar.startDate = p.startDate
         AND oar.endDate = p.endDate
       WHERE (p.rh IS NULL OR p.rh = "")
+        AND COALESCE(ec.employmentCategory, -1) IN (2, 3, 4, -1)
     `;
 
     const queryParams = [];
@@ -823,25 +829,24 @@ router.post('/add-rendered-time', authenticateToken, async (req, res) => {
       const [existingRows] = await db
         .promise()
         .query(
-          'SELECT id FROM payroll_processing WHERE employeeNumber = ? AND startDate = ? AND endDate = ? LIMIT 1',
+          'SELECT id, rh, rm, rs FROM payroll_processing WHERE employeeNumber = ? AND startDate = ? AND endDate = ? LIMIT 5',
           [employeeNumber, startDate, endDate],
         );
 
-      if (existingRows.length === 0) {
+      console.log(`[add-rendered-time] emp=${employeeNumber} start=${startDate} end=${endDate} | found rows:`, JSON.stringify(existingRows));
+
+      const hasRegularRecord = existingRows.some(
+        (row) => row.rh === null || row.rh === '' || row.rh === 0,
+      );
+
+      if (!hasRegularRecord) {
         await db
           .promise()
           .query(
-            'INSERT INTO payroll_processing (employeeNumber, startDate, endDate, h, m, s, department) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO payroll_processing (employeeNumber, startDate, endDate, h, m, s, rh, rm, rs, department) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)',
             [employeeNumber, startDate, endDate, h, m, s, departmentCode],
           );
         newCount++;
-
-        // ── transaction_table per new record ─────────────────────────────
-        const tardiness = overallRenderedOfficialTimeTardiness || '00:00:00';
-        await db.promise().query(
-          'INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)',
-          [employeeNumber, `Tardiness recorded: ${tardiness} for period ${startDate}–${endDate}.`],
-        );
 
         // ── audit log per new record ──────────────────────────────────────
         try {
@@ -875,7 +880,7 @@ router.get('/payroll-processed', authenticateToken, (req, res) => {
   const query = `
     SELECT pp.*, COALESCE(ec.employmentCategory, -1) AS employmentCategory
     FROM payroll_processed pp
-    LEFT JOIN employment_category ec ON pp.employeeNumber = ec.employeeNumber
+    LEFT JOIN employment_category ec ON CAST(pp.employeeNumber AS CHAR) = CAST(ec.employeeNumber AS CHAR)
     ORDER BY pp.dateCreated DESC
   `;
 
@@ -1000,6 +1005,10 @@ router.post('/payroll-processed', authenticateToken, async (req, res) => {
 
     await connection.query(insertQuery, [values]);
 
+    const _actorName = getUserDisplayName(req.user);
+    const _actorEmpNum = req.user?.employeeNumber ? String(req.user.employeeNumber) : null;
+    const _actorDisplay = _actorEmpNum ? `${_actorName} (${_actorEmpNum})` : _actorName;
+
     for (const entry of payrollData) {
       const tardySeconds = toSeconds(entry.h, entry.m, entry.s);
       const tevlAfterCredit = parseFloat(entry.tevl) || 0;
@@ -1034,24 +1043,26 @@ router.post('/payroll-processed', authenticateToken, async (req, res) => {
       const tevlBefore = Math.max(0, tevlAfterCredit - VL_CREDIT);
       const dvltHours = dvltSeconds / 3600;
 
+      const _empDisplay = entry.name ? `${entry.name} (${entry.employeeNumber})` : String(entry.employeeNumber);
+
       // 5a. VL credit added
       await connection.query(
         `INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)`,
-        [entry.employeeNumber, `VL monthly credit of +${VL_CREDIT} hrs added. TEVL updated from ${tevlBefore.toFixed(2)} hrs to ${tevlAfterCredit.toFixed(2)} hrs.`],
+        [entry.employeeNumber, `${_actorDisplay} added VL monthly credit of +${VL_CREDIT} hrs for ${_empDisplay}. TEVL updated from ${tevlBefore.toFixed(2)} hrs to ${tevlAfterCredit.toFixed(2)} hrs.`],
       );
 
       // 5b. Tardiness absorbed by VL (only if there is tardiness)
       if (tardySeconds > 0) {
         await connection.query(
           `INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)`,
-          [entry.employeeNumber, `Tardiness of ${(tardySeconds / 3600).toFixed(2)} hrs deducted from TEVL (used to cover ABS). DVLT applied: ${dvltHours.toFixed(2)} hrs. This offsets the absence deduction from gross salary.`],
+          [entry.employeeNumber, `${_actorDisplay} applied tardiness deduction of ${(tardySeconds / 3600).toFixed(2)} hrs from TEVL for ${_empDisplay} (used to cover ABS). DVLT applied: ${dvltHours.toFixed(2)} hrs.`],
         );
       }
 
       // 5c. Remaining VL balance after deduction
       await connection.query(
         `INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)`,
-        [entry.employeeNumber, `VL balance after deduction: ${finalLeaveHours.toFixed(2)} hrs remaining.`],
+        [entry.employeeNumber, `${_actorDisplay} finalized VL balance for ${_empDisplay}: ${finalLeaveHours.toFixed(2)} hrs remaining after deduction.`],
       );
 
       // ── 6. Audit log per employee ────────────────────────────────────────
@@ -1136,10 +1147,20 @@ router.delete('/payroll-processed/:id', authenticateToken, async (req, res) => {
       [employeeNumber, startDate, endDate],
     );
 
-    // ── Insert transaction_table record for deletion ─────────────────────
+    // ── Insert transaction_table records for deletion ────────────────────
+    const _delActorName = getUserDisplayName(req.user);
+    const _delActorEmpNum = req.user?.employeeNumber ? String(req.user.employeeNumber) : null;
+    const _delActorDisplay = _delActorEmpNum ? `${_delActorName} (${_delActorEmpNum})` : _delActorName;
+
+    // Entry 1: deletion event
     await connection.query(
       'INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)',
-      [employeeNumber, `VL credit of −${VL_MONTHLY_CREDIT_HOURS} hrs reversed. VL balance restored from ${(parseFloat(tevl) || 0).toFixed(2)} hrs to ${originalLeaveHours.toFixed(2)} hrs.`],
+      [employeeNumber, `${_delActorDisplay} deleted a payroll record. Employee's VL monthly credit has been reversed and balance adjusted.`],
+    );
+    // Entry 2: VL reversal detail
+    await connection.query(
+      'INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)',
+      [employeeNumber, `${_delActorDisplay} reversed VL credit of \u2212${VL_MONTHLY_CREDIT_HOURS} hrs. VL balance restored from ${(parseFloat(tevl) || 0).toFixed(2)} hrs to ${originalLeaveHours.toFixed(2)} hrs.`],
     );
 
     await connection.commit();
@@ -1148,7 +1169,8 @@ router.delete('/payroll-processed/:id', authenticateToken, async (req, res) => {
 
     try {
       logAudit(req.user, 'DELETE', 'payroll_processed', id, employeeNumber);
-      logAudit(req.user, 'VL BALANCE', 'leave_assignment', employeeNumber, employeeNumber);
+      logAudit(req.user, `VL CREDIT REVERSED (-${VL_MONTHLY_CREDIT_HOURS} hrs)`, 'leave_assignment', employeeNumber, employeeNumber);
+      logAudit(req.user, `VL BALANCE RESTORED: ${originalLeaveHours.toFixed(2)} hrs (was ${(parseFloat(tevl) || 0).toFixed(2)} hrs)`, 'leave_assignment', employeeNumber, employeeNumber);
     } catch (e) { console.error('Audit log error:', e); }
 
     res.json({
