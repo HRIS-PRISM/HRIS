@@ -80,6 +80,7 @@ export const routeToComponentMap = {
   '/leave-request': 'leave-request',
   '/leave-request-user': 'leave-request-user',
   '/system-settings': 'system-settings',
+  '/pds-templates': 'pds-templates',
 };
 
 /**
