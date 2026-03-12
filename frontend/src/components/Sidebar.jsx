@@ -371,6 +371,8 @@ const Sidebar = ({
       setSelectedItem("daily_time_record");
     } else if (currentPath === "/payslip") {
       setSelectedItem("payslip");
+    } else if (currentPath === "/pds-templates") {
+      setSelectedItem("pds-templates");
     } else if (currentPath === "/pds1") {
       setSelectedItem("pds1");
     } else if (currentPath === "/pds2") {
@@ -631,6 +633,7 @@ const Sidebar = ({
       "reset-password",
       "payroll-formulas",
       "admin-security",
+      "pds-templates",
     ];
 
     if (informationManagementItems.includes(item) && !open) {
@@ -2223,6 +2226,61 @@ const Sidebar = ({
                           </ListItemIcon>
                           <ListItemText
                             primary="System Configuration"
+                            sx={{ marginLeft: "-10px" }}
+                          />
+                        </ListItem>
+                      )}
+                      
+                      {/* PDS Templates - Technical only */}
+                    {(userRole === "technical" || userRole === "superadmin") &&
+                      shouldShowMenuItem("/pds-templates") && (
+                        <ListItem
+                          button
+                          component={Link}
+                          to="/pds-templates"
+                          onClick={() => handleItemClick("pds-templates")}
+                          sx={{
+                            bgcolor:
+                              selectedItem === "pds-templates"
+                                ? settings.accentColor || "#FEF9E1"
+                                : "inherit",
+                            color:
+                              selectedItem === "pds-templates"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color:
+                                selectedItem === "pds-templates"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color:
+                                selectedItem === "pds-templates"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "&:hover": {
+                              bgcolor: settings.hoverColor || "#6D2323",
+                              color: settings.textSecondaryColor,
+                              "& .MuiListItemIcon-root": {
+                                color: settings.textSecondaryColor,
+                              },
+                              "& .MuiListItemText-primary": {
+                                color: settings.textSecondaryColor,
+                              },
+                            },
+                            borderTopRightRadius:
+                              selectedItem === "pds-templates" ? "15px" : 0,
+                            borderBottomRightRadius:
+                              selectedItem === "pds-templates" ? "15px" : 0,
+                          }}
+                        >
+                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                            <ContactPageIcon />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="PDS Version Templates"
                             sx={{ marginLeft: "-10px" }}
                           />
                         </ListItem>

@@ -458,6 +458,13 @@ export const componentMapping = {
     description: 'System Settings',
     icon: AdminPanelSettings,
   },
+  'pds-templates': {
+    componentPath: './PDSTemplates.jsx',
+    routePath: '/pds-templates',
+    componentName: 'PDSTemplates',
+    description: 'PDS Version Templates',
+    icon: FileCopy,
+  },
 
 };
 

@@ -24,7 +24,7 @@ import {
   Link,
   IconButton,
 } from "@mui/material";
-import { AccessTime, Lock, Logout, Email, Facebook } from "@mui/icons-material";
+import { AccessTime, Lock, Logout, Email, Facebook, ContactSupport } from "@mui/icons-material";
 import axios from "axios";
 import ProtectedRoute from "./components/ProtectedRoute";
 import {
@@ -113,6 +113,7 @@ import IndividualFacultyLoading from "./components/FORMS/IndividualFacultyLoadin
 import HrmsRequestForms from "./components/FORMS/HRMSRequestForms";
 import EmploymentCategoryManagement from "./components/EmploymentCategory";
 
+import PDSTemplates from "./components/PDS/PDSTemplates";
 import PDS1 from "./components/PDS/PDS1";
 import PDS2 from "./components/PDS/PDS2";
 import PDS3 from "./components/PDS/PDS3";
@@ -1058,6 +1059,19 @@ function App() {
                 </ProtectedRoute>
               }
             />
+              <Route
+              path="/pds-templates"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "superadmin",
+                    "technical",
+                  ]}
+                >
+                  <PDSTemplates />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/pds1"
               element={
@@ -1073,6 +1087,7 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            
             <Route
               path="/pds2"
               element={
@@ -1878,6 +1893,16 @@ function App() {
         </Typography>
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <IconButton
+  onClick={() => {
+    window.location.href = "/settings?tab=contactus";
+  }}
+  color="inherit"
+  size="small"
+  title="Contact Us"
+>
+  <ContactSupport fontSize="small" />
+</IconButton>
           <IconButton
             component="a"
             href={`https://mail.google.com/mail/?view=cm&fs=1&to=${systemSettings.adminEmail}`}

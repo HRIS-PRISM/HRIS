@@ -344,19 +344,6 @@ router.post('/api/contact-us', authenticateToken, upload.single('attachment'), (
       const submitterName = name || 'A user';
       const notificationDescription = `${submitterName} submitted a new ticket${subject ? `: ${subject}` : ''}. Click to view details.`;
 
-      // Insert initial message into thread
-      db.query(
-        `INSERT INTO contact_us_messages
-          (contact_id, sender_role, sender_employee_number, sender_name, sender_email, message, attachment)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [contactId, senderRole, employeeNumber, name, email, message || '', attachment],
-        (msgErr) => {
-          if (msgErr) {
-            console.error('Error creating contact message thread:', msgErr);
-          }
-        }
-      );
-
       notifyContactThreadChanged('created', {
         contactId,
         employeeNumber,

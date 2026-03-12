@@ -355,6 +355,35 @@ function notifyContactThreadChanged(action, data) {
   }
 }
 
+
+
+/**
+ * Broadcast a newly created audit log entry in real-time.
+ * Admins/superadmins/technical receive ALL logs via role rooms.
+ * Each employee also receives their own logs via their personal room.
+ * @param {object} logEntry - The new audit log row
+ */
+function broadcastNewAuditLog(logEntry) {
+  try {
+    const io = getIO();
+    const adminRoles = ['administrator', 'superadmin', 'technical'];
+
+    // Broadcast to admin role rooms
+    adminRoles.forEach((role) => {
+      io.to(`role:${role}`).emit('auditLogCreated', logEntry);
+    });
+
+    // Also push to the employee's own room so non-admins see their logs
+    if (logEntry.employeeNumber) {
+      io.to(logEntry.employeeNumber).emit('auditLogCreated', logEntry);
+    }
+
+    console.log(`✓ Broadcasted new audit log: ${logEntry.action} by ${logEntry.employeeNumber}`);
+  } catch (error) {
+    console.error('Failed to broadcast audit log:', error.message);
+  }
+}
+
 module.exports = {
   notifyPageAccessGranted,
   notifyPageAccessRevoked,

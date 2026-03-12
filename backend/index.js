@@ -56,6 +56,7 @@ const reportsRoutes = require('./routes/reports');
 const settingsExtendedRoutes = require('./routes/settings-extended');
 const confidentialPasswordRoutes = require('./routes/confidential-password');
 const commutationRoute = require('./routes/commutation');
+const pdsTemplatesRoutes = require('./routes/pds-templates');
 
 
 const app = express();
@@ -352,6 +353,7 @@ app.use('/', settingsExtendedRoutes);
 app.use('/', confidentialPasswordRoutes);
 app.use('/', PayrollFormulas);
 app.use('/commutationRoute', commutationRoute);
+app.use('/pds-templates', pdsTemplatesRoutes);
 
 // Server startup with Socket.IO
 const PORT = process.env.WEB_PORT || 5000;
