@@ -1,14 +1,13 @@
 import API_BASE_URL from "../apiConfig";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { getUserInfo } from "../utils/auth";
 import {
-  Alert, TextField, Button, Box, Typography, InputAdornment, IconButton,
+  Alert, TextField, Button, Box, Typography, InputAdornment, IconButton, Rating,
   Checkbox, FormControlLabel, Stepper, Step, StepLabel, Switch,
   Accordion, AccordionSummary, AccordionDetails, Chip, Grid, Divider,
-  Dialog, DialogContent, DialogActions, Table, TableBody, TableCell,
-  TableHead, TableRow, Select, MenuItem, FormControl, Badge, alpha,
+  Dialog, DialogContent, DialogActions, Select, MenuItem, FormControl, alpha,
   Backdrop, CircularProgress,
 } from "@mui/material";
 import {
@@ -18,9 +17,10 @@ import {
   QuestionAnswer, Business, Policy, ContactSupport, Close,
   People as PeopleIcon, Add, Edit, Delete, Visibility as VisibilityIcon,
   Save, Cancel, CheckCircle, Error as ErrorIcon, HelpOutline,
-  ExpandMore, KeyboardArrowRight, Logout as LogoutIcon,
+  ExpandMore, KeyboardArrowRight, Logout as LogoutIcon, AttachFile,
 } from "@mui/icons-material";
 import { useSystemSettings } from "../contexts/SystemSettingsContext";
+import { useSocket } from "../contexts/SocketContext";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    GLOBAL STYLES + FONT IMPORT
@@ -134,6 +134,7 @@ const SettingsWireframe = () => (
 ───────────────────────────────────────────────────────────────────────────── */
 const Settings = () => {
   const { settings: sys } = useSystemSettings();
+  const { socket, connected } = useSocket();
   const navigate = useNavigate();
 
   /* state */
@@ -160,8 +161,18 @@ const Settings = () => {
   const [contactSubmissions, setContactSubmissions] = useState([]);
   const [selectedSub, setSelectedSub]               = useState(null);
   const [subDialogOpen, setSubDialogOpen]           = useState(false);
-  const [showTickets, setShowTickets]               = useState(false);
+  const [contactView, setContactView]               = useState("thread"); // thread | compose
+  const [contactStatusFilter, setContactStatusFilter] = useState("all");
   const [adminReply, setAdminReply]                 = useState("");
+  const [contactMessages, setContactMessages]       = useState([]);
+  const [messagesLoading, setMessagesLoading]       = useState(false);
+  const [feedbackOpen, setFeedbackOpen]             = useState(false);
+  const [feedbackMessages, setFeedbackMessages]     = useState([]);
+  const [feedbackLoading, setFeedbackLoading]       = useState(false);
+  const [feedbackReply, setFeedbackReply]           = useState("");
+  const [feedbackAttachment, setFeedbackAttachment] = useState(null);
+  const [feedbackRating, setFeedbackRating]         = useState(0);
+  const [feedbackSubmitted, setFeedbackSubmitted]   = useState(false);
   const [faqDialogOpen, setFaqDialogOpen]           = useState(false);
   const [editingFaq, setEditingFaq]                 = useState(null);
   const [faqForm, setFaqForm]                       = useState({ question: "", answer: "", category: "general", display_order: 0, is_active: true });
@@ -171,6 +182,11 @@ const Settings = () => {
   const [editingPolicy, setEditingPolicy]           = useState(null);
   const [policyForm, setPolicyForm]                 = useState({ title: "", content: "", category: "privacy", display_order: 0, is_active: true });
   const [toast, setToast]                           = useState({ open: false, message: "", severity: "success" });
+  const [firstName, setFirstName]                   = useState("");
+  const [lastName, setLastName]                     = useState("");
+  const threadScrollRef                             = useRef(null);
+  const [contactAttachment, setContactAttachment]   = useState(null);
+  const [replyAttachment, setReplyAttachment]       = useState(null);
 
   const employeeNumber = localStorage.getItem("employeeNumber");
 
@@ -280,19 +296,120 @@ const Settings = () => {
   const handleLogout       = () => { setLogoutOpen(true); setTimeout(() => { localStorage.clear(); sessionStorage.clear(); window.location.href = "/"; }, 1500); };
 
   const handleContactSubmit = async () => {
-    if (!contactForm.name || !contactForm.message) { setErrMsg("Name and message are required."); return; }
+    if (!contactForm.name || (!contactForm.message && !contactAttachment)) { setErrMsg("Name and message or attachment are required."); return; }
     setLoading(true); setErrMsg("");
     try {
-      const res = await axios.post(`${API_BASE_URL}/api/contact-us`, contactForm, { headers: { Authorization: `Bearer ${tok()}` } });
-      if (res.status === 200 || res.status === 201) { notify("Message submitted."); setContactForm({ name: "", email: "earisthrmstesting@gmail.com", subject: "", message: "" }); }
+      const formData = new FormData();
+      formData.append("name", contactForm.name);
+      formData.append("email", contactForm.email);
+      formData.append("subject", contactForm.subject || "");
+      formData.append("message", contactForm.message);
+      if (contactAttachment) formData.append("attachment", contactAttachment);
+
+      const res = await axios.post(`${API_BASE_URL}/api/contact-us`, formData, { headers: { Authorization: `Bearer ${tok()}` } });
+      if (res.status === 200 || res.status === 201) {
+        notify("Message submitted.");
+        setContactForm({ name: "", email: contactForm.email, subject: "", message: "" });
+        setContactAttachment(null);
+        await fetchTickets(res.data?.id);
+        setContactView("thread");
+      }
     } catch { setErrMsg("Connection error."); } finally { setLoading(false); }
   };
 
-  const fetchTickets = async () => {
+  const fetchTickets = async (selectId = null) => {
     try {
       const r = await axios.get(`${API_BASE_URL}/api/contact-us`, { headers: { Authorization: `Bearer ${tok()}` } });
-      setContactSubmissions(r.data.data || r.data || []);
+      const list = r.data.data || r.data || [];
+      const statusOrder = { new: 1, read: 2, replied: 3, on_process: 4, resolved: 5 };
+      list.sort((a, b) => {
+        const aRank = statusOrder[a.status] || 99;
+        const bRank = statusOrder[b.status] || 99;
+        if (aRank !== bRank) return aRank - bRank;
+        return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+      });
+      setContactSubmissions(list);
+      if (selectId) {
+        const match = list.find(s => s.id === selectId);
+        if (match) setSelectedSub(match);
+      } else if (!selectedSub && list.length > 0) {
+        setSelectedSub(list[0]);
+      }
     } catch {}
+  };
+
+  const fetchMessages = async (ticketId) => {
+    if (!ticketId) { setContactMessages([]); return; }
+    setMessagesLoading(true);
+    try {
+      const r = await axios.get(`${API_BASE_URL}/api/contact-us/${ticketId}/messages`, { headers: { Authorization: `Bearer ${tok()}` } });
+      setContactMessages(r.data.data || r.data || []);
+    } catch {
+      setContactMessages([]);
+    } finally {
+      setMessagesLoading(false);
+    }
+  };
+
+  const handleSendThreadMessage = async () => {
+    if (!selectedSub || (!adminReply.trim() && !replyAttachment)) return;
+    setLoading(true); setErrMsg("");
+    try {
+      const formData = new FormData();
+      formData.append("message", adminReply.trim());
+      if (replyAttachment) formData.append("attachment", replyAttachment);
+
+      await axios.post(
+        `${API_BASE_URL}/api/contact-us/${selectedSub.id}/messages`,
+        formData,
+        { headers: { Authorization: `Bearer ${tok()}` } }
+      );
+      setAdminReply("");
+      setReplyAttachment(null);
+      await fetchTickets(selectedSub.id);
+      await fetchMessages(selectedSub.id);
+    } catch {
+      setErrMsg("Failed to send message.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchFeedbackMessages = async (ticketId) => {
+    if (!ticketId) { setFeedbackMessages([]); return; }
+    setFeedbackLoading(true);
+    try {
+      const r = await axios.get(`${API_BASE_URL}/api/contact-us/${ticketId}/feedback`, { headers: { Authorization: `Bearer ${tok()}` } });
+      const list = r.data.data || r.data || [];
+      setFeedbackMessages(list);
+      if (!isAdmin) setFeedbackSubmitted(list.length > 0);
+    } catch {
+      setFeedbackMessages([]);
+    } finally {
+      setFeedbackLoading(false);
+    }
+  };
+
+  const handleSendFeedback = async () => {
+    if (!selectedSub || (!feedbackReply.trim() && !feedbackAttachment && !feedbackRating)) return;
+    setLoading(true); setErrMsg("");
+    try {
+      const fd = new FormData();
+      fd.append("message", feedbackReply.trim());
+      if (feedbackRating) fd.append("rating", String(feedbackRating));
+      if (feedbackAttachment) fd.append("attachment", feedbackAttachment);
+      await axios.post(`${API_BASE_URL}/api/contact-us/${selectedSub.id}/feedback`, fd, { headers: { Authorization: `Bearer ${tok()}` } });
+      if (isAdmin) await fetchFeedbackMessages(selectedSub.id);
+      setFeedbackReply("");
+      setFeedbackAttachment(null);
+      setFeedbackRating(0);
+      setFeedbackSubmitted(true);
+      setFeedbackOpen(false);
+    } catch (err) {
+      setErrMsg(err.response?.data?.error || "Failed to send feedback.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSaveFaq = async () => {
@@ -326,11 +443,89 @@ const Settings = () => {
     } catch (err) { setErrMsg(err.response?.data?.error || "Failed."); } finally { setLoading(false); }
   };
 
+  const fetchUsersData = async (employeeNumber) => {
+    try {
+      const token = tok();
+      if (!token || !employeeNumber) return;
+      const res = await axios.get(`${API_BASE_URL}/users/${employeeNumber}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const user = res.data?.user || res.data;
+      setFirstName(user?.firstName || "");
+      setLastName(user?.lastName || "");
+
+      console.log("Username: ", res.data.firstName + res.data.lastName)
+    } catch (err) {
+      setErrMsg(err.response?.data?.error || "Failed.");
+    } finally { setLoading(false); }
+  }
+
+  useEffect(() => {
+    fetchUsersData(employeeNumber);
+  }, [])
+
+  useEffect(() => {
+    if (activeSection === "contact") fetchTickets();
+  }, [activeSection]);
+
+  useEffect(() => {
+    fetchMessages(selectedSub?.id);
+  }, [selectedSub?.id]);
+
+  useEffect(() => {
+    if (!socket || !connected) return;
+
+    const onContactThreadChanged = (payload) => {
+      if (activeSection !== "contact") return;
+      const contactId = payload?.contactId;
+      fetchTickets(contactId || selectedSub?.id);
+      if (!contactId || contactId === selectedSub?.id) {
+        fetchMessages(selectedSub?.id);
+      }
+    };
+
+    socket.on("contactThreadChanged", onContactThreadChanged);
+    return () => socket.off("contactThreadChanged", onContactThreadChanged);
+  }, [socket, connected, activeSection, selectedSub?.id]);
+
+  useEffect(() => {
+    if (!firstName && !lastName && !userEmail) return;
+    setContactForm(p => ({
+      ...p,
+      name: p.name || [firstName, lastName].filter(Boolean).join(" "),
+      email: p.email || userEmail || p.email,
+    }));
+  }, [firstName, lastName, userEmail]);
+
+  useEffect(() => {
+    setFeedbackMessages([]);
+    setFeedbackReply("");
+    setFeedbackAttachment(null);
+    setFeedbackRating(0);
+    setFeedbackSubmitted(false);
+  }, [selectedSub?.id]);
+
+  const handlePasteAttachment = (e, setAttachment) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const fileItem = items.find(item => item.kind === "file");
+    if (fileItem) {
+      const file = fileItem.getAsFile();
+      if (file) setAttachment(file);
+    }
+  };
+
+  useEffect(() => {
+    if (contactView === "compose" || !selectedSub) return;
+    if (!threadScrollRef.current) return;
+    // Keep thread pinned to latest message after updates.
+    threadScrollRef.current.scrollTop = threadScrollRef.current.scrollHeight;
+  }, [contactMessages, messagesLoading, contactView, selectedSub?.id]);
+
   const handleUpdateSubStatus = async (id, status, adminNotes = null) => {
     setLoading(true);
     try {
       await axios.put(`${API_BASE_URL}/api/contact-us/${id}`, { status, admin_notes: adminNotes }, { headers: { Authorization: `Bearer ${tok()}` } });
-      notify(adminNotes ? "Reply sent." : "Status updated."); fetchTickets();
+      notify(adminNotes ? "Reply sent." : "Status updated."); fetchTickets(id); fetchMessages(id);
       if (selectedSub) setSelectedSub(p => ({ ...p, status: status || p.status, admin_notes: adminNotes !== null ? adminNotes : p.admin_notes }));
       if (adminNotes) setAdminReply("");
     } catch (err) { setErrMsg(err.response?.data?.error || "Failed."); } finally { setLoading(false); }
@@ -414,12 +609,36 @@ const Settings = () => {
     </Box>
   );
 
+  const STATUS_LABELS = {
+    new: "New",
+    on_process: "On Process",
+    read: "Read",
+    replied: "Replied",
+    resolved: "Resolved",
+  };
+
+  const STATUS_OPTIONS = [
+    { value: "new", label: "New" },
+    { value: "read", label: "Read" },
+    { value: "replied", label: "Replied" },
+    { value: "on_process", label: "On Process" },
+    { value: "resolved", label: "Resolved" },
+  ];
+
   /* Status badge */
   const StatusBadge = ({ status }) => {
-    const map = { new: ["#92400e", "#fef3c7", "#d97706"], read: ["#1e3a5f", "#dbeafe", "#2563eb"], replied: ["#14532d", "#dcfce7", "#16a34a"], resolved: ["#374151", "#f3f4f6", "#6b7280"] };
+    const map = {
+      new: ["#92400e", "#fef3c7", "#d97706"],
+      on_process: ["#7c2d12", "#ffedd5", "#fb923c"],
+      read: ["#1e3a5f", "#dbeafe", "#2563eb"],
+      replied: ["#14532d", "#dcfce7", "#16a34a"],
+      resolved: ["#374151", "#f3f4f6", "#6b7280"],
+    };
     const [tc, bg, bc] = map[status] || map.resolved;
     return <Box sx={{ px: 1.25, py: 0.2, bgcolor: bg, border: `1px solid ${alpha(bc, 0.4)}`, borderRadius: "2px", display: "inline-block" }}>
-      <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.62rem", fontWeight: 700, color: tc, letterSpacing: "0.1em", textTransform: "uppercase" }}>{status}</Typography>
+      <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.62rem", fontWeight: 700, color: tc, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+        {STATUS_LABELS[status] || status}
+      </Typography>
     </Box>;
   };
 
@@ -434,13 +653,6 @@ const Settings = () => {
       </Box>
     );
   };
-
-  const NavDivider = ({ label }) => (
-    <>
-      <Box sx={{ height: 1, bgcolor: DARK_BD, mx: 2.5, my: 1.5 }} />
-      <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.6rem", fontWeight: 600, color: "rgba(255,255,255,0.25)", letterSpacing: "0.14em", textTransform: "uppercase", px: 2.5, pb: 0.75 }}>{label}</Typography>
-    </>
-  );
 
   /* Dialog chrome */
   const DlgHeader = ({ icon: Icon, title, onClose }) => (
@@ -508,10 +720,15 @@ const Settings = () => {
   /* ────────────────────────────────────────────────────────────────────────
      RENDER
   ──────────────────────────────────────────────────────────────────────── */
+  const filteredContactSubmissions =
+    contactStatusFilter === "all"
+      ? contactSubmissions
+      : contactSubmissions.filter(sub => (sub.status || "new") === contactStatusFilter);
+
   const sectionMeta = { password: "Change Password", email: "Email Settings", security: "Two-Factor Auth", about: "About Us", faqs: "FAQs", policy: "Policies", contact: "Contact Us" };
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: PAGE_BG, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+    <Box sx={{ position: "relative", minHeight: "100vh", bgcolor: PAGE_BG, fontFamily: "'IBM Plex Sans', sans-serif"}}>
       <style>{GLOBAL_CSS}</style>
 
       <Backdrop open={loading} sx={{ zIndex: t => t.zIndex.drawer + 1, bgcolor: "rgba(0,0,0,0.5)" }}>
@@ -520,50 +737,9 @@ const Settings = () => {
           <Typography sx={{ mt: 2, color: "#fff", fontSize: "0.85rem", fontWeight: 600, fontFamily: "'IBM Plex Sans', sans-serif" }}>Processing…</Typography>
         </Box>
       </Backdrop>
-
-      {/* ── SIDEBAR ─────────────────────────────────────────────────────────── */}
-      <Box sx={{ width: 256, flexShrink: 0, bgcolor: DARK, borderRight: `1px solid ${DARK_BD}`, display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto" }}>
-        {/* Sidebar header */}
-        <Box sx={{ px: 2.5, py: 2, borderBottom: `1px solid ${DARK_BD}`, display: "flex", alignItems: "center", gap: 1.5 }}>
-          <Box sx={{ width: 32, height: 32, bgcolor: P, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "3px", flexShrink: 0 }}>
-            <SettingsIcon sx={{ fontSize: 17, color: "#fff" }} />
-          </Box>
-          <Box>
-            <Typography sx={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700, fontSize: "0.82rem", color: "#fff", lineHeight: 1.2 }}>Settings</Typography>
-            <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.6rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.06em", textTransform: "uppercase" }}>HRIS Platform</Typography>
-          </Box>
-        </Box>
-
-        {/* Nav */}
-        <Box sx={{ flex: 1, pt: 1.5 }}>
-          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.6rem", fontWeight: 600, color: "rgba(255,255,255,0.25)", letterSpacing: "0.14em", textTransform: "uppercase", px: 2.5, pb: 0.75 }}>Account</Typography>
-          <NavItem section="password" icon={VpnKey}       label="Change Password" />
-          <NavItem section="email"    icon={EmailIcon}    label="Email Settings" />
-          <NavItem section="security" icon={Shield}       label="Two-Factor Auth" />
-          <NavDivider label="Information" />
-          <NavItem section="about"   icon={Business}       label="About Us" />
-          <NavItem section="faqs"    icon={QuestionAnswer} label="FAQs" />
-          <NavItem section="policy"  icon={Policy}         label="Policies" />
-          <NavItem section="contact" icon={ContactSupport} label="Contact Us" />
-        </Box>
-
-        {/* Sidebar footer */}
-        <Box sx={{ px: 2.5, py: 2, borderTop: `1px solid ${DARK_BD}` }}>
-          {userRole !== "staff" && (
-            <Box onClick={() => navigate("/users-list")} sx={{ display: "flex", alignItems: "center", gap: 1.25, py: 1, cursor: "pointer", color: "rgba(255,255,255,0.45)", "&:hover": { color: "rgba(255,255,255,0.8)" }, mb: 0.5 }}>
-              <PeopleIcon sx={{ fontSize: 15 }} />
-              <Typography sx={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: "0.82rem" }}>User Management</Typography>
-            </Box>
-          )}
-          <Box onClick={handleLogout} sx={{ display: "flex", alignItems: "center", gap: 1.25, py: 1, cursor: "pointer", color: "rgba(255,255,255,0.45)", "&:hover": { color: "#ef4444" } }}>
-            <LogoutIcon sx={{ fontSize: 15 }} />
-            <Typography sx={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: "0.82rem" }}>Log Out</Typography>
-          </Box>
-        </Box>
-      </Box>
-
+      
       {/* ── MAIN ────────────────────────────────────────────────────────────── */}
-      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+      <Box sx={{ width: "calc(100% - 256px)", display: "flex", flexDirection: "column", minWidth: 0, mr: "256px", boxSizing: "border-box" }}>
 
         {/* Top bar */}
         <Box sx={{ height: 48, bgcolor: PANEL, borderBottom: `1px solid ${BD}`, display: "flex", alignItems: "center", px: 3, gap: 1.5, flexShrink: 0 }}>
@@ -571,10 +747,10 @@ const Settings = () => {
           <Typography sx={{ color: BD, fontSize: "0.75rem" }}>/</Typography>
           <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.72rem", color: P, fontWeight: 600 }}>{sectionMeta[activeSection]}</Typography>
           <Box sx={{ flex: 1 }} />
-          {userEmail && (
+          {firstName && lastName && (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 0.5, bgcolor: SUBTLE, border: `1px solid ${BD}`, borderRadius: "3px" }}>
               <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#22c55e", animation: "pulse-ring 2s infinite", flexShrink: 0 }} />
-              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.68rem", color: MUTED }}>{userEmail}</Typography>
+              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.68rem", color: MUTED }}>{firstName} {lastName} - {employeeNumber}</Typography>
             </Box>
           )}
         </Box>
@@ -587,7 +763,7 @@ const Settings = () => {
 
           {/* ── Change Password ── */}
           {activeSection === "password" && (
-            <Box sx={{ bgcolor: PANEL, border: `1px solid ${BD}` }}>
+            <Box sx={{ bgcolor: PANEL, border: `1px solid ${BD}`, overflow: "hidden" }}>
               <SectionTitle icon={VpnKey} title="Change Password" />
               <Box sx={{ p: 3.5 }}>
                 {/* Custom stepper */}
@@ -759,60 +935,254 @@ const Settings = () => {
             </Box>
           )}
 
-          {/* ── Contact Us ── */}
+          {/* ?? Contact Us ?? */}
           {activeSection === "contact" && (
             <Box sx={{ bgcolor: PANEL, border: `1px solid ${BD}` }}>
-              <SectionTitle icon={ContactSupport} title={showTickets ? "Ticket Submissions" : "Contact Us"}
-                action={isAdmin && (
-                  <Badge badgeContent={contactSubmissions.filter(s => s.status === "new").length} sx={{ "& .MuiBadge-badge": { bgcolor: "#ef4444", color: "#fff", fontSize: "0.6rem" } }}>
-                    <Btn sm outline startIcon={showTickets ? <Add sx={{ fontSize: 14 }} /> : <VisibilityIcon sx={{ fontSize: 14 }} />}
-                      onClick={() => { setShowTickets(!showTickets); if (!showTickets) fetchTickets(); }}>
-                      {showTickets ? "New Message" : "View Tickets"}
-                    </Btn>
-                  </Badge>
-                )} />
+              <SectionTitle icon={ContactSupport} title="Contact Center"
+                action={
+                  <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                    {!isAdmin && (
+                      <Btn sm startIcon={<Add sx={{ fontSize: 14 }} />} onClick={() => { setSelectedSub(null); setContactView("compose"); }}>
+                        New Message
+                      </Btn>
+                    )}
+                    <Btn sm outline onClick={() => fetchTickets(selectedSub?.id)}>Refresh</Btn>
+                  </Box>
+                } />
               <Box sx={{ p: 3.5 }}>
-                {isAdmin && showTickets ? (
-                  <>
-                    {contactSubmissions.length > 0 ? (
-                      <Box sx={{ border: `1px solid ${BD}` }}>
-                        <Table size="small">
-                          <TableHead>
-                            <TableRow sx={{ bgcolor: SUBTLE }}>
-                              {["Name", "Subject", "Date", "Status", ""].map(h => (
-                                <TableCell key={h} sx={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: "0.65rem", color: MUTED, textTransform: "uppercase", letterSpacing: "0.1em", borderBottom: `2px solid ${BD}`, py: 1.5 }}>{h}</TableCell>
-                              ))}
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {contactSubmissions.map(sub => (
-                              <TableRow key={sub.id} sx={{ "&:hover": { bgcolor: SUBTLE }, borderBottom: `1px solid ${BD}` }}>
-                                <TableCell sx={{ fontSize: "0.875rem", fontWeight: 600, color: TXT, fontFamily: "'IBM Plex Sans', sans-serif", py: 1.5 }}>{sub.name}</TableCell>
-                                <TableCell sx={{ fontSize: "0.85rem", color: MUTED, fontFamily: "'IBM Plex Sans', sans-serif" }}>{sub.subject || "—"}</TableCell>
-                                <TableCell sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.75rem", color: MUTED }}>{new Date(sub.created_at).toLocaleDateString()}</TableCell>
-                                <TableCell><StatusBadge status={sub.status} /></TableCell>
-                                <TableCell>
-                                  <IconButton size="small" onClick={() => { setSelectedSub(sub); setAdminReply(sub.admin_notes || ""); setSubDialogOpen(true); }} sx={{ color: P, p: 0.5 }}><VisibilityIcon sx={{ fontSize: 16 }} /></IconButton>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                <InfoBox>
+                  Messages are routed to authorized personnel.
+                  Replies appear here once processed.
+                </InfoBox>
+                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "320px 1fr" }, gap: 2.5 }}>
+                  {/* Inbox */}
+                  <Box>
+                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, mb: 1 }}>
+                      <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.65rem", color: MUTED, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                        Conversations
+                      </Typography>
+                      <FormControl size="small" sx={{ minWidth: 160 }}>
+                        <Select
+                          value={contactStatusFilter}
+                          onChange={e => setContactStatusFilter(e.target.value)}
+                          sx={{ borderRadius: "3px", bgcolor: SUBTLE, fontFamily: "'IBM Plex Sans', sans-serif", fontSize: "0.75rem" }}
+                        >
+                          <MenuItem value="all" sx={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>All Statuses</MenuItem>
+                          {STATUS_OPTIONS.map(opt => (
+                            <MenuItem key={opt.value} value={opt.value} sx={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>
+                              {opt.label}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Box>
+                    <Box sx={{ border: `1px solid ${BD}`, maxHeight: 520, overflowY: "auto" }}>
+                      {filteredContactSubmissions.length > 0 ? filteredContactSubmissions.map(sub => {
+                        const isActive = selectedSub?.id === sub.id && contactView === "thread";
+                        return (
+                          <Box key={sub.id} onClick={() => {
+                            setSelectedSub(sub);
+                            setAdminReply(sub.admin_notes || "");
+                            setContactView("thread");
+                            if (isAdmin && sub.status === "new") handleUpdateSubStatus(sub.id, "read", null);
+                          }} sx={{ px: 2, py: 1.6, borderBottom: `1px solid ${BD}`, cursor: "pointer", bgcolor: isActive ? alpha(P, 0.08) : "transparent", "&:hover": { bgcolor: SUBTLE } }}>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1.2, mb: 0.75 }}>
+                              <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: TXT, fontFamily: "'IBM Plex Sans', sans-serif", flex: 1 }}>
+                                {sub.subject || "General Inquiry"}
+                              </Typography>
+                              <StatusBadge status={sub.status} />
+                            </Box>
+                            <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+                              {sub.name} • {new Date(sub.created_at).toLocaleDateString()}
+                            </Typography>
+                          </Box>
+                        );
+                      }) : (
+                        <Typography sx={{ color: MUTED, textAlign: "center", py: 6, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+                          {contactStatusFilter === "all" ? "No conversations yet." : "No conversations in this status."}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Box>
+
+                  {/* Thread / Composer */}
+                  <Box sx={{ border: `1px solid ${BD}`, minHeight: 520, display: "flex", flexDirection: "column", overflow: "hidden", width: "100%" }}>
+                    {contactView === "compose" && (
+                      <Box sx={{ p: 3, width: "100%" }}>
+                        <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.7rem", color: MUTED, letterSpacing: "0.12em", textTransform: "uppercase", mb: 2 }}>New Message</Typography>
+                        <Grid container spacing={2.5} sx={{ width: "100%" }}>
+                          <Grid item xs={12} sm={6}><FL req>Full Name</FL><TextField fullWidth size="small" sx={FX} value={contactForm.name} onChange={e => setContactForm(p => ({ ...p, name: e.target.value }))} /></Grid>
+                          <Grid item xs={12} sm={6}><FL req>Email Address</FL><TextField fullWidth size="small" sx={FX} value={contactForm.email} onChange={e => setContactForm(p => ({ ...p, email: e.target.value }))} /></Grid>
+                          <Grid item xs={12}><FL>Subject</FL><TextField fullWidth size="small" sx={FX} value={contactForm.subject} onChange={e => setContactForm(p => ({ ...p, subject: e.target.value }))} placeholder="Brief description of your concern" /></Grid>
+                          <Grid item xs={12}>
+                            <FL req>Message</FL>
+                            <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
+                              <IconButton component="label" size="small" sx={{ mt: 0.5, border: `1px solid ${BD}`, borderRadius: "3px", color: P }}>
+                                <AttachFile sx={{ fontSize: 16 }} />
+                                <input type="file" hidden onChange={e => setContactAttachment(e.target.files?.[0] || null)} />
+                              </IconButton>
+                              <TextField
+                                fullWidth
+                                multiline
+                                rows={6}
+                                sx={MFX}
+                                value={contactForm.message}
+                                onChange={e => setContactForm(p => ({ ...p, message: e.target.value }))}
+                                onPaste={e => handlePasteAttachment(e, setContactAttachment)}
+                                placeholder="Describe your concern in detail..."
+                              />
+                            </Box>
+                            {contactAttachment && (
+                              <Chip
+                                size="small"
+                                label={contactAttachment.name}
+                                onDelete={() => setContactAttachment(null)}
+                                sx={{ maxWidth: "100%", bgcolor: SUBTLE, border: `1px solid ${BD}`, fontFamily: "'IBM Plex Sans', sans-serif" }}
+                              />
+                            )}
+                          </Grid>
+                          <Grid item xs={12}>
+                            <Btn
+                              onClick={handleContactSubmit}
+                              disabled={loading || (!contactForm.message.trim() && !contactAttachment)}
+                              startIcon={<ContactSupport sx={{ fontSize: 17 }} />}
+                            >
+                              {loading ? "Sending..." : "Submit Message"}
+                            </Btn>
+                          </Grid>
+                        </Grid>
                       </Box>
-                    ) : <Typography sx={{ color: MUTED, textAlign: "center", py: 6, fontFamily: "'IBM Plex Sans', sans-serif" }}>No submissions on record.</Typography>}
-                  </>
-                ) : (
-                  <>
-                    <InfoBox>Use this form to submit questions, concerns, or feedback. Our team will review your message and respond via your registered email.</InfoBox>
-                    <Grid container spacing={2.5}>
-                      <Grid item xs={12} sm={6}><FL req>Full Name</FL><TextField fullWidth size="small" sx={FX} value={contactForm.name} onChange={e => setContactForm(p => ({ ...p, name: e.target.value }))} /></Grid>
-                      <Grid item xs={12} sm={6}><FL req>Email Address</FL><TextField fullWidth size="small" sx={FX} value={contactForm.email} onChange={e => setContactForm(p => ({ ...p, email: e.target.value }))} /></Grid>
-                      <Grid item xs={12}><FL>Subject</FL><TextField fullWidth size="small" sx={FX} value={contactForm.subject} onChange={e => setContactForm(p => ({ ...p, subject: e.target.value }))} placeholder="Brief description of your concern" /></Grid>
-                      <Grid item xs={12}><FL req>Message</FL><TextField fullWidth multiline rows={6} sx={MFX} value={contactForm.message} onChange={e => setContactForm(p => ({ ...p, message: e.target.value }))} placeholder="Describe your concern in detail…" /></Grid>
-                      <Grid item xs={12}><Btn onClick={handleContactSubmit} disabled={loading} startIcon={<ContactSupport sx={{ fontSize: 17 }} />}>{loading ? "Sending…" : "Submit Message"}</Btn></Grid>
-                    </Grid>
-                  </>
-                )}
+                    )}
+
+                    {contactView !== "compose" && selectedSub && (
+                      <Box sx={{width: "80vh"}}>
+                        <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${BD}`, display: "flex", alignItems: "center", gap: 2 }}>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography sx={{ fontWeight: 700, color: TXT, fontSize: "0.95rem", fontFamily: "'IBM Plex Sans', sans-serif" }}>
+                              {selectedSub.subject || "General Inquiry"}
+                            </Typography>
+                            <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+                              {selectedSub.name} • {selectedSub.email}
+                            </Typography>
+                          </Box>
+                          {isAdmin ? (
+                            <FormControl size="small" sx={{ minWidth: 170 }} disabled={selectedSub.status === "resolved"}>
+                              <Select value={selectedSub.status || "new"} disabled={selectedSub.status === "resolved"} onChange={e => {
+                                const ns = e.target.value;
+                                setSelectedSub(p => ({ ...p, status: ns }));
+                                handleUpdateSubStatus(selectedSub.id, ns, null);
+                              }} sx={{ borderRadius: "3px", bgcolor: SUBTLE, fontFamily: "'IBM Plex Sans', sans-serif", fontSize: "0.8rem" }}>
+                                {STATUS_OPTIONS.map(o => <MenuItem key={o.value} value={o.value} sx={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>{o.label}</MenuItem>)}
+                              </Select>
+                            </FormControl>
+                          ) : (
+                            <StatusBadge status={selectedSub.status} />
+                          )}
+                        </Box>
+
+                        <Box ref={threadScrollRef} sx={{ flex: 1, p: 3, bgcolor: SUBTLE, overflowY: "auto", maxHeight: "200px",  }}>
+                          {messagesLoading ? (
+                            <Typography sx={{ color: MUTED, textAlign: "center", py: 4, fontFamily: "'IBM Plex Sans', sans-serif" }}>Loading messages...</Typography>
+                          ) : (
+                            (contactMessages.length > 0 ? contactMessages : [
+                              { id: "legacy-staff", sender_role: "staff", sender_name: selectedSub.name, message: selectedSub.message, created_at: selectedSub.created_at },
+                              selectedSub.admin_notes ? { id: "legacy-admin", sender_role: "admin", sender_name: "Admin Team", message: selectedSub.admin_notes, created_at: selectedSub.updated_at || selectedSub.created_at } : null,
+                            ].filter(Boolean))
+                            .map((msg) => (
+                              <Box key={msg.id} sx={{ display: "flex", justifyContent: (msg.sender_employee_number && String(msg.sender_employee_number) === String(employeeNumber)) || (msg.sender_email && msg.sender_email === userEmail) ? "flex-end" : "flex-start", mb: 2 }}>
+                                <Box sx={{ maxWidth: "300px", minWidth: "300px", px: 2, py: 1.5, bgcolor: (msg.sender_employee_number && String(msg.sender_employee_number) === String(employeeNumber)) || (msg.sender_email && msg.sender_email === userEmail) ? alpha(P, 0.12) : "#fff", border: `1px solid ${alpha(P, (msg.sender_employee_number && String(msg.sender_employee_number) === String(employeeNumber)) || (msg.sender_email && msg.sender_email === userEmail) ? 0.2 : 0.12)}`, borderRadius: "8px" }}>
+                                  <Typography sx={{ fontSize: "0.75rem", color: MUTED, fontFamily: "'IBM Plex Mono', monospace", mb: 0.75 }}>
+                                    {(msg.sender_employee_number && String(msg.sender_employee_number) === String(employeeNumber)) || (msg.sender_email && msg.sender_email === userEmail) ? "You" : (msg.sender_name || (msg.sender_role ? msg.sender_role.toUpperCase() : "User"))}
+                                  </Typography>
+                                  <Typography sx={{ fontSize: "0.875rem", color: TXT, lineHeight: 1.7, fontFamily: "'IBM Plex Sans', sans-serif", whiteSpace: "pre-wrap", wordBreak: "break-word", overflowWrap: "anywhere" }}>{msg.message}</Typography>
+                                  {msg.attachment && (
+                                    <Typography
+                                      component="a"
+                                      href={`${API_BASE_URL}${msg.attachment}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      sx={{ display: "inline-block", mt: 0.75, fontSize: "0.75rem", color: P, fontFamily: "'IBM Plex Mono', monospace", textDecoration: "underline" }}
+                                    >
+                                      View attachment
+                                    </Typography>
+                                  )}
+                                  <Typography sx={{ fontSize: "0.7rem", color: MUTED, fontFamily: "'IBM Plex Mono', monospace", mt: 0.75 }}>{new Date(msg.created_at).toLocaleString()}</Typography>
+                                </Box>
+                              </Box>
+                            ))
+                          )}
+                        </Box>
+
+                        <Box sx={{ p: 3, borderTop: `1px solid ${BD}`, display: "flex", flexDirection: "column", gap: 1.5 }}>
+                          <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
+                            <IconButton component="label" size="small" disabled={selectedSub.status === "resolved"} sx={{ mt: 0.5, border: `1px solid ${BD}`, borderRadius: "3px", color: P }}>
+                              <AttachFile sx={{ fontSize: 16 }} />
+                              <input type="file" hidden onChange={e => setReplyAttachment(e.target.files?.[0] || null)} />
+                            </IconButton>
+                            <TextField
+                              fullWidth
+                              multiline
+                              rows={2}
+                              sx={MFX}
+                              value={adminReply}
+                              onChange={e => setAdminReply(e.target.value)}
+                              onPaste={e => handlePasteAttachment(e, setReplyAttachment)}
+                              onKeyDown={e => {
+                                if (e.key === "Enter" && !e.shiftKey) {
+                                  e.preventDefault();
+                                  handleSendThreadMessage();
+                                }
+                              }}
+                              placeholder={selectedSub.status === "resolved" ? "Ticket resolved. You can still send feedback..." : "Type your response..."}
+                              disabled={selectedSub.status === "resolved"}
+                            />
+                          </Box>
+                          {replyAttachment && (
+                            <Chip
+                              size="small"
+                              label={replyAttachment.name}
+                              onDelete={() => setReplyAttachment(null)}
+                              sx={{ maxWidth: "100%", bgcolor: SUBTLE, border: `1px solid ${BD}`, fontFamily: "'IBM Plex Sans', sans-serif" }}
+                            />
+                          )}
+                          <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end" }}>
+                            <Btn onClick={handleSendThreadMessage} disabled={loading || (!adminReply.trim() && !replyAttachment) || selectedSub.status === "resolved"} startIcon={<Save sx={{ fontSize: 16 }} />}>{loading ? "Sending..." : "Send Reply"}</Btn>
+                            {isAdmin && (
+                              <Btn
+                                outline
+                                onClick={() => handleUpdateSubStatus(selectedSub.id, "resolved", adminReply ? adminReply : null)}
+                                disabled={loading || selectedSub.status === "resolved"}
+                              >
+                                {selectedSub.status === "resolved" ? "Message Resolved" : "Mark Resolved"}
+                              </Btn>
+                            )}
+                            {selectedSub.status === "resolved" && !isAdmin && (
+                              <Btn outline onClick={() => { setFeedbackOpen(true); fetchFeedbackMessages(selectedSub.id); }}>
+                                {feedbackSubmitted ? "View Feedback" : "Give Feedback"}
+                              </Btn>
+                            )}
+                            {isAdmin && selectedSub.status === "resolved" && (
+                              <Btn outline onClick={() => { setFeedbackOpen(true); fetchFeedbackMessages(selectedSub.id); }}>
+                                View Feedback
+                              </Btn>
+                            )}
+                          </Box>
+                          {selectedSub.status === "resolved" && (
+                            <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+                              This ticket is resolved. You can send feedback if needed.
+                            </Typography>
+                          )}
+                        </Box>
+                      </Box>
+                    )}
+
+                    {contactView !== "compose" && !selectedSub && (
+                      <Box sx={{ p: 3, textAlign: "center", color: MUTED, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+                        Select a conversation to view details.
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
               </Box>
             </Box>
           )}
@@ -820,7 +1190,177 @@ const Settings = () => {
         </Box>
       </Box>
 
+      {/* ── SIDEBAR ─────────────────────────────────────────────────────────── */}
+      <Box sx={{ width: 256, bgcolor: DARK, borderLeft: `1px solid ${DARK_BD}`, display: "flex", flexDirection: "column", position: "fixed", right: 0, top: 0, height: "100vh", overflowY: "auto", zIndex: 1200 }}>
+        {/* Sidebar header */}
+        <Box sx={{ px: 2.5, py: 2, borderBottom: `1px solid ${DARK_BD}`, display: "flex", alignItems: "center", gap: 1.5 }}>
+          <Box sx={{ width: 32, height: 32, bgcolor: P, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "3px", flexShrink: 0 }}>
+            <SettingsIcon sx={{ fontSize: 17, color: "#fff" }} />
+          </Box>
+          <Box>
+            <Typography sx={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 700, fontSize: "0.82rem", color: "#fff", lineHeight: 1.2 }}>Settings</Typography>
+            <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.6rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.06em", textTransform: "uppercase" }}>HRIS Platform</Typography>
+          </Box>
+        </Box>
+
+        {/* Nav */}
+        <Box sx={{ flex: 1, pt: 1.5 }}>
+          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.6rem", fontWeight: 600, color: "rgba(255,255,255,0.25)", letterSpacing: "0.14em", textTransform: "uppercase", px: 2.5, pb: 0.75 }}>Account</Typography>
+          <NavItem section="password" icon={VpnKey}       label="Change Password" />
+          <NavItem section="email"    icon={EmailIcon}    label="Email Settings" />
+          <NavItem section="security" icon={Shield}       label="Two-Factor Auth" />
+          <NavItem section="about"   icon={Business}       label="About Us" />
+          <NavItem section="faqs"    icon={QuestionAnswer} label="FAQs" />
+          <NavItem section="policy"  icon={Policy}         label="Policies" />
+          <NavItem section="contact" icon={ContactSupport} label="Contact Us" />
+        </Box>
+
+        {/* Sidebar footer */}
+        <Box sx={{ px: 2.5, py: 2, borderTop: `1px solid ${DARK_BD}` }}>
+          {userRole !== "staff" && (
+            <Box onClick={() => navigate("/users-list")} sx={{ display: "flex", alignItems: "center", gap: 1.25, py: 1, cursor: "pointer", color: "rgba(255,255,255,0.45)", "&:hover": { color: "rgba(255,255,255,0.8)" }, mb: 0.5 }}>
+              <PeopleIcon sx={{ fontSize: 15 }} />
+              <Typography sx={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: "0.82rem" }}>User Management</Typography>
+            </Box>
+          )}
+        </Box>
+      </Box>
+
       {/* ── MODALS ────────────────────────────────────────────────────────── */}
+
+      {/* Feedback modal */}
+      <Dialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 0, boxShadow: "0 25px 50px rgba(0,0,0,0.4)" } }}>
+        <DlgHeader icon={ContactSupport} title="Ticket Feedback" onClose={() => setFeedbackOpen(false)} />
+        <DialogContent sx={{ pt: 3, px: 3 }}>
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED, fontFamily: "'IBM Plex Sans', sans-serif", mb: 2 }}>
+            {isAdmin ? "Feedback thread for this resolved ticket." : "Send feedback for this resolved ticket."}
+          </Typography>
+          {!isAdmin && (
+            <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontFamily: "'IBM Plex Sans', sans-serif", mb: 2 }}>
+              Feedback is private and visible only to administrators.
+            </Typography>
+          )}
+          {isAdmin && (
+            <Box sx={{ border: `1px solid ${BD}`, bgcolor: SUBTLE, maxHeight: 320, overflowY: "auto", p: 2.5, mb: 2 }}>
+              {feedbackLoading ? (
+                <Typography sx={{ color: MUTED, textAlign: "center", py: 4, fontFamily: "'IBM Plex Sans', sans-serif" }}>Loading feedback...</Typography>
+              ) : (
+                (feedbackMessages.length > 0 ? feedbackMessages : []).map((msg) => (
+                  <Box key={msg.id} sx={{ display: "flex", justifyContent: (msg.sender_employee_number && String(msg.sender_employee_number) === String(employeeNumber)) || (msg.sender_email && msg.sender_email === userEmail) ? "flex-end" : "flex-start", mb: 2 }}>
+                    <Box sx={{ maxWidth: "500px", px: 2, py: 1.5, bgcolor: (msg.sender_employee_number && String(msg.sender_employee_number) === String(employeeNumber)) || (msg.sender_email && msg.sender_email === userEmail) ? alpha(P, 0.12) : "#fff", border: `1px solid ${alpha(P, (msg.sender_employee_number && String(msg.sender_employee_number) === String(employeeNumber)) || (msg.sender_email && msg.sender_email === userEmail) ? 0.2 : 0.12)}`, borderRadius: "8px" }}>
+                      <Typography sx={{ fontSize: "0.75rem", color: MUTED, fontFamily: "'IBM Plex Mono', monospace", mb: 0.75 }}>
+                        {(msg.sender_employee_number && String(msg.sender_employee_number) === String(employeeNumber)) || (msg.sender_email && msg.sender_email === userEmail) ? "You" : (msg.sender_name || (msg.sender_role ? msg.sender_role.toUpperCase() : "User"))}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.875rem", color: TXT, lineHeight: 1.7, fontFamily: "'IBM Plex Sans', sans-serif", whiteSpace: "pre-wrap", wordBreak: "break-word", overflowWrap: "anywhere" }}>
+                        {msg.message}
+                      </Typography>
+                      {msg.rating ? (
+                        <Box sx={{ mt: 0.75 }}>
+                          <Rating value={Number(msg.rating)} readOnly size="small" />
+                        </Box>
+                      ) : null}
+                      {msg.attachment && (
+                        <Typography
+                          component="a"
+                          href={`${API_BASE_URL}${msg.attachment}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          sx={{ display: "inline-block", mt: 0.75, fontSize: "0.75rem", color: P, fontFamily: "'IBM Plex Mono', monospace", textDecoration: "underline" }}
+                        >
+                          View attachment
+                        </Typography>
+                      )}
+                      <Typography sx={{ fontSize: "0.7rem", color: MUTED, fontFamily: "'IBM Plex Mono', monospace", mt: 0.75 }}>{new Date(msg.created_at).toLocaleString()}</Typography>
+                    </Box>
+                  </Box>
+                ))
+              )}
+              {!feedbackLoading && feedbackMessages.length === 0 && (
+                <Typography sx={{ color: MUTED, textAlign: "center", py: 4, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+                  No feedback yet.
+                </Typography>
+              )}
+            </Box>
+          )}
+          {!isAdmin && (
+            <Box sx={{ border: `1px solid ${BD}`, bgcolor: SUBTLE, p: 2.5, mb: 2 }}>
+              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.75rem", fontWeight: 700, color: MUTED, letterSpacing: "0.08em", textTransform: "uppercase", mb: 1 }}>
+                Your Feedback
+              </Typography>
+              <Box sx={{ height: 1, bgcolor: BD, mb: 2 }} />
+              {feedbackLoading ? (
+                <Typography sx={{ color: MUTED, textAlign: "center", py: 3, fontFamily: "'IBM Plex Sans', sans-serif" }}>Loading feedback...</Typography>
+              ) : feedbackMessages.length > 0 ? (
+                <>
+                  <Typography sx={{ fontSize: "0.875rem", color: TXT, lineHeight: 1.7, fontFamily: "'IBM Plex Sans', sans-serif", whiteSpace: "pre-wrap", wordBreak: "break-word", overflowWrap: "anywhere", mb: 1.5 }}>
+                    {feedbackMessages[0].message}
+                  </Typography>
+                  {feedbackMessages[0].rating ? (
+                    <Box sx={{ mb: 1.5 }}>
+                      <Rating value={Number(feedbackMessages[0].rating)} readOnly size="small" />
+                    </Box>
+                  ) : null}
+                  <Typography sx={{ fontSize: "0.75rem", color: MUTED, fontFamily: "'IBM Plex Mono', monospace" }}>
+                    {new Date(feedbackMessages[0].created_at).toLocaleString()}
+                  </Typography>
+                </>
+              ) : (
+                <Typography sx={{ color: MUTED, textAlign: "center", py: 3, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+                  No feedback yet.
+                </Typography>
+              )}
+              <Box sx={{ height: 1, bgcolor: BD, mt: 2 }} />
+            </Box>
+          )}
+          {!isAdmin && !feedbackSubmitted && (
+            <>
+              <Box sx={{ mb: 1.5 }}>
+                <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.7rem", color: MUTED, letterSpacing: "0.12em", textTransform: "uppercase", mb: 0.75 }}>
+                  Rating
+                </Typography>
+                <Rating
+                  value={feedbackRating}
+                  onChange={(e, v) => setFeedbackRating(v || 0)}
+                  size="large"
+                />
+              </Box>
+              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.7rem", color: MUTED, letterSpacing: "0.12em", textTransform: "uppercase", mb: 0.5 }}>
+                Comment
+              </Typography>
+              <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", mb: 1.5 }}>
+                <IconButton component="label" size="small" sx={{ mt: 0.5, border: `1px solid ${BD}`, borderRadius: "3px", color: P }}>
+                  <AttachFile sx={{ fontSize: 16 }} />
+                  <input type="file" hidden onChange={e => setFeedbackAttachment(e.target.files?.[0] || null)} />
+                </IconButton>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={2}
+                  sx={MFX}
+                  value={feedbackReply}
+                  onChange={e => setFeedbackReply(e.target.value)}
+                  onPaste={e => handlePasteAttachment(e, setFeedbackAttachment)}
+                  placeholder="Write your feedback..."
+                />
+              </Box>
+              {feedbackAttachment && (
+                <Chip
+                  size="small"
+                  label={feedbackAttachment.name}
+                  onDelete={() => setFeedbackAttachment(null)}
+                  sx={{ maxWidth: "100%", bgcolor: SUBTLE, border: `1px solid ${BD}`, fontFamily: "'IBM Plex Sans', sans-serif" }}
+                />
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
+          <Btn outline onClick={() => setFeedbackOpen(false)}>Close</Btn>
+          {!isAdmin && !feedbackSubmitted && (
+            <Btn onClick={handleSendFeedback} disabled={loading || (!feedbackReply.trim() && !feedbackAttachment && !feedbackRating)} startIcon={<Save sx={{ fontSize: 16 }} />}>{loading ? "Sending..." : "Send Feedback"}</Btn>
+          )}
+        </DialogActions>
+      </Dialog>
 
       {/* Verification sent */}
       {showVerifyModal && (
@@ -925,7 +1465,7 @@ const Settings = () => {
               {/* Message body */}
               <Box sx={{ mb: 3 }}>
                 <FL>Message</FL>
-                <Box sx={{ p: 2.5, bgcolor: SUBTLE, border: `1px solid ${BD}`, fontSize: "0.875rem", color: TXT, lineHeight: 1.8, whiteSpace: "pre-wrap", fontFamily: "'IBM Plex Sans', sans-serif" }}>{selectedSub.message}</Box>
+                <Box sx={{ p: 2.5, bgcolor: SUBTLE, border: `1px solid ${BD}`, fontSize: "0.875rem", color: TXT, lineHeight: 1.8, whiteSpace: "pre-wrap", wordBreak: "break-word", overflowWrap: "anywhere", fontFamily: "'IBM Plex Sans', sans-serif" }}>{selectedSub.message}</Box>
               </Box>
 
               {/* Previous response */}
@@ -943,8 +1483,12 @@ const Settings = () => {
                   <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                     <FL>Update Status</FL>
                     <FormControl size="small" sx={{ minWidth: 160, mb: 0 }}>
-                      <Select value={selectedSub.status} onChange={e => { const ns = e.target.value; setSelectedSub(p => ({ ...p, status: ns })); handleUpdateSubStatus(selectedSub.id, ns, adminReply || selectedSub.admin_notes); }} sx={{ borderRadius: "3px", bgcolor: SUBTLE, fontFamily: "'IBM Plex Sans', sans-serif", fontSize: "0.875rem" }}>
-                        {["new", "read", "replied", "resolved"].map(s => <MenuItem key={s} value={s} sx={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>{s.charAt(0).toUpperCase() + s.slice(1)}</MenuItem>)}
+                      <Select value={selectedSub.status} onChange={e => { const ns = e.target.value; setSelectedSub(p => ({ ...p, status: ns })); handleUpdateSubStatus(selectedSub.id, ns, null); }} sx={{ borderRadius: "3px", bgcolor: SUBTLE, fontFamily: "'IBM Plex Sans', sans-serif", fontSize: "0.875rem" }}>
+                        {STATUS_OPTIONS.map(opt => (
+                          <MenuItem key={opt.value} value={opt.value} sx={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
                       </Select>
                     </FormControl>
                   </Box>

@@ -325,6 +325,36 @@ function broadcastNewAuditLog(logEntry) {
   }
 }
 
+/**
+ * Contact thread realtime notifier
+ * Called by contact routes after new ticket, message, or status change.
+ *
+ * @param {'created'|'message'|'status'} action
+ * @param {object} data - { contactId, employeeNumber }
+ */
+function notifyContactThreadChanged(action, data) {
+  try {
+    const io = getIO();
+    const payload = { action, ...data, timestamp: new Date().toISOString() };
+
+    // Notify admins/technical
+    ['administrator', 'superadmin', 'technical'].forEach((role) => {
+      io.to(`role:${role}`).emit('contactThreadChanged', payload);
+    });
+
+    // Notify owner/staff
+    if (data?.employeeNumber) {
+      io.to(String(data.employeeNumber)).emit('contactThreadChanged', payload);
+    }
+
+    console.log(
+      `✓ Contact thread event: ${action} (contactId=${data?.contactId})`,
+    );
+  } catch (error) {
+    console.error('Failed to notify contact thread change:', error.message);
+  }
+}
+
 module.exports = {
   notifyPageAccessGranted,
   notifyPageAccessRevoked,
@@ -347,4 +377,5 @@ module.exports = {
   notifyPayrollChanged,
   notifyAnnouncementChanged,
   broadcastNewAuditLog,
+  notifyContactThreadChanged,
 };

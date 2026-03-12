@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { authenticateToken } = require('../middleware/auth');
+const { upload } = require('../middleware/upload');
+const { notifyContactThreadChanged } = require('../socket/socketService');
 
 // ============================================
 // FAQs ROUTES
@@ -314,12 +316,14 @@ router.put('/api/about-us', authenticateToken, (req, res) => {
 // ============================================
 
 // POST create contact message (public - anyone can submit)
-router.post('/api/contact-us', authenticateToken, (req, res) => {
+router.post('/api/contact-us', authenticateToken, upload.single('attachment'), (req, res) => {
   const { name, email, subject, message } = req.body;
+  const attachment = req.file ? `/uploads/${req.file.filename}` : null;
   const employeeNumber = req.user?.employeeNumber || null;
+  const senderRole = req.user?.role || 'staff';
 
-  if (!name || !email || !message) {
-    return res.status(400).json({ error: 'Name, email, and message are required' });
+  if (!name || !email || (!message && !attachment)) {
+    return res.status(400).json({ error: 'Name, email, and message or attachment are required' });
   }
 
   const query = `
@@ -329,7 +333,7 @@ router.post('/api/contact-us', authenticateToken, (req, res) => {
 
   db.query(
     query,
-    [name, email, subject || null, message, employeeNumber],
+    [name, email, subject || null, message || '', employeeNumber],
     (err, result) => {
       if (err) {
         console.error('Error creating contact message:', err);
@@ -340,13 +344,31 @@ router.post('/api/contact-us', authenticateToken, (req, res) => {
       const submitterName = name || 'A user';
       const notificationDescription = `${submitterName} submitted a new ticket${subject ? `: ${subject}` : ''}. Click to view details.`;
 
+      // Insert initial message into thread
+      db.query(
+        `INSERT INTO contact_us_messages
+          (contact_id, sender_role, sender_employee_number, sender_name, sender_email, message, attachment)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [contactId, senderRole, employeeNumber, name, email, message || '', attachment],
+        (msgErr) => {
+          if (msgErr) {
+            console.error('Error creating contact message thread:', msgErr);
+          }
+        }
+      );
+
+      notifyContactThreadChanged('created', {
+        contactId,
+        employeeNumber,
+      });
+
       // Send response immediately (don't wait for notifications)
       res.status(201).json({ id: contactId, message: 'Contact message submitted successfully' });
 
-      // Create notifications for all admins and superadmins (async, non-blocking)
+      // Create notifications for all admins, superadmins, and technical (async, non-blocking)
       db.query(
-        'SELECT employeeNumber FROM users WHERE role IN (?, ?)',
-        ['superadmin', 'administrator'],
+        'SELECT employeeNumber FROM users WHERE role IN (?, ?, ?)',
+        ['superadmin', 'administrator', 'technical'],
         (adminErr, admins) => {
           if (adminErr) {
             console.error('Error fetching admins for notification:', adminErr);
@@ -406,10 +428,14 @@ router.post('/api/contact-us', authenticateToken, (req, res) => {
 
 // GET all contact messages (admin only)
 router.get('/api/contact-us', authenticateToken, (req, res) => {
-  // Check if user is admin
   const userRole = req.user?.role;
-  if (userRole !== 'superadmin' && userRole !== 'administrator' && userRole !== 'technical') {
-    return res.status(403).json({ error: 'Access denied. Admin only.' });
+  const isAdmin =
+    userRole === 'superadmin' ||
+    userRole === 'administrator' ||
+    userRole === 'technical';
+
+  if (!isAdmin && userRole !== 'staff') {
+    return res.status(403).json({ error: 'Access denied.' });
   }
 
   const { status, page = 1, limit = 20 } = req.query;
@@ -417,6 +443,11 @@ router.get('/api/contact-us', authenticateToken, (req, res) => {
 
   let query = 'SELECT * FROM contact_us WHERE 1=1';
   const params = [];
+
+  if (!isAdmin) {
+    query += ' AND employee_number = ?';
+    params.push(req.user?.employeeNumber || '');
+  }
 
   if (status) {
     query += ' AND status = ?';
@@ -432,9 +463,14 @@ router.get('/api/contact-us', authenticateToken, (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch contact messages' });
     }
 
-    // Get total count
     let countQuery = 'SELECT COUNT(*) as total FROM contact_us WHERE 1=1';
     const countParams = [];
+
+    if (!isAdmin) {
+      countQuery += ' AND employee_number = ?';
+      countParams.push(req.user?.employeeNumber || '');
+    }
+
     if (status) {
       countQuery += ' AND status = ?';
       countParams.push(status);
@@ -459,8 +495,13 @@ router.get('/api/contact-us', authenticateToken, (req, res) => {
 // GET single contact message (admin only)
 router.get('/api/contact-us/:id', authenticateToken, (req, res) => {
   const userRole = req.user?.role;
-  if (userRole !== 'superadmin' && userRole !== 'administrator' && userRole !== 'technical') {
-    return res.status(403).json({ error: 'Access denied. Admin only.' });
+  const isAdmin =
+    userRole === 'superadmin' ||
+    userRole === 'administrator' ||
+    userRole === 'technical';
+
+  if (!isAdmin && userRole !== 'staff') {
+    return res.status(403).json({ error: 'Access denied.' });
   }
 
   const { id } = req.params;
@@ -472,7 +513,302 @@ router.get('/api/contact-us/:id', authenticateToken, (req, res) => {
     if (results.length === 0) {
       return res.status(404).json({ error: 'Contact message not found' });
     }
-    res.json(results[0]);
+
+    const ticket = results[0];
+    if (!isAdmin && ticket.employee_number !== req.user?.employeeNumber) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+
+    res.json(ticket);
+  });
+});
+
+// GET contact message thread (admin can view all, staff only own)
+router.get('/api/contact-us/:id/messages', authenticateToken, (req, res) => {
+  const userRole = req.user?.role;
+  const isAdmin =
+    userRole === 'superadmin' ||
+    userRole === 'administrator' ||
+    userRole === 'technical';
+
+  const { id } = req.params;
+
+  db.query('SELECT employee_number FROM contact_us WHERE id = ?', [id], (fetchErr, rows) => {
+    if (fetchErr) {
+      console.error('Error fetching contact message:', fetchErr);
+      return res.status(500).json({ error: 'Failed to fetch contact message' });
+    }
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Contact message not found' });
+    }
+
+    const owner = rows[0].employee_number;
+    if (!isAdmin && owner !== req.user?.employeeNumber) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+
+    db.query(
+      'SELECT * FROM contact_us_messages WHERE contact_id = ? ORDER BY created_at ASC',
+      [id],
+      (err, results) => {
+        if (err) {
+          console.error('Error fetching contact message thread:', err);
+          return res.status(500).json({ error: 'Failed to fetch contact messages' });
+        }
+        res.json({ data: results });
+      },
+    );
+  });
+});
+
+// POST add message to thread (admin or staff on own ticket)
+router.post('/api/contact-us/:id/messages', authenticateToken, upload.single('attachment'), (req, res) => {
+  const userRole = req.user?.role;
+  const isAdmin =
+    userRole === 'superadmin' ||
+    userRole === 'administrator' ||
+    userRole === 'technical';
+
+  const { id } = req.params;
+  const { message, status } = req.body;
+  const attachment = req.file ? `/uploads/${req.file.filename}` : null;
+
+  if (!message && !attachment) {
+    return res.status(400).json({ error: 'Message or attachment is required' });
+  }
+
+  db.query('SELECT employee_number, name, email, status FROM contact_us WHERE id = ?', [id], (fetchErr, rows) => {
+    if (fetchErr) {
+      console.error('Error fetching contact message:', fetchErr);
+      return res.status(500).json({ error: 'Failed to fetch contact message' });
+    }
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Contact message not found' });
+    }
+
+    const owner = rows[0].employee_number;
+    const currentStatus = rows[0].status;
+    if (!isAdmin && owner !== req.user?.employeeNumber) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+
+    if (currentStatus === 'resolved') {
+      return res.status(403).json({ error: 'Ticket is resolved. You can no longer reply.' });
+    }
+
+    const senderName = req.user?.username || rows[0].name || 'User';
+    const senderEmail = req.user?.email || rows[0].email || null;
+    const senderEmployeeNumber = req.user?.employeeNumber || owner || null;
+
+    db.query(
+      `INSERT INTO contact_us_messages
+        (contact_id, sender_role, sender_employee_number, sender_name, sender_email, message, attachment)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, userRole || 'staff', senderEmployeeNumber, senderName, senderEmail, message || '', attachment],
+      (msgErr, result) => {
+        if (msgErr) {
+          console.error('Error creating contact message thread:', msgErr);
+          return res.status(500).json({ error: 'Failed to send message' });
+        }
+
+        // Update status based on sender
+        const nextStatus = status || (isAdmin ? 'replied' : (currentStatus === 'resolved' ? 'on_process' : 'new'));
+        db.query('UPDATE contact_us SET status = ? WHERE id = ?', [nextStatus, id], (stErr) => {
+          if (stErr) {
+            console.error('Error updating contact status:', stErr);
+          }
+        });
+
+        // Update admin_notes for compatibility when admin replies
+        if (isAdmin && message) {
+          db.query('UPDATE contact_us SET admin_notes = ? WHERE id = ?', [message, id], (noteErr) => {
+            if (noteErr) console.error('Error updating admin notes:', noteErr);
+          });
+        }
+
+        // Notify admins on staff reply
+        if (!isAdmin) {
+          db.query(
+            'SELECT employeeNumber FROM users WHERE role IN (?, ?, ?)',
+            ['superadmin', 'administrator', 'technical'],
+            (adminErr, admins) => {
+              if (adminErr) {
+                console.error('Error fetching admins for notification:', adminErr);
+                return;
+              }
+              if (Array.isArray(admins) && admins.length > 0) {
+                const description = `New reply from ${senderName}. Click to view details.`;
+                admins.forEach((admin) => {
+                  const adminEmpNum = String(admin.employeeNumber).trim();
+                  if (!adminEmpNum) return;
+                  db.query(
+                    `INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) 
+                     VALUES (?, ?, 0, 'contact', '/settings')`,
+                    [adminEmpNum, description],
+                    (notifErr) => {
+                      if (notifErr) {
+                        db.query(
+                          `INSERT INTO notifications (employeeNumber, description, read_status) 
+                           VALUES (?, ?, 0)`,
+                          [adminEmpNum, description],
+                          () => {},
+                        );
+                      }
+                    },
+                  );
+                });
+              }
+            },
+          );
+        } else if (owner) {
+          const description = `Admin ${senderName} replied to your ticket. Click to view response.`;
+          db.query(
+            `INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) 
+             VALUES (?, ?, 0, 'contact', '/settings')`,
+            [String(owner).trim(), description],
+            (notifErr) => {
+              if (notifErr) {
+                db.query(
+                  `INSERT INTO notifications (employeeNumber, description, read_status) 
+                   VALUES (?, ?, 0)`,
+                  [String(owner).trim(), description],
+                  () => {},
+                );
+              }
+            },
+          );
+        }
+
+        notifyContactThreadChanged('message', {
+          contactId: Number(id),
+          employeeNumber: owner,
+        });
+
+        res.status(201).json({ id: result.insertId, message: 'Message sent' });
+      },
+    );
+  });
+});
+
+// ============================================
+// FEEDBACK ROUTES (for resolved tickets)
+// ============================================
+
+// GET feedback thread for a ticket (admin can view all, staff only own)
+router.get('/api/contact-us/:id/feedback', authenticateToken, (req, res) => {
+  const userRole = req.user?.role;
+  const isAdmin =
+    userRole === 'superadmin' ||
+    userRole === 'administrator' ||
+    userRole === 'technical';
+
+  const { id } = req.params;
+
+  db.query('SELECT employee_number FROM contact_us WHERE id = ?', [id], (fetchErr, rows) => {
+    if (fetchErr) {
+      console.error('Error fetching contact message:', fetchErr);
+      return res.status(500).json({ error: 'Failed to fetch contact message' });
+    }
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Contact message not found' });
+    }
+
+    const owner = rows[0].employee_number;
+    if (!isAdmin && owner !== req.user?.employeeNumber) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+
+    const senderEmployeeNumber = req.user?.employeeNumber || null;
+    const senderEmail = req.user?.email || null;
+    const query = isAdmin
+      ? 'SELECT * FROM feedbacks WHERE contact_id = ? ORDER BY created_at ASC'
+      : 'SELECT * FROM feedbacks WHERE contact_id = ? AND (sender_employee_number = ? OR sender_email = ?) ORDER BY created_at ASC';
+    const params = isAdmin ? [id] : [id, senderEmployeeNumber, senderEmail];
+
+    db.query(query, params, (err, results) => {
+        if (err) {
+          console.error('Error fetching feedback thread:', err);
+          return res.status(500).json({ error: 'Failed to fetch feedback messages' });
+        }
+        res.json({ data: results });
+      });
+  });
+});
+
+// POST feedback message (admin or staff on own ticket)
+router.post('/api/contact-us/:id/feedback', authenticateToken, upload.single('attachment'), (req, res) => {
+  const userRole = req.user?.role;
+  const isAdmin =
+    userRole === 'superadmin' ||
+    userRole === 'administrator' ||
+    userRole === 'technical';
+
+  const { id } = req.params;
+  const { message, rating } = req.body;
+  const attachment = req.file ? `/uploads/${req.file.filename}` : null;
+
+  if (isAdmin) {
+    return res.status(403).json({ error: 'Admins can only view feedback.' });
+  }
+
+  if (!message && !attachment && !rating) {
+    return res.status(400).json({ error: 'Message or attachment is required' });
+  }
+
+  db.query('SELECT employee_number, name, email, status FROM contact_us WHERE id = ?', [id], (fetchErr, rows) => {
+    if (fetchErr) {
+      console.error('Error fetching contact message:', fetchErr);
+      return res.status(500).json({ error: 'Failed to fetch contact message' });
+    }
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Contact message not found' });
+    }
+
+    const owner = rows[0].employee_number;
+    if (!isAdmin && owner !== req.user?.employeeNumber) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+
+  const senderName = req.user?.username || rows[0].name || 'User';
+  const senderEmail = req.user?.email || rows[0].email || null;
+  const senderEmployeeNumber = req.user?.employeeNumber || owner || null;
+
+    const identifier = senderEmployeeNumber || senderEmail;
+    db.query(
+      'SELECT COUNT(*) AS cnt FROM feedbacks WHERE contact_id = ? AND (sender_employee_number = ? OR sender_email = ?)',
+      [id, identifier, identifier],
+      (countErr, countRows) => {
+        if (countErr) {
+          console.error('Error checking feedback count:', countErr);
+          return res.status(500).json({ error: 'Failed to validate feedback submission' });
+        }
+
+        if (countRows?.[0]?.cnt > 0) {
+          return res.status(409).json({ error: 'You can only submit feedback once per ticket.' });
+        }
+
+        const safeRating = rating !== undefined && rating !== null && rating !== '' ? Number(rating) : null;
+        db.query(
+          `INSERT INTO feedbacks
+            (contact_id, sender_role, sender_employee_number, sender_name, sender_email, message, attachment, rating)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, userRole || 'staff', senderEmployeeNumber, senderName, senderEmail, message || '', attachment, Number.isNaN(safeRating) ? null : safeRating],
+          (msgErr, result) => {
+            if (msgErr) {
+              console.error('Error creating feedback message:', msgErr);
+              return res.status(500).json({ error: 'Failed to send feedback' });
+            }
+
+            notifyContactThreadChanged('feedback', {
+              contactId: Number(id),
+              employeeNumber: owner,
+            });
+
+            res.status(201).json({ id: result.insertId, message: 'Feedback sent' });
+          },
+        );
+      },
+    );
   });
 });
 
@@ -520,11 +856,32 @@ router.put('/api/contact-us/:id', authenticateToken, (req, res) => {
     const contactMessage = contactResults[0];
     const submitterEmployeeNumber = contactMessage.employee_number;
 
-    // Update the contact message
-    db.query(query, params, (err) => {
-      if (err) {
-        console.error('Error updating contact message:', err);
-        return res.status(500).json({ error: 'Failed to update contact message' });
+      // Update the contact message
+      db.query(query, params, (err) => {
+        if (err) {
+          console.error('Error updating contact message:', err);
+          return res.status(500).json({ error: 'Failed to update contact message' });
+        }
+
+        notifyContactThreadChanged('status', {
+          contactId: Number(id),
+          employeeNumber: submitterEmployeeNumber,
+        });
+
+      // If admin_notes provided, append to thread for messenger view
+      if (admin_notes) {
+        const senderName = req.user?.username || 'Admin';
+        const senderEmail = req.user?.email || null;
+        const senderEmployeeNumber = req.user?.employeeNumber || null;
+        db.query(
+          `INSERT INTO contact_us_messages
+            (contact_id, sender_role, sender_employee_number, sender_name, sender_email, message)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [id, req.user?.role || 'admin', senderEmployeeNumber, senderName, senderEmail, admin_notes],
+          (msgErr) => {
+            if (msgErr) console.error('Error appending admin note to thread:', msgErr);
+          },
+        );
       }
 
       // Create notification for the staff member who submitted the ticket
