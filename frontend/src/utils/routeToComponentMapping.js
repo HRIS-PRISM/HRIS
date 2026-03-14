@@ -81,6 +81,7 @@ export const routeToComponentMap = {
   '/leave-request-user': 'leave-request-user',
   '/system-settings': 'system-settings',
   '/pds-templates': 'pds-templates',
+  '/leave-commutation': 'leave-commutation',
 };
 
 /**

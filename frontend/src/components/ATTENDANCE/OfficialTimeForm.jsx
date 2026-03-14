@@ -1,20 +1,20 @@
 // (full file contents - all bugs fixed + toggle view + tamper protection + TimePickerField inline)
-import API_BASE_URL from '../../apiConfig';
+import API_BASE_URL from "../../apiConfig";
 import React, {
   useState,
   useEffect,
   useRef,
   useMemo,
   useCallback,
-} from 'react';
-import axios from 'axios';
-import CloudUploadIcon from '@mui/icons-material/CloudUpload';
-import SaveIcon from '@mui/icons-material/Save';
-import SearchIcon from '@mui/icons-material/Search';
-import PeopleIcon from '@mui/icons-material/People';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import CancelIcon from '@mui/icons-material/Cancel';
-import { useCRUDButtonStyles } from '../../hooks/useCRUDButtonStyles';
+} from "react";
+import axios from "axios";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import SaveIcon from "@mui/icons-material/Save";
+import SearchIcon from "@mui/icons-material/Search";
+import PeopleIcon from "@mui/icons-material/People";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CancelIcon from "@mui/icons-material/Cancel";
+import { useCRUDButtonStyles } from "../../hooks/useCRUDButtonStyles";
 
 import {
   Typography,
@@ -52,9 +52,9 @@ import {
   Select,
   MenuItem,
   Popover,
-} from '@mui/material';
-import { TablePagination } from '@mui/material';
-import { alpha } from '@mui/material/styles';
+} from "@mui/material";
+import { TablePagination } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import {
   Close,
   Schedule,
@@ -68,60 +68,69 @@ import {
   Visibility,
   Add,
   Delete,
-  ClearAll, // ← new icon for Clear All button
+  ClearAll,
   Edit,
-} from '@mui/icons-material';
+} from "@mui/icons-material";
 
-import LoadingOverlay from '../LoadingOverlay';
-import SuccessfulOverlay from '../SuccessfulOverlay';
-import { useSystemSettings } from '../../hooks/useSystemSettings';
-import usePageAccess from '../../hooks/usePageAccess';
-import AccessDenied from '../AccessDenied';
-import CircularProgress from '@mui/material/CircularProgress';
+import LoadingOverlay from "../LoadingOverlay";
+import SuccessfulOverlay from "../SuccessfulOverlay";
+import { useSystemSettings } from "../../hooks/useSystemSettings";
+import usePageAccess from "../../hooks/usePageAccess";
+import AccessDenied from "../AccessDenied";
+import CircularProgress from "@mui/material/CircularProgress";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TIME PICKER FIELD — inline (no separate file needed)
 // Format: HH:MM:SS AM/PM  (e.g. "08:00:00 AM")
 // Features: auto-colons, AM/PM dropdown, quick-pick popover, per-field clear
+//
+// FIX: useEffect no longer re-syncs digits from `value` when the change came
+//      from the user's own input (avoids the "cursor-fight" that made 00:00
+//      impossible to edit). We track the last value we emitted ourselves in
+//      lastEmittedRef and only accept an external sync when value differs from
+//      that ref — i.e. a true parent-driven reset.
+//
+// FIX: isEmpty now checks digits truthiness correctly so "000000" (midnight)
+//      is NOT treated as empty and shows the clear button.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const _parseTimeString = (val) => {
-  if (!val || String(val).trim() === '') return { digits: '', ampm: 'AM' };
+  if (!val || String(val).trim() === "") return { digits: "", ampm: "AM" };
   const s = String(val).trim();
   const match = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
   if (match) {
-    const h = match[1].padStart(2, '0');
+    const h = match[1].padStart(2, "0");
     const m = match[2];
-    const sec = match[3] || '00';
-    return { digits: `${h}${m}${sec}`, ampm: (match[4] || 'AM').toUpperCase() };
+    const sec = match[3] || "00";
+    return { digits: `${h}${m}${sec}`, ampm: (match[4] || "AM").toUpperCase() };
   }
-  return { digits: '', ampm: 'AM' };
+  return { digits: "", ampm: "AM" };
 };
 
 const _formatDigits = (d) => {
-  const clean = (d || '').replace(/\D/g, '').slice(0, 6);
+  const clean = (d || "").replace(/\D/g, "").slice(0, 6);
   if (clean.length <= 2) return clean;
   if (clean.length <= 4) return `${clean.slice(0, 2)}:${clean.slice(2)}`;
   return `${clean.slice(0, 2)}:${clean.slice(2, 4)}:${clean.slice(4)}`;
 };
 
 const _buildOutput = (digits, ampm) => {
-  const clean = (digits || '').replace(/\D/g, '').padEnd(6, '0').slice(0, 6);
+  const clean = (digits || "").replace(/\D/g, "").padEnd(6, "0").slice(0, 6);
   return `${clean.slice(0, 2)}:${clean.slice(2, 4)}:${clean.slice(4, 6)} ${ampm}`;
 };
 
 const _HOURS = Array.from({ length: 12 }, (_, i) =>
-  String(i + 1).padStart(2, '0'),
+  String(i + 1).padStart(2, "0"),
 );
-const _MINUTES = ['00', '15', '30', '45'];
+const _MINUTES = ["00", "15", "30", "45"];
 
 const TimePickerField = ({
   value,
   onChange,
   label,
-  size = 'small',
+  size = "small",
   disabled = false,
-  accentColor = '#6d2323',
+  accentColor = "#6d2323",
 }) => {
   const parsed = _parseTimeString(value);
   const [digits, setDigits] = useState(parsed.digits);
@@ -129,26 +138,41 @@ const TimePickerField = ({
   const [anchorEl, setAnchorEl] = useState(null);
   const inputRef = useRef(null);
 
+  // Track the last value we ourselves emitted so the useEffect below does NOT
+  // re-parse and overwrite the user's in-progress edit with the same value we
+  // just sent up. Without this, typing "0" into "00:00:00 AM" immediately
+  // re-synced back to "000000" before the user could continue.
+  const lastEmittedRef = useRef(value);
+
   useEffect(() => {
-    const p = _parseTimeString(value);
-    setDigits(p.digits);
-    setAmpm(p.ampm);
+    // Only re-sync from outside when the parent truly changed the value to
+    // something different from what we last emitted (e.g. a programmatic reset).
+    if (value !== lastEmittedRef.current) {
+      const p = _parseTimeString(value);
+      setDigits(p.digits);
+      setAmpm(p.ampm);
+      lastEmittedRef.current = value;
+    }
   }, [value]);
 
   const emit = useCallback(
     (d, ap) => {
-      onChange(_buildOutput(d, ap));
+      const out = _buildOutput(d, ap);
+      lastEmittedRef.current = out;
+      onChange(out);
     },
     [onChange],
   );
+
   const handleDigitInput = useCallback(
     (e) => {
-      const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 6);
+      const raw = e.target.value.replace(/[^0-9]/g, "").slice(0, 6);
       setDigits(raw);
       emit(raw, ampm);
     },
     [ampm, emit],
   );
+
   const handleAmpmChange = useCallback(
     (e) => {
       const ap = e.target.value;
@@ -157,11 +181,14 @@ const TimePickerField = ({
     },
     [digits, emit],
   );
+
   const handleClear = useCallback(() => {
-    setDigits('');
-    setAmpm('AM');
-    onChange('');
+    setDigits("");
+    setAmpm("AM");
+    lastEmittedRef.current = "";
+    onChange("");
   }, [onChange]);
+
   const handleQuickPick = useCallback(
     (h, min, ap) => {
       const d = `${h}${min}00`;
@@ -174,11 +201,13 @@ const TimePickerField = ({
   );
 
   const displayValue = _formatDigits(digits);
-  const isEmpty = !digits && (!value || value === '');
+  // FIX: a string of zeros is valid (midnight), not "empty".
+  // Only treat as empty when digits is genuinely blank AND value is blank.
+  const isEmpty = digits === "" && (!value || value === "");
 
   return (
     <Box
-      sx={{ display: 'flex', alignItems: 'center', gap: 0.5, width: '100%' }}
+      sx={{ display: "flex", alignItems: "center", gap: 0.5, width: "100%" }}
     >
       <TextField
         inputRef={inputRef}
@@ -192,17 +221,17 @@ const TimePickerField = ({
         sx={{
           flex: 1,
           minWidth: 90,
-          '& .MuiOutlinedInput-root': {
-            fontSize: '0.85rem',
-            fontFamily: 'monospace',
-            '&.Mui-focused fieldset': { borderColor: accentColor },
+          "& .MuiOutlinedInput-root": {
+            fontSize: "0.85rem",
+            fontFamily: "monospace",
+            "&.Mui-focused fieldset": { borderColor: accentColor },
           },
-          '& .MuiInputBase-input': {
+          "& .MuiInputBase-input": {
             px: 1.25,
             py: 0.85,
-            letterSpacing: '0.05em',
+            letterSpacing: "0.05em",
           },
-          '& label.Mui-focused': { color: accentColor },
+          "& label.Mui-focused": { color: accentColor },
         }}
       />
       <Select
@@ -212,27 +241,27 @@ const TimePickerField = ({
         disabled={disabled}
         renderValue={(v) => v}
         sx={{
-          fontSize: '0.78rem',
+          fontSize: "0.78rem",
           fontWeight: 700,
           minWidth: 72,
           width: 72,
-          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+          "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
             borderColor: accentColor,
           },
-          color: ampm === 'AM' ? '#1565c0' : '#6d2323',
-          '& .MuiSelect-select': { px: 1, py: 0.85, pr: '24px !important' },
-          '& .MuiSelect-icon': { right: 2, fontSize: '1rem' },
+          color: ampm === "AM" ? "#1565c0" : "#6d2323",
+          "& .MuiSelect-select": { px: 1, py: 0.85, pr: "24px !important" },
+          "& .MuiSelect-icon": { right: 2, fontSize: "1rem" },
         }}
       >
         <MenuItem
           value="AM"
-          sx={{ fontSize: '0.82rem', fontWeight: 700, color: '#1565c0' }}
+          sx={{ fontSize: "0.82rem", fontWeight: 700, color: "#1565c0" }}
         >
           AM
         </MenuItem>
         <MenuItem
           value="PM"
-          sx={{ fontSize: '0.82rem', fontWeight: 700, color: '#6d2323' }}
+          sx={{ fontSize: "0.82rem", fontWeight: 700, color: "#6d2323" }}
         >
           PM
         </MenuItem>
@@ -246,7 +275,7 @@ const TimePickerField = ({
             sx={{
               color: alpha(accentColor, 0.7),
               p: 0.5,
-              '&:hover': {
+              "&:hover": {
                 color: accentColor,
                 bgcolor: alpha(accentColor, 0.08),
               },
@@ -263,9 +292,9 @@ const TimePickerField = ({
             disabled={disabled}
             onClick={handleClear}
             sx={{
-              color: alpha('#000', 0.35),
+              color: alpha("#000", 0.35),
               p: 0.5,
-              '&:hover': { color: '#c62828', bgcolor: alpha('#c62828', 0.08) },
+              "&:hover": { color: "#c62828", bgcolor: alpha("#c62828", 0.08) },
             }}
           >
             <Close fontSize="small" />
@@ -276,21 +305,21 @@ const TimePickerField = ({
         open={Boolean(anchorEl)}
         anchorEl={anchorEl}
         onClose={() => setAnchorEl(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
         disablePortal={false}
         PaperProps={{
           sx: {
             borderRadius: 2,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.22)',
+            boxShadow: "0 8px 32px rgba(0,0,0,0.22)",
             border: `1px solid ${alpha(accentColor, 0.18)}`,
             p: 0,
             width: 300,
             maxWidth: 300,
             maxHeight: 340,
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
           },
         }}
       >
@@ -298,47 +327,46 @@ const TimePickerField = ({
         <Box sx={{ bgcolor: accentColor, px: 2, py: 1, flexShrink: 0 }}>
           <Typography
             sx={{
-              color: '#fff',
+              color: "#fff",
               fontWeight: 700,
-              fontSize: '0.78rem',
-              letterSpacing: '0.5px',
-              textTransform: 'uppercase',
+              fontSize: "0.78rem",
+              letterSpacing: "0.5px",
+              textTransform: "uppercase",
             }}
           >
             Quick Pick
           </Typography>
         </Box>
         {/* Scrollable body */}
-        <Box sx={{ overflowY: 'auto', flex: 1 }}>
-          {['AM', 'PM'].map((ap) => (
+        <Box sx={{ overflowY: "auto", flex: 1 }}>
+          {["AM", "PM"].map((ap) => (
             <Box key={ap}>
               <Box
                 sx={{
                   px: 2,
                   py: 0.6,
-                  bgcolor: ap === 'AM' ? '#e3f0fb' : '#f7f0f0',
-                  position: 'sticky',
+                  bgcolor: ap === "AM" ? "#e3f0fb" : "#f7f0f0",
+                  position: "sticky",
                   top: 0,
                   zIndex: 1,
                 }}
               >
                 <Typography
                   sx={{
-                    fontSize: '0.7rem',
+                    fontSize: "0.7rem",
                     fontWeight: 800,
-                    color: ap === 'AM' ? '#1565c0' : accentColor,
-                    letterSpacing: '0.6px',
+                    color: ap === "AM" ? "#1565c0" : accentColor,
+                    letterSpacing: "0.6px",
                   }}
                 >
                   {ap}
                 </Typography>
               </Box>
-              {/* Grid: 4 cols (one per minute interval), 3 rows (hours 1–12 × 4) */}
               <Box
                 sx={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(6, 1fr)',
-                  gap: '3px',
+                  display: "grid",
+                  gridTemplateColumns: "repeat(6, 1fr)",
+                  gap: "3px",
                   px: 1.25,
                   py: 0.75,
                 }}
@@ -352,26 +380,26 @@ const TimePickerField = ({
                       sx={{
                         minWidth: 0,
                         height: 26,
-                        fontSize: '0.68rem',
+                        fontSize: "0.68rem",
                         fontWeight: 600,
-                        fontFamily: 'monospace',
+                        fontFamily: "monospace",
                         px: 0,
                         borderRadius: 1,
-                        textTransform: 'none',
+                        textTransform: "none",
                         bgcolor: alpha(
-                          ap === 'AM' ? '#1565c0' : accentColor,
+                          ap === "AM" ? "#1565c0" : accentColor,
                           0.06,
                         ),
-                        color: ap === 'AM' ? '#1565c0' : accentColor,
-                        border: `1px solid ${alpha(ap === 'AM' ? '#1565c0' : accentColor, 0.18)}`,
-                        '&:hover': {
+                        color: ap === "AM" ? "#1565c0" : accentColor,
+                        border: `1px solid ${alpha(ap === "AM" ? "#1565c0" : accentColor, 0.18)}`,
+                        "&:hover": {
                           bgcolor: alpha(
-                            ap === 'AM' ? '#1565c0' : accentColor,
+                            ap === "AM" ? "#1565c0" : accentColor,
                             0.18,
                           ),
-                          transform: 'scale(1.05)',
+                          transform: "scale(1.05)",
                         },
-                        transition: 'all 0.1s ease',
+                        transition: "all 0.1s ease",
                       }}
                     >
                       {h}:{min}
@@ -388,19 +416,19 @@ const TimePickerField = ({
             px: 2,
             py: 0.75,
             borderTop: `1px solid ${alpha(accentColor, 0.12)}`,
-            display: 'flex',
-            justifyContent: 'flex-end',
+            display: "flex",
+            justifyContent: "flex-end",
             flexShrink: 0,
-            bgcolor: '#fafafa',
+            bgcolor: "#fafafa",
           }}
         >
           <Button
             size="small"
             onClick={() => setAnchorEl(null)}
             sx={{
-              fontSize: '0.72rem',
-              color: '#555',
-              textTransform: 'none',
+              fontSize: "0.72rem",
+              color: "#555",
+              textTransform: "none",
               minWidth: 0,
               px: 1.5,
             }}
@@ -418,84 +446,84 @@ const TimePickerField = ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 const getAuthHeaders = () => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem("token");
   return {
     headers: {
       Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
   };
 };
 
 const formatDateOnly = (val) => {
-  if (!val) return '—';
+  if (!val) return "—";
   const s = String(val);
-  const dateOnly = s.split('T')[0];
+  const dateOnly = s.split("T")[0];
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return dateOnly;
   const d = new Date(val);
   if (Number.isNaN(d.getTime())) return s;
   const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 };
 
 const formatDateLong = (val) => {
-  if (!val) return '';
+  if (!val) return "";
   const s = String(val);
-  const dateOnly = s.split('T')[0];
+  const dateOnly = s.split("T")[0];
   let y, month, day;
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) {
-    const [yy, mm, dd] = dateOnly.split('-').map(Number);
+    const [yy, mm, dd] = dateOnly.split("-").map(Number);
     y = yy;
     day = dd;
     const months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
     ];
-    month = months[mm - 1] || '';
+    month = months[mm - 1] || "";
   } else {
     const d = new Date(val);
     if (Number.isNaN(d.getTime())) return s;
     y = d.getFullYear();
     day = d.getDate();
     const months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
     ];
-    month = months[d.getMonth()] || '';
+    month = months[d.getMonth()] || "";
   }
-  return month ? `${month} ${String(day).padStart(2, '0')}, ${y}` : String(val);
+  return month ? `${month} ${String(day).padStart(2, "0")}, ${y}` : String(val);
 };
 
 const normalizeDateStr = (val) => {
-  if (!val) return '';
-  const s = String(val).split('T')[0];
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
+  if (!val) return "";
+  const s = String(val).split("T")[0];
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
 };
 
 const parseTimeToMinutes = (str) => {
-  if (str == null || String(str).trim() === '') return null;
+  if (str == null || String(str).trim() === "") return null;
   const s = String(str).trim();
   const match = s.match(
     /^\s*(\d{1,2})\s*:\s*(\d{1,2})(?:\s*:\s*\d{1,2})?\s*(AM|PM)\s*$/i,
@@ -503,20 +531,20 @@ const parseTimeToMinutes = (str) => {
   if (!match) return null;
   let hour = parseInt(match[1], 10);
   const min = parseInt(match[2], 10);
-  const ampm = (match[3] || '').toUpperCase();
-  if (ampm === 'PM' && hour !== 12) hour += 12;
-  if (ampm === 'AM' && hour === 12) hour = 0;
+  const ampm = (match[3] || "").toUpperCase();
+  if (ampm === "PM" && hour !== 12) hour += 12;
+  if (ampm === "AM" && hour === 12) hour = 0;
   if (hour < 0 || hour > 23 || min < 0 || min > 59) return null;
   return hour * 60 + min;
 };
 
 const formatMinutesToTime = (m) => {
-  if (m == null || m < 0 || m >= 24 * 60) return '';
+  if (m == null || m < 0 || m >= 24 * 60) return "";
   const h = Math.floor(m / 60);
   const min = m % 60;
-  const ampm = h >= 12 ? 'PM' : 'AM';
+  const ampm = h >= 12 ? "PM" : "AM";
   const h12 = h % 12 || 12;
-  return `${h12}:${String(min).padStart(2, '0')} ${ampm}`;
+  return `${h12}:${String(min).padStart(2, "0")} ${ampm}`;
 };
 
 const getTimeSegmentsForRow = (row) => {
@@ -535,11 +563,11 @@ const getTimeSegmentsForRow = (row) => {
       breakIn < breakOut
     ) {
       if (timeIn < breakIn)
-        segments.push({ start: timeIn, end: breakIn, label: 'Work Days' });
+        segments.push({ start: timeIn, end: breakIn, label: "Work Days" });
       if (breakOut < timeOut)
-        segments.push({ start: breakOut, end: timeOut, label: 'Work Days' });
+        segments.push({ start: breakOut, end: timeOut, label: "Work Days" });
     } else {
-      segments.push({ start: timeIn, end: timeOut, label: 'Work Days' });
+      segments.push({ start: timeIn, end: timeOut, label: "Work Days" });
     }
   }
   const honIn = parseTimeToMinutes(r.officialHonorariumTimeIN);
@@ -550,7 +578,7 @@ const getTimeSegmentsForRow = (row) => {
     honIn < honOut &&
     !(honIn === 0 && honOut === 12 * 60)
   ) {
-    segments.push({ start: honIn, end: honOut, label: 'Honorarium' });
+    segments.push({ start: honIn, end: honOut, label: "Honorarium" });
   }
   const scIn = parseTimeToMinutes(r.officialServiceCreditTimeIN);
   const scOut = parseTimeToMinutes(r.officialServiceCreditTimeOUT);
@@ -560,7 +588,7 @@ const getTimeSegmentsForRow = (row) => {
     scIn < scOut &&
     !(scIn === 0 && scOut === 12 * 60)
   ) {
-    segments.push({ start: scIn, end: scOut, label: 'Service Credits' });
+    segments.push({ start: scIn, end: scOut, label: "Service Credits" });
   }
   const otIn = parseTimeToMinutes(r.officialOverTimeIN);
   const otOut = parseTimeToMinutes(r.officialOverTimeOUT);
@@ -570,7 +598,7 @@ const getTimeSegmentsForRow = (row) => {
     otIn < otOut &&
     !(otIn === 0 && otOut === 12 * 60)
   ) {
-    segments.push({ start: otIn, end: otOut, label: 'Overtime' });
+    segments.push({ start: otIn, end: otOut, label: "Overtime" });
   }
   return segments;
 };
@@ -602,54 +630,53 @@ const hexToRgb = (hex) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return result
     ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
-    : '109, 35, 35';
+    : "109, 35, 35";
 };
 
 const DAYS_ORDER = [
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-  'Sunday',
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
 ];
 
 const makeDefaultRow = (employeeID, day) => ({
   employeeID,
   day,
-  officialTimeIN: '08:00:00 AM',
-  officialBreaktimeIN: '00:00:00 AM',
-  officialBreaktimeOUT: '00:00:00 PM',
-  officialTimeOUT: '05:00:00 PM',
-  officialHonorariumTimeIN: '00:00:00 AM',
-  officialHonorariumTimeOUT: '00:00:00 PM',
-  officialServiceCreditTimeIN: '00:00:00 AM',
-  officialServiceCreditTimeOUT: '00:00:00 AM',
-  officialOverTimeIN: '00:00:00 AM',
-  officialOverTimeOUT: '00:00:00 PM',
-  breaktime: '',
+  officialTimeIN: "08:00:00 AM",
+  officialBreaktimeIN: "00:00:00 AM",
+  officialBreaktimeOUT: "00:00:00 PM",
+  officialTimeOUT: "05:00:00 PM",
+  officialHonorariumTimeIN: "00:00:00 AM",
+  officialHonorariumTimeOUT: "00:00:00 PM",
+  officialServiceCreditTimeIN: "00:00:00 AM",
+  officialServiceCreditTimeOUT: "00:00:00 AM",
+  officialOverTimeIN: "00:00:00 AM",
+  officialOverTimeOUT: "00:00:00 PM",
+  breaktime: "",
 });
 
-// ── NEW: make a blank/cleared row (all times empty)
 const makeClearedRow = (employeeID, day) => ({
   employeeID,
   day,
-  officialTimeIN: '',
-  officialBreaktimeIN: '',
-  officialBreaktimeOUT: '',
-  officialTimeOUT: '',
-  officialHonorariumTimeIN: '',
-  officialHonorariumTimeOUT: '',
-  officialServiceCreditTimeIN: '',
-  officialServiceCreditTimeOUT: '',
-  officialOverTimeIN: '',
-  officialOverTimeOUT: '',
-  breaktime: '',
+  officialTimeIN: "",
+  officialBreaktimeIN: "",
+  officialBreaktimeOUT: "",
+  officialTimeOUT: "",
+  officialHonorariumTimeIN: "",
+  officialHonorariumTimeOUT: "",
+  officialServiceCreditTimeIN: "",
+  officialServiceCreditTimeOUT: "",
+  officialOverTimeIN: "",
+  officialOverTimeOUT: "",
+  breaktime: "",
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DATA INTEGRITY (unchanged)
+// DATA INTEGRITY
 // ─────────────────────────────────────────────────────────────────────────────
 
 const deepClone = (obj) => JSON.parse(JSON.stringify(obj));
@@ -665,115 +692,115 @@ const computeChecksum = (data) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STYLED COMPONENTS (unchanged)
+// STYLED COMPONENTS
 // ─────────────────────────────────────────────────────────────────────────────
 
 const GlassCard = styled(Card)(() => ({
   borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  '&:hover': { transform: 'translateY(-4px)' },
+  backdropFilter: "blur(10px)",
+  overflow: "hidden",
+  transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+  "&:hover": { transform: "translateY(-4px)" },
 }));
 
 const ProfessionalButton = styled(Button)(({ variant }) => ({
   borderRadius: 12,
   fontWeight: 600,
-  padding: '12px 24px',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  textTransform: 'none',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
+  padding: "12px 24px",
+  transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+  textTransform: "none",
+  fontSize: "0.95rem",
+  letterSpacing: "0.025em",
   boxShadow:
-    variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
-  '&:hover': {
-    transform: 'translateY(-2px)',
+    variant === "contained" ? "0 4px 14px rgba(254, 249, 225, 0.25)" : "none",
+  "&:hover": {
+    transform: "translateY(-2px)",
     boxShadow:
-      variant === 'contained' ? '0 6px 20px rgba(254, 249, 225, 0.35)' : 'none',
+      variant === "contained" ? "0 6px 20px rgba(254, 249, 225, 0.35)" : "none",
   },
-  '&:active': { transform: 'translateY(0)' },
+  "&:active": { transform: "translateY(0)" },
 }));
 
 const ModernTextField = styled(TextField)(() => ({
-  '& .MuiOutlinedInput-root': {
+  "& .MuiOutlinedInput-root": {
     borderRadius: 12,
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    '&:hover': {
-      transform: 'translateY(-1px)',
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    "&:hover": {
+      transform: "translateY(-1px)",
+      backgroundColor: "rgba(255, 255, 255, 0.95)",
     },
-    '&.Mui-focused': {
-      transform: 'translateY(-1px)',
-      boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
-      backgroundColor: 'rgba(255, 255, 255, 1)',
+    "&.Mui-focused": {
+      transform: "translateY(-1px)",
+      boxShadow: "0 4px 20px rgba(254, 249, 225, 0.25)",
+      backgroundColor: "rgba(255, 255, 255, 1)",
     },
   },
-  '& .MuiInputLabel-root': { fontWeight: 500 },
+  "& .MuiInputLabel-root": { fontWeight: 500 },
 }));
 
 const PremiumTableContainer = styled(TableContainer)(() => ({
   borderRadius: 16,
-  overflow: 'auto',
-  boxShadow: '0 4px 24px rgba(109, 35, 35, 0.06)',
-  border: '1px solid rgba(109, 35, 35, 0.08)',
-  maxHeight: '600px',
-  '&::-webkit-scrollbar': { width: '8px', height: '8px' },
-  '&::-webkit-scrollbar-track': {
-    background: 'rgba(254, 249, 225, 0.3)',
-    borderRadius: '4px',
+  overflow: "auto",
+  boxShadow: "0 4px 24px rgba(109, 35, 35, 0.06)",
+  border: "1px solid rgba(109, 35, 35, 0.08)",
+  maxHeight: "600px",
+  "&::-webkit-scrollbar": { width: "8px", height: "8px" },
+  "&::-webkit-scrollbar-track": {
+    background: "rgba(254, 249, 225, 0.3)",
+    borderRadius: "4px",
   },
-  '&::-webkit-scrollbar-thumb': {
-    background: 'rgba(109, 35, 35, 0.4)',
-    borderRadius: '4px',
-    '&:hover': { background: 'rgba(109, 35, 35, 0.6)' },
+  "&::-webkit-scrollbar-thumb": {
+    background: "rgba(109, 35, 35, 0.4)",
+    borderRadius: "4px",
+    "&:hover": { background: "rgba(109, 35, 35, 0.6)" },
   },
 }));
 
 const PremiumTableCell = styled(TableCell)(({ isHeader }) => ({
   fontWeight: isHeader ? 600 : 500,
-  padding: '18px 20px',
+  padding: "18px 20px",
   borderBottom: isHeader
-    ? '2px solid rgba(254, 249, 225, 0.5)'
-    : '1px solid rgba(109, 35, 35, 0.06)',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-  minWidth: '120px',
-  whiteSpace: 'nowrap',
+    ? "2px solid rgba(254, 249, 225, 0.5)"
+    : "1px solid rgba(109, 35, 35, 0.06)",
+  fontSize: "0.95rem",
+  letterSpacing: "0.025em",
+  minWidth: "120px",
+  whiteSpace: "nowrap",
 }));
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TAMPER WARNING BANNER (unchanged)
+// TAMPER WARNING BANNER
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TamperWarningBanner = ({ onRestore }) => (
   <Box
     sx={{
-      position: 'fixed',
+      position: "fixed",
       top: 0,
       left: 0,
       right: 0,
       zIndex: 9999,
-      bgcolor: '#7a0000',
-      color: '#fff',
+      bgcolor: "#7a0000",
+      color: "#fff",
       px: 3,
       py: 1.5,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-      borderBottom: '3px solid #ff4444',
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+      borderBottom: "3px solid #ff4444",
     }}
   >
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-      <WarningAmber sx={{ color: '#ffd180', fontSize: 22 }} />
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+      <WarningAmber sx={{ color: "#ffd180", fontSize: 22 }} />
       <Box>
         <Typography
-          sx={{ fontWeight: 800, fontSize: '0.92rem', lineHeight: 1.2 }}
+          sx={{ fontWeight: 800, fontSize: "0.92rem", lineHeight: 1.2 }}
         >
           ⚠ Data Tampering Detected
         </Typography>
-        <Typography sx={{ fontSize: '0.78rem', opacity: 0.85, mt: 0.25 }}>
+        <Typography sx={{ fontSize: "0.78rem", opacity: 0.85, mt: 0.25 }}>
           Schedule data was modified outside the application. Displaying last
           verified data from server.
         </Typography>
@@ -784,16 +811,16 @@ const TamperWarningBanner = ({ onRestore }) => (
       size="small"
       onClick={onRestore}
       sx={{
-        borderColor: '#ffd180',
-        color: '#ffd180',
+        borderColor: "#ffd180",
+        color: "#ffd180",
         fontWeight: 700,
-        textTransform: 'none',
-        fontSize: '0.8rem',
+        textTransform: "none",
+        fontSize: "0.8rem",
         flexShrink: 0,
         ml: 2,
-        '&:hover': {
-          bgcolor: 'rgba(255,209,128,0.15)',
-          borderColor: '#ffd180',
+        "&:hover": {
+          bgcolor: "rgba(255,209,128,0.15)",
+          borderColor: "#ffd180",
         },
       }}
     >
@@ -803,7 +830,7 @@ const TamperWarningBanner = ({ onRestore }) => (
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// VIEW MODE TOGGLE (unchanged)
+// VIEW MODE TOGGLE
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ViewToggle = ({
@@ -815,13 +842,13 @@ const ViewToggle = ({
 }) => {
   const options = [
     {
-      key: 'single',
-      label: 'Single Employee',
+      key: "single",
+      label: "Single Employee",
       icon: <Person sx={{ fontSize: 18 }} />,
     },
     {
-      key: 'allUsers',
-      label: 'All Users',
+      key: "allUsers",
+      label: "All Users",
       icon: <PeopleIcon sx={{ fontSize: 18 }} />,
     },
   ];
@@ -829,10 +856,10 @@ const ViewToggle = ({
   return (
     <Box
       sx={{
-        display: 'flex',
+        display: "flex",
         border: `2px solid ${alpha(accentColor, 0.3)}`,
         borderRadius: 3,
-        overflow: 'hidden',
+        overflow: "hidden",
         bgcolor: alpha(accentColor, 0.05),
       }}
     >
@@ -846,19 +873,19 @@ const ViewToggle = ({
             disableElevation
             sx={{
               borderRadius: 0,
-              textTransform: 'none',
+              textTransform: "none",
               fontWeight: active ? 700 : 500,
-              fontSize: '0.88rem',
+              fontSize: "0.88rem",
               px: 2.5,
               py: 1.2,
-              bgcolor: active ? accentColor : 'transparent',
+              bgcolor: active ? accentColor : "transparent",
               color: active ? primaryColor : textPrimaryColor,
               borderRight:
-                key === 'single'
+                key === "single"
                   ? `1px solid ${alpha(accentColor, 0.25)}`
-                  : 'none',
-              transition: 'all 0.2s ease',
-              '&:hover': {
+                  : "none",
+              transition: "all 0.2s ease",
+              "&:hover": {
                 bgcolor: active ? accentColor : alpha(accentColor, 0.12),
               },
             }}
@@ -872,8 +899,7 @@ const ViewToggle = ({
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ── NEW: REUSABLE TIME TABLE ROWS COMPONENT
-// Used in Create Schedule modal — renders TimePickerField for each cell
+// REUSABLE TIME TABLE ROWS COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ScheduleTimeRows = ({
@@ -884,22 +910,22 @@ const ScheduleTimeRows = ({
 }) => {
   const TIME_FIELDS = {
     workDays: [
-      { key: 'officialTimeIN', label: 'Time In' },
-      { key: 'officialBreaktimeIN', label: 'Break In' },
-      { key: 'officialBreaktimeOUT', label: 'Break Out' },
-      { key: 'officialTimeOUT', label: 'Time Out' },
+      { key: "officialTimeIN", label: "Time In" },
+      { key: "officialBreaktimeIN", label: "Break In" },
+      { key: "officialBreaktimeOUT", label: "Break Out" },
+      { key: "officialTimeOUT", label: "Time Out" },
     ],
     honorarium: [
-      { key: 'officialHonorariumTimeIN', label: 'Honorarium In' },
-      { key: 'officialHonorariumTimeOUT', label: 'Honorarium Out' },
+      { key: "officialHonorariumTimeIN", label: "Honorarium In" },
+      { key: "officialHonorariumTimeOUT", label: "Honorarium Out" },
     ],
     serviceCredits: [
-      { key: 'officialServiceCreditTimeIN', label: 'Service Credit In' },
-      { key: 'officialServiceCreditTimeOUT', label: 'Service Credit Out' },
+      { key: "officialServiceCreditTimeIN", label: "Service Credit In" },
+      { key: "officialServiceCreditTimeOUT", label: "Service Credit Out" },
     ],
     overtime: [
-      { key: 'officialOverTimeIN', label: 'Overtime In' },
-      { key: 'officialOverTimeOUT', label: 'Overtime Out' },
+      { key: "officialOverTimeIN", label: "Overtime In" },
+      { key: "officialOverTimeOUT", label: "Overtime Out" },
     ],
   };
 
@@ -908,12 +934,12 @@ const ScheduleTimeRows = ({
   return (
     <>
       <TableHead>
-        <TableRow sx={{ bgcolor: '#6d2323' }}>
+        <TableRow sx={{ bgcolor: "#6d2323" }}>
           <TableCell
             sx={{
-              color: '#fff',
+              color: "#fff",
               fontWeight: 700,
-              fontSize: '0.8rem',
+              fontSize: "0.8rem",
               py: 1.25,
               width: 100,
             }}
@@ -924,9 +950,9 @@ const ScheduleTimeRows = ({
             <TableCell
               key={f.key}
               sx={{
-                color: '#fff',
+                color: "#fff",
                 fontWeight: 700,
-                fontSize: '0.8rem',
+                fontSize: "0.8rem",
                 py: 1.25,
                 minWidth: 260,
               }}
@@ -941,15 +967,15 @@ const ScheduleTimeRows = ({
           <TableRow
             key={record.day || index}
             sx={{
-              '&:nth-of-type(even)': { bgcolor: '#faf5f5' },
-              '&:hover': { bgcolor: '#f5ecec' },
+              "&:nth-of-type(even)": { bgcolor: "#faf5f5" },
+              "&:hover": { bgcolor: "#f5ecec" },
             }}
           >
             <TableCell
               sx={{
                 fontWeight: 600,
-                color: '#1a1a1a',
-                fontSize: '0.85rem',
+                color: "#1a1a1a",
+                fontSize: "0.85rem",
                 py: 0.75,
               }}
             >
@@ -960,16 +986,16 @@ const ScheduleTimeRows = ({
                 {readOnly ? (
                   <Typography
                     sx={{
-                      color: '#1a1a1a',
-                      fontSize: '0.85rem',
-                      fontFamily: 'monospace',
+                      color: "#1a1a1a",
+                      fontSize: "0.85rem",
+                      fontFamily: "monospace",
                     }}
                   >
-                    {record[f.key] || '—'}
+                    {record[f.key] || "—"}
                   </Typography>
                 ) : (
                   <TimePickerField
-                    value={record[f.key] || ''}
+                    value={record[f.key] || ""}
                     onChange={(val) => onChangeRecord(index, f.key, val)}
                     accentColor="#6d2323"
                   />
@@ -990,30 +1016,30 @@ const ScheduleTimeRows = ({
 const OfficialTimeForm = () => {
   const { settings } = useSystemSettings();
 
-  const primaryColor = settings.accentColor || '#FEF9E1';
-  const secondaryColor = settings.backgroundColor || '#FFF8E7';
-  const accentColor = settings.primaryColor || '#6D2323';
-  const accentDark = settings.secondaryColor || '#8B3333';
-  const textPrimaryColor = settings.textPrimaryColor || '#6D2323';
-  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
-  const hoverColor = settings.hoverColor || '#6D2323';
+  const primaryColor = settings.accentColor || "#FEF9E1";
+  const secondaryColor = settings.backgroundColor || "#FFF8E7";
+  const accentColor = settings.primaryColor || "#6D2323";
+  const accentDark = settings.secondaryColor || "#8B3333";
+  const textPrimaryColor = settings.textPrimaryColor || "#6D2323";
+  const textSecondaryColor = settings.textSecondaryColor || "#FEF9E1";
+  const hoverColor = settings.hoverColor || "#6D2323";
 
-  const { hasAccess, loading: accessLoading } = usePageAccess('official-time');
+  const { hasAccess, loading: accessLoading } = usePageAccess("official-time");
 
-  const [viewMode, setViewMode] = useState('single');
-  const showSingleView = viewMode === 'single';
-  const showAllUsers = viewMode === 'allUsers';
+  const [viewMode, setViewMode] = useState("single");
+  const showSingleView = viewMode === "single";
+  const showAllUsers = viewMode === "allUsers";
   const setShowAllUsers = useCallback((val) => {
     setViewMode(
-      typeof val === 'function'
-        ? (prev) => (val(prev === 'allUsers') ? 'allUsers' : 'single')
+      typeof val === "function"
+        ? (prev) => (val(prev === "allUsers") ? "allUsers" : "single")
         : val
-          ? 'allUsers'
-          : 'single',
+          ? "allUsers"
+          : "single",
     );
   }, []);
 
-  const [employeeID, setEmployeeID] = useState('');
+  const [employeeID, setEmployeeID] = useState("");
   const [records, setRecords] = useState([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -1024,11 +1050,11 @@ const OfficialTimeForm = () => {
   const [file, setFile] = useState(null);
 
   const [successOpen, setSuccessOpen] = useState(false);
-  const [successAction, setSuccessAction] = useState('');
+  const [successAction, setSuccessAction] = useState("");
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewRecords, setPreviewRecords] = useState([]);
   const [previewViewScheduleView, setPreviewViewScheduleView] =
-    useState('workDays');
+    useState("workDays");
 
   const [checkingOverlap, setCheckingOverlap] = useState(false);
 
@@ -1072,7 +1098,7 @@ const OfficialTimeForm = () => {
   }, [runIntegrityCheck]);
 
   const handleRestoreFromServer = useCallback(async () => {
-    const trimmedId = String(employeeID || '').trim();
+    const trimmedId = String(employeeID || "").trim();
     if (!trimmedId) return;
     setLoading(true);
     try {
@@ -1086,7 +1112,7 @@ const OfficialTimeForm = () => {
       setRecords(deepClone(fresh));
       setFound(res.data.length > 0);
     } catch (err) {
-      console.error('Restore failed:', err);
+      console.error("Restore failed:", err);
     } finally {
       setLoading(false);
       setTamperDetected(false);
@@ -1097,23 +1123,23 @@ const OfficialTimeForm = () => {
   const allUsers_state = useState([]);
   const [allUsers, setAllUsers] = allUsers_state;
   const [loadingUsers, setLoadingUsers] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
   const [allUsersPage, setAllUsersPage] = useState(0);
   const [allUsersRowsPerPage, setAllUsersRowsPerPage] = useState(10);
   const [selectedUsers, setSelectedUsers] = useState(new Set());
   const [settingDefault, setSettingDefault] = useState(false);
 
-  const [draftAcademicYear, setDraftAcademicYear] = useState('');
-  const [draftSemester, setDraftSemester] = useState('');
-  const [draftStartDate, setDraftStartDate] = useState('');
-  const [draftEndDate, setDraftEndDate] = useState('');
-  const [draftStatus, setDraftStatus] = useState('active');
+  const [draftAcademicYear, setDraftAcademicYear] = useState("");
+  const [draftSemester, setDraftSemester] = useState("");
+  const [draftStartDate, setDraftStartDate] = useState("");
+  const [draftEndDate, setDraftEndDate] = useState("");
+  const [draftStatus, setDraftStatus] = useState("active");
 
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [modalRecords, setModalRecords] = useState([]);
   const [showConflictModal, setShowConflictModal] = useState(false);
   const [showWarningModal, setShowWarningModal] = useState(false);
-  const [warningMessage, setWarningMessage] = useState('');
+  const [warningMessage, setWarningMessage] = useState("");
   const [warningOverlap, setWarningOverlap] = useState(null);
   const [isBulkSchedule, setIsBulkSchedule] = useState(false);
   const [bulkScheduleBlocks, setBulkScheduleBlocks] = useState([]);
@@ -1122,17 +1148,21 @@ const OfficialTimeForm = () => {
   const [showViewScheduleModal, setShowViewScheduleModal] = useState(false);
   const [viewScheduleInfo, setViewScheduleInfo] = useState(null);
   const [viewScheduleRecords, setViewScheduleRecords] = useState([]);
-  const [scheduleView, setScheduleView] = useState('workDays');
-  const [viewScheduleView, setViewScheduleView] = useState('workDays');
-  const [viewScheduleEmployeeName, setViewScheduleEmployeeName] = useState('');
+  const [scheduleView, setScheduleView] = useState("workDays");
+  const [viewScheduleView, setViewScheduleView] = useState("workDays");
+  const [viewScheduleEmployeeName, setViewScheduleEmployeeName] = useState("");
 
   const [showBulkConfirmModal, setShowBulkConfirmModal] = useState(false);
   const [pendingBulkSubmit, setPendingBulkSubmit] = useState(false);
 
   const [isEditingViewSchedule, setIsEditingViewSchedule] = useState(false);
   const [editViewRecords, setEditViewRecords] = useState([]);
-  const [editViewScheduleView, setEditViewScheduleView] = useState('workDays');
+  const [editViewScheduleView, setEditViewScheduleView] = useState("workDays");
   const [editViewSaving, setEditViewSaving] = useState(false);
+
+  // ── NEW: editable end date for the view/edit schedule modal ──────────────
+  // Holds the current (possibly user-modified) end date while editing.
+  const [editViewEndDate, setEditViewEndDate] = useState("");
 
   // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -1152,7 +1182,7 @@ const OfficialTimeForm = () => {
       const found = allUsers.find(
         (u) => String(u.employeeNumber) === String(empId),
       );
-      return found?.fullName || '';
+      return found?.fullName || "";
     },
     [allUsers],
   );
@@ -1167,44 +1197,44 @@ const OfficialTimeForm = () => {
       setAllUsers(response.data || []);
       setAllUsersPage(0);
     } catch (error) {
-      console.error('Error fetching users:', error);
-      showToast('Error fetching users.');
+      console.error("Error fetching users:", error);
+      showToast("Error fetching users.");
     } finally {
       setLoadingUsers(false);
     }
   }, [showToast]);
 
-  // ── NEW: clear all times in modal for current view tab ───────────────────
+  // ── Clear all times in modal for current view tab ────────────────────────
   const handleClearModalTimes = useCallback(() => {
     const fieldsByView = {
       workDays: [
-        'officialTimeIN',
-        'officialBreaktimeIN',
-        'officialBreaktimeOUT',
-        'officialTimeOUT',
+        "officialTimeIN",
+        "officialBreaktimeIN",
+        "officialBreaktimeOUT",
+        "officialTimeOUT",
       ],
-      honorarium: ['officialHonorariumTimeIN', 'officialHonorariumTimeOUT'],
+      honorarium: ["officialHonorariumTimeIN", "officialHonorariumTimeOUT"],
       serviceCredits: [
-        'officialServiceCreditTimeIN',
-        'officialServiceCreditTimeOUT',
+        "officialServiceCreditTimeIN",
+        "officialServiceCreditTimeOUT",
       ],
-      overtime: ['officialOverTimeIN', 'officialOverTimeOUT'],
+      overtime: ["officialOverTimeIN", "officialOverTimeOUT"],
     };
     const fields = fieldsByView[scheduleView] || [];
     setModalRecords((prev) =>
       prev.map((row) => {
         const updated = { ...row };
         fields.forEach((f) => {
-          updated[f] = '';
+          updated[f] = "";
         });
         return updated;
       }),
     );
   }, [scheduleView]);
 
-  // ── NEW: reset all times to default (8AM-5PM) for current view ───────────
+  // ── Reset all times to default ───────────────────────────────────────────
   const handleResetModalToDefault = useCallback(() => {
-    const trimmedId = String(employeeID || '').trim();
+    const trimmedId = String(employeeID || "").trim();
     setModalRecords(DAYS_ORDER.map((day) => makeDefaultRow(trimmedId, day)));
   }, [employeeID]);
 
@@ -1212,19 +1242,31 @@ const OfficialTimeForm = () => {
   const handleStartEditViewSchedule = useCallback(() => {
     setEditViewRecords(deepClone(viewScheduleRecords));
     setEditViewScheduleView(viewScheduleView);
+    // FIX: initialise the editable end date from the current schedule info
+    setEditViewEndDate(normalizeDateStr(viewScheduleInfo?.endDate) || "");
     setIsEditingViewSchedule(true);
-  }, [viewScheduleRecords, viewScheduleView]);
+  }, [viewScheduleRecords, viewScheduleView, viewScheduleInfo]);
 
   const handleCancelEditViewSchedule = useCallback(() => {
     setIsEditingViewSchedule(false);
     setEditViewRecords([]);
+    setEditViewEndDate("");
   }, []);
 
   const handleSaveEditedSchedule = useCallback(async () => {
     if (!viewScheduleInfo) return;
-    const trimmedId = String(employeeID || '').trim();
+    const trimmedId = String(employeeID || "").trim();
     if (!trimmedId) {
-      showToast('Employee ID is missing.');
+      showToast("Employee ID is missing.");
+      return;
+    }
+
+    // Validate the new end date
+    const newEndDate =
+      editViewEndDate || normalizeDateStr(viewScheduleInfo.endDate);
+    const origStartDate = normalizeDateStr(viewScheduleInfo.startDate);
+    if (newEndDate && origStartDate && newEndDate < origStartDate) {
+      showToast("End date cannot be before start date.");
       return;
     }
 
@@ -1246,14 +1288,17 @@ const OfficialTimeForm = () => {
         `${API_BASE_URL}/officialtimetable/${trimmedId}`,
         {
           startDate: viewScheduleInfo.startDate,
-          endDate: viewScheduleInfo.endDate,
+          // FIX: send the (possibly updated) endDate
+          endDate: newEndDate || viewScheduleInfo.endDate,
           records: editViewRecords,
         },
         getAuthHeaders(),
       );
-      showToast('Official time updated successfully.');
+      showToast("Official time updated successfully.");
       setIsEditingViewSchedule(false);
       setEditViewRecords([]);
+      setEditViewEndDate("");
+
       // Refresh the view records
       const res = await axios.get(
         `${API_BASE_URL}/officialtimetable/${trimmedId}`,
@@ -1263,21 +1308,27 @@ const OfficialTimeForm = () => {
       stampServerRecords(allRows);
       setRecords(deepClone(allRows));
       setFound(allRows.length > 0);
+
       const normStart = normalizeDateStr(viewScheduleInfo.startDate);
-      const normEnd = normalizeDateStr(viewScheduleInfo.endDate);
+      // Use the new end date when filtering refreshed rows
+      const normEnd = normalizeDateStr(newEndDate || viewScheduleInfo.endDate);
       const updatedRows = allRows.filter(
         (r) =>
           normalizeDateStr(r.startDate) === normStart &&
           normalizeDateStr(r.endDate) === normEnd,
       );
       setViewScheduleRecords(updatedRows);
+      // Update the schedule info panel to reflect the new end date
+      setViewScheduleInfo((prev) =>
+        prev ? { ...prev, endDate: newEndDate || prev.endDate } : prev,
+      );
     } catch (err) {
-      console.error('Error updating official time:', err);
+      console.error("Error updating official time:", err);
       const msg =
         err.response?.data?.message ||
         err.response?.data?.error ||
         err.message ||
-        'Error updating schedule.';
+        "Error updating schedule.";
       setWarningMessage(msg);
       setWarningOverlap(err.response?.data?.overlap || null);
       setShowWarningModal(true);
@@ -1289,6 +1340,7 @@ const OfficialTimeForm = () => {
     viewScheduleInfo,
     employeeID,
     editViewRecords,
+    editViewEndDate,
     showToast,
     stampServerRecords,
   ]);
@@ -1296,9 +1348,9 @@ const OfficialTimeForm = () => {
   // ── search ────────────────────────────────────────────────────────────────
 
   const handleSearch = useCallback(async () => {
-    const trimmedId = String(employeeID || '').trim();
+    const trimmedId = String(employeeID || "").trim();
     if (!trimmedId) {
-      showToast('Please enter an Employee ID.');
+      showToast("Please enter an Employee ID.");
       return;
     }
 
@@ -1318,8 +1370,8 @@ const OfficialTimeForm = () => {
       setRecords(deepClone(data));
       setFound(res.data.length > 0);
     } catch (err) {
-      console.error('Error fetching data:', err);
-      showToast('Error fetching records.');
+      console.error("Error fetching data:", err);
+      showToast("Error fetching records.");
     } finally {
       setLoading(false);
     }
@@ -1349,7 +1401,7 @@ const OfficialTimeForm = () => {
 
   const autoSaveRecords = useCallback(
     async (recordsToSave) => {
-      const trimmedId = String(employeeID || '').trim();
+      const trimmedId = String(employeeID || "").trim();
       if (!trimmedId || !recordsToSave || recordsToSave.length === 0) return;
       if (!draftStartDate || !draftEndDate) return;
       if (saveInFlightRef.current) return;
@@ -1369,7 +1421,7 @@ const OfficialTimeForm = () => {
       saveInFlightRef.current = true;
       try {
         const academicYearForBackend =
-          [draftAcademicYear, draftSemester].filter(Boolean).join(' ').trim() ||
+          [draftAcademicYear, draftSemester].filter(Boolean).join(" ").trim() ||
           null;
         await axios.post(
           `${API_BASE_URL}/officialtimetable`,
@@ -1378,7 +1430,7 @@ const OfficialTimeForm = () => {
             academicYear: academicYearForBackend,
             startDate: draftStartDate,
             endDate: draftEndDate,
-            status: draftStatus || 'active',
+            status: draftStatus || "active",
             records: recordsToSave,
           },
           getAuthHeaders(),
@@ -1387,7 +1439,7 @@ const OfficialTimeForm = () => {
         setFound(true);
         stampServerRecords(recordsToSave);
       } catch (err) {
-        console.error('Error auto-saving records:', err);
+        console.error("Error auto-saving records:", err);
       } finally {
         setAutoSaving(false);
         saveInFlightRef.current = false;
@@ -1408,16 +1460,16 @@ const OfficialTimeForm = () => {
   // ── create schedule modal ─────────────────────────────────────────────────
 
   const openCreateScheduleModal = useCallback(async () => {
-    const trimmedId = String(employeeID || '').trim();
+    const trimmedId = String(employeeID || "").trim();
     if (!trimmedId) {
-      showToast('Please enter Employee Number.');
+      showToast("Please enter Employee Number.");
       return;
     }
 
     setIsBulkSchedule(false);
     setBulkTargetEmployees([]);
     setBulkScheduleBlocks([]);
-    setScheduleView('workDays');
+    setScheduleView("workDays");
 
     if (hasSearched && records.length === 0) {
       setModalRecords(buildDefaultRecords(trimmedId));
@@ -1426,15 +1478,15 @@ const OfficialTimeForm = () => {
     }
 
     if (!draftAcademicYear || !draftSemester) {
-      showToast('Please fill Academic Year and Semester first.');
+      showToast("Please fill Academic Year and Semester first.");
       return;
     }
     if (!draftStartDate || !draftEndDate) {
-      showToast('Please fill Start Date and End Date first.');
+      showToast("Please fill Start Date and End Date first.");
       return;
     }
     if (new Date(draftStartDate) > new Date(draftEndDate)) {
-      showToast('Start date must be on or before End date.');
+      showToast("Start date must be on or before End date.");
       return;
     }
 
@@ -1502,15 +1554,15 @@ const OfficialTimeForm = () => {
   // ── submit from modal ─────────────────────────────────────────────────────
 
   const handleSubmitFromModal = useCallback(async () => {
-    const trimmedId = String(employeeID || '').trim();
+    const trimmedId = String(employeeID || "").trim();
 
     if (!isBulkSchedule) {
       if (!trimmedId || !draftStartDate || !draftEndDate) {
-        showToast('Employee Number, Start date and End date are required.');
+        showToast("Employee Number, Start date and End date are required.");
         return;
       }
       if (new Date(draftStartDate) > new Date(draftEndDate)) {
-        showToast('Start date must be on or before end date.');
+        showToast("Start date must be on or before end date.");
         return;
       }
     }
@@ -1585,7 +1637,7 @@ const OfficialTimeForm = () => {
           const academicYearForBackend =
             [draftAcademicYear, draftSemester]
               .filter(Boolean)
-              .join(' ')
+              .join(" ")
               .trim() || null;
           await axios.post(
             `${API_BASE_URL}/officialtimetable`,
@@ -1594,13 +1646,13 @@ const OfficialTimeForm = () => {
               academicYear: academicYearForBackend,
               startDate: draftStartDate,
               endDate: draftEndDate,
-              status: draftStatus || 'active',
+              status: draftStatus || "active",
               records: sevenRows,
             },
             { ...getAuthHeaders(), timeout: 30000 },
           );
           setLastSaved(new Date());
-          showToast('Official time saved successfully.');
+          showToast("Official time saved successfully.");
           stampServerRecords(sevenRows);
           await handleSearch();
         }
@@ -1609,17 +1661,17 @@ const OfficialTimeForm = () => {
         setBulkScheduleBlocks([]);
         setBulkTargetEmployees([]);
       } catch (err) {
-        console.error('Error saving data:', err);
+        console.error("Error saving data:", err);
         const msg =
-          err.code === 'ECONNABORTED' || err.message?.includes('timeout')
-            ? 'Request timed out. Please try again.'
+          err.code === "ECONNABORTED" || err.message?.includes("timeout")
+            ? "Request timed out. Please try again."
             : err.response?.status === 409
               ? err.response?.data?.message ||
-                'This date range overlaps an existing schedule. Choose different dates.'
+                "This date range overlaps an existing schedule. Choose different dates."
               : err.response?.data?.error ||
                 err.response?.data?.message ||
                 err.message ||
-                'Error saving records.';
+                "Error saving records.";
         setWarningMessage(msg);
         setWarningOverlap(err.response?.data?.overlap || null);
         setShowWarningModal(true);
@@ -1649,13 +1701,13 @@ const OfficialTimeForm = () => {
 
   const handleUpload = useCallback(async () => {
     if (!file) {
-      showToast('Please select a file!');
+      showToast("Please select a file!");
       return;
     }
     if (uploading) return;
 
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append("file", file);
     setUploading(true);
 
     try {
@@ -1664,7 +1716,7 @@ const OfficialTimeForm = () => {
         formData,
         {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+            Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
           },
         },
       );
@@ -1674,18 +1726,18 @@ const OfficialTimeForm = () => {
         formData,
         {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+            Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
           },
         },
       );
 
       if (response.data.records && response.data.records.length > 0) {
         setPreviewRecords(response.data.records);
-        setPreviewViewScheduleView('workDays');
+        setPreviewViewScheduleView("workDays");
         setShowPreviewModal(true);
 
         const uploadedEmpId = String(
-          response.data.records[0]?.employeeID || '',
+          response.data.records[0]?.employeeID || "",
         ).trim();
         if (uploadedEmpId) {
           setEmployeeID(uploadedEmpId);
@@ -1706,7 +1758,7 @@ const OfficialTimeForm = () => {
               setFound(false);
             }
           } catch (e) {
-            console.error('Error refreshing schedules after upload:', e);
+            console.error("Error refreshing schedules after upload:", e);
           }
         }
       }
@@ -1716,16 +1768,16 @@ const OfficialTimeForm = () => {
       );
       setFile(null);
     } catch (error) {
-      console.error('Upload error:', error);
+      console.error("Upload error:", error);
       const message =
         error.response?.data?.message ||
         error.response?.data?.error ||
         (error.response?.status === 400 &&
-          'Check file format: use .xlsx, include employeeID, day, effective_from, effective_until.') ||
+          "Check file format: use .xlsx, include employeeID, day, effective_from, effective_until.") ||
         (error.response?.status === 409 &&
-          'Date range overlaps an existing schedule.') ||
+          "Date range overlaps an existing schedule.") ||
         error.message ||
-        'Upload failed!';
+        "Upload failed!";
       setWarningOverlap(error.response?.data?.overlap || null);
       setWarningMessage(message);
       setShowWarningModal(true);
@@ -1738,7 +1790,7 @@ const OfficialTimeForm = () => {
 
   const handleSetDefaultForSelected = useCallback(async () => {
     if (selectedUsers.size === 0) {
-      showToast('Please select at least one user.');
+      showToast("Please select at least one user.");
       return;
     }
     setSettingDefault(true);
@@ -1753,13 +1805,13 @@ const OfficialTimeForm = () => {
         Math.floor((response.data.inserted || 0) / 7);
       const skipped = response.data.skipped || 0;
       showToast(
-        `Default official time set for ${insertedUsers} users.${skipped ? ` (Skipped: ${skipped})` : ''}`,
+        `Default official time set for ${insertedUsers} users.${skipped ? ` (Skipped: ${skipped})` : ""}`,
       );
       await fetchAllUsers();
       setSelectedUsers(new Set());
     } catch (error) {
-      console.error('Error setting default official time:', error);
-      showToast('Error setting default official time.');
+      console.error("Error setting default official time:", error);
+      showToast("Error setting default official time.");
     } finally {
       setSettingDefault(false);
     }
@@ -1770,7 +1822,7 @@ const OfficialTimeForm = () => {
       .filter((u) => !u.hasDefaultOfficialTime)
       .map((u) => u.employeeNumber);
     if (usersWithoutDefault.length === 0) {
-      showToast('All users already have default official time.');
+      showToast("All users already have default official time.");
       return;
     }
     setSettingDefault(true);
@@ -1785,12 +1837,12 @@ const OfficialTimeForm = () => {
         Math.floor((response.data.inserted || 0) / 7);
       const skipped = response.data.skipped || 0;
       showToast(
-        `Default official time set for ${insertedUsers} users.${skipped ? ` (Skipped: ${skipped})` : ''}`,
+        `Default official time set for ${insertedUsers} users.${skipped ? ` (Skipped: ${skipped})` : ""}`,
       );
       await fetchAllUsers();
     } catch (error) {
-      console.error('Error setting default official time:', error);
-      showToast('Error setting default official time.');
+      console.error("Error setting default official time:", error);
+      showToast("Error setting default official time.");
     } finally {
       setSettingDefault(false);
     }
@@ -1815,8 +1867,8 @@ const OfficialTimeForm = () => {
     if (!searchQuery.trim()) return allUsers.slice();
     const q = searchQuery.toLowerCase();
     return allUsers.filter((user) => {
-      const full = (user.fullName || '').toLowerCase();
-      const emp = (user.employeeNumber || '').toLowerCase();
+      const full = (user.fullName || "").toLowerCase();
+      const emp = (user.employeeNumber || "").toLowerCase();
       return full.includes(q) || emp.includes(q);
     });
   }, [allUsers, searchQuery]);
@@ -1835,16 +1887,16 @@ const OfficialTimeForm = () => {
 
   const openBulkBlocksModalForSelected = useCallback(() => {
     if (selectedUsers.size === 0) {
-      showToast('Please select at least one user.');
+      showToast("Please select at least one user.");
       return;
     }
     setBulkScheduleBlocks([
       {
         id: `${Date.now()}-${Math.random()}`,
-        academicYear: '',
-        semester: '',
-        startDate: '',
-        endDate: '',
+        academicYear: "",
+        semester: "",
+        startDate: "",
+        endDate: "",
       },
     ]);
     setBulkTargetEmployees(Array.from(selectedUsers));
@@ -1856,16 +1908,16 @@ const OfficialTimeForm = () => {
       .filter((u) => !u.hasDefaultOfficialTime)
       .map((u) => u.employeeNumber);
     if (usersWithoutDefault.length === 0) {
-      showToast('All users already have default official time.');
+      showToast("All users already have default official time.");
       return;
     }
     setBulkScheduleBlocks([
       {
         id: `${Date.now()}-${Math.random()}`,
-        academicYear: '',
-        semester: '',
-        startDate: '',
-        endDate: '',
+        academicYear: "",
+        semester: "",
+        startDate: "",
+        endDate: "",
       },
     ]);
     setBulkTargetEmployees(usersWithoutDefault);
@@ -1875,10 +1927,10 @@ const OfficialTimeForm = () => {
   const handleConfirmBulkBlocks = useCallback(() => {
     const cleaned = (bulkScheduleBlocks || []).map((b) => ({
       ...b,
-      academicYear: String(b.academicYear || '').trim(),
-      semester: String(b.semester || '').trim(),
-      startDate: String(b.startDate || '').trim(),
-      endDate: String(b.endDate || '').trim(),
+      academicYear: String(b.academicYear || "").trim(),
+      semester: String(b.semester || "").trim(),
+      startDate: String(b.startDate || "").trim(),
+      endDate: String(b.endDate || "").trim(),
     }));
 
     const allFilled =
@@ -1888,7 +1940,7 @@ const OfficialTimeForm = () => {
       );
     if (!allFilled) {
       showToast(
-        'Please complete Academic Year, Semester, Start Date, and End Date for all blocks before proceeding.',
+        "Please complete Academic Year, Semester, Start Date, and End Date for all blocks before proceeding.",
       );
       return;
     }
@@ -1898,17 +1950,17 @@ const OfficialTimeForm = () => {
 
     const firstBlock = cleaned[0];
     if (firstBlock) {
-      setDraftAcademicYear(firstBlock.academicYear || '');
-      setDraftSemester(firstBlock.semester || '');
-      setDraftStartDate(firstBlock.startDate || '');
-      setDraftEndDate(firstBlock.endDate || '');
+      setDraftAcademicYear(firstBlock.academicYear || "");
+      setDraftSemester(firstBlock.semester || "");
+      setDraftStartDate(firstBlock.startDate || "");
+      setDraftEndDate(firstBlock.endDate || "");
     }
 
-    const empId = String(bulkTargetEmployees[0] || '');
+    const empId = String(bulkTargetEmployees[0] || "");
     setEmployeeID(empId);
 
     setModalRecords(DAYS_ORDER.map((day) => makeDefaultRow(empId, day)));
-    setScheduleView('workDays');
+    setScheduleView("workDays");
     setShowBulkBlocksModal(false);
     setShowScheduleModal(true);
   }, [bulkScheduleBlocks, bulkTargetEmployees, showToast]);
@@ -1917,16 +1969,16 @@ const OfficialTimeForm = () => {
 
   const handleEmployeeIDChange = useCallback(
     (value) => {
-      if (value === '' || /^\d+$/.test(value)) {
+      if (value === "" || /^\d+$/.test(value)) {
         setEmployeeID(value);
         if (value !== employeeID) {
           setRecords([]);
           setHasSearched(false);
           setFound(false);
-          setDraftAcademicYear('');
-          setDraftSemester('');
-          setDraftStartDate('');
-          setDraftEndDate('');
+          setDraftAcademicYear("");
+          setDraftSemester("");
+          setDraftStartDate("");
+          setDraftEndDate("");
           setLastSaved(null);
           serverRecordsRef.current = [];
           checksumRef.current = null;
@@ -1970,7 +2022,7 @@ const OfficialTimeForm = () => {
           academicYear: previewRecords[0].academicYear,
           startDate: previewRecords[0].startDate,
           endDate: previewRecords[0].endDate,
-          status: previewRecords[0].status || 'active',
+          status: previewRecords[0].status || "active",
         }
       : null;
 
@@ -1981,13 +2033,13 @@ const OfficialTimeForm = () => {
       <Container maxWidth="md" sx={{ py: 8 }}>
         <Box
           sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
           }}
         >
-          <CircularProgress sx={{ color: '#6d2323', mb: 2 }} />
-          <Typography variant="h6" sx={{ color: '#6d2323' }}>
+          <CircularProgress sx={{ color: "#6d2323", mb: 2 }} />
+          <Typography variant="h6" sx={{ color: "#6d2323" }}>
             Loading access information...
           </Typography>
         </Box>
@@ -2017,31 +2069,31 @@ const OfficialTimeForm = () => {
         open={loading || checkingOverlap || saving || uploading}
         message={
           checkingOverlap
-            ? 'Checking schedule for conflicts...'
+            ? "Checking schedule for conflicts..."
             : uploading
-              ? 'Uploading...'
+              ? "Uploading..."
               : saving
-                ? 'Saving...'
-                : 'Loading...'
+                ? "Saving..."
+                : "Loading..."
         }
       />
 
       <Box
         sx={{
           py: 4,
-          borderRadius: '14px',
-          width: '100vw',
-          mx: 'auto',
-          maxWidth: '100%',
-          overflow: 'hidden',
-          position: 'relative',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          mt: tamperDetected ? '56px' : 0,
-          transition: 'margin-top 0.2s ease',
+          borderRadius: "14px",
+          width: "100vw",
+          mx: "auto",
+          maxWidth: "100%",
+          overflow: "hidden",
+          position: "relative",
+          left: "50%",
+          transform: "translateX(-50%)",
+          mt: tamperDetected ? "56px" : 0,
+          transition: "margin-top 0.2s ease",
         }}
       >
-        <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
+        <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
           {/* ── Header ── */}
           <Fade in timeout={500}>
             <Box sx={{ mb: 4 }}>
@@ -2057,13 +2109,13 @@ const OfficialTimeForm = () => {
                     p: 5,
                     background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                     color: textPrimaryColor,
-                    position: 'relative',
-                    overflow: 'hidden',
+                    position: "relative",
+                    overflow: "hidden",
                   }}
                 >
                   <Box
                     sx={{
-                      position: 'absolute',
+                      position: "absolute",
                       top: -50,
                       right: -50,
                       width: 200,
@@ -2073,9 +2125,9 @@ const OfficialTimeForm = () => {
                   />
                   <Box
                     sx={{
-                      position: 'absolute',
+                      position: "absolute",
                       bottom: -30,
-                      left: '30%',
+                      left: "30%",
                       width: 150,
                       height: 150,
                       background: `radial-gradient(circle, ${alpha(accentColor, 0.08)} 0%, transparent 70%)`,
@@ -2139,7 +2191,6 @@ const OfficialTimeForm = () => {
                           fontWeight: 500,
                         }}
                       />
-
                       <ViewToggle
                         value={viewMode}
                         onChange={setViewMode}
@@ -2147,19 +2198,18 @@ const OfficialTimeForm = () => {
                         primaryColor={primaryColor}
                         textPrimaryColor={textPrimaryColor}
                       />
-
                       <Tooltip title="Refresh Data">
                         <span>
                           <IconButton
                             onClick={handleSearch}
-                            disabled={!String(employeeID || '').trim()}
+                            disabled={!String(employeeID || "").trim()}
                             sx={{
                               bgcolor: alpha(accentColor, 0.1),
-                              '&:hover': { bgcolor: alpha(accentColor, 0.2) },
+                              "&:hover": { bgcolor: alpha(accentColor, 0.2) },
                               color: textPrimaryColor,
                               width: 48,
                               height: 48,
-                              '&:disabled': {
+                              "&:disabled": {
                                 bgcolor: alpha(accentColor, 0.05),
                                 color: alpha(accentColor, 0.3),
                               },
@@ -2202,11 +2252,11 @@ const OfficialTimeForm = () => {
                             if (
                               !/[0-9]/.test(e.key) &&
                               ![
-                                'Backspace',
-                                'Delete',
-                                'ArrowLeft',
-                                'ArrowRight',
-                                'Tab',
+                                "Backspace",
+                                "Delete",
+                                "ArrowLeft",
+                                "ArrowRight",
+                                "Tab",
                               ].includes(e.key)
                             )
                               e.preventDefault();
@@ -2233,21 +2283,21 @@ const OfficialTimeForm = () => {
                         <Autocomplete
                           freeSolo
                           options={[
-                            '1st Semester',
-                            '2nd Semester',
-                            'Summer',
-                            'Vacation',
-                            'Christmas break',
-                            'Midyear',
-                            'Enrollment period',
+                            "1st Semester",
+                            "2nd Semester",
+                            "Summer",
+                            "Vacation",
+                            "Christmas break",
+                            "Midyear",
+                            "Enrollment period",
                           ]}
                           value={draftSemester || null}
                           onInputChange={(_, value) =>
-                            setDraftSemester(value ?? '')
+                            setDraftSemester(value ?? "")
                           }
                           onChange={(_, value) =>
                             setDraftSemester(
-                              typeof value === 'string' ? value : '',
+                              typeof value === "string" ? value : "",
                             )
                           }
                           renderInput={(params) => (
@@ -2284,10 +2334,10 @@ const OfficialTimeForm = () => {
                         item
                         xs={12}
                         sx={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          flexWrap: 'wrap',
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
                           gap: 2,
                         }}
                       >
@@ -2301,7 +2351,7 @@ const OfficialTimeForm = () => {
                             type="file"
                             accept=".xlsx,.xls"
                             id="upload-button"
-                            style={{ display: 'none' }}
+                            style={{ display: "none" }}
                             onChange={(e) => setFile(e.target.files[0])}
                           />
                           <label htmlFor="upload-button">
@@ -2312,7 +2362,7 @@ const OfficialTimeForm = () => {
                               sx={{
                                 borderColor: accentColor,
                                 color: textPrimaryColor,
-                                '&:hover': {
+                                "&:hover": {
                                   backgroundColor: alpha(accentColor, 0.1),
                                 },
                               }}
@@ -2327,7 +2377,7 @@ const OfficialTimeForm = () => {
                             startIcon={<CloudUploadIcon />}
                             sx={{ bgcolor: accentColor, color: primaryColor }}
                           >
-                            {uploading ? 'Uploading...' : 'Upload'}
+                            {uploading ? "Uploading..." : "Upload"}
                           </ProfessionalButton>
                           {file && (
                             <Typography
@@ -2364,7 +2414,7 @@ const OfficialTimeForm = () => {
                             variant="contained"
                             onClick={handleSearch}
                             startIcon={<SearchIcon />}
-                            disabled={!String(employeeID || '').trim()}
+                            disabled={!String(employeeID || "").trim()}
                             sx={{ bgcolor: accentColor, color: primaryColor }}
                           >
                             Search
@@ -2373,7 +2423,7 @@ const OfficialTimeForm = () => {
                             variant="contained"
                             onClick={openCreateScheduleModal}
                             disabled={
-                              !String(employeeID || '').trim() ||
+                              !String(employeeID || "").trim() ||
                               ((!hasSearched || records.length > 0) &&
                                 (!draftAcademicYear ||
                                   !draftSemester ||
@@ -2384,8 +2434,8 @@ const OfficialTimeForm = () => {
                             sx={{
                               bgcolor: accentDark,
                               color: primaryColor,
-                              '&:hover': { bgcolor: accentColor },
-                              '&:disabled': { opacity: 0.7 },
+                              "&:hover": { bgcolor: accentColor },
+                              "&:disabled": { opacity: 0.7 },
                             }}
                           >
                             Create new Schedule
@@ -2417,15 +2467,15 @@ const OfficialTimeForm = () => {
                       >
                         <Box
                           sx={{
-                            display: 'flex',
-                            alignItems: 'center',
+                            display: "flex",
+                            alignItems: "center",
                             gap: 1,
                             mb: 1.5,
                           }}
                         >
                           {records.length > 0 ? (
                             <CheckCircle
-                              sx={{ color: '#2e7d32', fontSize: 22 }}
+                              sx={{ color: "#2e7d32", fontSize: 22 }}
                             />
                           ) : (
                             <EventBusy
@@ -2437,7 +2487,7 @@ const OfficialTimeForm = () => {
                           )}
                           <Typography
                             variant="subtitle2"
-                            sx={{ color: '#2e7d32', fontWeight: 600 }}
+                            sx={{ color: "#2e7d32", fontWeight: 600 }}
                           >
                             Existing schedules
                           </Typography>
@@ -2445,7 +2495,7 @@ const OfficialTimeForm = () => {
                         {(() => {
                           const byKey = new Map();
                           for (const r of records || []) {
-                            const key = `${r.academicYear ?? ''}|${normalizeDateStr(r.startDate)}|${normalizeDateStr(r.endDate)}`;
+                            const key = `${r.academicYear ?? ""}|${normalizeDateStr(r.startDate)}|${normalizeDateStr(r.endDate)}`;
                             if (!byKey.has(key))
                               byKey.set(key, {
                                 academicYear: r.academicYear,
@@ -2462,11 +2512,11 @@ const OfficialTimeForm = () => {
                             )
                             .sort((a, b) => {
                               const aActive =
-                                String(a.status || 'active').toLowerCase() ===
-                                'active';
+                                String(a.status || "active").toLowerCase() ===
+                                "active";
                               const bActive =
-                                String(b.status || 'active').toLowerCase() ===
-                                'active';
+                                String(b.status || "active").toLowerCase() ===
+                                "active";
                               return (bActive ? 1 : 0) - (aActive ? 1 : 0);
                             });
                           if (
@@ -2488,7 +2538,7 @@ const OfficialTimeForm = () => {
                                   sx={{
                                     color: textPrimaryColor,
                                     fontWeight: 500,
-                                    textAlign: 'center',
+                                    textAlign: "center",
                                   }}
                                 >
                                   No existing record for this employee.
@@ -2497,9 +2547,9 @@ const OfficialTimeForm = () => {
                                   variant="body2"
                                   sx={{
                                     color: alpha(textPrimaryColor, 0.8),
-                                    textAlign: 'center',
+                                    textAlign: "center",
                                     mt: 0.5,
-                                    fontSize: '0.85rem',
+                                    fontSize: "0.85rem",
                                   }}
                                 >
                                   Create a schedule using the button above.
@@ -2511,8 +2561,8 @@ const OfficialTimeForm = () => {
                             <Box display="flex" flexDirection="column" gap={1}>
                               {validSchedules.map((v, idx) => {
                                 const isActive =
-                                  String(v.status || 'active').toLowerCase() ===
-                                  'active';
+                                  String(v.status || "active").toLowerCase() ===
+                                  "active";
                                 const openView = () => {
                                   const normStart = normalizeDateStr(
                                     v.startDate,
@@ -2531,7 +2581,7 @@ const OfficialTimeForm = () => {
                                     status: v.status,
                                   });
                                   setViewScheduleRecords(rows);
-                                  setViewScheduleView('workDays');
+                                  setViewScheduleView("workDays");
                                   setViewScheduleEmployeeName(
                                     resolveEmployeeName(employeeID),
                                   );
@@ -2541,22 +2591,22 @@ const OfficialTimeForm = () => {
                                   <Box
                                     key={idx}
                                     sx={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'space-between',
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
                                       gap: 2,
-                                      width: '100%',
+                                      width: "100%",
                                       py: 0.5,
                                       borderBottom:
                                         idx < validSchedules.length - 1
                                           ? `1px solid ${alpha(accentColor, 0.12)}`
-                                          : 'none',
+                                          : "none",
                                     }}
                                   >
                                     <Box
                                       sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
+                                        display: "flex",
+                                        alignItems: "center",
                                         gap: 1,
                                         minWidth: 0,
                                         flex: 1,
@@ -2576,18 +2626,18 @@ const OfficialTimeForm = () => {
                                           fontWeight: 500,
                                         }}
                                       >
-                                        {v.academicYear || '—'} |{' '}
+                                        {v.academicYear || "—"} |{" "}
                                         {formatDateLong(v.startDate) ||
-                                          formatDateOnly(v.startDate)}{' '}
-                                        –{' '}
+                                          formatDateOnly(v.startDate)}{" "}
+                                        –{" "}
                                         {formatDateLong(v.endDate) ||
                                           formatDateOnly(v.endDate)}
                                       </Typography>
                                     </Box>
                                     <Box
                                       sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
+                                        display: "flex",
+                                        alignItems: "center",
                                         gap: 1,
                                         flexShrink: 0,
                                       }}
@@ -2599,17 +2649,17 @@ const OfficialTimeForm = () => {
                                           py: 0.35,
                                           borderRadius: 1,
                                           fontWeight: 600,
-                                          bgcolor: '#fff',
+                                          bgcolor: "#fff",
                                           color: isActive
-                                            ? '#2e7d32'
-                                            : '#ed6c02',
-                                          border: '1px solid',
+                                            ? "#2e7d32"
+                                            : "#ed6c02",
+                                          border: "1px solid",
                                           borderColor: isActive
-                                            ? '#2e7d32'
-                                            : '#ed6c02',
+                                            ? "#2e7d32"
+                                            : "#ed6c02",
                                         }}
                                       >
-                                        {isActive ? 'Active' : 'Inactive'}
+                                        {isActive ? "Active" : "Inactive"}
                                       </Typography>
                                       <Tooltip title="View official time">
                                         <IconButton
@@ -2617,7 +2667,7 @@ const OfficialTimeForm = () => {
                                           onClick={openView}
                                           sx={{
                                             color: accentColor,
-                                            '&:hover': {
+                                            "&:hover": {
                                               bgcolor: alpha(accentColor, 0.1),
                                             },
                                           }}
@@ -2656,9 +2706,9 @@ const OfficialTimeForm = () => {
                     p: 4,
                     background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                     color: textPrimaryColor,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
                   }}
                 >
                   <Box>
@@ -2692,10 +2742,10 @@ const OfficialTimeForm = () => {
                   <Box
                     sx={{
                       mb: 3,
-                      display: 'flex',
+                      display: "flex",
                       gap: 2,
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
+                      alignItems: "center",
+                      flexWrap: "wrap",
                     }}
                   >
                     <ModernTextField
@@ -2741,7 +2791,7 @@ const OfficialTimeForm = () => {
                         color: textPrimaryColor,
                         minWidth: 220,
                         flexShrink: 0,
-                        '&:hover': { backgroundColor: alpha(accentColor, 0.1) },
+                        "&:hover": { backgroundColor: alpha(accentColor, 0.1) },
                       }}
                     >
                       Bulk Create (All Missing)
@@ -2750,7 +2800,7 @@ const OfficialTimeForm = () => {
 
                   {loadingUsers ? (
                     <Box
-                      sx={{ display: 'flex', justifyContent: 'center', py: 4 }}
+                      sx={{ display: "flex", justifyContent: "center", py: 4 }}
                     >
                       <CircularProgress sx={{ color: accentColor }} />
                     </Box>
@@ -2788,23 +2838,23 @@ const OfficialTimeForm = () => {
                                       )
                                     }
                                     sx={{
-                                      color: '#fff',
-                                      '&.Mui-checked': { color: '#fff' },
-                                      '&.MuiCheckbox-indeterminate': {
-                                        color: '#fff',
+                                      color: "#fff",
+                                      "&.Mui-checked": { color: "#fff" },
+                                      "&.MuiCheckbox-indeterminate": {
+                                        color: "#fff",
                                       },
                                     }}
                                   />
                                 </Tooltip>
                               </PremiumTableCell>
                               {[
-                                'Employee Number',
-                                'Name',
-                                'Department',
-                                'Academic Year',
-                                'Status',
-                                'Start Date',
-                                'End Date',
+                                "Employee Number",
+                                "Name",
+                                "Department",
+                                "Academic Year",
+                                "Status",
+                                "Start Date",
+                                "End Date",
                               ].map((h) => (
                                 <PremiumTableCell
                                   key={h}
@@ -2824,13 +2874,13 @@ const OfficialTimeForm = () => {
                               <TableRow
                                 key={user.employeeNumber}
                                 sx={{
-                                  '&:nth-of-type(even)': {
+                                  "&:nth-of-type(even)": {
                                     bgcolor: alpha(primaryColor, 0.3),
                                   },
-                                  '&:hover': {
+                                  "&:hover": {
                                     bgcolor: alpha(accentColor, 0.05),
                                   },
-                                  transition: 'all 0.2s ease',
+                                  transition: "all 0.2s ease",
                                 }}
                               >
                                 <PremiumTableCell>
@@ -2848,13 +2898,13 @@ const OfficialTimeForm = () => {
                                   {user.employeeNumber}
                                 </PremiumTableCell>
                                 <PremiumTableCell>
-                                  {user.fullName || 'N/A'}
+                                  {user.fullName || "N/A"}
                                 </PremiumTableCell>
                                 <PremiumTableCell>
-                                  {user.department || '—'}
+                                  {user.department || "—"}
                                 </PremiumTableCell>
                                 <PremiumTableCell>
-                                  {user.academicYear || '—'}
+                                  {user.academicYear || "—"}
                                 </PremiumTableCell>
                                 <PremiumTableCell>
                                   {user.hasDefaultOfficialTime ? (
@@ -2863,9 +2913,9 @@ const OfficialTimeForm = () => {
                                       label="Has Schedule"
                                       size="small"
                                       sx={{
-                                        bgcolor: alpha('#4caf50', 0.1),
-                                        color: '#2e7d32',
-                                        border: '1px solid #c8e6c9',
+                                        bgcolor: alpha("#4caf50", 0.1),
+                                        color: "#2e7d32",
+                                        border: "1px solid #c8e6c9",
                                       }}
                                     />
                                   ) : (
@@ -2874,9 +2924,9 @@ const OfficialTimeForm = () => {
                                       label="No Schedule"
                                       size="small"
                                       sx={{
-                                        bgcolor: alpha('#f44336', 0.1),
-                                        color: '#c62828',
-                                        border: '1px solid #ffcdd2',
+                                        bgcolor: alpha("#f44336", 0.1),
+                                        color: "#c62828",
+                                        border: "1px solid #ffcdd2",
                                       }}
                                     />
                                   )}
@@ -2884,12 +2934,12 @@ const OfficialTimeForm = () => {
                                 <PremiumTableCell>
                                   {user.startDate
                                     ? formatDateOnly(user.startDate)
-                                    : '—'}
+                                    : "—"}
                                 </PremiumTableCell>
                                 <PremiumTableCell>
                                   {user.endDate
                                     ? formatDateOnly(user.endDate)
-                                    : '—'}
+                                    : "—"}
                                 </PremiumTableCell>
                               </TableRow>
                             ))}
@@ -2902,8 +2952,8 @@ const OfficialTimeForm = () => {
                                 >
                                   <Typography sx={{ color: accentColor }}>
                                     {searchQuery
-                                      ? 'No users found matching your search.'
-                                      : 'No users found.'}
+                                      ? "No users found matching your search."
+                                      : "No users found."}
                                   </Typography>
                                 </PremiumTableCell>
                               </TableRow>
@@ -2936,7 +2986,7 @@ const OfficialTimeForm = () => {
                             `${from}–${to} of ${count}`
                           }
                           sx={{
-                            '& .MuiTablePagination-toolbar': { minHeight: 56 },
+                            "& .MuiTablePagination-toolbar": { minHeight: 56 },
                           }}
                         />
                       </Box>
@@ -2963,59 +3013,58 @@ const OfficialTimeForm = () => {
             }}
             maxWidth="xl"
             fullWidth
-            PaperProps={{ sx: { borderRadius: 2, overflow: 'hidden' } }}
+            PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
           >
-            {/* Dialog header */}
             <Box
               sx={{
-                bgcolor: '#6d2323',
+                bgcolor: "#6d2323",
                 px: 3,
                 py: 2,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
               }}
             >
               <Box
                 sx={{
-                  display: 'flex',
-                  alignItems: 'center',
+                  display: "flex",
+                  alignItems: "center",
                   gap: 1.5,
                   minWidth: 0,
                 }}
               >
-                <Schedule sx={{ color: '#fff', fontSize: 20, flexShrink: 0 }} />
+                <Schedule sx={{ color: "#fff", fontSize: 20, flexShrink: 0 }} />
                 <Box sx={{ minWidth: 0 }}>
                   <Typography
                     sx={{
                       fontWeight: 700,
-                      color: '#fff',
-                      fontSize: '1rem',
+                      color: "#fff",
+                      fontSize: "1rem",
                       lineHeight: 1.25,
                     }}
                   >
                     {isBulkSchedule
-                      ? 'Create Bulk Schedule — Step 2 of 2'
-                      : 'Create New Schedule'}
+                      ? "Create Bulk Schedule — Step 2 of 2"
+                      : "Create New Schedule"}
                   </Typography>
                   <Typography
                     sx={{
-                      color: 'rgba(255,255,255,0.8)',
-                      fontSize: '0.78rem',
+                      color: "rgba(255,255,255,0.8)",
+                      fontSize: "0.78rem",
                       mt: 0.25,
                       lineHeight: 1.3,
                     }}
                   >
                     {isBulkSchedule
-                      ? `Setting time schedule for ${bulkTargetEmployees.length} employee${bulkTargetEmployees.length !== 1 ? 's' : ''}`
+                      ? `Setting time schedule for ${bulkTargetEmployees.length} employee${bulkTargetEmployees.length !== 1 ? "s" : ""}`
                       : (() => {
-                          const id = String(employeeID || '').trim();
+                          const id = String(employeeID || "").trim();
                           const name = resolveEmployeeName(id);
                           return id
                             ? name
                               ? `${id} — ${name}`
                               : `Employee No. ${id}`
-                            : 'No employee selected';
+                            : "No employee selected";
                         })()}
                   </Typography>
                 </Box>
@@ -3031,10 +3080,10 @@ const OfficialTimeForm = () => {
                 }}
                 disabled={saving}
                 sx={{
-                  color: '#fff',
+                  color: "#fff",
                   ml: 1,
                   flexShrink: 0,
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' },
+                  "&:hover": { bgcolor: "rgba(255,255,255,0.15)" },
                 }}
                 aria-label="Close"
               >
@@ -3042,23 +3091,22 @@ const OfficialTimeForm = () => {
               </IconButton>
             </Box>
 
-            {/* Bulk employee chips */}
             {isBulkSchedule && (
               <Box
                 sx={{
-                  bgcolor: '#f7f0f0',
-                  borderBottom: '1px solid #e2cece',
+                  bgcolor: "#f7f0f0",
+                  borderBottom: "1px solid #e2cece",
                   px: 3,
                   py: 1.5,
                 }}
               >
                 <Typography
                   sx={{
-                    fontSize: '0.75rem',
+                    fontSize: "0.75rem",
                     fontWeight: 700,
-                    color: '#6d2323',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.4px',
+                    color: "#6d2323",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.4px",
                     mb: 0.75,
                   }}
                 >
@@ -3066,11 +3114,11 @@ const OfficialTimeForm = () => {
                 </Typography>
                 <Box
                   sx={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
+                    display: "flex",
+                    flexWrap: "wrap",
                     gap: 0.75,
                     maxHeight: 68,
-                    overflowY: 'auto',
+                    overflowY: "auto",
                   }}
                 >
                   {bulkTargetEmployees.map((id, i) => {
@@ -3083,10 +3131,10 @@ const OfficialTimeForm = () => {
                         label={u ? `${id} — ${u.fullName}` : String(id)}
                         size="small"
                         sx={{
-                          bgcolor: '#fff',
-                          color: '#1a1a1a',
-                          border: '1px solid #d0b8b8',
-                          fontSize: '0.77rem',
+                          bgcolor: "#fff",
+                          color: "#1a1a1a",
+                          border: "1px solid #d0b8b8",
+                          fontSize: "0.77rem",
                           height: 24,
                         }}
                       />
@@ -3096,12 +3144,11 @@ const OfficialTimeForm = () => {
               </Box>
             )}
 
-            <Box sx={{ bgcolor: '#fff', px: 3, pt: 2.5, pb: 0 }}>
-              {/* Schedule period fields */}
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 0 }}>
               <Box
                 sx={{
-                  bgcolor: '#f7f0f0',
-                  border: '1px solid #e2cece',
+                  bgcolor: "#f7f0f0",
+                  border: "1px solid #e2cece",
                   borderRadius: 1.5,
                   p: 2,
                   mb: 2.5,
@@ -3109,30 +3156,30 @@ const OfficialTimeForm = () => {
               >
                 <Typography
                   sx={{
-                    fontSize: '0.72rem',
+                    fontSize: "0.72rem",
                     fontWeight: 700,
-                    color: '#6d2323',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.4px',
+                    color: "#6d2323",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.4px",
                     mb: 1.5,
                   }}
                 >
-                  Schedule Period{' '}
-                  {isBulkSchedule && '(set in previous step — read only)'}
+                  Schedule Period{" "}
+                  {isBulkSchedule && "(set in previous step — read only)"}
                 </Typography>
                 <Grid container spacing={1.5}>
                   {[
                     {
-                      label: 'Academic Year',
+                      label: "Academic Year",
                       value: draftAcademicYear,
                       setter: setDraftAcademicYear,
-                      placeholder: 'e.g. 2025-2026',
+                      placeholder: "e.g. 2025-2026",
                     },
                     {
-                      label: 'Semester',
+                      label: "Semester",
                       value: draftSemester,
                       setter: setDraftSemester,
-                      placeholder: 'e.g. 1st Semester',
+                      placeholder: "e.g. 1st Semester",
                     },
                   ].map(({ label, value, setter, placeholder }) => (
                     <Grid item xs={6} sm={3} key={label}>
@@ -3141,29 +3188,29 @@ const OfficialTimeForm = () => {
                         size="small"
                         label={label}
                         placeholder={placeholder}
-                        value={value || ''}
+                        value={value || ""}
                         onChange={(e) =>
-                          !isBulkSchedule && setter(e.target.value || '')
+                          !isBulkSchedule && setter(e.target.value || "")
                         }
                         InputProps={{ readOnly: isBulkSchedule }}
                         sx={{
-                          bgcolor: '#fff',
-                          '& .MuiOutlinedInput-root.Mui-focused fieldset': {
-                            borderColor: '#6d2323',
+                          bgcolor: "#fff",
+                          "& .MuiOutlinedInput-root.Mui-focused fieldset": {
+                            borderColor: "#6d2323",
                           },
-                          '& label.Mui-focused': { color: '#6d2323' },
+                          "& label.Mui-focused": { color: "#6d2323" },
                         }}
                       />
                     </Grid>
                   ))}
                   {[
                     {
-                      label: 'Start Date',
+                      label: "Start Date",
                       value: draftStartDate,
                       setter: setDraftStartDate,
                     },
                     {
-                      label: 'End Date',
+                      label: "End Date",
                       value: draftEndDate,
                       setter: setDraftEndDate,
                     },
@@ -3175,17 +3222,17 @@ const OfficialTimeForm = () => {
                         label={label}
                         type="date"
                         InputLabelProps={{ shrink: true }}
-                        value={value || ''}
+                        value={value || ""}
                         onChange={(e) =>
-                          !isBulkSchedule && setter(e.target.value || '')
+                          !isBulkSchedule && setter(e.target.value || "")
                         }
                         InputProps={{ readOnly: isBulkSchedule }}
                         sx={{
-                          bgcolor: '#fff',
-                          '& .MuiOutlinedInput-root.Mui-focused fieldset': {
-                            borderColor: '#6d2323',
+                          bgcolor: "#fff",
+                          "& .MuiOutlinedInput-root.Mui-focused fieldset": {
+                            borderColor: "#6d2323",
                           },
-                          '& label.Mui-focused': { color: '#6d2323' },
+                          "& label.Mui-focused": { color: "#6d2323" },
                         }}
                       />
                     </Grid>
@@ -3193,33 +3240,31 @@ const OfficialTimeForm = () => {
                 </Grid>
               </Box>
 
-              {/* ── View tab bar + Clear/Reset action buttons ── */}
               <Box
                 sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
                   mb: 2,
                   gap: 1,
-                  flexWrap: 'wrap',
+                  flexWrap: "wrap",
                 }}
               >
-                {/* Tab bar */}
                 <Box
                   sx={{
-                    display: 'flex',
-                    border: '1px solid #d0b8b8',
+                    display: "flex",
+                    border: "1px solid #d0b8b8",
                     borderRadius: 1,
-                    overflow: 'hidden',
+                    overflow: "hidden",
                     flex: 1,
                     minWidth: 300,
                   }}
                 >
                   {[
-                    { key: 'workDays', label: 'Work Days' },
-                    { key: 'honorarium', label: 'Honorarium' },
-                    { key: 'serviceCredits', label: 'Service Credits' },
-                    { key: 'overtime', label: 'Overtime' },
+                    { key: "workDays", label: "Work Days" },
+                    { key: "honorarium", label: "Honorarium" },
+                    { key: "serviceCredits", label: "Service Credits" },
+                    { key: "overtime", label: "Overtime" },
                   ].map(({ key, label }, i, arr) => (
                     <Button
                       key={key}
@@ -3228,16 +3273,16 @@ const OfficialTimeForm = () => {
                       fullWidth
                       sx={{
                         borderRadius: 0,
-                        textTransform: 'none',
+                        textTransform: "none",
                         fontWeight: scheduleView === key ? 700 : 400,
-                        fontSize: '0.82rem',
+                        fontSize: "0.82rem",
                         py: 0.9,
-                        bgcolor: scheduleView === key ? '#6d2323' : '#fff',
-                        color: scheduleView === key ? '#fff' : '#444',
+                        bgcolor: scheduleView === key ? "#6d2323" : "#fff",
+                        color: scheduleView === key ? "#fff" : "#444",
                         borderRight:
-                          i < arr.length - 1 ? '1px solid #d0b8b8' : 'none',
-                        '&:hover': {
-                          bgcolor: scheduleView === key ? '#5a1c1c' : '#f7f0f0',
+                          i < arr.length - 1 ? "1px solid #d0b8b8" : "none",
+                        "&:hover": {
+                          bgcolor: scheduleView === key ? "#5a1c1c" : "#f7f0f0",
                         },
                       }}
                     >
@@ -3245,9 +3290,7 @@ const OfficialTimeForm = () => {
                     </Button>
                   ))}
                 </Box>
-
-                {/* ── NEW: Clear / Reset buttons ── */}
-                <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+                <Box sx={{ display: "flex", gap: 1, flexShrink: 0 }}>
                   <Tooltip
                     title={`Clear all times on the "${scheduleView}" tab`}
                   >
@@ -3257,16 +3300,16 @@ const OfficialTimeForm = () => {
                       onClick={handleClearModalTimes}
                       startIcon={<ClearAll fontSize="small" />}
                       sx={{
-                        borderColor: '#d0b8b8',
-                        color: '#6d2323',
+                        borderColor: "#d0b8b8",
+                        color: "#6d2323",
                         fontWeight: 600,
-                        textTransform: 'none',
-                        fontSize: '0.78rem',
+                        textTransform: "none",
+                        fontSize: "0.78rem",
                         px: 1.5,
                         py: 0.7,
-                        '&:hover': {
-                          bgcolor: '#f7f0f0',
-                          borderColor: '#6d2323',
+                        "&:hover": {
+                          bgcolor: "#f7f0f0",
+                          borderColor: "#6d2323",
                         },
                       }}
                     >
@@ -3279,14 +3322,14 @@ const OfficialTimeForm = () => {
                       variant="outlined"
                       onClick={handleResetModalToDefault}
                       sx={{
-                        borderColor: '#d0b8b8',
-                        color: '#555',
+                        borderColor: "#d0b8b8",
+                        color: "#555",
                         fontWeight: 600,
-                        textTransform: 'none',
-                        fontSize: '0.78rem',
+                        textTransform: "none",
+                        fontSize: "0.78rem",
                         px: 1.5,
                         py: 0.7,
-                        '&:hover': { bgcolor: '#f5f5f5', borderColor: '#555' },
+                        "&:hover": { bgcolor: "#f5f5f5", borderColor: "#555" },
                       }}
                     >
                       Reset to Default
@@ -3295,12 +3338,11 @@ const OfficialTimeForm = () => {
                 </Box>
               </Box>
 
-              {/* ── Time table using TimePickerField ── */}
               <TableContainer
                 sx={{
-                  border: '1px solid #e0e0e0',
+                  border: "1px solid #e0e0e0",
                   borderRadius: 1.5,
-                  overflow: 'hidden',
+                  overflow: "hidden",
                   mb: 3,
                 }}
               >
@@ -3315,16 +3357,15 @@ const OfficialTimeForm = () => {
               </TableContainer>
             </Box>
 
-            {/* Dialog footer */}
             <Box
               sx={{
-                borderTop: '1px solid #e0e0e0',
-                bgcolor: '#fafafa',
+                borderTop: "1px solid #e0e0e0",
+                bgcolor: "#fafafa",
                 px: 3,
                 py: 2,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
               }}
             >
               <Box>
@@ -3336,18 +3377,18 @@ const OfficialTimeForm = () => {
                       setShowBulkBlocksModal(true);
                     }}
                     sx={{
-                      borderColor: '#6d2323',
-                      color: '#6d2323',
+                      borderColor: "#6d2323",
+                      color: "#6d2323",
                       fontWeight: 600,
-                      textTransform: 'none',
-                      '&:hover': { bgcolor: '#f7f0f0' },
+                      textTransform: "none",
+                      "&:hover": { bgcolor: "#f7f0f0" },
                     }}
                   >
                     ← Back to Block Setup
                   </Button>
                 )}
               </Box>
-              <Box sx={{ display: 'flex', gap: 1.5 }}>
+              <Box sx={{ display: "flex", gap: 1.5 }}>
                 <Button
                   variant="outlined"
                   onClick={() => {
@@ -3359,12 +3400,12 @@ const OfficialTimeForm = () => {
                   }}
                   disabled={saving}
                   sx={{
-                    borderColor: '#ccc',
-                    color: '#444',
+                    borderColor: "#ccc",
+                    color: "#444",
                     fontWeight: 600,
-                    textTransform: 'none',
+                    textTransform: "none",
                     minWidth: 90,
-                    '&:hover': { bgcolor: '#f5f5f5' },
+                    "&:hover": { bgcolor: "#f5f5f5" },
                   }}
                 >
                   Cancel
@@ -3376,28 +3417,28 @@ const OfficialTimeForm = () => {
                   disabled={saving}
                   startIcon={
                     saving ? (
-                      <CircularProgress size={15} sx={{ color: '#fff' }} />
+                      <CircularProgress size={15} sx={{ color: "#fff" }} />
                     ) : (
                       <SaveIcon />
                     )
                   }
                   sx={{
-                    bgcolor: '#6d2323',
-                    color: '#fff',
+                    bgcolor: "#6d2323",
+                    color: "#fff",
                     fontWeight: 700,
-                    textTransform: 'none',
+                    textTransform: "none",
                     minWidth: 140,
-                    '&:hover': { bgcolor: '#5a1c1c' },
-                    '&.Mui-disabled': { bgcolor: '#c0a0a0', color: '#fff' },
+                    "&:hover": { bgcolor: "#5a1c1c" },
+                    "&.Mui-disabled": { bgcolor: "#c0a0a0", color: "#fff" },
                   }}
                 >
-                  {saving ? 'Saving…' : 'Save Schedule'}
+                  {saving ? "Saving…" : "Save Schedule"}
                 </Button>
               </Box>
             </Box>
           </Dialog>
 
-          {/* Bulk Confirmation — unchanged */}
+          {/* Bulk Confirmation */}
           <Dialog
             open={showBulkConfirmModal}
             onClose={() => {
@@ -3406,44 +3447,44 @@ const OfficialTimeForm = () => {
             }}
             maxWidth="xs"
             fullWidth
-            PaperProps={{ sx: { borderRadius: 2, overflow: 'hidden' } }}
+            PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
           >
             <Box
               sx={{
-                bgcolor: '#6d2323',
+                bgcolor: "#6d2323",
                 px: 3,
                 py: 2,
-                display: 'flex',
-                alignItems: 'center',
+                display: "flex",
+                alignItems: "center",
                 gap: 1.5,
               }}
             >
-              <WarningAmber sx={{ color: '#ffd180', fontSize: 20 }} />
+              <WarningAmber sx={{ color: "#ffd180", fontSize: 20 }} />
               <Typography
-                sx={{ fontWeight: 700, color: '#fff', fontSize: '1rem' }}
+                sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}
               >
                 Confirm Bulk Schedule
               </Typography>
             </Box>
-            <Box sx={{ bgcolor: '#fff', px: 3, pt: 3, pb: 2 }}>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 3, pb: 2 }}>
               <Typography
-                sx={{ color: '#1a1a1a', lineHeight: 1.7, fontSize: '0.93rem' }}
+                sx={{ color: "#1a1a1a", lineHeight: 1.7, fontSize: "0.93rem" }}
               >
-                You are about to create schedules for{' '}
+                You are about to create schedules for{" "}
                 <Box
                   component="span"
-                  sx={{ fontWeight: 700, color: '#6d2323' }}
+                  sx={{ fontWeight: 700, color: "#6d2323" }}
                 >
                   {bulkTargetEmployees.length} employee
-                  {bulkTargetEmployees.length !== 1 ? 's' : ''}
-                </Box>{' '}
-                across{' '}
+                  {bulkTargetEmployees.length !== 1 ? "s" : ""}
+                </Box>{" "}
+                across{" "}
                 <Box
                   component="span"
-                  sx={{ fontWeight: 700, color: '#6d2323' }}
+                  sx={{ fontWeight: 700, color: "#6d2323" }}
                 >
                   {bulkScheduleBlocks.length} block
-                  {bulkScheduleBlocks.length !== 1 ? 's' : ''}
+                  {bulkScheduleBlocks.length !== 1 ? "s" : ""}
                 </Box>
                 .
               </Typography>
@@ -3451,15 +3492,15 @@ const OfficialTimeForm = () => {
                 sx={{
                   mt: 2,
                   p: 1.5,
-                  bgcolor: '#fff9f0',
-                  border: '1px solid #f5d89a',
+                  bgcolor: "#fff9f0",
+                  border: "1px solid #f5d89a",
                   borderRadius: 1.5,
                 }}
               >
                 <Typography
                   sx={{
-                    color: '#7a5000',
-                    fontSize: '0.82rem',
+                    color: "#7a5000",
+                    fontSize: "0.82rem",
                     lineHeight: 1.55,
                   }}
                 >
@@ -3467,18 +3508,18 @@ const OfficialTimeForm = () => {
                   inactive. This cannot be undone.
                 </Typography>
               </Box>
-              <Typography sx={{ color: '#555', mt: 2, fontSize: '0.88rem' }}>
+              <Typography sx={{ color: "#555", mt: 2, fontSize: "0.88rem" }}>
                 Are you sure you want to proceed?
               </Typography>
             </Box>
             <Box
               sx={{
-                borderTop: '1px solid #e0e0e0',
-                bgcolor: '#fafafa',
+                borderTop: "1px solid #e0e0e0",
+                bgcolor: "#fafafa",
                 px: 3,
                 py: 2,
-                display: 'flex',
-                justifyContent: 'flex-end',
+                display: "flex",
+                justifyContent: "flex-end",
                 gap: 1.5,
               }}
             >
@@ -3489,11 +3530,11 @@ const OfficialTimeForm = () => {
                   setPendingBulkSubmit(false);
                 }}
                 sx={{
-                  borderColor: '#ccc',
-                  color: '#444',
+                  borderColor: "#ccc",
+                  color: "#444",
                   fontWeight: 600,
-                  textTransform: 'none',
-                  '&:hover': { bgcolor: '#f5f5f5' },
+                  textTransform: "none",
+                  "&:hover": { bgcolor: "#f5f5f5" },
                 }}
               >
                 Cancel
@@ -3504,7 +3545,7 @@ const OfficialTimeForm = () => {
                 onClick={async () => {
                   setShowBulkConfirmModal(false);
                   setPendingBulkSubmit(false);
-                  const trimmedId = String(employeeID || '').trim();
+                  const trimmedId = String(employeeID || "").trim();
                   const sevenRows = DAYS_ORDER.map((day) => {
                     const r = modalRecords.find((x) => x.day === day);
                     return r ? { ...r, day } : makeDefaultRow(trimmedId, day);
@@ -3512,12 +3553,12 @@ const OfficialTimeForm = () => {
                   await executeSave(sevenRows, trimmedId);
                 }}
                 sx={{
-                  bgcolor: '#6d2323',
-                  color: '#fff',
+                  bgcolor: "#6d2323",
+                  color: "#fff",
                   fontWeight: 700,
-                  textTransform: 'none',
+                  textTransform: "none",
                   minWidth: 120,
-                  '&:hover': { bgcolor: '#5a1c1c' },
+                  "&:hover": { bgcolor: "#5a1c1c" },
                 }}
               >
                 Yes, Proceed
@@ -3525,34 +3566,34 @@ const OfficialTimeForm = () => {
             </Box>
           </Dialog>
 
-          {/* Schedule Date Conflict — unchanged */}
+          {/* Schedule Date Conflict */}
           <Dialog
             open={showConflictModal}
             onClose={() => setShowConflictModal(false)}
             maxWidth="xs"
             fullWidth
-            PaperProps={{ sx: { borderRadius: 2, overflow: 'hidden' } }}
+            PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
           >
             <Box
               sx={{
-                bgcolor: '#6d2323',
+                bgcolor: "#6d2323",
                 px: 3,
                 py: 2,
-                display: 'flex',
-                alignItems: 'center',
+                display: "flex",
+                alignItems: "center",
                 gap: 1.5,
               }}
             >
-              <WarningAmber sx={{ color: '#ffd180', fontSize: 20 }} />
+              <WarningAmber sx={{ color: "#ffd180", fontSize: 20 }} />
               <Typography
-                sx={{ fontWeight: 700, color: '#fff', fontSize: '1rem' }}
+                sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}
               >
                 Schedule Conflict
               </Typography>
             </Box>
-            <Box sx={{ bgcolor: '#fff', px: 3, pt: 2.5, pb: 2 }}>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 2 }}>
               <Typography
-                sx={{ color: '#1a1a1a', lineHeight: 1.7, fontSize: '0.93rem' }}
+                sx={{ color: "#1a1a1a", lineHeight: 1.7, fontSize: "0.93rem" }}
               >
                 A schedule already exists for this employee during the selected
                 dates:
@@ -3563,28 +3604,28 @@ const OfficialTimeForm = () => {
                   mb: 2,
                   px: 2,
                   py: 1.25,
-                  bgcolor: '#f7f0f0',
-                  border: '1px solid #d0b8b8',
+                  bgcolor: "#f7f0f0",
+                  border: "1px solid #d0b8b8",
                   borderRadius: 1.5,
-                  display: 'flex',
-                  alignItems: 'center',
+                  display: "flex",
+                  alignItems: "center",
                   gap: 1,
                 }}
               >
                 <Schedule
-                  sx={{ color: '#6d2323', fontSize: 16, flexShrink: 0 }}
+                  sx={{ color: "#6d2323", fontSize: 16, flexShrink: 0 }}
                 />
                 <Typography
-                  sx={{ fontWeight: 700, color: '#6d2323', fontSize: '0.9rem' }}
+                  sx={{ fontWeight: 700, color: "#6d2323", fontSize: "0.9rem" }}
                 >
                   {formatDateLong(draftStartDate) ||
                     formatDateOnly(draftStartDate)}
-                  {' — '}
+                  {" — "}
                   {formatDateLong(draftEndDate) || formatDateOnly(draftEndDate)}
                 </Typography>
               </Box>
               <Typography
-                sx={{ color: '#555', fontSize: '0.88rem', lineHeight: 1.6 }}
+                sx={{ color: "#555", fontSize: "0.88rem", lineHeight: 1.6 }}
               >
                 Please choose a different date range that does not overlap with
                 an existing schedule.
@@ -3592,12 +3633,12 @@ const OfficialTimeForm = () => {
             </Box>
             <Box
               sx={{
-                borderTop: '1px solid #e0e0e0',
-                bgcolor: '#fafafa',
+                borderTop: "1px solid #e0e0e0",
+                bgcolor: "#fafafa",
                 px: 3,
                 py: 2,
-                display: 'flex',
-                justifyContent: 'flex-end',
+                display: "flex",
+                justifyContent: "flex-end",
               }}
             >
               <Button
@@ -3605,12 +3646,12 @@ const OfficialTimeForm = () => {
                 disableElevation
                 onClick={() => setShowConflictModal(false)}
                 sx={{
-                  bgcolor: '#6d2323',
-                  color: '#fff',
+                  bgcolor: "#6d2323",
+                  color: "#fff",
                   fontWeight: 700,
-                  textTransform: 'none',
+                  textTransform: "none",
                   minWidth: 80,
-                  '&:hover': { bgcolor: '#5a1c1c' },
+                  "&:hover": { bgcolor: "#5a1c1c" },
                 }}
               >
                 Got It
@@ -3618,41 +3659,41 @@ const OfficialTimeForm = () => {
             </Box>
           </Dialog>
 
-          {/* Bulk Schedule Blocks — unchanged */}
+          {/* Bulk Schedule Blocks */}
           <Dialog
             open={showBulkBlocksModal}
             onClose={() => setShowBulkBlocksModal(false)}
             maxWidth="md"
             fullWidth
-            PaperProps={{ sx: { borderRadius: 2, overflow: 'hidden' } }}
+            PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
           >
             <Box
               sx={{
-                bgcolor: '#6d2323',
+                bgcolor: "#6d2323",
                 px: 3,
                 py: 2,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
               }}
             >
               <Box
                 sx={{
-                  display: 'flex',
-                  alignItems: 'center',
+                  display: "flex",
+                  alignItems: "center",
                   gap: 1.5,
                   minWidth: 0,
                 }}
               >
                 <PeopleIcon
-                  sx={{ color: '#fff', fontSize: 20, flexShrink: 0 }}
+                  sx={{ color: "#fff", fontSize: 20, flexShrink: 0 }}
                 />
                 <Box>
                   <Typography
                     sx={{
                       fontWeight: 700,
-                      color: '#fff',
-                      fontSize: '1rem',
+                      color: "#fff",
+                      fontSize: "1rem",
                       lineHeight: 1.25,
                     }}
                   >
@@ -3660,13 +3701,13 @@ const OfficialTimeForm = () => {
                   </Typography>
                   <Typography
                     sx={{
-                      color: 'rgba(255,255,255,0.8)',
-                      fontSize: '0.78rem',
+                      color: "rgba(255,255,255,0.8)",
+                      fontSize: "0.78rem",
                       mt: 0.25,
                     }}
                   >
                     Define date blocks for {bulkTargetEmployees.length} selected
-                    employee{bulkTargetEmployees.length !== 1 ? 's' : ''}
+                    employee{bulkTargetEmployees.length !== 1 ? "s" : ""}
                   </Typography>
                 </Box>
               </Box>
@@ -3674,10 +3715,10 @@ const OfficialTimeForm = () => {
                 size="small"
                 onClick={() => setShowBulkBlocksModal(false)}
                 sx={{
-                  color: '#fff',
+                  color: "#fff",
                   ml: 1,
                   flexShrink: 0,
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' },
+                  "&:hover": { bgcolor: "rgba(255,255,255,0.15)" },
                 }}
                 aria-label="Close"
               >
@@ -3687,19 +3728,19 @@ const OfficialTimeForm = () => {
 
             <Box
               sx={{
-                bgcolor: '#f7f0f0',
-                borderBottom: '1px solid #e2cece',
+                bgcolor: "#f7f0f0",
+                borderBottom: "1px solid #e2cece",
                 px: 3,
                 py: 1.5,
               }}
             >
               <Typography
                 sx={{
-                  fontSize: '0.72rem',
+                  fontSize: "0.72rem",
                   fontWeight: 700,
-                  color: '#6d2323',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.4px',
+                  color: "#6d2323",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.4px",
                   mb: 0.75,
                 }}
               >
@@ -3707,11 +3748,11 @@ const OfficialTimeForm = () => {
               </Typography>
               <Box
                 sx={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
+                  display: "flex",
+                  flexWrap: "wrap",
                   gap: 0.75,
                   maxHeight: 64,
-                  overflowY: 'auto',
+                  overflowY: "auto",
                 }}
               >
                 {bulkTargetEmployees.map((empId, idx) => {
@@ -3724,10 +3765,10 @@ const OfficialTimeForm = () => {
                       label={u ? `${empId} — ${u.fullName}` : String(empId)}
                       size="small"
                       sx={{
-                        bgcolor: '#fff',
-                        color: '#1a1a1a',
-                        border: '1px solid #d0b8b8',
-                        fontSize: '0.77rem',
+                        bgcolor: "#fff",
+                        color: "#1a1a1a",
+                        border: "1px solid #d0b8b8",
+                        fontSize: "0.77rem",
                         height: 24,
                       }}
                     />
@@ -3736,11 +3777,11 @@ const OfficialTimeForm = () => {
               </Box>
             </Box>
 
-            <Box sx={{ bgcolor: '#fff', px: 3, pt: 2.5, pb: 1 }}>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 1 }}>
               <Typography
                 sx={{
-                  color: '#555',
-                  fontSize: '0.85rem',
+                  color: "#555",
+                  fontSize: "0.85rem",
                   mb: 2.5,
                   lineHeight: 1.65,
                 }}
@@ -3752,33 +3793,33 @@ const OfficialTimeForm = () => {
               </Typography>
 
               <Box
-                sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 2 }}
+                sx={{ display: "flex", flexDirection: "column", gap: 2, mb: 2 }}
               >
                 {bulkScheduleBlocks.map((block, idx) => (
                   <Box
                     key={block.id}
                     sx={{
-                      border: '1px solid #e0e0e0',
+                      border: "1px solid #e0e0e0",
                       borderRadius: 1.5,
-                      overflow: 'hidden',
+                      overflow: "hidden",
                     }}
                   >
                     <Box
                       sx={{
-                        bgcolor: '#f5f5f5',
+                        bgcolor: "#f5f5f5",
                         px: 2,
                         py: 1.25,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        borderBottom: '1px solid #e0e0e0',
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        borderBottom: "1px solid #e0e0e0",
                       }}
                     >
                       <Typography
                         sx={{
                           fontWeight: 700,
-                          color: '#1a1a1a',
-                          fontSize: '0.85rem',
+                          color: "#1a1a1a",
+                          fontSize: "0.85rem",
                         }}
                       >
                         Block {idx + 1}
@@ -3786,8 +3827,8 @@ const OfficialTimeForm = () => {
                       <Tooltip
                         title={
                           bulkScheduleBlocks.length === 1
-                            ? 'At least one block is required'
-                            : 'Remove block'
+                            ? "At least one block is required"
+                            : "Remove block"
                         }
                       >
                         <span>
@@ -3800,9 +3841,9 @@ const OfficialTimeForm = () => {
                             }
                             disabled={bulkScheduleBlocks.length === 1}
                             sx={{
-                              color: '#6d2323',
-                              '&.Mui-disabled': { color: '#ccc' },
-                              '&:hover': { bgcolor: '#f7f0f0' },
+                              color: "#6d2323",
+                              "&.Mui-disabled": { color: "#ccc" },
+                              "&:hover": { bgcolor: "#f7f0f0" },
                             }}
                             aria-label="Remove block"
                           >
@@ -3813,104 +3854,71 @@ const OfficialTimeForm = () => {
                     </Box>
                     <Box sx={{ p: 2 }}>
                       <Grid container spacing={1.5}>
-                        <Grid item xs={12} sm={6} md={3}>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            label="Academic Year"
-                            placeholder="e.g. 2025-2026"
-                            value={block.academicYear}
-                            onChange={(e) =>
-                              setBulkScheduleBlocks((prev) =>
-                                prev.map((b) =>
-                                  b.id === block.id
-                                    ? { ...b, academicYear: e.target.value }
-                                    : b,
-                                ),
-                              )
-                            }
-                            sx={{
-                              '& .MuiOutlinedInput-root.Mui-focused fieldset': {
-                                borderColor: '#6d2323',
-                              },
-                              '& label.Mui-focused': { color: '#6d2323' },
-                            }}
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6} md={3}>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            label="Semester"
-                            placeholder="e.g. 1st Semester"
-                            value={block.semester}
-                            onChange={(e) =>
-                              setBulkScheduleBlocks((prev) =>
-                                prev.map((b) =>
-                                  b.id === block.id
-                                    ? { ...b, semester: e.target.value }
-                                    : b,
-                                ),
-                              )
-                            }
-                            sx={{
-                              '& .MuiOutlinedInput-root.Mui-focused fieldset': {
-                                borderColor: '#6d2323',
-                              },
-                              '& label.Mui-focused': { color: '#6d2323' },
-                            }}
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6} md={3}>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            label="Start Date"
-                            type="date"
-                            InputLabelProps={{ shrink: true }}
-                            value={block.startDate}
-                            onChange={(e) =>
-                              setBulkScheduleBlocks((prev) =>
-                                prev.map((b) =>
-                                  b.id === block.id
-                                    ? { ...b, startDate: e.target.value }
-                                    : b,
-                                ),
-                              )
-                            }
-                            sx={{
-                              '& .MuiOutlinedInput-root.Mui-focused fieldset': {
-                                borderColor: '#6d2323',
-                              },
-                              '& label.Mui-focused': { color: '#6d2323' },
-                            }}
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6} md={3}>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            label="End Date"
-                            type="date"
-                            InputLabelProps={{ shrink: true }}
-                            value={block.endDate}
-                            onChange={(e) =>
-                              setBulkScheduleBlocks((prev) =>
-                                prev.map((b) =>
-                                  b.id === block.id
-                                    ? { ...b, endDate: e.target.value }
-                                    : b,
-                                ),
-                              )
-                            }
-                            sx={{
-                              '& .MuiOutlinedInput-root.Mui-focused fieldset': {
-                                borderColor: '#6d2323',
-                              },
-                              '& label.Mui-focused': { color: '#6d2323' },
-                            }}
-                          />
-                        </Grid>
+                        {[
+                          {
+                            label: "Academic Year",
+                            placeholder: "e.g. 2025-2026",
+                            key: "academicYear",
+                          },
+                          {
+                            label: "Semester",
+                            placeholder: "e.g. 1st Semester",
+                            key: "semester",
+                          },
+                        ].map(({ label, placeholder, key }) => (
+                          <Grid item xs={12} sm={6} md={3} key={key}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label={label}
+                              placeholder={placeholder}
+                              value={block[key]}
+                              onChange={(e) =>
+                                setBulkScheduleBlocks((prev) =>
+                                  prev.map((b) =>
+                                    b.id === block.id
+                                      ? { ...b, [key]: e.target.value }
+                                      : b,
+                                  ),
+                                )
+                              }
+                              sx={{
+                                "& .MuiOutlinedInput-root.Mui-focused fieldset":
+                                  { borderColor: "#6d2323" },
+                                "& label.Mui-focused": { color: "#6d2323" },
+                              }}
+                            />
+                          </Grid>
+                        ))}
+                        {[
+                          { label: "Start Date", key: "startDate" },
+                          { label: "End Date", key: "endDate" },
+                        ].map(({ label, key }) => (
+                          <Grid item xs={12} sm={6} md={3} key={key}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label={label}
+                              type="date"
+                              InputLabelProps={{ shrink: true }}
+                              value={block[key]}
+                              onChange={(e) =>
+                                setBulkScheduleBlocks((prev) =>
+                                  prev.map((b) =>
+                                    b.id === block.id
+                                      ? { ...b, [key]: e.target.value }
+                                      : b,
+                                  ),
+                                )
+                              }
+                              sx={{
+                                "& .MuiOutlinedInput-root.Mui-focused fieldset":
+                                  { borderColor: "#6d2323" },
+                                "& label.Mui-focused": { color: "#6d2323" },
+                              }}
+                            />
+                          </Grid>
+                        ))}
                       </Grid>
                     </Box>
                   </Box>
@@ -3925,21 +3933,21 @@ const OfficialTimeForm = () => {
                     ...prev,
                     {
                       id: `${Date.now()}-${Math.random()}`,
-                      academicYear: '',
-                      semester: '',
-                      startDate: '',
-                      endDate: '',
+                      academicYear: "",
+                      semester: "",
+                      startDate: "",
+                      endDate: "",
                     },
                   ])
                 }
                 sx={{
-                  borderColor: '#6d2323',
-                  color: '#6d2323',
+                  borderColor: "#6d2323",
+                  color: "#6d2323",
                   fontWeight: 600,
-                  textTransform: 'none',
-                  borderStyle: 'dashed',
+                  textTransform: "none",
+                  borderStyle: "dashed",
                   mb: 3,
-                  '&:hover': { bgcolor: '#f7f0f0' },
+                  "&:hover": { bgcolor: "#f7f0f0" },
                 }}
               >
                 + Add Another Block
@@ -3948,12 +3956,12 @@ const OfficialTimeForm = () => {
 
             <Box
               sx={{
-                borderTop: '1px solid #e0e0e0',
-                bgcolor: '#fafafa',
+                borderTop: "1px solid #e0e0e0",
+                bgcolor: "#fafafa",
                 px: 3,
                 py: 2,
-                display: 'flex',
-                justifyContent: 'flex-end',
+                display: "flex",
+                justifyContent: "flex-end",
                 gap: 1.5,
               }}
             >
@@ -3961,11 +3969,11 @@ const OfficialTimeForm = () => {
                 variant="outlined"
                 onClick={() => setShowBulkBlocksModal(false)}
                 sx={{
-                  borderColor: '#ccc',
-                  color: '#444',
+                  borderColor: "#ccc",
+                  color: "#444",
                   fontWeight: 600,
-                  textTransform: 'none',
-                  '&:hover': { bgcolor: '#f5f5f5' },
+                  textTransform: "none",
+                  "&:hover": { bgcolor: "#f5f5f5" },
                 }}
               >
                 Cancel
@@ -3986,13 +3994,13 @@ const OfficialTimeForm = () => {
                   !bulkTargetEmployees.length
                 }
                 sx={{
-                  bgcolor: '#6d2323',
-                  color: '#fff',
+                  bgcolor: "#6d2323",
+                  color: "#fff",
                   fontWeight: 700,
-                  textTransform: 'none',
+                  textTransform: "none",
                   minWidth: 180,
-                  '&:hover': { bgcolor: '#5a1c1c' },
-                  '&.Mui-disabled': { bgcolor: '#d0b8b8', color: '#fff' },
+                  "&:hover": { bgcolor: "#5a1c1c" },
+                  "&.Mui-disabled": { bgcolor: "#d0b8b8", color: "#fff" },
                 }}
               >
                 Next: Set Time Schedule →
@@ -4000,7 +4008,7 @@ const OfficialTimeForm = () => {
             </Box>
           </Dialog>
 
-          {/* Warning / Error — unchanged */}
+          {/* Warning / Error */}
           <Dialog
             open={showWarningModal}
             onClose={() => {
@@ -4009,53 +4017,53 @@ const OfficialTimeForm = () => {
             }}
             maxWidth="sm"
             fullWidth
-            PaperProps={{ sx: { borderRadius: 2, overflow: 'hidden' } }}
+            PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
           >
             <Box
               sx={{
-                bgcolor: '#6d2323',
+                bgcolor: "#6d2323",
                 px: 3,
                 py: 2,
-                display: 'flex',
-                alignItems: 'center',
+                display: "flex",
+                alignItems: "center",
                 gap: 1.5,
               }}
             >
-              <WarningAmber sx={{ color: '#ffd180', fontSize: 20 }} />
+              <WarningAmber sx={{ color: "#ffd180", fontSize: 20 }} />
               <Typography
-                sx={{ fontWeight: 700, color: '#fff', fontSize: '1rem' }}
+                sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}
               >
                 {warningOverlap
-                  ? 'Time Schedule Conflict Detected'
-                  : 'Cannot Save'}
+                  ? "Time Schedule Conflict Detected"
+                  : "Cannot Save"}
               </Typography>
             </Box>
-            <Box sx={{ bgcolor: '#fff', px: 3, pt: 2.5, pb: 2 }}>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 2 }}>
               {warningOverlap ? (
                 <Box>
                   <Typography
                     sx={{
-                      color: '#1a1a1a',
-                      fontSize: '0.93rem',
+                      color: "#1a1a1a",
+                      fontSize: "0.93rem",
                       mb: 2,
                       lineHeight: 1.65,
                     }}
                   >
-                    Two time blocks overlap on{' '}
+                    Two time blocks overlap on{" "}
                     <Box
                       component="span"
-                      sx={{ fontWeight: 700, color: '#6d2323' }}
+                      sx={{ fontWeight: 700, color: "#6d2323" }}
                     >
                       {warningOverlap.day}
                     </Box>
                     {warningOverlap.employeeID &&
-                      warningOverlap.employeeID !== 'multiple' && (
+                      warningOverlap.employeeID !== "multiple" && (
                         <>
-                          {' '}
-                          for employee{' '}
+                          {" "}
+                          for employee{" "}
                           <Box
                             component="span"
-                            sx={{ fontWeight: 700, color: '#6d2323' }}
+                            sx={{ fontWeight: 700, color: "#6d2323" }}
                           >
                             {warningOverlap.employeeID}
                           </Box>
@@ -4065,20 +4073,20 @@ const OfficialTimeForm = () => {
                   </Typography>
                   <Box
                     sx={{
-                      border: '1px solid #e0e0e0',
+                      border: "1px solid #e0e0e0",
                       borderRadius: 1.5,
-                      overflow: 'hidden',
+                      overflow: "hidden",
                       mb: 2,
                     }}
                   >
                     <Box
                       sx={{
-                        bgcolor: '#f7f0f0',
+                        bgcolor: "#f7f0f0",
                         px: 2,
                         py: 1.5,
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        alignItems: 'center',
+                        display: "flex",
+                        flexWrap: "wrap",
+                        alignItems: "center",
                         gap: 1,
                       }}
                     >
@@ -4087,19 +4095,19 @@ const OfficialTimeForm = () => {
                           px: 1.5,
                           py: 0.5,
                           borderRadius: 1,
-                          bgcolor: '#6d2323',
-                          color: '#fff',
+                          bgcolor: "#6d2323",
+                          color: "#fff",
                           fontWeight: 700,
-                          fontSize: '0.8rem',
+                          fontSize: "0.8rem",
                         }}
                       >
-                        {warningOverlap.segmentA?.label || 'Block A'}
+                        {warningOverlap.segmentA?.label || "Block A"}
                       </Box>
                       <Typography
                         sx={{
-                          color: '#444',
+                          color: "#444",
                           fontWeight: 600,
-                          fontSize: '0.85rem',
+                          fontSize: "0.85rem",
                         }}
                       >
                         overlaps with
@@ -4109,36 +4117,36 @@ const OfficialTimeForm = () => {
                           px: 1.5,
                           py: 0.5,
                           borderRadius: 1,
-                          bgcolor: '#1a1a1a',
-                          color: '#fff',
+                          bgcolor: "#1a1a1a",
+                          color: "#fff",
                           fontWeight: 700,
-                          fontSize: '0.8rem',
+                          fontSize: "0.8rem",
                         }}
                       >
-                        {warningOverlap.segmentB?.label || 'Block B'}
+                        {warningOverlap.segmentB?.label || "Block B"}
                       </Box>
                     </Box>
                     <Box
                       sx={{
                         px: 2,
                         py: 1.25,
-                        bgcolor: '#fff',
-                        borderTop: '1px solid #f0e0e0',
+                        bgcolor: "#fff",
+                        borderTop: "1px solid #f0e0e0",
                       }}
                     >
-                      <Typography sx={{ fontSize: '0.85rem', color: '#444' }}>
-                        Overlapping period:{' '}
+                      <Typography sx={{ fontSize: "0.85rem", color: "#444" }}>
+                        Overlapping period:{" "}
                         <Box
                           component="span"
-                          sx={{ fontWeight: 700, color: '#6d2323' }}
+                          sx={{ fontWeight: 700, color: "#6d2323" }}
                         >
-                          {warningOverlap.overlap?.periodText || '—'}
+                          {warningOverlap.overlap?.periodText || "—"}
                         </Box>
                       </Typography>
                     </Box>
                   </Box>
                   <Typography
-                    sx={{ color: '#555', fontSize: '0.88rem', lineHeight: 1.6 }}
+                    sx={{ color: "#555", fontSize: "0.88rem", lineHeight: 1.6 }}
                   >
                     Please go back and adjust the time entries so that Work
                     Days, Honorarium, Service Credits, and Overtime do not
@@ -4148,10 +4156,10 @@ const OfficialTimeForm = () => {
               ) : (
                 <Typography
                   sx={{
-                    color: '#1a1a1a',
+                    color: "#1a1a1a",
                     lineHeight: 1.7,
-                    fontSize: '0.93rem',
-                    whiteSpace: 'pre-wrap',
+                    fontSize: "0.93rem",
+                    whiteSpace: "pre-wrap",
                   }}
                 >
                   {warningMessage}
@@ -4160,12 +4168,12 @@ const OfficialTimeForm = () => {
             </Box>
             <Box
               sx={{
-                borderTop: '1px solid #e0e0e0',
-                bgcolor: '#fafafa',
+                borderTop: "1px solid #e0e0e0",
+                bgcolor: "#fafafa",
                 px: 3,
                 py: 2,
-                display: 'flex',
-                justifyContent: 'flex-end',
+                display: "flex",
+                justifyContent: "flex-end",
               }}
             >
               <Button
@@ -4176,12 +4184,12 @@ const OfficialTimeForm = () => {
                   setWarningOverlap(null);
                 }}
                 sx={{
-                  bgcolor: '#6d2323',
-                  color: '#fff',
+                  bgcolor: "#6d2323",
+                  color: "#fff",
                   fontWeight: 700,
-                  textTransform: 'none',
+                  textTransform: "none",
                   minWidth: 90,
-                  '&:hover': { bgcolor: '#5a1c1c' },
+                  "&:hover": { bgcolor: "#5a1c1c" },
                 }}
               >
                 OK, Go Back
@@ -4189,72 +4197,76 @@ const OfficialTimeForm = () => {
             </Box>
           </Dialog>
 
-          {/* View Schedule (read-only / editable for Active) */}
+          {/* ════ View Schedule (read-only / editable for Active) ════
+              FIX: Added editable End Date field when isEditingViewSchedule=true
+                   and the schedule status is active.
+          */}
           <Dialog
             open={showViewScheduleModal}
             onClose={() => {
               setShowViewScheduleModal(false);
               setIsEditingViewSchedule(false);
               setEditViewRecords([]);
+              setEditViewEndDate("");
             }}
             maxWidth="lg"
             fullWidth
-            PaperProps={{ sx: { borderRadius: 2, overflow: 'hidden' } }}
+            PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
           >
             <Box
               sx={{
-                bgcolor: '#6d2323',
+                bgcolor: "#6d2323",
                 px: 3,
                 py: 2,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
               }}
             >
               <Box
                 sx={{
-                  display: 'flex',
-                  alignItems: 'center',
+                  display: "flex",
+                  alignItems: "center",
                   gap: 1.5,
                   minWidth: 0,
                 }}
               >
                 {isEditingViewSchedule ? (
-                  <Edit sx={{ color: '#fff', fontSize: 20, flexShrink: 0 }} />
+                  <Edit sx={{ color: "#fff", fontSize: 20, flexShrink: 0 }} />
                 ) : (
                   <Visibility
-                    sx={{ color: '#fff', fontSize: 20, flexShrink: 0 }}
+                    sx={{ color: "#fff", fontSize: 20, flexShrink: 0 }}
                   />
                 )}
                 <Box sx={{ minWidth: 0 }}>
                   <Typography
                     sx={{
                       fontWeight: 700,
-                      color: '#fff',
-                      fontSize: '1rem',
+                      color: "#fff",
+                      fontSize: "1rem",
                       lineHeight: 1.25,
                     }}
                   >
                     {isEditingViewSchedule
-                      ? 'Edit Official Time Schedule'
-                      : 'View Official Time Schedule'}
+                      ? "Edit Official Time Schedule"
+                      : "View Official Time Schedule"}
                   </Typography>
                   <Typography
                     sx={{
-                      color: 'rgba(255,255,255,0.8)',
-                      fontSize: '0.78rem',
+                      color: "rgba(255,255,255,0.8)",
+                      fontSize: "0.78rem",
                       mt: 0.25,
                     }}
                   >
                     {(() => {
-                      const id = String(employeeID || '').trim();
+                      const id = String(employeeID || "").trim();
                       const name =
                         viewScheduleEmployeeName || resolveEmployeeName(id);
                       return id
                         ? name
                           ? `${id} — ${name}`
                           : `Employee No. ${id}`
-                        : 'Employee schedule';
+                        : "Employee schedule";
                     })()}
                   </Typography>
                 </Box>
@@ -4265,12 +4277,13 @@ const OfficialTimeForm = () => {
                   setShowViewScheduleModal(false);
                   setIsEditingViewSchedule(false);
                   setEditViewRecords([]);
+                  setEditViewEndDate("");
                 }}
                 sx={{
-                  color: '#fff',
+                  color: "#fff",
                   ml: 1,
                   flexShrink: 0,
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' },
+                  "&:hover": { bgcolor: "rgba(255,255,255,0.15)" },
                 }}
                 aria-label="Close"
               >
@@ -4278,71 +4291,152 @@ const OfficialTimeForm = () => {
               </IconButton>
             </Box>
 
-            <Box sx={{ bgcolor: '#fff', px: 3, pt: 2.5, pb: 0 }}>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 0 }}>
               {viewScheduleInfo && (
                 <>
+                  {/* ── Schedule info header ── */}
                   <Box
                     sx={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
+                      display: "flex",
+                      flexWrap: "wrap",
                       gap: 3,
                       mb: 2.5,
                       p: 2,
-                      bgcolor: '#f7f0f0',
-                      border: '1px solid #e2cece',
+                      bgcolor: "#f7f0f0",
+                      border: "1px solid #e2cece",
                       borderRadius: 1.5,
+                      alignItems: "flex-end",
                     }}
                   >
-                    {[
-                      {
-                        label: 'Academic Year',
-                        value: viewScheduleInfo.academicYear || '—',
-                      },
-                      {
-                        label: 'Start Date',
-                        value:
-                          formatDateLong(viewScheduleInfo.startDate) ||
-                          formatDateOnly(viewScheduleInfo.startDate),
-                      },
-                      {
-                        label: 'End Date',
-                        value:
-                          formatDateLong(viewScheduleInfo.endDate) ||
-                          formatDateOnly(viewScheduleInfo.endDate),
-                      },
-                    ].map(({ label, value }) => (
-                      <Box key={label}>
-                        <Typography
-                          sx={{
-                            fontSize: '0.7rem',
-                            fontWeight: 700,
-                            color: '#6d2323',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.4px',
-                          }}
-                        >
-                          {label}
-                        </Typography>
-                        <Typography
-                          sx={{
-                            fontWeight: 600,
-                            color: '#1a1a1a',
-                            fontSize: '0.88rem',
-                            mt: 0.25,
-                          }}
-                        >
-                          {value}
-                        </Typography>
-                      </Box>
-                    ))}
+                    {/* Academic Year — read-only */}
                     <Box>
                       <Typography
                         sx={{
-                          fontSize: '0.7rem',
+                          fontSize: "0.7rem",
                           fontWeight: 700,
-                          color: '#6d2323',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.4px',
+                          color: "#6d2323",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.4px",
+                        }}
+                      >
+                        Academic Year
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontWeight: 600,
+                          color: "#1a1a1a",
+                          fontSize: "0.88rem",
+                          mt: 0.25,
+                        }}
+                      >
+                        {viewScheduleInfo.academicYear || "—"}
+                      </Typography>
+                    </Box>
+
+                    {/* Start Date — always read-only */}
+                    <Box>
+                      <Typography
+                        sx={{
+                          fontSize: "0.7rem",
+                          fontWeight: 700,
+                          color: "#6d2323",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.4px",
+                        }}
+                      >
+                        Start Date
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontWeight: 600,
+                          color: "#1a1a1a",
+                          fontSize: "0.88rem",
+                          mt: 0.25,
+                        }}
+                      >
+                        {formatDateLong(viewScheduleInfo.startDate) ||
+                          formatDateOnly(viewScheduleInfo.startDate)}
+                      </Typography>
+                    </Box>
+
+                    {/* ── End Date — editable when editing an active schedule ── */}
+                    <Box>
+                      <Typography
+                        sx={{
+                          fontSize: "0.7rem",
+                          fontWeight: 700,
+                          color: "#6d2323",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.4px",
+                          mb: 0.5,
+                        }}
+                      >
+                        End Date
+                        {isEditingViewSchedule && (
+                          <Box
+                            component="span"
+                            sx={{
+                              ml: 0.75,
+                              fontSize: "0.65rem",
+                              color: "#2e7d32",
+                              fontWeight: 600,
+                              textTransform: "none",
+                              letterSpacing: 0,
+                            }}
+                          >
+                            (editable)
+                          </Box>
+                        )}
+                      </Typography>
+                      {isEditingViewSchedule ? (
+                        <TextField
+                          size="small"
+                          type="date"
+                          InputLabelProps={{ shrink: true }}
+                          value={editViewEndDate}
+                          onChange={(e) => setEditViewEndDate(e.target.value)}
+                          inputProps={{
+                            min:
+                              normalizeDateStr(viewScheduleInfo.startDate) ||
+                              undefined,
+                          }}
+                          sx={{
+                            bgcolor: "#fff",
+                            minWidth: 160,
+                            "& .MuiOutlinedInput-root": {
+                              fontSize: "0.85rem",
+                              "&.Mui-focused fieldset": {
+                                borderColor: "#6d2323",
+                              },
+                            },
+                            "& .MuiOutlinedInput-notchedOutline": {
+                              borderColor: "#6d2323",
+                            },
+                          }}
+                        />
+                      ) : (
+                        <Typography
+                          sx={{
+                            fontWeight: 600,
+                            color: "#1a1a1a",
+                            fontSize: "0.88rem",
+                          }}
+                        >
+                          {formatDateLong(viewScheduleInfo.endDate) ||
+                            formatDateOnly(viewScheduleInfo.endDate)}
+                        </Typography>
+                      )}
+                    </Box>
+
+                    {/* Status */}
+                    <Box>
+                      <Typography
+                        sx={{
+                          fontSize: "0.7rem",
+                          fontWeight: 700,
+                          color: "#6d2323",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.4px",
                         }}
                       >
                         Status
@@ -4351,8 +4445,8 @@ const OfficialTimeForm = () => {
                         {(() => {
                           const isActive =
                             String(
-                              viewScheduleInfo.status || 'active',
-                            ).toLowerCase() === 'active';
+                              viewScheduleInfo.status || "active",
+                            ).toLowerCase() === "active";
                           return (
                             <Box
                               component="span"
@@ -4360,15 +4454,15 @@ const OfficialTimeForm = () => {
                                 px: 1.25,
                                 py: 0.3,
                                 borderRadius: 1,
-                                fontSize: '0.78rem',
+                                fontSize: "0.78rem",
                                 fontWeight: 700,
-                                bgcolor: isActive ? '#e8f5e9' : '#fff9f0',
-                                color: isActive ? '#2e7d32' : '#7a5000',
-                                border: '1px solid',
-                                borderColor: isActive ? '#c8e6c9' : '#f5d89a',
+                                bgcolor: isActive ? "#e8f5e9" : "#fff9f0",
+                                color: isActive ? "#2e7d32" : "#7a5000",
+                                border: "1px solid",
+                                borderColor: isActive ? "#c8e6c9" : "#f5d89a",
                               }}
                             >
-                              {isActive ? 'Active' : 'Inactive'}
+                              {isActive ? "Active" : "Inactive"}
                             </Box>
                           );
                         })()}
@@ -4376,20 +4470,21 @@ const OfficialTimeForm = () => {
                     </Box>
                   </Box>
 
+                  {/* Tab bar */}
                   <Box
                     sx={{
-                      display: 'flex',
-                      border: '1px solid #d0b8b8',
+                      display: "flex",
+                      border: "1px solid #d0b8b8",
                       borderRadius: 1,
-                      overflow: 'hidden',
+                      overflow: "hidden",
                       mb: 2,
                     }}
                   >
                     {[
-                      { key: 'workDays', label: 'Work Days' },
-                      { key: 'honorarium', label: 'Honorarium' },
-                      { key: 'serviceCredits', label: 'Service Credits' },
-                      { key: 'overtime', label: 'Overtime' },
+                      { key: "workDays", label: "Work Days" },
+                      { key: "honorarium", label: "Honorarium" },
+                      { key: "serviceCredits", label: "Service Credits" },
+                      { key: "overtime", label: "Overtime" },
                     ].map(({ key, label }, i, arr) => {
                       const activeKey = isEditingViewSchedule
                         ? editViewScheduleView
@@ -4405,17 +4500,17 @@ const OfficialTimeForm = () => {
                           fullWidth
                           sx={{
                             borderRadius: 0,
-                            textTransform: 'none',
+                            textTransform: "none",
                             fontWeight: activeKey === key ? 700 : 400,
-                            fontSize: '0.82rem',
+                            fontSize: "0.82rem",
                             py: 0.9,
-                            bgcolor: activeKey === key ? '#6d2323' : '#fff',
-                            color: activeKey === key ? '#fff' : '#444',
+                            bgcolor: activeKey === key ? "#6d2323" : "#fff",
+                            color: activeKey === key ? "#fff" : "#444",
                             borderRight:
-                              i < arr.length - 1 ? '1px solid #d0b8b8' : 'none',
-                            '&:hover': {
+                              i < arr.length - 1 ? "1px solid #d0b8b8" : "none",
+                            "&:hover": {
                               bgcolor:
-                                activeKey === key ? '#5a1c1c' : '#f7f0f0',
+                                activeKey === key ? "#5a1c1c" : "#f7f0f0",
                             },
                           }}
                         >
@@ -4425,11 +4520,12 @@ const OfficialTimeForm = () => {
                     })}
                   </Box>
 
+                  {/* Time table */}
                   <TableContainer
                     sx={{
-                      border: '1px solid #e0e0e0',
+                      border: "1px solid #e0e0e0",
                       borderRadius: 1.5,
-                      overflow: 'hidden',
+                      overflow: "hidden",
                       mb: 3,
                     }}
                   >
@@ -4438,14 +4534,14 @@ const OfficialTimeForm = () => {
                         <ScheduleTimeRows
                           records={[...editViewRecords].sort(
                             (a, b) =>
-                              DAYS_ORDER.indexOf(a.day || '') -
-                              DAYS_ORDER.indexOf(b.day || ''),
+                              DAYS_ORDER.indexOf(a.day || "") -
+                              DAYS_ORDER.indexOf(b.day || ""),
                           )}
                           onChangeRecord={(index, field, value) => {
                             const sorted = [...editViewRecords].sort(
                               (a, b) =>
-                                DAYS_ORDER.indexOf(a.day || '') -
-                                DAYS_ORDER.indexOf(b.day || ''),
+                                DAYS_ORDER.indexOf(a.day || "") -
+                                DAYS_ORDER.indexOf(b.day || ""),
                             );
                             const day = sorted[index]?.day;
                             setEditViewRecords((prev) =>
@@ -4461,8 +4557,8 @@ const OfficialTimeForm = () => {
                         <ScheduleTimeRows
                           records={[...viewScheduleRecords].sort(
                             (a, b) =>
-                              DAYS_ORDER.indexOf(a.day || '') -
-                              DAYS_ORDER.indexOf(b.day || ''),
+                              DAYS_ORDER.indexOf(a.day || "") -
+                              DAYS_ORDER.indexOf(b.day || ""),
                           )}
                           onChangeRecord={() => {}}
                           scheduleView={viewScheduleView}
@@ -4474,34 +4570,35 @@ const OfficialTimeForm = () => {
                 </>
               )}
             </Box>
+
             <Box
               sx={{
-                borderTop: '1px solid #e0e0e0',
-                bgcolor: '#fafafa',
+                borderTop: "1px solid #e0e0e0",
+                bgcolor: "#fafafa",
                 px: 3,
                 py: 2,
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
               }}
             >
               <Box>
                 {!isEditingViewSchedule &&
                   viewScheduleInfo &&
-                  String(viewScheduleInfo.status || 'active').toLowerCase() ===
-                    'active' && (
+                  String(viewScheduleInfo.status || "active").toLowerCase() ===
+                    "active" && (
                     <Button
                       variant="outlined"
                       startIcon={<Edit />}
                       onClick={handleStartEditViewSchedule}
                       sx={{
                         fontWeight: 700,
-                        textTransform: 'none',
-                        borderColor: '#6d2323',
-                        color: '#6d2323',
-                        '&:hover': {
-                          bgcolor: '#f7f0f0',
-                          borderColor: '#5a1c1c',
+                        textTransform: "none",
+                        borderColor: "#6d2323",
+                        color: "#6d2323",
+                        "&:hover": {
+                          bgcolor: "#f7f0f0",
+                          borderColor: "#5a1c1c",
                         },
                       }}
                     >
@@ -4509,7 +4606,7 @@ const OfficialTimeForm = () => {
                     </Button>
                   )}
               </Box>
-              <Box sx={{ display: 'flex', gap: 1 }}>
+              <Box sx={{ display: "flex", gap: 1 }}>
                 {isEditingViewSchedule ? (
                   <>
                     <Button
@@ -4518,10 +4615,10 @@ const OfficialTimeForm = () => {
                       disabled={editViewSaving}
                       sx={{
                         fontWeight: 700,
-                        textTransform: 'none',
-                        borderColor: '#666',
-                        color: '#444',
-                        '&:hover': { bgcolor: '#f5f5f5' },
+                        textTransform: "none",
+                        borderColor: "#666",
+                        color: "#444",
+                        "&:hover": { bgcolor: "#f5f5f5" },
                       }}
                     >
                       Cancel
@@ -4531,7 +4628,7 @@ const OfficialTimeForm = () => {
                       disableElevation
                       startIcon={
                         editViewSaving ? (
-                          <CircularProgress size={16} sx={{ color: '#fff' }} />
+                          <CircularProgress size={16} sx={{ color: "#fff" }} />
                         ) : (
                           <SaveIcon />
                         )
@@ -4539,15 +4636,15 @@ const OfficialTimeForm = () => {
                       onClick={handleSaveEditedSchedule}
                       disabled={editViewSaving}
                       sx={{
-                        bgcolor: '#6d2323',
-                        color: '#fff',
+                        bgcolor: "#6d2323",
+                        color: "#fff",
                         fontWeight: 700,
-                        textTransform: 'none',
+                        textTransform: "none",
                         minWidth: 130,
-                        '&:hover': { bgcolor: '#5a1c1c' },
+                        "&:hover": { bgcolor: "#5a1c1c" },
                       }}
                     >
-                      {editViewSaving ? 'Saving…' : 'Save Changes'}
+                      {editViewSaving ? "Saving…" : "Save Changes"}
                     </Button>
                   </>
                 ) : (
@@ -4556,12 +4653,12 @@ const OfficialTimeForm = () => {
                     disableElevation
                     onClick={() => setShowViewScheduleModal(false)}
                     sx={{
-                      bgcolor: '#6d2323',
-                      color: '#fff',
+                      bgcolor: "#6d2323",
+                      color: "#fff",
                       fontWeight: 700,
-                      textTransform: 'none',
+                      textTransform: "none",
                       minWidth: 80,
-                      '&:hover': { bgcolor: '#5a1c1c' },
+                      "&:hover": { bgcolor: "#5a1c1c" },
                     }}
                   >
                     Close
@@ -4571,41 +4668,41 @@ const OfficialTimeForm = () => {
             </Box>
           </Dialog>
 
-          {/* Upload Preview — uses ScheduleTimeRows with readOnly=true */}
+          {/* Upload Preview */}
           <Dialog
             open={showPreviewModal}
             onClose={() => setShowPreviewModal(false)}
             maxWidth="lg"
             fullWidth
-            PaperProps={{ sx: { borderRadius: 2, overflow: 'hidden' } }}
+            PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
           >
             <Box
               sx={{
-                bgcolor: '#6d2323',
+                bgcolor: "#6d2323",
                 px: 3,
                 py: 2,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
               }}
             >
               <Box
                 sx={{
-                  display: 'flex',
-                  alignItems: 'center',
+                  display: "flex",
+                  alignItems: "center",
                   gap: 1.5,
                   minWidth: 0,
                 }}
               >
                 <Visibility
-                  sx={{ color: '#fff', fontSize: 20, flexShrink: 0 }}
+                  sx={{ color: "#fff", fontSize: 20, flexShrink: 0 }}
                 />
                 <Box sx={{ minWidth: 0 }}>
                   <Typography
                     sx={{
                       fontWeight: 700,
-                      color: '#fff',
-                      fontSize: '1rem',
+                      color: "#fff",
+                      fontSize: "1rem",
                       lineHeight: 1.25,
                     }}
                   >
@@ -4613,8 +4710,8 @@ const OfficialTimeForm = () => {
                   </Typography>
                   <Typography
                     sx={{
-                      color: 'rgba(255,255,255,0.8)',
-                      fontSize: '0.78rem',
+                      color: "rgba(255,255,255,0.8)",
+                      fontSize: "0.78rem",
                       mt: 0.25,
                     }}
                   >
@@ -4628,7 +4725,7 @@ const OfficialTimeForm = () => {
                             ? `${id} — ${u.fullName}`
                             : `Employee No. ${id}`;
                         })()
-                      : 'Uploaded schedule data'}
+                      : "Uploaded schedule data"}
                   </Typography>
                 </Box>
               </Box>
@@ -4636,10 +4733,10 @@ const OfficialTimeForm = () => {
                 size="small"
                 onClick={() => setShowPreviewModal(false)}
                 sx={{
-                  color: '#fff',
+                  color: "#fff",
                   ml: 1,
                   flexShrink: 0,
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' },
+                  "&:hover": { bgcolor: "rgba(255,255,255,0.15)" },
                 }}
                 aria-label="Close"
               >
@@ -4647,34 +4744,34 @@ const OfficialTimeForm = () => {
               </IconButton>
             </Box>
 
-            <Box sx={{ bgcolor: '#fff', px: 3, pt: 2.5, pb: 0 }}>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 0 }}>
               {previewScheduleInfo && (
                 <>
                   <Box
                     sx={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
+                      display: "flex",
+                      flexWrap: "wrap",
                       gap: 3,
                       mb: 2.5,
                       p: 2,
-                      bgcolor: '#f7f0f0',
-                      border: '1px solid #e2cece',
+                      bgcolor: "#f7f0f0",
+                      border: "1px solid #e2cece",
                       borderRadius: 1.5,
                     }}
                   >
                     {[
                       {
-                        label: 'Academic Year',
-                        value: previewScheduleInfo.academicYear || '—',
+                        label: "Academic Year",
+                        value: previewScheduleInfo.academicYear || "—",
                       },
                       {
-                        label: 'Start Date',
+                        label: "Start Date",
                         value:
                           formatDateLong(previewScheduleInfo.startDate) ||
                           formatDateOnly(previewScheduleInfo.startDate),
                       },
                       {
-                        label: 'End Date',
+                        label: "End Date",
                         value:
                           formatDateLong(previewScheduleInfo.endDate) ||
                           formatDateOnly(previewScheduleInfo.endDate),
@@ -4683,11 +4780,11 @@ const OfficialTimeForm = () => {
                       <Box key={label}>
                         <Typography
                           sx={{
-                            fontSize: '0.7rem',
+                            fontSize: "0.7rem",
                             fontWeight: 700,
-                            color: '#6d2323',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.4px',
+                            color: "#6d2323",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.4px",
                           }}
                         >
                           {label}
@@ -4695,8 +4792,8 @@ const OfficialTimeForm = () => {
                         <Typography
                           sx={{
                             fontWeight: 600,
-                            color: '#1a1a1a',
-                            fontSize: '0.88rem',
+                            color: "#1a1a1a",
+                            fontSize: "0.88rem",
                             mt: 0.25,
                           }}
                         >
@@ -4707,11 +4804,11 @@ const OfficialTimeForm = () => {
                     <Box>
                       <Typography
                         sx={{
-                          fontSize: '0.7rem',
+                          fontSize: "0.7rem",
                           fontWeight: 700,
-                          color: '#6d2323',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.4px',
+                          color: "#6d2323",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.4px",
                         }}
                       >
                         Status
@@ -4723,11 +4820,11 @@ const OfficialTimeForm = () => {
                             px: 1.25,
                             py: 0.3,
                             borderRadius: 1,
-                            fontSize: '0.78rem',
+                            fontSize: "0.78rem",
                             fontWeight: 700,
-                            bgcolor: '#e8f5e9',
-                            color: '#2e7d32',
-                            border: '1px solid #c8e6c9',
+                            bgcolor: "#e8f5e9",
+                            color: "#2e7d32",
+                            border: "1px solid #c8e6c9",
                           }}
                         >
                           Active
@@ -4738,18 +4835,18 @@ const OfficialTimeForm = () => {
 
                   <Box
                     sx={{
-                      display: 'flex',
-                      border: '1px solid #d0b8b8',
+                      display: "flex",
+                      border: "1px solid #d0b8b8",
                       borderRadius: 1,
-                      overflow: 'hidden',
+                      overflow: "hidden",
                       mb: 2,
                     }}
                   >
                     {[
-                      { key: 'workDays', label: 'Work Days' },
-                      { key: 'honorarium', label: 'Honorarium' },
-                      { key: 'serviceCredits', label: 'Service Credits' },
-                      { key: 'overtime', label: 'Overtime' },
+                      { key: "workDays", label: "Work Days" },
+                      { key: "honorarium", label: "Honorarium" },
+                      { key: "serviceCredits", label: "Service Credits" },
+                      { key: "overtime", label: "Overtime" },
                     ].map(({ key, label }, i, arr) => (
                       <Button
                         key={key}
@@ -4758,24 +4855,24 @@ const OfficialTimeForm = () => {
                         fullWidth
                         sx={{
                           borderRadius: 0,
-                          textTransform: 'none',
+                          textTransform: "none",
                           fontWeight:
                             previewViewScheduleView === key ? 700 : 400,
-                          fontSize: '0.82rem',
+                          fontSize: "0.82rem",
                           py: 0.9,
                           bgcolor:
                             previewViewScheduleView === key
-                              ? '#6d2323'
-                              : '#fff',
+                              ? "#6d2323"
+                              : "#fff",
                           color:
-                            previewViewScheduleView === key ? '#fff' : '#444',
+                            previewViewScheduleView === key ? "#fff" : "#444",
                           borderRight:
-                            i < arr.length - 1 ? '1px solid #d0b8b8' : 'none',
-                          '&:hover': {
+                            i < arr.length - 1 ? "1px solid #d0b8b8" : "none",
+                          "&:hover": {
                             bgcolor:
                               previewViewScheduleView === key
-                                ? '#5a1c1c'
-                                : '#f7f0f0',
+                                ? "#5a1c1c"
+                                : "#f7f0f0",
                           },
                         }}
                       >
@@ -4786,9 +4883,9 @@ const OfficialTimeForm = () => {
 
                   <TableContainer
                     sx={{
-                      border: '1px solid #e0e0e0',
+                      border: "1px solid #e0e0e0",
                       borderRadius: 1.5,
-                      overflow: 'hidden',
+                      overflow: "hidden",
                       mb: 3,
                     }}
                   >
@@ -4796,8 +4893,8 @@ const OfficialTimeForm = () => {
                       <ScheduleTimeRows
                         records={[...previewRecords].sort(
                           (a, b) =>
-                            DAYS_ORDER.indexOf(a.day || '') -
-                            DAYS_ORDER.indexOf(b.day || ''),
+                            DAYS_ORDER.indexOf(a.day || "") -
+                            DAYS_ORDER.indexOf(b.day || ""),
                         )}
                         onChangeRecord={() => {}}
                         scheduleView={previewViewScheduleView}
@@ -4810,12 +4907,12 @@ const OfficialTimeForm = () => {
             </Box>
             <Box
               sx={{
-                borderTop: '1px solid #e0e0e0',
-                bgcolor: '#fafafa',
+                borderTop: "1px solid #e0e0e0",
+                bgcolor: "#fafafa",
                 px: 3,
                 py: 2,
-                display: 'flex',
-                justifyContent: 'flex-end',
+                display: "flex",
+                justifyContent: "flex-end",
               }}
             >
               <Button
@@ -4823,12 +4920,12 @@ const OfficialTimeForm = () => {
                 disableElevation
                 onClick={() => setShowPreviewModal(false)}
                 sx={{
-                  bgcolor: '#6d2323',
-                  color: '#fff',
+                  bgcolor: "#6d2323",
+                  color: "#fff",
                   fontWeight: 700,
-                  textTransform: 'none',
+                  textTransform: "none",
                   minWidth: 80,
-                  '&:hover': { bgcolor: '#5a1c1c' },
+                  "&:hover": { bgcolor: "#5a1c1c" },
                 }}
               >
                 Close

@@ -32,6 +32,11 @@ import {
   CircularProgress,
   CardHeader,
   Checkbox,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Divider,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import {
@@ -110,25 +115,11 @@ const OverallAttendanceWireframe = ({
 }) => {
   const ac   = accentColor;
   const grad = `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`;
-
   return (
     <>
       <style>{SHIMMER_CSS}</style>
-      <Box sx={{
-        py: { xs: 2, md: 4 },
-        width: '100vw', mx: 'auto', maxWidth: '100%',
-        overflow: 'hidden', position: 'relative',
-        left: '53%', transform: 'translateX(-51%)',
-        px: { xs: 2, sm: 3, md: 6 },
-      }}>
-
-        {/* 1. Hero header */}
-        <Box sx={{
-          mb: 4, borderRadius: '20px', overflow: 'hidden',
-          border: `1px solid ${alpha(ac, 0.1)}`,
-          boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-          animation: 'oaPulse 2.2s ease-in-out infinite',
-        }}>
+      <Box sx={{ py: { xs: 2, md: 4 }, width: '100vw', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '53%', transform: 'translateX(-51%)', px: { xs: 2, sm: 3, md: 6 } }}>
+        <Box sx={{ mb: 4, borderRadius: '20px', overflow: 'hidden', border: `1px solid ${alpha(ac, 0.1)}`, boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`, animation: 'oaPulse 2.2s ease-in-out infinite' }}>
           <Box sx={{ p: 5, background: grad, position: 'relative', overflow: 'hidden' }}>
             <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle,${alpha(ac,0.1)} 0%,${alpha(ac,0)} 70%)` }} />
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -146,93 +137,24 @@ const OverallAttendanceWireframe = ({
             </Box>
           </Box>
         </Box>
-
-        {/* 2. Controls card */}
-        <Box sx={{
-          mb: 4, borderRadius: '20px', overflow: 'hidden',
-          border: `1px solid ${alpha(ac, 0.1)}`,
-          boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-          animation: 'oaPulse 2.2s ease-in-out 0.08s infinite',
-          bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
-        }}>
-          {/* card header strip */}
-          <Box sx={{ px: 4, py: 2.5, bgcolor: alpha(primaryColor, 0.5), borderBottom: `1px solid ${alpha(ac, 0.1)}`, display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Pl w={40} h={40} r="50%" color={alpha(ac, 0.13)} />
-            <Sk w={280} h={12} r={3} accent={ac} />
-          </Box>
+        <Box sx={{ mb: 4, borderRadius: '20px', overflow: 'hidden', border: `1px solid ${alpha(ac, 0.1)}`, boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`, animation: 'oaPulse 2.2s ease-in-out 0.08s infinite', bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)` }}>
           <Box sx={{ p: 4 }}>
-            {/* 3 input fields */}
-            <Box sx={{ display: 'flex', gap: 3, mb: 4, flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', gap: 3, mb: 3 }}>
               {[0, 1, 2].map((fi) => (
-                <Box key={fi} sx={{ flex: 1, minWidth: 160 }}>
-                  <Sk w={fi === 0 ? 130 : 80} h={12} r={3} accent={ac} sx={{ mb: '6px' }} />
-                  <Box sx={{ height: 56, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', px: 1.5, gap: 1 }}>
-                    <Pl w={20} h={20} r="50%" color={alpha(ac, 0.12)} />
-                    <Sk w={fi === 0 ? '45%' : '55%'} h={13} r={4} accent={ac} />
-                  </Box>
+                <Box key={fi} sx={{ flex: 1 }}>
+                  <Sk w={100} h={12} r={3} accent={ac} sx={{ mb: '6px' }} />
+                  <Box sx={{ height: 56, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: 'rgba(255,255,255,0.85)' }} />
                 </Box>
               ))}
             </Box>
-            {/* centered fetch button */}
-            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-              <Pl w={220} h={52} r={12} color={alpha(ac, 0.85)} />
+            <Box sx={{ p: 3, borderRadius: 2, border: `2px dashed ${alpha(ac, 0.20)}`, bgcolor: alpha(primaryColor, 0.30), mb: 4 }}>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
+                {Array.from({ length: 12 }, (_, i) => <Sk key={i} w={64} h={44} r={10} accent={ac} />)}
+              </Box>
             </Box>
+            <Box sx={{ height: 48, borderRadius: '12px', bgcolor: alpha(ac, 0.85) }} />
           </Box>
         </Box>
-
-        {/* 3. Table card */}
-        <Box sx={{
-          mb: 4, borderRadius: '20px', overflow: 'hidden',
-          border: `1px solid ${alpha(ac, 0.1)}`,
-          boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-          animation: 'oaPulse 2.2s ease-in-out 0.14s infinite',
-          bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
-        }}>
-          {/* table banner */}
-          <Box sx={{ p: 4, background: grad, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Box>
-              <Sk w={200} h={10} r={3} accent={ac} sx={{ mb: '6px' }} />
-              <Sk w={160} h={20} r={4} accent={ac} sx={{ mb: 2 }} />
-              <Sk w={180} h={22} r={11} accent={ac} />
-            </Box>
-            <Pl w={80} h={80} r="50%" color={alpha(ac, 0.13)} />
-          </Box>
-          {/* column headers */}
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 1, px: 3, py: 2, bgcolor: alpha(primaryColor, 0.7), borderBottom: `2px solid ${alpha(ac, 0.1)}` }}>
-            {[90, 110, 80, 80, 100, 110, 100, 80].map((w, i) => (
-              <Sk key={i} w={w} h={10} r={3} accent={ac} />
-            ))}
-          </Box>
-          {/* data rows */}
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Box key={i} sx={{
-              display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)',
-              gap: 1, px: 3, py: 2.5, alignItems: 'center',
-              borderBottom: i < 3 ? `1px solid ${alpha(ac, 0.06)}` : 'none',
-              bgcolor: i % 2 === 0 ? '#fff' : alpha(primaryColor, 0.3),
-              animation: `oaPulse 2.2s ease-in-out ${i * 0.06}s infinite`,
-            }}>
-              {[80, 100, 70, 70, 90, 100, 90, 60].map((w, ci) => (
-                <Sk key={ci} w={w} h={12} r={3} accent={ac} />
-              ))}
-            </Box>
-          ))}
-        </Box>
-
-        {/* 4. Action buttons card */}
-        <Box sx={{
-          mb: 4, borderRadius: '20px', overflow: 'hidden',
-          border: `1px solid ${alpha(ac, 0.1)}`,
-          boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-          animation: 'oaPulse 2.2s ease-in-out 0.2s infinite',
-          bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
-        }}>
-          <Box sx={{ p: 4, display: 'flex', gap: 3 }}>
-            <Pl w="50%" h={52} r={12} color={alpha(ac, 0.85)} />
-            <Pl w="50%" h={52} r={12} color={alpha(ac, 0.85)} />
-          </Box>
-        </Box>
-
       </Box>
     </>
   );
@@ -258,10 +180,7 @@ const ProfessionalButton = styled(Button)(({ variant }) => ({
   fontSize: '0.95rem',
   letterSpacing: '0.025em',
   boxShadow: variant === 'contained' ? '0 4px 14px rgba(254,249,225,0.25)' : 'none',
-  '&:hover': {
-    transform: 'translateY(-2px)',
-    boxShadow: variant === 'contained' ? '0 6px 20px rgba(254,249,225,0.35)' : 'none',
-  },
+  '&:hover': { transform: 'translateY(-2px)' },
   '&:active': { transform: 'translateY(0)' },
 }));
 
@@ -271,76 +190,230 @@ const ModernTextField = styled(TextField)(() => ({
     transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
     backgroundColor: 'rgba(255,255,255,0.8)',
     '&:hover': { transform: 'translateY(-1px)', backgroundColor: 'rgba(255,255,255,0.95)' },
-    '&.Mui-focused': { transform: 'translateY(-1px)', boxShadow: '0 4px 20px rgba(254,249,225,0.25)', backgroundColor: 'rgba(255,255,255,1)' },
+    '&.Mui-focused': { transform: 'translateY(-1px)', backgroundColor: 'rgba(255,255,255,1)' },
   },
   '& .MuiInputLabel-root': { fontWeight: 500 },
 }));
 
-const PremiumTableContainer = styled(TableContainer)(() => ({
-  borderRadius: 16,
-  overflow: 'auto',
-  boxShadow: '0 4px 24px rgba(109,35,35,0.06)',
-  border: '1px solid rgba(109,35,35,0.08)',
-  maxHeight: '600px',
-  '&::-webkit-scrollbar': { width: '8px', height: '8px' },
-  '&::-webkit-scrollbar-track': { background: 'rgba(254,249,225,0.3)', borderRadius: '4px' },
-  '&::-webkit-scrollbar-thumb': {
-    background: 'rgba(109,35,35,0.4)', borderRadius: '4px',
-    '&:hover': { background: 'rgba(109,35,35,0.6)' },
-  },
-}));
-
-const PremiumTableCell = styled(TableCell)(({ isHeader = false }) => ({
+const PremiumTableCell = styled(TableCell)(({ isHeader = false, bgColor = null }) => ({
   fontWeight: isHeader ? 600 : 500,
-  padding: '18px 20px',
+  padding: '12px 14px',
   borderBottom: isHeader ? '2px solid rgba(254,249,225,0.5)' : '1px solid rgba(109,35,35,0.06)',
-  fontSize: '0.95rem',
+  fontSize: '0.83rem',
   letterSpacing: '0.025em',
-  minWidth: '120px',
+  backgroundColor: bgColor ? bgColor : 'transparent',
   whiteSpace: 'nowrap',
 }));
 
 // ─────────────────────────────────────────────
 // STYLED MODAL
 // ─────────────────────────────────────────────
-const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, showCancel = false }) => {
-  const getIcon = () => {
-    const base = { fontSize: 40 };
-    switch (type) {
-      case 'success': return <CheckCircleIcon sx={{ ...base, color: '#2e7d32' }} />;
-      case 'warning': return <WarningIcon     sx={{ ...base, color: '#ed6c02' }} />;
-      case 'error':   return <ErrorIcon       sx={{ ...base, color: '#d32f2f' }} />;
-      default:        return <InfoIcon        sx={{ ...base, color: '#1976d2' }} />;
-    }
+const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, showCancel = false, accentColor = '#6D2323', accentDark = '#8B3333', primaryColor = '#FEF9E1', secondaryColor = '#FFF8E7', textPrimaryColor = '#6D2323' }) => {
+  const typeConfig = {
+    success: {
+      icon:      <CheckCircleIcon sx={{ fontSize: 30, color: '#2e7d32' }} />,
+      avatarBg:  'rgba(46,125,50,0.15)',
+      chipColor: '#2e7d32',
+      chipBg:    'rgba(46,125,50,0.1)',
+      label:     'Success',
+    },
+    warning: {
+      icon:      <WarningIcon sx={{ fontSize: 30, color: '#92400e' }} />,
+      avatarBg:  'rgba(146,64,14,0.15)',
+      chipColor: '#92400e',
+      chipBg:    'rgba(146,64,14,0.1)',
+      label:     'Warning',
+    },
+    error: {
+      icon:      <ErrorIcon sx={{ fontSize: 30, color: '#991b1b' }} />,
+      avatarBg:  'rgba(153,27,27,0.15)',
+      chipColor: '#991b1b',
+      chipBg:    'rgba(153,27,27,0.1)',
+      label:     'Error',
+    },
+    info: {
+      icon:      <InfoIcon sx={{ fontSize: 30, color: textPrimaryColor }} />,
+      avatarBg:  alpha(accentColor, 0.14),
+      chipColor: accentColor,
+      chipBg:    alpha(accentColor, 0.1),
+      label:     'Notice',
+    },
   };
+  const cfg = typeConfig[type] || typeConfig.info;
+
+  // Smart message parser
+  const lines = message.split('\n').map(l => l.trim()).filter(Boolean);
+  const isListItem = (l) => l.startsWith('•') || l.startsWith('-') || /^\d{5,}/.test(l) || /^Employee\s+\d/.test(l);
+  const isNote     = (l) => /^(contact|please|this action|note:|important)/i.test(l);
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth
-      PaperProps={{ sx: { borderRadius: 3, boxShadow: '0px 10px 40px rgba(0,0,0,0.18)', border: '1px solid rgba(109,35,35,0.12)', overflow: 'hidden' } }}
+    <Dialog
+      open={open} onClose={onClose} maxWidth="sm" fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: '24px',
+          overflow: 'hidden',
+          boxShadow: `0 32px 80px ${alpha(accentColor, 0.25)}, 0 8px 24px ${alpha(accentColor, 0.12)}`,
+          border: `1px solid ${alpha(accentColor, 0.14)}`,
+          bgcolor: primaryColor,
+        },
+      }}
     >
-      <DialogTitle sx={{ px: 3, pt: 2.5, pb: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FFFFFF' }}>
-        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#6D2323', letterSpacing: 0.3 }}>{title}</Typography>
-        <IconButton size="small" onClick={onClose} sx={{ color: '#6D2323', '&:hover': { backgroundColor: 'rgba(109,35,35,0.06)' } }}>
+      {/* ── Full gradient header ── */}
+      <Box sx={{
+        px: 4, pt: 4, pb: 3.5,
+        background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+        position: 'relative', overflow: 'hidden',
+      }}>
+        {/* Decorative blobs */}
+        <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
+        <Box sx={{ position: 'absolute', bottom: -30, left: '25%', width: 150, height: 150, borderRadius: '50%', background: `radial-gradient(circle, ${alpha(accentColor, 0.07)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
+
+        {/* Close button top-right */}
+        <IconButton
+          size="small" onClick={onClose}
+          sx={{
+            position: 'absolute', top: 16, right: 16, zIndex: 2,
+            color: textPrimaryColor, opacity: 0.45,
+            '&:hover': { opacity: 1, bgcolor: alpha(accentColor, 0.1) },
+          }}
+        >
           <CloseIcon fontSize="small" />
         </IconButton>
-      </DialogTitle>
-      <DialogContent sx={{ px: 4, pt: 3, pb: 2, backgroundColor: '#FFFFFF', minHeight: 320 }}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2.5 }}>
-          <Box sx={{ width: 72, height: 72, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(109,35,35,0.06)' }}>
-            {getIcon()}
+
+        {/* Avatar + title */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
+          <Avatar sx={{
+            bgcolor: cfg.avatarBg,
+            width: 60, height: 60,
+            boxShadow: `0 8px 24px ${alpha(accentColor, 0.18)}`,
+            border: `2px solid ${alpha(accentColor, 0.1)}`,
+          }}>
+            {cfg.icon}
+          </Avatar>
+          <Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
+              <Typography sx={{ fontWeight: 800, fontSize: '1.2rem', color: textPrimaryColor, lineHeight: 1.2, letterSpacing: '-0.01em' }}>
+                {title}
+              </Typography>
+              <Chip
+                label={cfg.label} size="small"
+                sx={{
+                  bgcolor: cfg.chipBg, color: cfg.chipColor,
+                  fontWeight: 700, fontSize: '0.65rem',
+                  letterSpacing: '0.07em', textTransform: 'uppercase',
+                  height: 20, borderRadius: '6px',
+                  border: `1px solid ${alpha(cfg.chipColor, 0.2)}`,
+                }}
+              />
+            </Box>
+            <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.5), fontWeight: 500 }}>
+              {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            </Typography>
           </Box>
-          <Typography sx={{ color: '#4b1717', fontSize: 15, whiteSpace: 'pre-line', lineHeight: 1.7 }}>{message}</Typography>
         </Box>
-      </DialogContent>
-      <DialogActions sx={{ px: 4, py: 3, backgroundColor: '#FFFFFF', borderTop: '1px solid rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 1.5 }}>
+      </Box>
+
+      {/* ── Body — same primaryColor background, not white ── */}
+      <Box sx={{
+        px: 4, py: 3,
+        bgcolor: alpha(primaryColor, 0.6),
+        borderTop: `1px solid ${alpha(accentColor, 0.08)}`,
+        borderBottom: `1px solid ${alpha(accentColor, 0.08)}`,
+      }}>
+        {lines.map((line, i) => {
+          if (isListItem(line)) {
+            const clean = line.replace(/^[•\-]\s*/, '');
+            const [empPart, ...rest] = clean.split(':');
+            return (
+              <Box key={i} sx={{
+                display: 'flex', alignItems: 'center', gap: 2,
+                mb: 1, px: 2, py: 1.25,
+                borderRadius: '12px',
+                bgcolor: 'rgba(255,255,255,0.75)',
+                border: `1px solid ${alpha(accentColor, 0.1)}`,
+                backdropFilter: 'blur(4px)',
+                boxShadow: `0 2px 8px ${alpha(accentColor, 0.06)}`,
+                transition: 'all 0.2s ease',
+              }}>
+                <Box sx={{
+                  width: 32, height: 32, borderRadius: '8px', flexShrink: 0,
+                  bgcolor: alpha(accentColor, 0.1),
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Person sx={{ fontSize: 16, color: accentColor, opacity: 0.7 }} />
+                </Box>
+                <Box>
+                  <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: textPrimaryColor, lineHeight: 1.2 }}>
+                    {empPart?.trim()}
+                  </Typography>
+                  {rest.length > 0 && (
+                    <Typography sx={{ fontSize: '0.75rem', color: alpha(textPrimaryColor, 0.55), fontWeight: 500, mt: 0.15 }}>
+                      {rest.join(':').trim()}
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+            );
+          }
+          if (isNote(line)) {
+            return (
+              <Box key={i} sx={{
+                mt: 1.5, px: 2, py: 1.5,
+                borderRadius: '12px',
+                bgcolor: alpha(accentColor, 0.06),
+                border: `1px solid ${alpha(accentColor, 0.14)}`,
+                borderLeft: `4px solid ${alpha(accentColor, 0.5)}`,
+                display: 'flex', alignItems: 'flex-start', gap: 1.25,
+              }}>
+                <InfoIcon sx={{ fontSize: 15, color: accentColor, opacity: 0.6, mt: 0.2, flexShrink: 0 }} />
+                <Typography sx={{ fontSize: '0.82rem', color: alpha(textPrimaryColor, 0.75), fontWeight: 600, lineHeight: 1.65 }}>
+                  {line}
+                </Typography>
+              </Box>
+            );
+          }
+          return (
+            <Typography key={i} sx={{
+              fontSize: '0.9rem', color: alpha(textPrimaryColor, 0.8),
+              lineHeight: 1.8, fontWeight: 500,
+              mb: i < lines.length - 1 ? 1.25 : 0,
+            }}>
+              {line}
+            </Typography>
+          );
+        })}
+      </Box>
+
+      {/* ── Footer ── */}
+      <Box sx={{
+        px: 4, py: 2.5,
+        bgcolor: alpha(primaryColor, 0.8),
+        display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1.5,
+      }}>
         {showCancel && (
-          <ProfessionalButton onClick={onClose} variant="outlined" sx={{ width: '100%', borderColor: 'rgba(109,35,35,0.6)', color: '#6D2323', fontWeight: 600 }}>
+          <ProfessionalButton
+            onClick={onClose} variant="outlined"
+            sx={{
+              borderColor: alpha(accentColor, 0.3), color: textPrimaryColor,
+              bgcolor: 'rgba(255,255,255,0.6)',
+              '&:hover': { borderColor: accentColor, bgcolor: 'rgba(255,255,255,0.9)' },
+            }}
+          >
             Cancel
           </ProfessionalButton>
         )}
-        <ProfessionalButton onClick={onConfirm || onClose} variant="contained" sx={{ width: '100%', bgcolor: '#6D2323', color: '#FEF9E1', fontWeight: 600, '&:hover': { bgcolor: '#8B3333' } }}>
+        <ProfessionalButton
+          onClick={onConfirm || onClose} variant="contained"
+          sx={{
+            bgcolor: accentColor, color: primaryColor,
+            boxShadow: `0 4px 16px ${alpha(accentColor, 0.4)}`,
+            '&:hover': { bgcolor: accentDark, boxShadow: `0 6px 20px ${alpha(accentColor, 0.5)}` },
+          }}
+        >
           {showCancel ? 'Confirm' : 'OK'}
         </ProfessionalButton>
-      </DialogActions>
+      </Box>
     </Dialog>
   );
 };
@@ -375,28 +448,34 @@ const OverallAttendance = () => {
   }, [hasAccess, accessLoading, accessError]);
 
   // State
-  const [employeeNumber, setEmployeeNumber]             = useState('');
-  const [startDate, setStartDate]                       = useState('');
-  const [endDate, setEndDate]                           = useState('');
-  const [attendanceData, setAttendanceData]             = useState([]);
-  const [editRecord, setEditRecord]                     = useState(null);
-  const [isSubmitting, setIsSubmitting]                 = useState(false);
-  const [isSubmittingJO, setIsSubmittingJO]             = useState(false);
-  const [loading, setLoading]                           = useState(false);
-  const [pageLoading, setPageLoading]                   = useState(true);
-  const [showRegularConfirm, setShowRegularConfirm]     = useState(false);
+  const [employeeNumber, setEmployeeNumber]               = useState('');
+  const [startDate, setStartDate]                         = useState('');
+  const [endDate, setEndDate]                             = useState('');
+  const [attendanceData, setAttendanceData]               = useState([]);
+  const [editRecord, setEditRecord]                       = useState(null);
+  const [isSubmitting, setIsSubmitting]                   = useState(false);
+  const [isSubmittingJO, setIsSubmittingJO]               = useState(false);
+  const [loading, setLoading]                             = useState(false);
+  const [pageLoading, setPageLoading]                     = useState(true);
+  const [showRegularConfirm, setShowRegularConfirm]       = useState(false);
   const [confirmRegularChecked, setConfirmRegularChecked] = useState(false);
-  const [processingOverlay, setProcessingOverlay]       = useState(false);
-  const [processingMessage, setProcessingMessage]       = useState('');
-  const [successOverlay, setSuccessOverlay]             = useState(false);
-  const [successRedirect, setSuccessRedirect]           = useState('');
-  const [successAction, setSuccessAction]               = useState('send');
+  const [processingOverlay, setProcessingOverlay]         = useState(false);
+  const [processingMessage, setProcessingMessage]         = useState('');
+  const [successOverlay, setSuccessOverlay]               = useState(false);
+  const [successRedirect, setSuccessRedirect]             = useState('');
+  const [successAction, setSuccessAction]                 = useState('send');
+
+  // Month picker state
+  const currentYear = new Date().getFullYear();
+  const months      = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const [selectedMonth, setSelectedMonth] = useState(null);
+  const [selectedYear, setSelectedYear]   = useState(currentYear);
+  const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
   const [modal, setModal] = useState({ open: false, title: '', message: '', type: 'info', onConfirm: null, showCancel: false });
-  const showModal   = (title, message, type = 'info', onConfirm = null, showCancel = false) => setModal({ open: true, title, message, type, onConfirm, showCancel });
-  const closeModal  = () => setModal((p) => ({ ...p, open: false }));
+  const showModal  = (title, message, type = 'info', onConfirm = null, showCancel = false) => setModal({ open: true, title, message, type, onConfirm, showCancel });
+  const closeModal = () => setModal((p) => ({ ...p, open: false }));
 
-  // Dismiss wireframe once access resolves
   useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
 
   const getAuthHeaders = () => {
@@ -415,6 +494,15 @@ const OverallAttendance = () => {
     if (storedStartDate)      setStartDate(storedStartDate);
     if (storedEndDate)        setEndDate(storedEndDate);
   }, []);
+
+  // ── Month picker handler ──────────────────────────────────────────────────
+  const handleMonthClick = (monthIndex) => {
+    const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
+    const end   = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
+    setStartDate(start.toISOString().substring(0, 10));
+    setEndDate(end.toISOString().substring(0, 10));
+    setSelectedMonth(monthIndex);
+  };
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
   const fetchAttendanceData = async () => {
@@ -438,10 +526,9 @@ const OverallAttendance = () => {
     }
   };
 
-  // Keep latest fetch function for Socket.IO handler
   useEffect(() => { fetchAttendanceDataRef.current = fetchAttendanceData; });
 
-  // Realtime: refresh when attendance data changes
+  // Realtime refresh
   useEffect(() => {
     if (!socket || !connected) return;
     const handleAttendanceChanged = (payload) => {
@@ -699,11 +786,7 @@ const OverallAttendance = () => {
 
   // ── Access guards / wireframe ─────────────────────────────────────────────
   if (pageLoading || accessLoading) return (
-    <OverallAttendanceWireframe
-      accentColor={accentColor}
-      primaryColor={primaryColor}
-      secondaryColor={secondaryColor}
-    />
+    <OverallAttendanceWireframe accentColor={accentColor} primaryColor={primaryColor} secondaryColor={secondaryColor} />
   );
 
   if (!accessLoading && hasAccess !== true) return (
@@ -714,6 +797,26 @@ const OverallAttendance = () => {
       returnButtonText="Return to Home"
     />
   );
+
+  // Table column definitions
+  const TABLE_COLUMNS = [
+    { label: 'Department',               key: 'code' },
+    { label: 'Employee No.',             key: 'personID' },
+    { label: 'Start Date',               key: 'startDate' },
+    { label: 'End Date',                 key: 'endDate' },
+    { label: 'Morning Hours',            key: 'totalRenderedTimeMorning',              accent: true },
+    { label: 'Morning Tardiness',        key: 'totalRenderedTimeMorningTardiness',     accentDark: true },
+    { label: 'Afternoon Hours',          key: 'totalRenderedTimeAfternoon',            accent: true },
+    { label: 'Afternoon Tardiness',      key: 'totalRenderedTimeAfternoonTardiness',   accentDark: true },
+    { label: 'Honorarium',               key: 'totalRenderedHonorarium',               accent: true },
+    { label: 'HN Tardiness',             key: 'totalRenderedHonorariumTardiness',      accentDark: true },
+    { label: 'Service Credit',           key: 'totalRenderedServiceCredit',            accent: true },
+    { label: 'SC Tardiness',             key: 'totalRenderedServiceCreditTardiness',   accentDark: true },
+    { label: 'Overtime',                 key: 'totalRenderedOvertime',                 accent: true },
+    { label: 'OT Tardiness',             key: 'totalRenderedOvertimeTardiness',        accentDark: true },
+    { label: 'Overall Rendered',         key: 'overallRenderedOfficialTime',           highlight: true },
+    { label: 'Overall Tardiness',        key: 'overallRenderedOfficialTimeTardiness',  highlightDark: true },
+  ];
 
   // ─────────────────────────────────────────────
   // RENDER
@@ -735,11 +838,14 @@ const OverallAttendance = () => {
               background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
               boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
               border: `1px solid ${alpha(accentColor, 0.1)}`,
-              '&:hover': { boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}` },
             }}>
-              <Box sx={{ p: 5, background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`, color: textPrimaryColor, position: 'relative', overflow: 'hidden' }}>
-                <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, ${alpha(accentColor, 0)} 70%)` }} />
-                <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, background: `radial-gradient(circle, ${alpha(accentColor, 0.08)} 0%, ${alpha(accentColor, 0)} 70%)` }} />
+              <Box sx={{
+                p: 5,
+                background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                position: 'relative', overflow: 'hidden',
+              }}>
+                <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, transparent 70%)` }} />
+                <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, background: `radial-gradient(circle, ${alpha(accentColor, 0.08)} 0%, transparent 70%)` }} />
                 <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
                   <Box display="flex" alignItems="center">
                     <Avatar sx={{ bgcolor: alpha(accentColor, 0.15), mr: 4, width: 64, height: 64, boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}` }}>
@@ -749,18 +855,18 @@ const OverallAttendance = () => {
                       <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}>
                         Overall Attendance Report
                       </Typography>
-                      <Typography variant="body1" sx={{ opacity: 0.8, fontWeight: 400, color: textPrimaryColor }}>
+                      <Typography variant="body1" sx={{ opacity: 0.8, color: textPrimaryColor }}>
                         Generate and review summary of overall attendance records
                       </Typography>
                     </Box>
                   </Box>
                   <Box display="flex" alignItems="center" gap={2}>
-                    <Chip label="System Generated" size="small" sx={{ bgcolor: alpha(accentColor, 0.15), color: textPrimaryColor, fontWeight: 500, '& .MuiChip-label': { px: 1 } }} />
+                    <Chip label="System Generated" size="small" sx={{ bgcolor: alpha(accentColor, 0.15), color: textPrimaryColor, fontWeight: 500 }} />
                     <Tooltip title="Refresh Data">
                       <IconButton
                         onClick={fetchAttendanceData}
                         disabled={!employeeNumber || !startDate || !endDate}
-                        sx={{ bgcolor: alpha(accentColor, 0.1), '&:hover': { bgcolor: alpha(accentColor, 0.2) }, color: textPrimaryColor, width: 48, height: 48, '&:disabled': { bgcolor: alpha(accentColor, 0.05), color: alpha(accentColor, 0.3) } }}
+                        sx={{ bgcolor: alpha(accentColor, 0.1), '&:hover': { bgcolor: alpha(accentColor, 0.2) }, color: textPrimaryColor, width: 48, height: 48 }}
                       >
                         <Refresh />
                       </IconButton>
@@ -779,57 +885,86 @@ const OverallAttendance = () => {
             background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
             boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
             border: `1px solid ${alpha(accentColor, 0.1)}`,
-            '&:hover': { boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}` },
           }}>
-            <CardHeader
-              title={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Avatar sx={{ bgcolor: alpha(primaryColor, 0.8), color: textPrimaryColor }}>
-                    <FilterList />
-                  </Avatar>
-                  <Box>
-                    <Typography variant="body2" sx={{ color: accentDark }}>
-                      Configure your attendance record search criteria
-                    </Typography>
+            <CardContent sx={{ p: 4, '&:last-child': { pb: 4 } }}>
+
+              {/* ── Input Fields ── */}
+              <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+                {[
+                  { label: 'Employee Number', value: employeeNumber, onChange: (e) => setEmployeeNumber(e.target.value), type: 'text',  icon: <Person sx={{ color: textPrimaryColor }} /> },
+                  { label: 'Start Date',       value: startDate,      onChange: (e) => setStartDate(e.target.value),      type: 'date',  icon: <CalendarToday sx={{ color: textPrimaryColor }} /> },
+                  { label: 'End Date',         value: endDate,        onChange: (e) => setEndDate(e.target.value),        type: 'date',  icon: <CalendarToday sx={{ color: textPrimaryColor }} /> },
+                ].map(({ label, value, onChange, type, icon }) => (
+                  <Box key={label} sx={{ flex: 1, minWidth: 160 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}>{label}</Typography>
+                    <ModernTextField
+                      type={type} value={value} onChange={onChange} required
+                      InputLabelProps={type === 'date' ? { shrink: true } : {}}
+                      InputProps={{ startAdornment: <InputAdornment position="start">{icon}</InputAdornment> }}
+                      fullWidth
+                    />
+                  </Box>
+                ))}
+              </Box>
+
+              <Divider sx={{ my: 3, borderColor: alpha(accentColor, 0.1) }} />
+
+              {/* ── Month Picker ── */}
+              <Box sx={{ mb: 4 }}>
+                <Box sx={{ p: 3, borderRadius: 2, border: `2px dashed ${alpha(accentColor, 0.2)}`, backgroundColor: alpha(primaryColor, 0.3) }}>
+                  <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2, mb: 2 }}>
+                    <Box>
+                      <Typography variant="subtitle1" sx={{ color: textPrimaryColor, fontWeight: 600, mb: 0.5 }}>
+                        Select Entire Month
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: alpha(textPrimaryColor, 0.7) }}>
+                        Choose a year, then click any month to auto-fill the date range
+                      </Typography>
+                    </Box>
+                    <FormControl sx={{ minWidth: 140 }}>
+                      <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>
+                      <Select
+                        value={selectedYear} label="Year"
+                        onChange={(e) => { setSelectedYear(e.target.value); setSelectedMonth(null); }}
+                        sx={{ backgroundColor: 'white', borderRadius: 2, fontWeight: 600 }}
+                      >
+                        {yearOptions.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  </Box>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
+                    {months.map((month, index) => {
+                      const sel = selectedMonth === index;
+                      return (
+                        <ProfessionalButton
+                          key={month} variant={sel ? 'contained' : 'outlined'} size="medium"
+                          onClick={() => handleMonthClick(index)}
+                          sx={{
+                            borderColor: accentColor,
+                            backgroundColor: sel ? accentColor : 'transparent',
+                            color: sel ? textSecondaryColor : textPrimaryColor,
+                            py: 1.5, px: 4.5, fontWeight: 600,
+                            boxShadow: sel ? `0 4px 12px ${alpha(accentColor, 0.3)}` : 'none',
+                          }}
+                        >
+                          {month}
+                        </ProfessionalButton>
+                      );
+                    })}
                   </Box>
                 </Box>
-              }
-              sx={{ bgcolor: alpha(primaryColor, 0.5), borderBottom: `1px solid ${alpha(accentColor, 0.1)}`, pb: 2 }}
-            />
-            <CardContent sx={{ p: 4 }}>
-              <Box component="form">
-                <Grid container spacing={4}>
-                  <Grid item xs={12} md={4}>
-                    <ModernTextField
-                      fullWidth label="Employee Number" value={employeeNumber}
-                      onChange={(e) => setEmployeeNumber(e.target.value)} required variant="outlined" placeholder="Enter employee ID"
-                      InputProps={{ startAdornment: <InputAdornment position="start"><Person sx={{ color: textPrimaryColor }} /></InputAdornment> }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={4}>
-                    <ModernTextField
-                      fullWidth label="Start Date" type="date" value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)} required InputLabelProps={{ shrink: true }}
-                      InputProps={{ startAdornment: <InputAdornment position="start"><CalendarToday sx={{ color: textPrimaryColor }} /></InputAdornment> }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={4}>
-                    <ModernTextField
-                      fullWidth label="End Date" type="date" value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)} required InputLabelProps={{ shrink: true }}
-                      InputProps={{ startAdornment: <InputAdornment position="start"><CalendarToday sx={{ color: textPrimaryColor }} /></InputAdornment> }}
-                    />
-                  </Grid>
-                </Grid>
-                <Box sx={{ mt: 4, display: 'flex', justifyContent: 'center' }}>
-                  <ProfessionalButton
-                    variant="contained" onClick={fetchAttendanceData}
-                    disabled={!employeeNumber || !startDate || !endDate}
-                    sx={{ py: 2, px: 6, bgcolor: accentColor, color: primaryColor, fontSize: '1rem', '&:hover': { bgcolor: accentDark } }}
-                  >
-                    Fetch Attendance Records
-                  </ProfessionalButton>
-                </Box>
+              </Box>
+
+              {/* ── Fetch Button ── */}
+              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                <ProfessionalButton
+                  variant="contained" onClick={fetchAttendanceData}
+                  disabled={!employeeNumber || !startDate || !endDate}
+                  startIcon={<Refresh />}
+                  sx={{ py: 1.5, px: 6, bgcolor: accentColor, color: primaryColor, fontSize: '1rem', '&:hover': { bgcolor: accentDark } }}
+                >
+                  Fetch Attendance Records
+                </ProfessionalButton>
               </Box>
             </CardContent>
           </GlassCard>
@@ -847,87 +982,199 @@ const OverallAttendance = () => {
         {attendanceData.length > 0 && (
           <Fade in={!loading} timeout={500}>
             <GlassCard sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}>
-              <Box sx={{ p: 4, background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`, color: accentColor, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+
+              {/* Banner */}
+              <Box sx={{
+                p: 4,
+                background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              }}>
                 <Box>
                   <Typography variant="body2" sx={{ opacity: 0.8, mb: 1, textTransform: 'uppercase', letterSpacing: '0.1em', color: accentDark }}>
                     Attendance Record Summary
                   </Typography>
                   <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: accentColor }}>
-                    {attendanceData.length} Records Found
+                    <b>{attendanceData.length}</b> Records Found
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
-                    <Chip icon={<CalendarToday />} label={`${startDate} to ${endDate}`} size="small" sx={{ bgcolor: 'rgba(109,35,35,0.15)', color: accentColor, fontWeight: 500 }} />
+                    <Chip
+                      icon={<CalendarToday />}
+                      label={`${startDate} to ${endDate}`}
+                      size="small"
+                      sx={{ bgcolor: alpha(accentColor, 0.15), color: accentColor, fontWeight: 500 }}
+                    />
                   </Box>
                 </Box>
-                <Avatar sx={{ bgcolor: 'rgba(109,35,35,0.15)', width: 80, height: 80, fontSize: '2rem', fontWeight: 600, color: accentColor }}>
-                  <Summarize />
+                <Avatar sx={{ bgcolor: alpha(accentColor, 0.15), width: 80, height: 80, color: accentColor }}>
+                  <Summarize sx={{ fontSize: 36 }} />
                 </Avatar>
               </Box>
 
-              <PremiumTableContainer>
-                <Table stickyHeader sx={{ minWidth: '2000px' }}>
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: 'rgba(254,249,225,0.7)' }}>
-                      {['Department','Employee Number','Start Date','End Date','Morning Hours','Morning Tardiness','Afternoon Hours','Afternoon Tardiness','Honorarium','Honorarium Tardiness','Service Credit','Service Credit Tardiness','Overtime','Overtime Tardiness','Overall Official Rendered Time','Overall Official Tardiness Time','Action'].map((h) => (
-                        <PremiumTableCell key={h} isHeader sx={{ color: accentColor }}>{h}</PremiumTableCell>
-                      ))}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {attendanceData.map((record, index) => (
-                      <TableRow key={index} sx={{ '&:nth-of-type(even)': { bgcolor: 'rgba(254,249,225,0.3)' }, '&:hover': { bgcolor: 'rgba(109,35,35,0.05)' }, transition: 'all 0.2s ease' }}>
-                        <PremiumTableCell>{record.code}</PremiumTableCell>
+              {/* Table */}
+             <Box sx={{ px: 2, pb: 1.5, pt: 1.5 }}>
+  <Box sx={{ position: 'relative', borderRadius: 2, border: `1px solid ${alpha(accentColor, 0.1)}`, overflow: 'hidden' }}>
+    <Box sx={{
+      overflowX: 'auto', overflowY: 'auto', maxHeight: 420,
+      scrollbarWidth: 'thin',
+      '&::-webkit-scrollbar': { height: 6, width: 6 },
+      '&::-webkit-scrollbar-track': { background: 'rgba(254,249,225,0.3)', borderRadius: 4 },
+      '&::-webkit-scrollbar-thumb': { background: 'rgba(109,35,35,0.4)', borderRadius: 4 },
+    }}>
+      <Table size="small" sx={{ minWidth: TABLE_COLUMNS.reduce((s) => s + 140, 0) + 160 }}>
+        <TableHead>
+          <TableRow sx={{ height: 38 }}>
+            {TABLE_COLUMNS.map(({ label, accent, accentDark: adk, highlight, highlightDark }) => {
+              const bg = highlight ? alpha(accentColor, 0.3) : highlightDark ? alpha(accentColor, 0.4) : accent ? alpha(accentColor, 0.22) : adk ? alpha(accentColor, 0.32) : alpha(primaryColor, 0.92);
+              return (
+                <PremiumTableCell
+                  key={label}
+                  isHeader
+                  bgColor={bg}
+                  sx={{
+                    color: accentColor,
+                    minWidth: 140,
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 2,
+                    py: 0.6,
+                    px: 1,
+                    fontSize: 14,
+                    fontWeight: 700
+                  }}
+                >
+                  {label}
+                </PremiumTableCell>
+              );
+            })}
+            <PremiumTableCell
+              isHeader
+              bgColor={alpha(primaryColor, 0.92)}
+              sx={{
+                color: accentColor,
+                position: 'sticky',
+                top: 0,
+                zIndex: 2,
+                minWidth: 140,
+                py: 0.6,
+                px: 1,
+                fontSize: 14,
+                fontWeight: 700
+              }}
+            >
+              Action
+            </PremiumTableCell>
+          </TableRow>
+        </TableHead>
 
-                        {/* Editable cells */}
-                        {[
-                          { key: 'personID',                         value: editRecord?.personID },
-                          { key: 'startDate',                        value: editRecord?.startDate },
-                          { key: 'endDate',                          value: editRecord?.endDate },
-                          { key: 'totalRenderedTimeMorning',         value: editRecord?.totalRenderedTimeMorning },
-                          { key: 'totalRenderedTimeMorningTardiness',value: editRecord?.totalRenderedTimeMorningTardiness, stateKey: 'totalTardAM' },
-                          { key: 'totalRenderedTimeAfternoon',       value: editRecord?.totalRenderedTimeAfternoon },
-                          { key: 'totalRenderedTimeAfternoonTardiness', value: editRecord?.totalRenderedTimeAfternoonTardiness },
-                          { key: 'totalRenderedHonorarium',          value: editRecord?.totalRenderedHonorarium },
-                          { key: 'totalRenderedHonorariumTardiness', value: editRecord?.totalRenderedHonorariumTardiness, stateKey: 'TotalTatotalRenderedHonorariumTardinessrdHR' },
-                          { key: 'totalRenderedServiceCredit',       value: editRecord?.totalRenderedServiceCredit },
-                          { key: 'totalRenderedServiceCreditTardiness', value: editRecord?.totalRenderedServiceCreditTardiness },
-                          { key: 'totalRenderedOvertime',            value: editRecord?.totalRenderedOvertime },
-                          { key: 'totalRenderedOvertimeTardiness',   value: editRecord?.totalRenderedOvertimeTardiness },
-                          { key: 'overallRenderedOfficialTime',      value: editRecord?.overallRenderedOfficialTime },
-                          { key: 'overallRenderedOfficialTimeTardiness', value: editRecord?.overallRenderedOfficialTimeTardiness },
-                        ].map(({ key, value, stateKey }) => (
-                          <PremiumTableCell key={key}>
-                            {editRecord && editRecord.id === record.id ? (
-                              <ModernTextField
-                                value={value}
-                                onChange={(e) => setEditRecord({ ...editRecord, [stateKey || key]: e.target.value })}
-                                size="small"
-                              />
-                            ) : (
-                              record[key]
-                            )}
-                          </PremiumTableCell>
-                        ))}
+        <TableBody>
+          {attendanceData.map((record, index) => (
+            <TableRow
+              key={index}
+              sx={{
+                height: 36,
+                '&:nth-of-type(even)': { bgcolor: alpha(primaryColor, 0.3) },
+                '&:hover': { bgcolor: alpha(accentColor, 0.05) },
+                transition: 'all 0.15s ease'
+              }}
+            >
+              {TABLE_COLUMNS.map(({ key, accent, accentDark: adk, highlight, highlightDark }) => {
+                const cellBg = highlight ? alpha(accentColor, 0.12) : highlightDark ? alpha(accentColor, 0.2) : accent ? alpha(accentColor, 0.07) : adk ? alpha(accentColor, 0.13) : null;
+                const isEditableKey = key !== 'code';
+                return (
+                  <PremiumTableCell
+                    key={key}
+                    bgColor={cellBg}
+                    sx={{
+                      py: 0.4,
+                      px: 1,
+                      fontSize: 15,   // bigger data text
+                      fontWeight: (highlight || highlightDark) ? 700 : 500,
+                      textAlign: (accent || adk || highlight || highlightDark) ? 'center' : 'left',
+                      fontFamily: (accent || adk || highlight || highlightDark) ? 'monospace' : 'inherit',
+                      color: (highlight || highlightDark) ? accentColor : 'inherit'
+                    }}
+                  >
+                    {editRecord && editRecord.id === record.id && isEditableKey ? (
+                      <ModernTextField
+                        value={editRecord[key] ?? ''}
+                        onChange={(e) => setEditRecord({ ...editRecord, [key]: e.target.value })}
+                        size="small"
+                        sx={{
+                          minWidth: 100,
+                          '& .MuiInputBase-root': {
+                            height: 30,
+                            fontSize: 14
+                          }
+                        }}
+                      />
+                    ) : (
+                      record[key]
+                    )}
+                  </PremiumTableCell>
+                );
+              })}
 
-                        {/* Action cell */}
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                              <ProfessionalButton onClick={updateRecord} variant="contained" size="small" sx={saveButtonStyles} startIcon={<SaveIcon />}>Save</ProfessionalButton>
-                              <ProfessionalButton onClick={() => setEditRecord(null)} variant="outlined" size="small" sx={{ borderColor: accentColor, color: accentColor, '&:hover': { backgroundColor: 'rgba(109,35,35,0.1)' } }} startIcon={<CancelIcon />}>Cancel</ProfessionalButton>
-                            </Box>
-                          ) : (
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                              <ProfessionalButton onClick={() => setEditRecord(record)} variant="contained" size="small" sx={editButtonStyles} startIcon={<EditIcon />}>Edit</ProfessionalButton>
-                              <ProfessionalButton onClick={() => deleteRecord(record.id, record.personID)} variant="outlined" size="small" sx={deleteButtonStyles} startIcon={<DeleteIcon />}>Delete</ProfessionalButton>
-                            </Box>
-                          )}
-                        </PremiumTableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </PremiumTableContainer>
+              <PremiumTableCell sx={{ py: 0.4, px: 1 }}>
+                {editRecord && editRecord.id === record.id ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                    <ProfessionalButton
+                      onClick={updateRecord}
+                      variant="contained"
+                      size="small"
+                      sx={{ ...saveButtonStyles, py: 0.4, px: 1.2, fontSize: 12 }}
+                      startIcon={<SaveIcon />}
+                    >
+                      Save
+                    </ProfessionalButton>
+
+                    <ProfessionalButton
+                      onClick={() => setEditRecord(null)}
+                      variant="outlined"
+                      size="small"
+                      sx={{
+                        borderColor: accentColor,
+                        color: accentColor,
+                        py: 0.4,
+                        px: 1.2,
+                        fontSize: 12,
+                        '&:hover': { backgroundColor: alpha(accentColor, 0.08) }
+                      }}
+                      startIcon={<CancelIcon />}
+                    >
+                      Cancel
+                    </ProfessionalButton>
+                  </Box>
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                    <ProfessionalButton
+                      onClick={() => setEditRecord(record)}
+                      variant="contained"
+                      size="small"
+                      sx={{ ...editButtonStyles, py: 0.4, px: 1.2, fontSize: 12 }}
+                      startIcon={<EditIcon />}
+                    >
+                      Edit
+                    </ProfessionalButton>
+
+                    <ProfessionalButton
+                      onClick={() => deleteRecord(record.id, record.personID)}
+                      variant="outlined"
+                      size="small"
+                      sx={{ ...deleteButtonStyles, py: 0.4, px: 1.2, fontSize: 12 }}
+                      startIcon={<DeleteIcon />}
+                    >
+                      Delete
+                    </ProfessionalButton>
+                  </Box>
+                )}
+              </PremiumTableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Box>
+  </Box>
+</Box>
             </GlassCard>
           </Fade>
         )}
@@ -935,11 +1182,15 @@ const OverallAttendance = () => {
         {/* ── Empty state ── */}
         {attendanceData.length === 0 && !loading && (
           <Fade in timeout={500}>
-            <GlassCard sx={{ mb: 4 }}>
+            <GlassCard sx={{ mb: 2, background: `rgba(${hexToRgb(primaryColor)}, 0.95)`, border: `1px solid ${alpha(accentColor, 0.1)}` }}>
               <Box sx={{ p: 8, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <Info sx={{ fontSize: 80, color: 'rgba(109,35,35,0.3)', mb: 3 }} />
-                <Typography variant="h5" color="rgba(109,35,35,0.6)" gutterBottom sx={{ fontWeight: 600 }}>No Records Found</Typography>
-                <Typography variant="body1" color="rgba(109,35,35,0.4)">Try adjusting your date range or search for a different employee</Typography>
+                <Avatar sx={{ bgcolor: alpha(accentColor, 0.1), width: 96, height: 96, mb: 3 }}>
+                  <Info sx={{ fontSize: 52, color: alpha(accentColor, 0.5) }} />
+                </Avatar>
+                <Typography variant="h5" sx={{ fontWeight: 700, color: alpha(accentColor, 0.7), mb: 1 }}>No Records Found</Typography>
+                <Typography variant="body1" sx={{ color: alpha(accentColor, 0.45) }}>
+                  Try adjusting your date range or search for a different employee
+                </Typography>
               </Box>
             </GlassCard>
           </Fade>
@@ -948,28 +1199,138 @@ const OverallAttendance = () => {
         {/* ── Action Buttons ── */}
         {attendanceData.length > 0 && (
           <Fade in timeout={900}>
-            <GlassCard sx={{ border: `1px solid ${alpha(accentColor, 0.1)}` }}>
-              <CardContent sx={{ p: 4 }}>
-                <Grid container spacing={3}>
-                  <Grid item xs={12} md={6}>
-                    <ProfessionalButton variant="contained" fullWidth startIcon={<Assignment />}
-                      onClick={() => setShowRegularConfirm(true)} disabled={isSubmitting}
-                      sx={{ py: 2, bgcolor: accentColor, color: primaryColor, fontSize: '1rem', '&:hover': { bgcolor: accentDark } }}
-                    >
-                      {isSubmitting ? 'Submitting to Payroll...' : 'Submit Payroll Regular'}
-                    </ProfessionalButton>
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <ProfessionalButton variant="contained" fullWidth startIcon={<Assignment />}
-                      onClick={submitPayrollJO} disabled={isSubmittingJO}
-                      sx={{ py: 2, bgcolor: accentColor, color: primaryColor, fontSize: '1rem', '&:hover': { bgcolor: accentDark } }}
-                    >
-                      {isSubmittingJO ? 'Submitting to Payroll JO...' : 'Submit Payroll JO'}
-                    </ProfessionalButton>
-                  </Grid>
+            <Box>
+              {/* Section label */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2.5, px: 0.5 }}>
+                <Box sx={{ flex: 1, height: '1px', bgcolor: alpha(accentColor, 0.15) }} />
+                <Typography variant="body2" sx={{ fontWeight: 700, color: alpha(textPrimaryColor, 0.5), textTransform: 'uppercase', letterSpacing: '0.14em', fontSize: '0.7rem', whiteSpace: 'nowrap' }}>
+                  Submit to Payroll
+                </Typography>
+                <Box sx={{ flex: 1, height: '1px', bgcolor: alpha(accentColor, 0.15) }} />
+              </Box>
+
+              <Grid container spacing={3}>
+                {/* ── Regular Payroll Card ── */}
+                <Grid item xs={12} md={6}>
+                  <Box
+                    onClick={!isSubmitting ? () => setShowRegularConfirm(true) : undefined}
+                    sx={{
+                      position: 'relative',
+                      borderRadius: '20px',
+                      overflow: 'hidden',
+                      cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                      opacity: isSubmitting ? 0.65 : 1,
+                      border: `2px solid ${alpha(accentColor, 0.25)}`,
+                      background: `linear-gradient(135deg, ${accentColor} 0%, ${accentDark} 100%)`,
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                      boxShadow: `0 8px 32px ${alpha(accentColor, 0.3)}`,
+                      '&:hover': !isSubmitting ? {
+                        transform: 'translateY(-3px)',
+                        boxShadow: `0 14px 40px ${alpha(accentColor, 0.45)}`,
+                        border: `2px solid ${alpha(accentColor, 0.55)}`,
+                      } : {},
+                      '&:active': !isSubmitting ? { transform: 'translateY(-1px)' } : {},
+                    }}
+                  >
+                    {/* Decorative background circles */}
+                    <Box sx={{ position: 'absolute', top: -30, right: -30, width: 130, height: 130, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.06)', pointerEvents: 'none' }} />
+                    <Box sx={{ position: 'absolute', bottom: -20, left: -20, width: 90, height: 90, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.04)', pointerEvents: 'none' }} />
+
+                    <Box sx={{ p: 3.5, position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <Avatar sx={{
+                        bgcolor: 'rgba(255,255,255,0.15)',
+                        width: 56, height: 56,
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                        flexShrink: 0,
+                      }}>
+                        {isSubmitting
+                          ? <CircularProgress size={24} sx={{ color: primaryColor }} />
+                          : <Assignment sx={{ fontSize: 28, color: primaryColor }} />
+                        }
+                      </Avatar>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em', mb: 0.4 }}>
+                          Regular Employees
+                        </Typography>
+                        <Typography sx={{ color: '#fff', fontSize: '1.1rem', fontWeight: 800, lineHeight: 1.2, mb: 0.5 }}>
+                          {isSubmitting ? 'Submitting...' : 'Submit Payroll Regular'}
+                        </Typography>
+                        <Typography sx={{ color: 'rgba(255,255,255,0.55)', fontSize: '0.76rem', fontWeight: 500 }}>
+                          Permanent & contractual staff
+                        </Typography>
+                      </Box>
+                      <Box sx={{ color: 'rgba(255,255,255,0.4)', fontSize: '1.6rem', fontWeight: 300, flexShrink: 0, lineHeight: 1 }}>
+                        →
+                      </Box>
+                    </Box>
+
+                    {/* Bottom accent strip */}
+                    <Box sx={{ height: 4, background: `linear-gradient(90deg, rgba(255,255,255,0.15), rgba(255,255,255,0.35), rgba(255,255,255,0.15))` }} />
+                  </Box>
                 </Grid>
-              </CardContent>
-            </GlassCard>
+
+                {/* ── JO Payroll Card ── */}
+                <Grid item xs={12} md={6}>
+                  <Box
+                    onClick={!isSubmittingJO ? submitPayrollJO : undefined}
+                    sx={{
+                      position: 'relative',
+                      borderRadius: '20px',
+                      overflow: 'hidden',
+                      cursor: isSubmittingJO ? 'not-allowed' : 'pointer',
+                      opacity: isSubmittingJO ? 0.65 : 1,
+                      border: `2px solid ${alpha(accentColor, 0.35)}`,
+                      background: `rgba(${hexToRgb(primaryColor)}, 0.97)`,
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                      boxShadow: `0 8px 32px ${alpha(accentColor, 0.12)}`,
+                      '&:hover': !isSubmittingJO ? {
+                        transform: 'translateY(-3px)',
+                        boxShadow: `0 14px 40px ${alpha(accentColor, 0.22)}`,
+                        border: `2px solid ${alpha(accentColor, 0.6)}`,
+                        background: `rgba(${hexToRgb(secondaryColor)}, 0.98)`,
+                      } : {},
+                      '&:active': !isSubmittingJO ? { transform: 'translateY(-1px)' } : {},
+                    }}
+                  >
+                    {/* Decorative background circles */}
+                    <Box sx={{ position: 'absolute', top: -30, right: -30, width: 130, height: 130, borderRadius: '50%', bgcolor: alpha(accentColor, 0.05), pointerEvents: 'none' }} />
+                    <Box sx={{ position: 'absolute', bottom: -20, left: -20, width: 90, height: 90, borderRadius: '50%', bgcolor: alpha(accentColor, 0.04), pointerEvents: 'none' }} />
+
+                    <Box sx={{ p: 3.5, position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <Avatar sx={{
+                        bgcolor: alpha(accentColor, 0.12),
+                        width: 56, height: 56,
+                        border: `2px solid ${alpha(accentColor, 0.2)}`,
+                        boxShadow: `0 4px 16px ${alpha(accentColor, 0.15)}`,
+                        flexShrink: 0,
+                      }}>
+                        {isSubmittingJO
+                          ? <CircularProgress size={24} sx={{ color: accentColor }} />
+                          : <Assignment sx={{ fontSize: 28, color: accentColor }} />
+                        }
+                      </Avatar>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography sx={{ color: alpha(textPrimaryColor, 0.55), fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em', mb: 0.4 }}>
+                          Job Order Employees
+                        </Typography>
+                        <Typography sx={{ color: textPrimaryColor, fontSize: '1.1rem', fontWeight: 800, lineHeight: 1.2, mb: 0.5 }}>
+                          {isSubmittingJO ? 'Submitting...' : 'Submit Payroll JO'}
+                        </Typography>
+                        <Typography sx={{ color: alpha(textPrimaryColor, 0.45), fontSize: '0.76rem', fontWeight: 500 }}>
+                          Job order & project-based staff
+                        </Typography>
+                      </Box>
+                      <Box sx={{ color: alpha(accentColor, 0.3), fontSize: '1.6rem', fontWeight: 300, flexShrink: 0, lineHeight: 1 }}>
+                        →
+                      </Box>
+                    </Box>
+
+                    {/* Bottom accent strip */}
+                    <Box sx={{ height: 4, background: `linear-gradient(90deg, ${alpha(accentColor, 0.08)}, ${alpha(accentColor, 0.28)}, ${alpha(accentColor, 0.08)})` }} />
+                  </Box>
+                </Grid>
+              </Grid>
+            </Box>
           </Fade>
         )}
 
@@ -1008,7 +1369,8 @@ const OverallAttendance = () => {
             <ProfessionalButton variant="outlined" onClick={() => { setShowRegularConfirm(false); setConfirmRegularChecked(false); }} sx={{ minWidth: 120, borderColor: '#6D2323', color: '#6D2323', fontWeight: 600 }}>
               Cancel
             </ProfessionalButton>
-            <ProfessionalButton variant="contained" disabled={!confirmRegularChecked || isSubmitting}
+            <ProfessionalButton
+              variant="contained" disabled={!confirmRegularChecked || isSubmitting}
               onClick={async () => { setShowRegularConfirm(false); setConfirmRegularChecked(false); await submitToPayroll(); }}
               sx={{ minWidth: 160, bgcolor: '#6D2323', color: '#FEF9E1', fontWeight: 600, '&:hover': { bgcolor: '#8B3333' }, '&:disabled': { bgcolor: 'rgba(0,0,0,0.12)', color: 'rgba(0,0,0,0.4)' } }}
             >
@@ -1018,7 +1380,14 @@ const OverallAttendance = () => {
         </Dialog>
 
         {/* ── StyledModal ── */}
-        <StyledModal open={modal.open} onClose={closeModal} title={modal.title} message={modal.message} type={modal.type} onConfirm={modal.onConfirm} showCancel={modal.showCancel} />
+        <StyledModal
+          open={modal.open} onClose={closeModal}
+          title={modal.title} message={modal.message}
+          type={modal.type} onConfirm={modal.onConfirm} showCancel={modal.showCancel}
+          accentColor={accentColor} accentDark={accentDark}
+          primaryColor={primaryColor} secondaryColor={secondaryColor}
+          textPrimaryColor={textPrimaryColor}
+        />
 
         {/* ── Overlays ── */}
         <LoadingOverlay open={processingOverlay} message={processingMessage || 'Processing...'} />

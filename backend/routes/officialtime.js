@@ -223,7 +223,6 @@ router.get('/officialtimetable/:employeeID', authenticateToken, (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST official time table (insert new schedule version)
-// FIX: added server-side overlap check that was previously missing
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.post('/officialtimetable', authenticateToken, async (req, res) => {
@@ -252,7 +251,7 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
     return res.status(400).json({ message: 'No records to insert.' });
   }
 
-  // FIX: Server-side overlap check (frontend check can be bypassed)
+  // Server-side overlap check (frontend check can be bypassed)
   try {
     const overlaps = await hasOverlappingRange(
       db,
@@ -368,8 +367,6 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EXCEL UPLOAD — VALIDATE FIRST (must be registered BEFORE the base upload route)
-// FIX: moved /validate route above the base /upload route to prevent Express
-//      from matching the base route first and never reaching /validate
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.post(
@@ -1034,8 +1031,6 @@ router.post(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET all users with their official time status
-// FIX: rewrote SQL to guarantee one row per employee (previous GROUP BY on
-//      ot.academicYear/startDate/endDate caused duplicate rows per employee)
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.get('/officialtime/users-status', authenticateToken, (req, res) => {
@@ -1311,26 +1306,19 @@ router.post(
       !Array.isArray(employeeIDs) ||
       employeeIDs.length === 0
     ) {
-      return res
-        .status(400)
-        .json({
-          message: 'employeeIDs is required and must be a non-empty array.',
-        });
+      return res.status(400).json({
+        message: 'employeeIDs is required and must be a non-empty array.',
+      });
     }
     if (!blocks || !Array.isArray(blocks) || blocks.length === 0) {
-      return res
-        .status(400)
-        .json({
-          message:
-            'blocks is required and must contain at least one schedule block.',
-        });
+      return res.status(400).json({
+        message: 'blocks is required and must contain at least one schedule block.',
+      });
     }
     if (!records || !Array.isArray(records) || records.length === 0) {
-      return res
-        .status(400)
-        .json({
-          message: 'records is required and must contain at least one day row.',
-        });
+      return res.status(400).json({
+        message: 'records is required and must contain at least one day row.',
+      });
     }
 
     // Validate time overlaps once for all blocks
@@ -1363,11 +1351,9 @@ router.post(
           .json({ message: 'Each block must have startDate and endDate.' });
       }
       if (new Date(b.startDate) > new Date(b.endDate)) {
-        return res
-          .status(400)
-          .json({
-            message: `Block startDate must be on or before endDate (${b.startDate} > ${b.endDate}).`,
-          });
+        return res.status(400).json({
+          message: `Block startDate must be on or before endDate (${b.startDate} > ${b.endDate}).`,
+        });
       }
     }
 
@@ -1495,8 +1481,20 @@ router.post(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PUT — edit an existing active schedule (update time fields only, keep dates)
-// Body: { startDate, endDate, records: [{ day, officialTimeIN, ... }] }
+// PUT — edit an existing active schedule
+//
+// FIX: endDate is now also accepted and applied. Previously the route only
+//      updated time fields and kept the endDate fixed. Now if a new endDate
+//      is supplied (and it is >= startDate) the endDate column is also updated
+//      for every matching row.
+//
+// Body:
+//   startDate   {string}  — identifies the schedule version to update (key, unchanged)
+//   endDate     {string}  — the NEW endDate to store (may equal the old value)
+//   origEndDate {string?} — optional: the OLD endDate used to locate rows in the DB.
+//                           If omitted, endDate is used for both lookup and update
+//                           (backward-compatible with callers that pass the same value).
+//   records     {Array}   — day rows with updated time fields
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.put(
@@ -1504,12 +1502,18 @@ router.put(
   authenticateToken,
   async (req, res) => {
     const { employeeID } = req.params;
-    const { startDate, endDate, records } = req.body || {};
+    const { startDate, endDate, origEndDate, records } = req.body || {};
 
-    if (!startDate || !endDate) {
+    if (!startDate) {
+      return res.status(400).json({ message: 'startDate is required.' });
+    }
+    if (!endDate) {
+      return res.status(400).json({ message: 'endDate is required.' });
+    }
+    if (new Date(startDate) > new Date(endDate)) {
       return res
         .status(400)
-        .json({ message: 'startDate and endDate are required.' });
+        .json({ message: 'endDate cannot be before startDate.' });
     }
     if (!records || !Array.isArray(records) || records.length === 0) {
       return res.status(400).json({ message: 'No records provided.' });
@@ -1524,31 +1528,45 @@ router.put(
           message: formatTimeOverlapMessage({
             day: row.day,
             employeeID,
-            segA: overlap[0],
-            segB: overlap[1],
+            segA: overlap.a,
+            segB: overlap.b,
           }),
           overlap: buildTimeOverlapPayload({
             day: row.day,
             employeeID,
-            segA: overlap[0],
-            segB: overlap[1],
+            segA: overlap.a,
+            segB: overlap.b,
           }),
         });
       }
     }
+
+    // origEndDate is the value currently stored in the DB (used to find rows).
+    // If not provided, fall back to endDate (caller passes same value = no change).
+    const lookupEndDate = origEndDate || endDate;
 
     try {
       let updatedCount = 0;
       for (const r of records) {
         const result = await new Promise((resolve, reject) => {
           db.query(
+            // FIX: include endDate = ? so the schedule end date is persisted
             `UPDATE officialtime SET
-            officialTimeIN = ?, officialBreaktimeIN = ?, officialBreaktimeOUT = ?,
-            officialTimeOUT = ?, officialHonorariumTimeIN = ?, officialHonorariumTimeOUT = ?,
-            officialServiceCreditTimeIN = ?, officialServiceCreditTimeOUT = ?,
-            officialOverTimeIN = ?, officialOverTimeOUT = ?, breaktime = ?
-           WHERE employeeID = ? AND startDate = ? AND endDate = ? AND day = ?`,
+              endDate = ?,
+              officialTimeIN = ?,
+              officialBreaktimeIN = ?,
+              officialBreaktimeOUT = ?,
+              officialTimeOUT = ?,
+              officialHonorariumTimeIN = ?,
+              officialHonorariumTimeOUT = ?,
+              officialServiceCreditTimeIN = ?,
+              officialServiceCreditTimeOUT = ?,
+              officialOverTimeIN = ?,
+              officialOverTimeOUT = ?,
+              breaktime = ?
+             WHERE employeeID = ? AND startDate = ? AND endDate = ? AND day = ?`,
             [
+              endDate,                              // new endDate
               r.officialTimeIN ?? null,
               r.officialBreaktimeIN ?? null,
               r.officialBreaktimeOUT ?? null,
@@ -1562,7 +1580,7 @@ router.put(
               r.breaktime ?? null,
               employeeID,
               startDate,
-              endDate,
+              lookupEndDate,                        // lookup by old endDate
               r.day ?? null,
             ],
             (err, result) => {

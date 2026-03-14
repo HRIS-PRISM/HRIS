@@ -465,6 +465,13 @@ export const componentMapping = {
     description: 'PDS Version Templates',
     icon: FileCopy,
   },
+  'leave-commutation': {
+    componentPath: './LeaveCommutation.jsx',
+    routePath: '/leave-commutation',
+    componentName: 'LeaveCommutation',
+    description: 'Leave Commutation',
+    icon: EventNote,
+  },
 
 };
 

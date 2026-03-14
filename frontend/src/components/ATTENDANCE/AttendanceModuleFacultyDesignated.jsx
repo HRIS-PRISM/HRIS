@@ -1,5 +1,5 @@
 import API_BASE_URL from "../../apiConfig";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
 import {
   Box,
@@ -9,12 +9,10 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
   TableRow,
   Card,
   CardContent,
-  CardHeader,
   InputAdornment,
   Divider,
   Avatar,
@@ -25,13 +23,14 @@ import {
   alpha,
   Chip,
   styled,
-  Backdrop,
   CircularProgress,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
   Snackbar,
+  Collapse,
+  Paper,
 } from "@mui/material";
 import {
   WorkHistory,
@@ -40,6 +39,12 @@ import {
   Clear,
   SaveAs,
   Refresh,
+  ExpandLess,
+  ExpandMore,
+  Schedule,
+  Star,
+  CreditScore,
+  AccessTime,
 } from "@mui/icons-material";
 import dayjs from "dayjs";
 import * as XLSX from "xlsx";
@@ -74,14 +79,8 @@ const SHIMMER_CSS = `
 const S = ({ w = "100%", h = 14, r = 6, sx = {}, accent = "#6d2323" }) => (
   <Box
     sx={{
-      width: w,
-      height: h,
-      borderRadius: r,
-      flexShrink: 0,
-      background: `linear-gradient(90deg,
-        ${alpha(accent, 0.07)} 25%,
-        ${alpha(accent, 0.18)} 50%,
-        ${alpha(accent, 0.07)} 75%)`,
+      width: w, height: h, borderRadius: r, flexShrink: 0,
+      background: `linear-gradient(90deg, ${alpha(accent, 0.07)} 25%, ${alpha(accent, 0.18)} 50%, ${alpha(accent, 0.07)} 75%)`,
       backgroundSize: "900px 100%",
       animation: "amsShimmer 1.6s infinite linear",
       ...sx,
@@ -89,358 +88,45 @@ const S = ({ w = "100%", h = 14, r = 6, sx = {}, accent = "#6d2323" }) => (
   />
 );
 
-const Placeholder = ({
-  w,
-  h,
-  r = 4,
-  color = "rgba(109,35,35,0.08)",
-  sx = {},
-}) => (
-  <Box
-    sx={{
-      width: w,
-      height: h,
-      borderRadius: r,
-      bgcolor: color,
-      flexShrink: 0,
-      ...sx,
-    }}
-  />
+const Placeholder = ({ w, h, r = 4, color = "rgba(109,35,35,0.08)", sx = {} }) => (
+  <Box sx={{ width: w, height: h, borderRadius: r, bgcolor: color, flexShrink: 0, ...sx }} />
 );
 
-const AttendanceDesignatedWireframe = ({
-  accentColor = "#6d2323",
-  primaryColor = "#FEF9E1",
-  secondaryColor = "#FFF8E7",
-}) => {
+const AttendanceDesignatedWireframe = ({ accentColor = "#6d2323", primaryColor = "#FEF9E1", secondaryColor = "#FFF8E7" }) => {
   const ac = accentColor;
   const grad = `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`;
-
   return (
     <>
       <style>{SHIMMER_CSS}</style>
-      <Box
-        sx={{
-          py: { xs: 2, md: 4 },
-          width: "100vw",
-          mx: "auto",
-          maxWidth: "100%",
-          overflow: "hidden",
-          position: "relative",
-          left: "53%",
-          transform: "translateX(-51%)",
-          px: { xs: 2, sm: 3, md: 6 },
-        }}
-      >
-        {/* 1. Hero header */}
-        <Box
-          sx={{
-            mb: 4,
-            borderRadius: "20px",
-            overflow: "hidden",
-            border: `1px solid ${alpha(ac, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-            animation: "amsPulse 2.2s ease-in-out infinite",
-          }}
-        >
-          <Box
-            sx={{
-              p: 5,
-              background: grad,
-              position: "relative",
-              overflow: "hidden",
-            }}
-          >
-            <Box
-              sx={{
-                position: "absolute",
-                top: -50,
-                right: -50,
-                width: 200,
-                height: 200,
-                background: `radial-gradient(circle,${alpha(ac, 0.1)} 0%,${alpha(ac, 0)} 70%)`,
-              }}
-            />
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <Box sx={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <Placeholder w={64} h={64} r="50%" color={alpha(ac, 0.13)} />
-                <Box
-                  sx={{ display: "flex", flexDirection: "column", gap: "10px" }}
-                >
-                  <S w={320} h={26} r={6} accent={ac} />
-                  <S w={360} h={13} r={4} accent={ac} />
-                </Box>
-              </Box>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                <S w={160} h={26} r={13} accent={ac} />
-                <Placeholder w={48} h={48} r="50%" color={alpha(ac, 0.12)} />
+      <Box sx={{ py: { xs: 2, md: 4 }, width: "100vw", mx: "auto", maxWidth: "100%", overflow: "hidden", position: "relative", left: "53%", transform: "translateX(-51%)", px: { xs: 2, sm: 3, md: 6 } }}>
+        <Box sx={{ mb: 4, borderRadius: "20px", overflow: "hidden", border: `1px solid ${alpha(ac, 0.1)}`, animation: "amsPulse 2.2s ease-in-out infinite" }}>
+          <Box sx={{ p: 5, background: grad, position: "relative", overflow: "hidden" }}>
+            <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle,${alpha(ac, 0.1)} 0%,transparent 70%)` }} />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <Placeholder w={64} h={64} r="50%" color={alpha(ac, 0.13)} />
+              <Box sx={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                <S w={320} h={26} r={6} accent={ac} />
+                <S w={360} h={13} r={4} accent={ac} />
               </Box>
             </Box>
           </Box>
         </Box>
-
-        {/* 2. Controls card */}
-        <Box
-          sx={{
-            mb: 4,
-            borderRadius: "20px",
-            overflow: "hidden",
-            border: `1px solid ${alpha(ac, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-            animation: "amsPulse 2.2s ease-in-out 0.08s infinite",
-            bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
-          }}
-        >
+        <Box sx={{ mb: 4, borderRadius: "20px", overflow: "hidden", border: `1px solid ${alpha(ac, 0.1)}`, animation: "amsPulse 2.2s ease-in-out 0.08s infinite", bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)` }}>
           <Box sx={{ p: 4 }}>
-            {/* 3 input fields */}
-            <Box sx={{ display: "flex", gap: 3, mb: 3, flexWrap: "wrap" }}>
+            <Box sx={{ display: "flex", gap: 3, mb: 3 }}>
               {[0, 1, 2].map((fi) => (
-                <Box key={fi} sx={{ flex: 1, minWidth: 160 }}>
-                  <S
-                    w={fi === 0 ? 130 : 80}
-                    h={12}
-                    r={3}
-                    accent={ac}
-                    sx={{ mb: "6px" }}
-                  />
-                  <Box
-                    sx={{
-                      height: 56,
-                      borderRadius: "12px",
-                      border: `1px solid ${alpha(ac, 0.18)}`,
-                      bgcolor: "rgba(255,255,255,0.85)",
-                      display: "flex",
-                      alignItems: "center",
-                      px: 1.5,
-                      gap: 1,
-                    }}
-                  >
-                    <Placeholder
-                      w={20}
-                      h={20}
-                      r="50%"
-                      color={alpha(ac, 0.12)}
-                    />
-                    <S w={fi === 0 ? "45%" : "55%"} h={13} r={4} accent={ac} />
-                  </Box>
+                <Box key={fi} sx={{ flex: 1 }}>
+                  <S w={100} h={12} r={3} accent={ac} sx={{ mb: "6px" }} />
+                  <Box sx={{ height: 56, borderRadius: "12px", border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: "rgba(255,255,255,0.85)" }} />
                 </Box>
               ))}
             </Box>
-
-            <Box sx={{ height: 1, bgcolor: alpha(ac, 0.1), my: 3 }} />
-
-            {/* Dashed month picker box */}
-            <Box
-              sx={{
-                p: 3,
-                borderRadius: 2,
-                border: `2px dashed ${alpha(ac, 0.2)}`,
-                bgcolor: alpha(primaryColor, 0.3),
-                mb: 4,
-              }}
-            >
-              {/* Header row */}
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  mb: 2,
-                }}
-              >
-                <Box
-                  sx={{ display: "flex", flexDirection: "column", gap: "6px" }}
-                >
-                  <S w={185} h={14} r={4} accent={ac} />
-                  <S w={300} h={11} r={3} accent={ac} />
-                </Box>
-                <Box
-                  sx={{
-                    width: 140,
-                    height: 40,
-                    borderRadius: "8px",
-                    border: `1px solid ${alpha(ac, 0.25)}`,
-                    bgcolor: "white",
-                    display: "flex",
-                    alignItems: "center",
-                    px: 1.5,
-                    gap: 1,
-                  }}
-                >
-                  <S w="50%" h={12} r={3} accent={ac} />
-                  <Placeholder
-                    w={18}
-                    h={18}
-                    r={3}
-                    color={alpha(ac, 0.15)}
-                    sx={{ ml: "auto" }}
-                  />
-                </Box>
-              </Box>
-              {/* Month buttons */}
-              <Box
-                sx={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 1,
-                  justifyContent: "center",
-                }}
-              >
-                {Array.from({ length: 12 }, (_, i) => (
-                  <S
-                    key={i}
-                    w={64}
-                    h={44}
-                    r={10}
-                    accent={ac}
-                    sx={{
-                      animation: `amsShimmer 1.6s infinite linear ${i * 0.05}s`,
-                    }}
-                  />
-                ))}
+            <Box sx={{ p: 3, borderRadius: 2, border: `2px dashed ${alpha(ac, 0.20)}`, bgcolor: alpha(primaryColor, 0.30), mb: 4 }}>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, justifyContent: "center" }}>
+                {Array.from({ length: 12 }, (_, i) => <S key={i} w={64} h={44} r={10} accent={ac} />)}
               </Box>
             </Box>
-
-            {/* Action buttons row */}
-            <Box
-              sx={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <Box
-                sx={{
-                  width: 160,
-                  height: 48,
-                  borderRadius: "12px",
-                  border: "1px solid rgba(211,47,47,0.30)",
-                }}
-              />
-              <Box
-                sx={{
-                  width: 180,
-                  height: 48,
-                  borderRadius: "12px",
-                  bgcolor: alpha(ac, 0.85),
-                }}
-              />
-            </Box>
-          </Box>
-        </Box>
-
-        {/* 3. Table card skeleton */}
-        <Box
-          sx={{
-            mb: 4,
-            borderRadius: "20px",
-            overflow: "hidden",
-            border: `1px solid ${alpha(ac, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-            animation: "amsPulse 2.2s ease-in-out 0.15s infinite",
-            bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
-          }}
-        >
-          {/* Table header banner */}
-          <Box
-            sx={{
-              p: 4,
-              background: grad,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <Box>
-              <S w={220} h={10} r={3} accent={ac} sx={{ mb: "6px" }} />
-              <S w={160} h={20} r={4} accent={ac} sx={{ mb: 2 }} />
-              <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-                <S w={110} h={22} r={11} accent={ac} />
-                <S w={140} h={10} r={3} accent={ac} />
-              </Box>
-            </Box>
-            <Placeholder w={80} h={80} r="50%" color={alpha(ac, 0.13)} />
-          </Box>
-
-          {/* Table column headers */}
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: "repeat(8, 1fr)",
-              gap: 1,
-              px: 3,
-              py: 2,
-              bgcolor: alpha(primaryColor, 0.7),
-              borderBottom: `2px solid ${alpha(ac, 0.1)}`,
-            }}
-          >
-            {[100, 70, 90, 120, 90, 120, 160, 160].map((w, i) => (
-              <S key={i} w={w} h={10} r={3} accent={ac} />
-            ))}
-          </Box>
-
-          {/* Table rows */}
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Box
-              key={i}
-              sx={{
-                display: "grid",
-                gridTemplateColumns: "repeat(8, 1fr)",
-                gap: 1,
-                px: 3,
-                py: 2.25,
-                alignItems: "center",
-                borderBottom: i < 4 ? `1px solid ${alpha(ac, 0.06)}` : "none",
-                bgcolor: i % 2 === 0 ? "#fff" : alpha(primaryColor, 0.3),
-                animation: `amsPulse 2.2s ease-in-out ${i * 0.06}s infinite`,
-              }}
-            >
-              {[80, 60, 80, 110, 80, 110, 80, 80].map((w, ci) => (
-                <S key={ci} w={w} h={12} r={3} accent={ac} />
-              ))}
-            </Box>
-          ))}
-        </Box>
-
-        {/* 4. Save card */}
-        <Box
-          sx={{
-            mb: 4,
-            borderRadius: "20px",
-            overflow: "hidden",
-            border: `1px solid ${alpha(ac, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-            animation: "amsPulse 2.2s ease-in-out 0.2s infinite",
-            bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
-          }}
-        >
-          <Box
-            sx={{
-              p: 2.5,
-              bgcolor: alpha(primaryColor, 0.5),
-              borderBottom: `1px solid ${alpha(ac, 0.1)}`,
-              display: "flex",
-              alignItems: "center",
-              gap: 2,
-            }}
-          >
-            <Placeholder w={40} h={40} r="50%" color={alpha(ac, 0.13)} />
-            <S w={300} h={12} r={3} accent={ac} />
-          </Box>
-          <Box sx={{ p: 4 }}>
-            <Box
-              sx={{
-                height: 52,
-                borderRadius: "12px",
-                bgcolor: alpha(ac, 0.85),
-              }}
-            />
+            <Box sx={{ height: 48, borderRadius: "12px", bgcolor: alpha(ac, 0.85) }} />
           </Box>
         </Box>
       </Box>
@@ -467,13 +153,8 @@ const ProfessionalButton = styled(Button)(({ variant }) => ({
   textTransform: "none",
   fontSize: "0.95rem",
   letterSpacing: "0.025em",
-  boxShadow:
-    variant === "contained" ? "0 4px 14px rgba(254,249,225,0.25)" : "none",
-  "&:hover": {
-    transform: "translateY(-2px)",
-    boxShadow:
-      variant === "contained" ? "0 6px 20px rgba(254,249,225,0.35)" : "none",
-  },
+  boxShadow: variant === "contained" ? "0 4px 14px rgba(254,249,225,0.25)" : "none",
+  "&:hover": { transform: "translateY(-2px)" },
   "&:active": { transform: "translateY(0)" },
 }));
 
@@ -482,50 +163,293 @@ const ModernTextField = styled(TextField)(() => ({
     borderRadius: 12,
     transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
     backgroundColor: "rgba(255,255,255,0.8)",
-    "&:hover": {
-      transform: "translateY(-1px)",
-      backgroundColor: "rgba(255,255,255,0.95)",
-    },
-    "&.Mui-focused": {
-      transform: "translateY(-1px)",
-      boxShadow: "0 4px 20px rgba(254,249,225,0.25)",
-      backgroundColor: "rgba(255,255,255,1)",
-    },
+    "&:hover": { transform: "translateY(-1px)", backgroundColor: "rgba(255,255,255,0.95)" },
+    "&.Mui-focused": { transform: "translateY(-1px)", backgroundColor: "rgba(255,255,255,1)" },
   },
   "& .MuiInputLabel-root": { fontWeight: 500 },
 }));
 
-const PremiumTableContainer = styled(TableContainer)(() => ({
-  borderRadius: 16,
-  overflow: "auto",
-  boxShadow: "0 4px 24px rgba(109,35,35,0.06)",
-  border: "1px solid rgba(109,35,35,0.08)",
-  maxHeight: "600px",
-  "&::-webkit-scrollbar": { width: "8px", height: "8px" },
-  "&::-webkit-scrollbar-track": {
-    background: "rgba(254,249,225,0.3)",
-    borderRadius: "4px",
-  },
-  "&::-webkit-scrollbar-thumb": {
-    background: "rgba(109,35,35,0.4)",
-    borderRadius: "4px",
-    "&:hover": { background: "rgba(109,35,35,0.6)" },
-  },
+const PremiumTableCell = styled(TableCell)(({ isHeader = false, bgColor = null }) => ({
+  fontWeight: isHeader ? 600 : 500,
+  padding: "12px 14px",
+  borderBottom: isHeader ? "2px solid rgba(254,249,225,0.5)" : "1px solid rgba(109,35,35,0.06)",
+  fontSize: "0.83rem",
+  letterSpacing: "0.025em",
+  backgroundColor: bgColor ? bgColor : "transparent",
+  whiteSpace: "nowrap",
 }));
 
-const PremiumTableCell = styled(TableCell)(
-  ({ isHeader = false, bgColor = null }) => ({
-    fontWeight: isHeader ? 600 : 500,
-    padding: "14px 16px",
-    borderBottom: isHeader
-      ? "2px solid rgba(254,249,225,0.5)"
-      : "1px solid rgba(109,35,35,0.06)",
-    fontSize: "0.85rem",
-    letterSpacing: "0.025em",
-    backgroundColor: bgColor ? bgColor : "transparent",
-    whiteSpace: "nowrap",
-  }),
-);
+// ─────────────────────────────────────────────
+// TAB DEFINITIONS
+// ─────────────────────────────────────────────
+const VIEW_TABS = [
+  { key: "regular",       label: "Regular Time",  icon: <Schedule sx={{ fontSize: 16 }} /> },
+  { key: "honorarium",    label: "Honorarium",     icon: <Star sx={{ fontSize: 16 }} /> },
+  { key: "serviceCredit", label: "Service Credit", icon: <CreditScore sx={{ fontSize: 16 }} /> },
+  { key: "overtime",      label: "Overtime",       icon: <AccessTime sx={{ fontSize: 16 }} /> },
+];
+
+const TAB_COLUMNS = {
+  regular: [
+    { label: "Date",                    key: "date",                minWidth: 130, bold: true },
+    { label: "Day",                     key: "day",                 minWidth: 100, bold: true,  altBg: true },
+    { label: "Time IN",                 key: "timeIN",              minWidth: 140 },
+    { label: "Official Time IN",        key: "officialTimeIN",      minWidth: 130, altBg: true, bold: true },
+    { label: "Breaktime IN",            key: "breaktimeIN",         minWidth: 140 },
+    { label: "Official Breaktime IN",   key: "officialBreaktimeIN", minWidth: 140, altBg: true, bold: true },
+    { label: "Morning Rendered",        key: "_morningRendered",    minWidth: 130, accent: true, bold: true },
+    { label: "Morning Tardiness",       key: "_morningTardiness",   minWidth: 130, accentDark: true, bold: true },
+    { label: "Breaktime OUT",           key: "breaktimeOUT",        minWidth: 130 },
+    { label: "Official Breaktime OUT",  key: "officialBreaktimeOUT",minWidth: 140, altBg: true, bold: true },
+    { label: "Time OUT",                key: "timeOUT",             minWidth: 120 },
+    { label: "Official Time OUT",       key: "officialTimeOUT",     minWidth: 130, altBg: true, bold: true },
+    { label: "Afternoon Rendered",      key: "_afternoonRendered",  minWidth: 130, accent: true, bold: true },
+    { label: "Afternoon Tardiness",     key: "_afternoonTardiness", minWidth: 130, accentDark: true, bold: true },
+  ],
+  honorarium: [
+    { label: "Date",                              key: "date",                       minWidth: 130, bold: true },
+    { label: "Day",                               key: "day",                        minWidth: 100, bold: true, altBg: true },
+    { label: "Time IN",                           key: "_hnTimeIN",                  minWidth: 140 },
+    { label: "Official Honorarium Time IN",       key: "officialHonorariumTimeIN",   minWidth: 180, altBg: true, bold: true },
+    { label: "Time OUT",                          key: "_hnTimeOUT",                 minWidth: 140 },
+    { label: "Official Honorarium Time OUT",      key: "officialHonorariumTimeOUT",  minWidth: 180, altBg: true, bold: true },
+    { label: "Honorarium Rendered",               key: "_hnRendered",                minWidth: 140, accent: true, bold: true },
+    { label: "Honorarium Tardiness",              key: "_hnTardiness",               minWidth: 140, accentDark: true, bold: true },
+  ],
+  serviceCredit: [
+    { label: "Date",                                  key: "date",                          minWidth: 130, bold: true },
+    { label: "Day",                                   key: "day",                           minWidth: 100, bold: true, altBg: true },
+    { label: "Time IN",                               key: "_scTimeIN",                     minWidth: 140 },
+    { label: "Official Service Credit Time IN",       key: "officialServiceCreditTimeIN",   minWidth: 200, altBg: true, bold: true },
+    { label: "Time OUT",                              key: "_scTimeOUT",                    minWidth: 140 },
+    { label: "Official Service Credit Time OUT",      key: "officialServiceCreditTimeOUT",  minWidth: 200, altBg: true, bold: true },
+    { label: "Service Credit Rendered",               key: "_scRendered",                   minWidth: 150, accent: true, bold: true },
+    { label: "Service Credit Tardiness",              key: "_scTardiness",                  minWidth: 150, accentDark: true, bold: true },
+  ],
+  overtime: [
+    { label: "Date",                          key: "date",               minWidth: 130, bold: true },
+    { label: "Day",                           key: "day",                minWidth: 100, bold: true, altBg: true },
+    { label: "Time IN",                       key: "_otTimeIN",          minWidth: 140 },
+    { label: "Official Overtime Time IN",     key: "officialOverTimeIN", minWidth: 170, altBg: true, bold: true },
+    { label: "Time OUT",                      key: "_otTimeOUT",         minWidth: 140 },
+    { label: "Official Overtime Time OUT",    key: "officialOverTimeOUT",minWidth: 170, altBg: true, bold: true },
+    { label: "Overtime Rendered",             key: "_otRendered",        minWidth: 140, accent: true, bold: true },
+    { label: "Overtime Tardiness",            key: "_otTardiness",       minWidth: 140, accentDark: true, bold: true },
+  ],
+};
+
+const getCellValue = (row, colKey, isFurlough = false) => {
+  const NA = "N/A";
+  const isNA = (v) => !v || v === "00:00:00 AM" || v === "00:00:00 PM" || v === "00:00:00";
+  switch (colKey) {
+    case "_morningRendered":
+      if (isFurlough) return !row.formattedFacultyMaxRenderedTimeAM || row.formattedFacultyMaxRenderedTimeAM === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyMaxRenderedTimeAM;
+      return (!row.officialTimeIN || !row.breaktimeIN || row.formattedFacultyRenderedTimeAM === "NaN:NaN:NaN") ? "00:00:00" : row.formattedFacultyRenderedTimeAM;
+    case "_morningTardiness":
+      if (isFurlough) return "00:00:00";
+      return (!row.officialTimeIN || !row.breaktimeIN || row.formattedfinalcalcFacultyAM === "NaN:NaN:NaN") ? row.formattedFacultyMaxRenderedTimeAM : row.formattedfinalcalcFacultyAM;
+    case "_afternoonRendered":
+      if (isFurlough) return !row.formattedFacultyMaxRenderedTimePM || row.formattedFacultyMaxRenderedTimePM === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyMaxRenderedTimePM;
+      return (!row.officialBreaktimeOUT || !row.timeOUT || row.formattedFacultyRenderedTimePM === "NaN:NaN:NaN") ? "00:00:00" : row.formattedFacultyRenderedTimePM;
+    case "_afternoonTardiness":
+      if (isFurlough) return "00:00:00";
+      return (!row.officialBreaktimeOUT || !row.timeOUT || row.formattedfinalcalcFacultyPM === "NaN:NaN:NaN") ? row.formattedFacultyMaxRenderedTimePM : row.formattedfinalcalcFacultyPM;
+    case "_hnTimeIN":  return isNA(row.officialHonorariumTimeIN) ? NA : row.timeIN;
+    case "_hnTimeOUT": return isNA(row.officialHonorariumTimeOUT) ? NA : row.timeOUT;
+    case "_hnRendered":
+      if (isFurlough) return !row.formattedFacultyMaxRenderedTimeHN || row.formattedFacultyMaxRenderedTimeHN === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyMaxRenderedTimeHN;
+      return (!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeHN === "NaN:NaN:NaN") ? "00:00:00" : row.formattedFacultyRenderedTimeHN;
+    case "_hnTardiness":
+      if (isFurlough) return "00:00:00";
+      return (!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyHN === "NaN:NaN:NaN") ? row.formattedFacultyMaxRenderedTimeHN : row.formattedfinalcalcFacultyHN;
+    case "_scTimeIN":  return isNA(row.officialServiceCreditTimeIN) ? NA : row.timeIN;
+    case "_scTimeOUT": return isNA(row.officialServiceCreditTimeOUT) ? NA : row.timeOUT;
+    case "_scRendered":
+      if (isFurlough) return !row.formattedFacultyMaxRenderedTimeSC || row.formattedFacultyMaxRenderedTimeSC === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyMaxRenderedTimeSC;
+      return (!row.officialTimeSC || !row.timeOUT || row.formattedFacultyRenderedTimeSC === "NaN:NaN:NaN") ? "00:00:00" : row.formattedFacultyRenderedTimeSC;
+    case "_scTardiness":
+      if (isFurlough) return "00:00:00";
+      return (!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultySC === "NaN:NaN:NaN") ? row.formattedFacultyMaxRenderedTimeSC : row.formattedfinalcalcFacultySC;
+    case "_otTimeIN":  return isNA(row.officialOverTimeIN) ? NA : row.timeIN;
+    case "_otTimeOUT": return isNA(row.officialOverTimeOUT) ? NA : row.timeOUT;
+    case "_otRendered":
+      if (isFurlough) return !row.formattedFacultyMaxRenderedTimeOT || row.formattedFacultyMaxRenderedTimeOT === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyMaxRenderedTimeOT;
+      return (!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeOT === "NaN:NaN:NaN") ? "00:00:00" : row.formattedFacultyRenderedTimeOT;
+    case "_otTardiness":
+      if (isFurlough) return "00:00:00";
+      return (!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyOT === "NaN:NaN:NaN") ? row.formattedFacultyMaxRenderedTimeOT : row.formattedfinalcalcFacultyOT;
+    case "officialHonorariumTimeIN":
+    case "officialHonorariumTimeOUT":
+    case "officialServiceCreditTimeIN":
+    case "officialServiceCreditTimeOUT":
+    case "officialOverTimeIN":
+    case "officialOverTimeOUT":
+      return isNA(row[colKey]) ? NA : row[colKey];
+    default:
+      return row[colKey] ?? "—";
+  }
+};
+
+// ─────────────────────────────────────────────
+// STATUS HELPERS (shared furlough logic)
+// ─────────────────────────────────────────────
+const getStatusLabel = (date, suspMap, leaveMap, holidayMap) => {
+  if (suspMap?.[date])    return "WORK SUSPENDED";
+  if (holidayMap?.[date]) return "HOLIDAY";
+  if (leaveMap?.[date])   return "ON LEAVE";
+  return "";
+};
+
+const getStatusStyle = (label) => {
+  if (label === "WORK SUSPENDED") return { bgcolor: alpha("#d32f2f", 0.12), color: "#d32f2f", border: `1px solid ${alpha("#d32f2f", 0.4)}` };
+  if (label === "HOLIDAY")        return { bgcolor: alpha("#f57c00", 0.12), color: "#f57c00", border: `1px solid ${alpha("#f57c00", 0.4)}` };
+  if (label === "ON LEAVE")       return { bgcolor: alpha("#2e7d32", 0.12), color: "#2e7d32", border: `1px solid ${alpha("#2e7d32", 0.4)}` };
+  return {};
+};
+
+// ─────────────────────────────────────────────
+// UNIFIED FLOATING BAR (Totals + Save)
+// ─────────────────────────────────────────────
+const FloatingTotalsBar = ({ accentColor, primaryColor, textPrimaryColor, totals, visible, onSave, saving, activeTab }) => {
+  const [expanded, setExpanded] = useState(true);
+  if (!visible) return null;
+
+  const items = [
+    { label: "Morning Rendered",    value: totals.morningRendered,    group: "regular" },
+    { label: "Morning Tardiness",   value: totals.morningTardiness,   group: "regular" },
+    { label: "Afternoon Rendered",  value: totals.afternoonRendered,  group: "regular" },
+    { label: "Afternoon Tardiness", value: totals.afternoonTardiness, group: "regular" },
+    { label: "Overall Rendered",    value: totals.overallRendered,    group: "regular", highlight: true },
+    { label: "Overall Tardiness",   value: totals.overallTardiness,   group: "regular", highlight: true },
+    { label: "HN Rendered",         value: totals.hnRendered,         group: "honorarium" },
+    { label: "HN Tardiness",        value: totals.hnTardiness,        group: "honorarium" },
+    { label: "SC Rendered",         value: totals.scRendered,         group: "serviceCredit" },
+    { label: "SC Tardiness",        value: totals.scTardiness,        group: "serviceCredit" },
+    { label: "OT Rendered",         value: totals.otRendered,         group: "overtime" },
+    { label: "OT Tardiness",        value: totals.otTardiness,        group: "overtime" },
+  ];
+
+  return (
+    <Paper elevation={12} sx={{
+      position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+      zIndex: 1300, borderRadius: 4, overflow: "hidden",
+      minWidth: 340, maxWidth: "calc(100vw - 48px)",
+      boxShadow: `0 8px 40px ${alpha(accentColor, 0.4)}, 0 2px 10px ${alpha(accentColor, 0.15)}`,
+      border: `2px solid ${alpha(accentColor, 0.3)}`,
+      bgcolor: `rgba(${hexToRgb(primaryColor)}, 0.97)`,
+      backdropFilter: "blur(20px)", transition: "all 0.25s ease",
+    }}>
+      <Box onClick={() => setExpanded(p => !p)} sx={{
+        px: 2.5, py: 1.25,
+        background: `linear-gradient(135deg, ${accentColor} 0%, ${alpha(accentColor, 0.82)} 100%)`,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        cursor: "pointer", userSelect: "none",
+      }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <WorkHistory sx={{ color: "#fff", fontSize: 15 }} />
+          <Typography sx={{ color: "#fff", fontWeight: 700, fontSize: "0.74rem", letterSpacing: "0.6px", textTransform: "uppercase" }}>
+            Attendance Summary
+          </Typography>
+          <Chip label="All Categories" size="small" sx={{ bgcolor: "rgba(255,255,255,0.22)", color: "#fff", fontWeight: 700, fontSize: "0.67rem", height: 19 }} />
+        </Box>
+        <Box sx={{ color: "#fff", display: "flex", alignItems: "center" }}>
+          {expanded ? <ExpandMore fontSize="small" /> : <ExpandLess fontSize="small" />}
+        </Box>
+      </Box>
+
+      <Collapse in={expanded}>
+        <Box sx={{ px: 2, py: 1.75, display: "flex", flexWrap: "nowrap", gap: 1, alignItems: "stretch", overflowX: "auto", "&::-webkit-scrollbar": { height: 4 }, "&::-webkit-scrollbar-thumb": { background: "rgba(109,35,35,0.3)", borderRadius: 2 } }}>
+          {items.map(({ label, value, highlight, group }) => {
+            const isActive = group === activeTab;
+            return (
+              <Box key={label} sx={{
+                display: "flex", flexDirection: "column", alignItems: "center",
+                minWidth: 80, px: 0.9, py: 0.9, borderRadius: 2,
+                position: "relative",
+                bgcolor: isActive
+                  ? alpha(accentColor, highlight ? 0.22 : 0.15)
+                  : highlight ? alpha(accentColor, 0.13) : alpha(accentColor, 0.05),
+                border: `1px solid ${isActive ? accentColor : highlight ? alpha(accentColor, 0.38) : alpha(accentColor, 0.13)}`,
+                boxShadow: isActive
+                  ? `0 0 10px ${alpha(accentColor, 0.55)}, 0 0 22px ${alpha(accentColor, 0.28)}, inset 0 0 8px ${alpha(accentColor, 0.12)}`
+                  : "none",
+                transform: isActive ? "translateY(-2px) scale(1.04)" : "none",
+                transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                "&:hover": { boxShadow: `0 2px 8px ${alpha(accentColor, 0.22)}` },
+              }}>
+                {isActive && (
+                  <Box sx={{
+                    position: "absolute", top: 0, left: 0, right: 0,
+                    height: "2px", borderRadius: "2px 2px 0 0",
+                    background: `linear-gradient(90deg, ${alpha(accentColor, 0.6)}, ${accentColor}, ${alpha(accentColor, 0.6)})`,
+                    animation: "glowPulse 1.8s ease-in-out infinite",
+                    "@keyframes glowPulse": {
+                      "0%, 100%": { opacity: 1 },
+                      "50%": { opacity: 0.5 },
+                    },
+                  }} />
+                )}
+                <Typography sx={{ fontSize: "0.61rem", color: isActive ? accentColor : alpha(textPrimaryColor, 0.6), fontWeight: isActive ? 800 : 700, textTransform: "uppercase", letterSpacing: "0.4px", mb: 0.2, textAlign: "center", lineHeight: 1.2, transition: "color 0.3s" }}>
+                  {label}
+                </Typography>
+                <Typography sx={{ fontSize: isActive ? "0.97rem" : "0.92rem", fontWeight: 800, color: isActive || highlight ? accentColor : textPrimaryColor, fontFamily: "monospace", letterSpacing: "0.4px", transition: "all 0.3s" }}>
+                  {value || "00:00:00"}
+                </Typography>
+              </Box>
+            );
+          })}
+
+          <Box sx={{
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            minWidth: 140, px: 1.25, py: 0.9, borderRadius: 2,
+            bgcolor: accentColor, border: `1px solid ${accentColor}`,
+            cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1,
+            boxShadow: `0 4px 14px ${alpha(accentColor, 0.35)}`,
+            flexShrink: 0, transition: "all 0.2s ease",
+            "&:hover": !saving ? { boxShadow: `0 6px 20px ${alpha(accentColor, 0.5)}`, transform: "translateY(-1px)" } : {},
+            "&:active": { transform: "translateY(0)" },
+          }} onClick={!saving ? onSave : undefined}>
+            {saving ? <CircularProgress size={18} sx={{ color: primaryColor, mb: 0.3 }} /> : <SaveAs sx={{ color: primaryColor, fontSize: 18, mb: 0.3 }} />}
+            <Typography sx={{ fontSize: "0.72rem", color: primaryColor, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center", lineHeight: 1.2 }}>
+              {saving ? "Saving…" : "Save Record"}
+            </Typography>
+          </Box>
+        </Box>
+      </Collapse>
+    </Paper>
+  );
+};
+
+// ─────────────────────────────────────────────
+// STICKY SCROLLBAR
+// ─────────────────────────────────────────────
+const StickyScrollbar = ({ innerRef }) => {
+  const proxyRef   = useRef(null);
+  const ghostRef   = useRef(null);
+  const syncingRef = useRef(false);
+
+  useEffect(() => {
+    const inner = innerRef.current;
+    const proxy = proxyRef.current;
+    const ghost = ghostRef.current;
+    if (!inner || !proxy || !ghost) return;
+    const updateWidth = () => { ghost.style.width = inner.scrollWidth + "px"; };
+    const ro = new ResizeObserver(updateWidth);
+    ro.observe(inner);
+    updateWidth();
+    const onInnerScroll = () => { if (syncingRef.current) return; syncingRef.current = true; proxy.scrollLeft = inner.scrollLeft; syncingRef.current = false; };
+    const onProxyScroll = () => { if (syncingRef.current) return; syncingRef.current = true; inner.scrollLeft = proxy.scrollLeft; syncingRef.current = false; };
+    inner.addEventListener("scroll", onInnerScroll);
+    proxy.addEventListener("scroll", onProxyScroll);
+    return () => { inner.removeEventListener("scroll", onInnerScroll); proxy.removeEventListener("scroll", onProxyScroll); ro.disconnect(); };
+  }, [innerRef]);
+
+  return (
+    <Box ref={proxyRef} sx={{ position: "sticky", bottom: 0, left: 0, width: "100%", zIndex: 10, overflowX: "auto", overflowY: "hidden", height: 16, bgcolor: "rgba(254,249,225,0.9)", borderTop: "1px solid rgba(109,35,35,0.15)", "&::-webkit-scrollbar": { height: 12 }, "&::-webkit-scrollbar-track": { background: "rgba(254,249,225,0.6)", borderRadius: 4 }, "&::-webkit-scrollbar-thumb": { background: "rgba(109,35,35,0.45)", borderRadius: 4, "&:hover": { background: "rgba(109,35,35,0.7)" } } }}>
+      <Box ref={ghostRef} sx={{ height: 1 }} />
+    </Box>
+  );
+};
 
 // ─────────────────────────────────────────────
 // MAIN COMPONENT
@@ -533,497 +457,173 @@ const PremiumTableCell = styled(TableCell)(
 const AttendanceModuleFacultyDesignated = () => {
   const { settings } = useSystemSettings();
   const [employeeNumber, setEmployeeNumber] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [startDate, setStartDate]           = useState("");
+  const [endDate, setEndDate]               = useState("");
   const [attendanceData, setAttendanceData] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [pageLoading, setPageLoading] = useState(true);
+  const [loading, setLoading]               = useState(false);
+  const [saving, setSaving]                 = useState(false);
+  const [error, setError]                   = useState("");
+  const [pageLoading, setPageLoading]       = useState(true);
+  const [activeTab, setActiveTab]           = useState("regular");
+
+  // ── Furlough maps ──
+  const [suspensionByDate, setSuspensionByDate] = useState({});
+  const [leaveByDate, setLeaveByDate]           = useState({});
+  const [holidayByDate, setHolidayByDate]       = useState({});
+
   const navigate = useNavigate();
 
-  // ── Auto-scroll ref ───────────────────────────────────────────────────────
-  const resultsRef = useRef(null);
+  const resultsRef   = useRef(null);
+  const tableBodyRef = useRef(null);
 
-  // Colors from system settings
-  const primaryColor = settings.accentColor || "#FEF9E1";
-  const secondaryColor = settings.backgroundColor || "#FFF8E7";
-  const accentColor = settings.primaryColor || "#6d2323";
-  const accentDark = settings.secondaryColor || "#8B3333";
-  const textPrimaryColor = settings.textPrimaryColor || "#6d2323";
+  const primaryColor       = settings.accentColor        || "#FEF9E1";
+  const secondaryColor     = settings.backgroundColor    || "#FFF8E7";
+  const accentColor        = settings.primaryColor       || "#6d2323";
+  const accentDark         = settings.secondaryColor     || "#8B3333";
+  const textPrimaryColor   = settings.textPrimaryColor   || "#6d2323";
   const textSecondaryColor = settings.textSecondaryColor || "#FEF9E1";
 
-  // Access control
-  const { hasAccess, loading: accessLoading } = usePageAccess(
-    "attendance-module-faculty-40hrs",
-  );
+  const { hasAccess, loading: accessLoading } = usePageAccess("attendance-module-faculty-40hrs");
 
-  // Month / year selectors
   const currentYear = new Date().getFullYear();
-  const months = [
-    "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
-    "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
-  ];
+  const months      = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
   const [selectedMonth, setSelectedMonth] = useState(null);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedYear, setSelectedYear]   = useState(new Date().getFullYear());
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
-  // ── Snackbar ──────────────────────────────────────────────────────────────
-  const [snackbar, setSnackbar] = useState({
-    open: false,
-    message: "",
-    severity: "success",
-  });
+  const [snackbar, setSnackbar]                   = useState({ open: false, message: "", severity: "success" });
   const [snackbarCountdown, setSnackbarCountdown] = useState(6);
 
-  const showSnackbar = (message, severity = "success") => {
-    setSnackbar({ open: true, message, severity });
-    setSnackbarCountdown(6);
-  };
+  const showSnackbar = (message, severity = "success") => { setSnackbar({ open: true, message, severity }); setSnackbarCountdown(6); };
   const handleCloseSnackbar = () => setSnackbar((p) => ({ ...p, open: false }));
 
   useEffect(() => {
     let timer;
-    if (snackbar.open && snackbarCountdown > 0)
-      timer = setInterval(() => setSnackbarCountdown((p) => p - 1), 1000);
+    if (snackbar.open && snackbarCountdown > 0) timer = setInterval(() => setSnackbarCountdown((p) => p - 1), 1000);
     return () => clearInterval(timer);
   }, [snackbar.open, snackbarCountdown]);
 
-  // Dismiss wireframe once access resolves
-  useEffect(() => {
-    if (!accessLoading) setPageLoading(false);
-  }, [accessLoading]);
+  useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
 
-  // Restore persisted inputs
   useEffect(() => {
-    const storedEmployeeNumber = localStorage.getItem("employeeNumber");
-    const storedStartDate = localStorage.getItem("startDate");
-    const storedEndDate = localStorage.getItem("endDate");
-    if (storedEmployeeNumber) setEmployeeNumber(storedEmployeeNumber);
-    if (storedStartDate) setStartDate(storedStartDate);
-    if (storedEndDate) setEndDate(storedEndDate);
+    const en = localStorage.getItem("employeeNumber");
+    const sd = localStorage.getItem("startDate");
+    const ed = localStorage.getItem("endDate");
+    if (en) setEmployeeNumber(en);
+    if (sd) setStartDate(sd);
+    if (ed) setEndDate(ed);
   }, []);
 
-  // ── Auto-scroll when data loads ───────────────────────────────────────────
   useEffect(() => {
-    if (attendanceData.length > 0 && resultsRef.current) {
-      setTimeout(() => {
-        resultsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 300);
-    }
+    if (attendanceData.length > 0 && resultsRef.current)
+      setTimeout(() => resultsRef.current.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
   }, [attendanceData]);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem("token");
-    return {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    };
+    return { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } };
   };
 
-  // ── handleSubmit ──────────────────────────────────────────────────────────
+  const getStatusLabelForDate = useCallback((date) =>
+    getStatusLabel(date, suspensionByDate, leaveByDate, holidayByDate),
+    [suspensionByDate, leaveByDate, holidayByDate]
+  );
+
   const handleSubmit = async () => {
     localStorage.setItem("employeeNumber", employeeNumber);
     localStorage.setItem("startDate", startDate);
     localStorage.setItem("endDate", endDate);
-
     setLoading(true);
     setError("");
-
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/attendance/api/attendance`,
-        {
-          params: { personId: employeeNumber, startDate, endDate },
-          ...getAuthHeaders(),
-        },
-      );
+      const response = await axios.get(`${API_BASE_URL}/attendance/api/attendance`, {
+        params: { personId: employeeNumber, startDate, endDate },
+        ...getAuthHeaders(),
+      });
 
       const processedData = response.data.map((row) => {
-        const {
-          timeIN,
-          timeOUT,
-          breaktimeIN,
-          breaktimeOUT,
-          officialBreaktimeIN,
-          officialBreaktimeOUT,
-          officialTimeIN,
-          officialTimeOUT,
-          officialHonorariumTimeIN,
-          officialHonorariumTimeOUT,
-          officialServiceCreditTimeIN,
-          officialServiceCreditTimeOUT,
-          officialOverTimeIN,
-          officialOverTimeOUT,
-        } = row;
+        const { timeIN, timeOUT, breaktimeIN, breaktimeOUT, officialBreaktimeIN, officialBreaktimeOUT, officialTimeIN, officialTimeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT, officialOverTimeIN, officialOverTimeOUT } = row;
 
-        // ── Effective breaktime logic (from second file) ───────────────────
-        const effectiveBreaktimeIN =
-          officialBreaktimeIN && officialBreaktimeIN !== "00:00:00 AM"
-            ? officialBreaktimeIN
-            : breaktimeIN;
-        const effectiveBreaktimeOUT =
-          officialBreaktimeOUT && officialBreaktimeOUT !== "00:00:00 AM"
-            ? officialBreaktimeOUT
-            : breaktimeOUT;
+        const effectiveBreaktimeIN  = officialBreaktimeIN  && officialBreaktimeIN  !== "00:00:00 AM" ? officialBreaktimeIN  : breaktimeIN;
+        const effectiveBreaktimeOUT = officialBreaktimeOUT && officialBreaktimeOUT !== "00:00:00 AM" ? officialBreaktimeOUT : breaktimeOUT;
 
-        const parsedTimeIN = dayjs(`2024-01-01 ${timeIN}`, "YYYY-MM-DD hh:mm:ss A");
-        const parsedTimeOUT = dayjs(`2024-01-01 ${timeOUT}`, "YYYY-MM-DD hh:mm:ss A");
-        const parsedBreaktimeIN = dayjs(`2024-01-01 ${breaktimeIN}`, "YYYY-MM-DD hh:mm:ss A");
-        const parsedBreaktimeOUT = dayjs(`2024-01-01 ${breaktimeOUT}`, "YYYY-MM-DD hh:mm:ss A");
-        const parsedOfficialBreaktimeIN = dayjs(`2024-01-01 ${officialBreaktimeIN}`, "YYYY-MM-DD hh:mm:ss A");
-        const parsedOfficialBreaktimeOUT = dayjs(`2024-01-01 ${officialBreaktimeOUT}`, "YYYY-MM-DD hh:mm:ss A");
-        const parsedOfficialTimeIN = dayjs(`2024-01-01 ${officialTimeIN}`, "YYYY-MM-DD hh:mm:ss A");
-        const parsedOfficialTimeOUT = dayjs(`2024-01-01 ${officialTimeOUT}`, "YYYY-MM-DD hh:mm:ss A");
-        const parsedOfficialHonorariumTimeIN = dayjs(`2024-01-01 ${officialHonorariumTimeIN}`, "YYYY-MM-DD hh:mm:ss A");
-        const parsedOfficialHonorariumTimeOUT = dayjs(`2024-01-01 ${officialHonorariumTimeOUT}`, "YYYY-MM-DD hh:mm:ss A");
-        const parsedOfficialServiceCreditTimeIN = dayjs(`2024-01-01 ${officialServiceCreditTimeIN}`, "YYYY-MM-DD hh:mm:ss A");
-        const parsedOfficialServiceCreditTimeOUT = dayjs(`2024-01-01 ${officialServiceCreditTimeOUT}`, "YYYY-MM-DD hh:mm:ss A");
-        const parsedOfficialOverTimeIN = dayjs(`2024-01-01 ${officialOverTimeIN}`, "YYYY-MM-DD hh:mm:ss A");
-        const parsedOfficialOverTimeOUT = dayjs(`2024-01-01 ${officialOverTimeOUT}`, "YYYY-MM-DD hh:mm:ss A");
-
-        const OfficialTimeMorning = parsedTimeIN.isBefore(parsedOfficialTimeIN)
-          ? parsedOfficialTimeIN.format("hh:mm:ss A")
-          : parsedTimeIN.format("hh:mm:ss A");
-        const OfficialTimeAfternoon = parsedTimeOUT.isAfter(parsedOfficialTimeOUT)
-          ? parsedOfficialTimeOUT.format("hh:mm:ss A")
-          : parsedTimeOUT.format("hh:mm:ss A");
-        const HonorariumTimeIN = parsedTimeIN.isBefore(parsedOfficialHonorariumTimeIN)
-          ? parsedOfficialHonorariumTimeIN.format("hh:mm:ss A")
-          : parsedTimeIN.format("hh:mm:ss A");
-        const HonorariumTimeOUT = parsedTimeOUT.isAfter(parsedOfficialHonorariumTimeOUT)
-          ? parsedOfficialHonorariumTimeOUT.format("hh:mm:ss A")
-          : parsedTimeOUT.format("hh:mm:ss A");
-        const ServiceCreditTimeIN = parsedTimeIN.isBefore(parsedOfficialServiceCreditTimeIN)
-          ? parsedOfficialServiceCreditTimeIN.format("hh:mm:ss A")
-          : parsedTimeIN.format("hh:mm:ss A");
-        const ServiceCreditTimeOUT = parsedTimeOUT.isAfter(parsedOfficialServiceCreditTimeOUT)
-          ? parsedOfficialServiceCreditTimeOUT.format("hh:mm:ss A")
-          : parsedTimeOUT.format("hh:mm:ss A");
-        const OverTimeIN = parsedTimeIN.isBefore(parsedOfficialOverTimeIN)
-          ? parsedOfficialOverTimeIN.format("hh:mm:ss A")
-          : parsedTimeIN.format("hh:mm:ss A");
-        const OverTimeOUT = parsedTimeOUT.isAfter(parsedOfficialOverTimeOUT)
-          ? parsedOfficialOverTimeOUT.format("hh:mm:ss A")
-          : parsedTimeOUT.format("hh:mm:ss A");
-        const OfficialBreakAM = parsedBreaktimeIN.isAfter(parsedOfficialBreaktimeIN)
-          ? parsedOfficialBreaktimeIN.format("hh:mm:ss A")
-          : parsedBreaktimeIN.format("hh:mm:ss A");
-        const OfficialBreakPM = parsedBreaktimeOUT.isAfter(parsedOfficialBreaktimeOUT)
-          ? parsedBreaktimeOUT.format("hh:mm:ss A")
-          : parsedOfficialBreaktimeOUT.format("hh:mm:ss A");
-
-        // ── AM ────────────────────────────────────────────────────────────
-        const startDateFacultyAM = new Date(`01/01/2000 ${timeIN}`);
-        const endDateFacultyAM = new Date(`01/01/2000 ${effectiveBreaktimeIN}`);
+        // ── AM ──────────────────────────────────────────────────────────
+        const startDateFacultyAM         = new Date(`01/01/2000 ${timeIN}`);
+        const endDateFacultyAM           = new Date(`01/01/2000 ${effectiveBreaktimeIN}`);
         const startOfficialTimeFacultyAM = new Date(`01/01/2000 ${officialTimeIN}`);
-        const endOfficialTimeFacultyAM = new Date(`01/01/2000 ${effectiveBreaktimeIN}`);
-        const midnightFacultyAM = new Date(`01/01/2000 00:00:00 AM`);
+        const endOfficialTimeFacultyAM   = new Date(`01/01/2000 ${effectiveBreaktimeIN}`);
+        const midnightFacultyAM          = new Date(`01/01/2000 00:00:00 AM`);
 
-        const timeinfacultyAM =
-          startDateFacultyAM > endOfficialTimeFacultyAM
-            ? midnightFacultyAM
-            : startDateFacultyAM < startOfficialTimeFacultyAM
-              ? startOfficialTimeFacultyAM
-              : startDateFacultyAM;
-        const timeoutfacultyAM =
-          timeinfacultyAM === midnightFacultyAM ? midnightFacultyAM : endDateFacultyAM;
+        const timeinfacultyAM  = startDateFacultyAM > endOfficialTimeFacultyAM ? midnightFacultyAM : startDateFacultyAM < startOfficialTimeFacultyAM ? startOfficialTimeFacultyAM : startDateFacultyAM;
+        const timeoutfacultyAM = timeinfacultyAM === midnightFacultyAM ? midnightFacultyAM : endDateFacultyAM;
 
         const diffMsAM = timeoutfacultyAM - timeinfacultyAM;
-        const hoursFacultyAM = Math.floor(diffMsAM / (1000 * 60 * 60));
-        const minutesFacultyAM = Math.floor((diffMsAM % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsFacultyAM = Math.floor((diffMsAM % (1000 * 60)) / 1000);
-        const formattedFacultyRenderedTimeAM = [
-          String(hoursFacultyAM).padStart(2, "0"),
-          String(minutesFacultyAM).padStart(2, "0"),
-          String(secondsFacultyAM).padStart(2, "0"),
-        ].join(":");
+        const formattedFacultyRenderedTimeAM    = [Math.floor(diffMsAM/3600000), Math.floor((diffMsAM%3600000)/60000), Math.floor((diffMsAM%60000)/1000)].map(x => String(x).padStart(2,"0")).join(":");
+        const diffMsAMMax = endOfficialTimeFacultyAM - startOfficialTimeFacultyAM;
+        const formattedFacultyMaxRenderedTimeAM = [Math.floor(diffMsAMMax/3600000), Math.floor((diffMsAMMax%3600000)/60000), Math.floor((diffMsAMMax%60000)/1000)].map(x => String(x).padStart(2,"0")).join(":");
+        const tardAM = new Date(`01/01/2000 ${formattedFacultyMaxRenderedTimeAM}`) - new Date(`01/01/2000 ${formattedFacultyRenderedTimeAM}`);
+        const formattedfinalcalcFacultyAM = [Math.floor(tardAM/3600000), Math.floor((tardAM%3600000)/60000), Math.floor((tardAM%60000)/1000)].map(x => String(x).padStart(2,"0")).join(":");
 
-        const diffMsAMFacultyAM = endOfficialTimeFacultyAM - startOfficialTimeFacultyAM;
-        const hoursFacultyMRTAM = Math.floor(diffMsAMFacultyAM / (1000 * 60 * 60));
-        const minutesFacultyMRTAM = Math.floor((diffMsAMFacultyAM % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsFacultyMRTAM = Math.floor((diffMsAMFacultyAM % (1000 * 60)) / 1000);
-        const formattedFacultyMaxRenderedTimeAM = [
-          String(hoursFacultyMRTAM).padStart(2, "0"),
-          String(minutesFacultyMRTAM).padStart(2, "0"),
-          String(secondsFacultyMRTAM).padStart(2, "0"),
-        ].join(":");
-
-        const tardFinalAM = new Date(`01/01/2000 ${formattedFacultyRenderedTimeAM}`);
-        const tardFinalMaxAM = new Date(`01/01/2000 ${formattedFacultyMaxRenderedTimeAM}`);
-        const finalcalcFacultyAM = tardFinalMaxAM - tardFinalAM;
-        const hoursfinalAM = Math.floor(finalcalcFacultyAM / (1000 * 60 * 60));
-        const minutesfinalAM = Math.floor((finalcalcFacultyAM % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsfinalAM = Math.floor((finalcalcFacultyAM % (1000 * 60)) / 1000);
-        const formattedfinalcalcFacultyAM = [
-          String(hoursfinalAM).padStart(2, "0"),
-          String(minutesfinalAM).padStart(2, "0"),
-          String(secondsfinalAM).padStart(2, "0"),
-        ].join(":");
-
-        // ── PM ────────────────────────────────────────────────────────────
-        const startDateFacultyPM = new Date(`01/01/2000 ${effectiveBreaktimeOUT}`);
-        const endDateFacultyPM = new Date(`01/01/2000 ${timeOUT}`);
+        // ── PM ──────────────────────────────────────────────────────────
+        const startDateFacultyPM         = new Date(`01/01/2000 ${effectiveBreaktimeOUT}`);
+        const endDateFacultyPM           = new Date(`01/01/2000 ${timeOUT}`);
         const startOfficialTimeFacultyPM = new Date(`01/01/2000 ${effectiveBreaktimeOUT}`);
-        const endOfficialTimeFacultyPM = new Date(`01/01/2000 ${officialTimeOUT}`);
-        const midnightFacultyPM = new Date(`01/01/2000 00:00:00 PM`);
+        const endOfficialTimeFacultyPM   = new Date(`01/01/2000 ${officialTimeOUT}`);
+        const midnightFacultyPM          = new Date(`01/01/2000 00:00:00 PM`);
 
-        const timeoutfacultyPM =
-          endDateFacultyPM < startOfficialTimeFacultyPM
-            ? midnightFacultyPM
-            : endDateFacultyPM > endOfficialTimeFacultyPM
-              ? endOfficialTimeFacultyPM
-              : endDateFacultyPM;
-        const timeinfacultyPM =
-          timeoutfacultyPM === midnightFacultyPM ? midnightFacultyPM : startDateFacultyPM;
+        const timeoutfacultyPM = endDateFacultyPM < startOfficialTimeFacultyPM ? midnightFacultyPM : endDateFacultyPM > endOfficialTimeFacultyPM ? endOfficialTimeFacultyPM : endDateFacultyPM;
+        const timeinfacultyPM  = timeoutfacultyPM === midnightFacultyPM ? midnightFacultyPM : startDateFacultyPM;
 
         const diffMsPM = timeoutfacultyPM - timeinfacultyPM;
-        const hoursFacultyPM = Math.floor(diffMsPM / (1000 * 60 * 60));
-        const minutesFacultyPM = Math.floor((diffMsPM % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsFacultyPM = Math.floor((diffMsPM % (1000 * 60)) / 1000);
-        const formattedFacultyRenderedTimePM = [
-          String(hoursFacultyPM).padStart(2, "0"),
-          String(minutesFacultyPM).padStart(2, "0"),
-          String(secondsFacultyPM).padStart(2, "0"),
-        ].join(":");
+        const formattedFacultyRenderedTimePM    = [Math.floor(diffMsPM/3600000), Math.floor((diffMsPM%3600000)/60000), Math.floor((diffMsPM%60000)/1000)].map(x => String(x).padStart(2,"0")).join(":");
+        const diffMsPMMax = endOfficialTimeFacultyPM - startOfficialTimeFacultyPM;
+        const formattedFacultyMaxRenderedTimePM = [Math.floor(diffMsPMMax/3600000), Math.floor((diffMsPMMax%3600000)/60000), Math.floor((diffMsPMMax%60000)/1000)].map(x => String(x).padStart(2,"0")).join(":");
+        const tardPM = new Date(`01/01/2000 ${formattedFacultyMaxRenderedTimePM}`) - new Date(`01/01/2000 ${formattedFacultyRenderedTimePM}`);
+        const formattedfinalcalcFacultyPM = [Math.floor(tardPM/3600000), Math.floor((tardPM%3600000)/60000), Math.floor((tardPM%60000)/1000)].map(x => String(x).padStart(2,"0")).join(":");
 
-        const diffMsPMFacultyPM = endOfficialTimeFacultyPM - startOfficialTimeFacultyPM;
-        const hoursFacultyMRTPM = Math.floor(diffMsPMFacultyPM / (1000 * 60 * 60));
-        const minutesFacultyMRTPM = Math.floor((diffMsPMFacultyPM % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsFacultyMRTPM = Math.floor((diffMsPMFacultyPM % (1000 * 60)) / 1000);
-        const formattedFacultyMaxRenderedTimePM = [
-          String(hoursFacultyMRTPM).padStart(2, "0"),
-          String(minutesFacultyMRTPM).padStart(2, "0"),
-          String(secondsFacultyMRTPM).padStart(2, "0"),
-        ].join(":");
+        // ── Segment helper for HN / SC / OT ──────────────────────────────
+        const calcSeg = (tIn, tOut, offIn, offOut) => {
+          const s = new Date(`01/01/2000 ${tIn}`), e = new Date(`01/01/2000 ${tOut}`);
+          const os = new Date(`01/01/2000 ${offIn}`), oe = new Date(`01/01/2000 ${offOut}`);
+          const mid = new Date(`01/01/2000 00:00:00 AM`);
+          const si = e<os||s>oe ? mid : s<os ? os : s;
+          const ei = si===mid ? mid : e<os ? mid : e<oe ? e : oe;
+          const diff = ei-si;
+          const rendered = [Math.floor(diff/3600000),Math.floor((diff%3600000)/60000),Math.floor((diff%60000)/1000)].map(x=>String(x).padStart(2,"0")).join(":");
+          const offDiff = oe-os;
+          const maxRendered = [Math.floor(offDiff/3600000),Math.floor((offDiff%3600000)/60000),Math.floor((offDiff%60000)/1000)].map(x=>String(x).padStart(2,"0")).join(":");
+          const tard = new Date(`01/01/2000 ${maxRendered}`) - new Date(`01/01/2000 ${rendered}`);
+          const tardiness = [Math.floor(tard/3600000),Math.floor((tard%3600000)/60000),Math.floor((tard%60000)/1000)].map(x=>String(x).padStart(2,"0")).join(":");
+          return { rendered, maxRendered, tardiness };
+        };
 
-        const tardFinalPM = new Date(`01/01/2000 ${formattedFacultyRenderedTimePM}`);
-        const tardFinalMaxPM = new Date(`01/01/2000 ${formattedFacultyMaxRenderedTimePM}`);
-        const finalcalcFacultyPM = tardFinalMaxPM - tardFinalPM;
-        const hoursfinalPM = Math.floor(finalcalcFacultyPM / (1000 * 60 * 60));
-        const minutesfinalPM = Math.floor((finalcalcFacultyPM % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsfinalPM = Math.floor((finalcalcFacultyPM % (1000 * 60)) / 1000);
-        const formattedfinalcalcFacultyPM = [
-          String(hoursfinalPM).padStart(2, "0"),
-          String(minutesfinalPM).padStart(2, "0"),
-          String(secondsfinalPM).padStart(2, "0"),
-        ].join(":");
-
-        // ── Honorarium ────────────────────────────────────────────────────
-        const startDateFacultyHN = new Date(`01/01/2000 ${timeIN}`);
-        const endDateFacultyHN = new Date(`01/01/2000 ${timeOUT}`);
-        const startOfficialTimeFacultyHN = new Date(`01/01/2000 ${officialHonorariumTimeIN}`);
-        const endOfficialTimeFacultyHN = new Date(`01/01/2000 ${officialHonorariumTimeOUT}`);
-        const midnightFacultyHN = new Date(`01/01/2000 00:00:00 AM`);
-
-        const timeinfacultyHN =
-          endDateFacultyHN < startOfficialTimeFacultyHN
-            ? midnightFacultyHN
-            : startDateFacultyHN > endOfficialTimeFacultyHN
-              ? midnightFacultyHN
-              : startDateFacultyHN < startOfficialTimeFacultyHN
-                ? startOfficialTimeFacultyHN
-                : startDateFacultyHN;
-        const timeoutfacultyHN =
-          timeinfacultyHN === midnightFacultyHN
-            ? midnightFacultyHN
-            : endDateFacultyHN < startOfficialTimeFacultyHN
-              ? midnightFacultyHN
-              : endDateFacultyHN < endOfficialTimeFacultyHN
-                ? endDateFacultyHN
-                : endOfficialTimeFacultyHN;
-
-        const diffMsHN = timeoutfacultyHN - timeinfacultyHN;
-        const hoursFacultyHN = Math.floor(diffMsHN / (1000 * 60 * 60));
-        const minutesFacultyHN = Math.floor((diffMsHN % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsFacultyHN = Math.floor((diffMsHN % (1000 * 60)) / 1000);
-        const formattedFacultyRenderedTimeHN = [
-          String(hoursFacultyHN).padStart(2, "0"),
-          String(minutesFacultyHN).padStart(2, "0"),
-          String(secondsFacultyHN).padStart(2, "0"),
-        ].join(":");
-
-        const diffMsFacultyHN = endOfficialTimeFacultyHN - startOfficialTimeFacultyHN;
-        const hoursFacultyMRTHN = Math.floor(diffMsFacultyHN / (1000 * 60 * 60));
-        const minutesFacultyMRTHN = Math.floor((diffMsFacultyHN % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsFacultyMRTHN = Math.floor((diffMsFacultyHN % (1000 * 60)) / 1000);
-        const formattedFacultyMaxRenderedTimeHN = [
-          String(hoursFacultyMRTHN).padStart(2, "0"),
-          String(minutesFacultyMRTHN).padStart(2, "0"),
-          String(secondsFacultyMRTHN).padStart(2, "0"),
-        ].join(":");
-
-        const tardFinalHN = new Date(`01/01/2000 ${formattedFacultyRenderedTimeHN}`);
-        const tardFinalMaxHN = new Date(`01/01/2000 ${formattedFacultyMaxRenderedTimeHN}`);
-        const finalcalcFacultyHN = tardFinalMaxHN - tardFinalHN;
-        const hoursfinalHN = Math.floor(finalcalcFacultyHN / (1000 * 60 * 60));
-        const minutesfinalHN = Math.floor((finalcalcFacultyHN % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsfinalHN = Math.floor((finalcalcFacultyHN % (1000 * 60)) / 1000);
-        const formattedfinalcalcFacultyHN = [
-          String(hoursfinalHN).padStart(2, "0"),
-          String(minutesfinalHN).padStart(2, "0"),
-          String(secondsfinalHN).padStart(2, "0"),
-        ].join(":");
-
-        // ── Service Credit ────────────────────────────────────────────────
-        const startDateFacultySC = new Date(`01/01/2000 ${timeIN}`);
-        const endDateFacultySC = new Date(`01/01/2000 ${timeOUT}`);
-        const startOfficialTimeFacultySC = new Date(`01/01/2000 ${officialServiceCreditTimeIN}`);
-        const endOfficialTimeFacultySC = new Date(`01/01/2000 ${officialServiceCreditTimeOUT}`);
-        const midnightFacultySC = new Date(`01/01/2000 00:00:00 AM`);
-
-        const timeinfacultySC =
-          endDateFacultySC < startOfficialTimeFacultySC
-            ? midnightFacultySC
-            : startDateFacultySC > endOfficialTimeFacultySC
-              ? midnightFacultySC
-              : startDateFacultySC < startOfficialTimeFacultySC
-                ? startOfficialTimeFacultySC
-                : startDateFacultySC;
-        const timeoutfacultySC =
-          timeinfacultySC === midnightFacultySC
-            ? midnightFacultySC
-            : endDateFacultySC < startOfficialTimeFacultySC
-              ? midnightFacultySC
-              : endDateFacultySC < endOfficialTimeFacultySC
-                ? endDateFacultySC
-                : endOfficialTimeFacultySC;
-
-        const diffMsSC = timeoutfacultySC - timeinfacultySC;
-        const hoursFacultySC = Math.floor(diffMsSC / (1000 * 60 * 60));
-        const minutesFacultySC = Math.floor((diffMsSC % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsFacultySC = Math.floor((diffMsSC % (1000 * 60)) / 1000);
-        const formattedFacultyRenderedTimeSC = [
-          String(hoursFacultySC).padStart(2, "0"),
-          String(minutesFacultySC).padStart(2, "0"),
-          String(secondsFacultySC).padStart(2, "0"),
-        ].join(":");
-
-        const diffMsFacultySC = endOfficialTimeFacultySC - startOfficialTimeFacultySC;
-        const hoursFacultyMRTSC = Math.floor(diffMsFacultySC / (1000 * 60 * 60));
-        const minutesFacultyMRTSC = Math.floor((diffMsFacultySC % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsFacultyMRTSC = Math.floor((diffMsFacultySC % (1000 * 60)) / 1000);
-        const formattedFacultyMaxRenderedTimeSC = [
-          String(hoursFacultyMRTSC).padStart(2, "0"),
-          String(minutesFacultyMRTSC).padStart(2, "0"),
-          String(secondsFacultyMRTSC).padStart(2, "0"),
-        ].join(":");
-
-        const tardFinalSC = new Date(`01/01/2000 ${formattedFacultyRenderedTimeSC}`);
-        const tardFinalMaxSC = new Date(`01/01/2000 ${formattedFacultyMaxRenderedTimeSC}`);
-        const finalcalcFacultySC = tardFinalMaxSC - tardFinalSC;
-        const hoursfinalSC = Math.floor(finalcalcFacultySC / (1000 * 60 * 60));
-        const minutesfinalSC = Math.floor((finalcalcFacultySC % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsfinalSC = Math.floor((finalcalcFacultySC % (1000 * 60)) / 1000);
-        const formattedfinalcalcFacultySC = [
-          String(hoursfinalSC).padStart(2, "0"),
-          String(minutesfinalSC).padStart(2, "0"),
-          String(secondsfinalSC).padStart(2, "0"),
-        ].join(":");
-
-        // ── Overtime ──────────────────────────────────────────────────────
-        const startDateFacultyOT = new Date(`01/01/2000 ${timeIN}`);
-        const endDateFacultyOT = new Date(`01/01/2000 ${timeOUT}`);
-        const startOfficialTimeFacultyOT = new Date(`01/01/2000 ${officialOverTimeIN}`);
-        const endOfficialTimeFacultyOT = new Date(`01/01/2000 ${officialOverTimeOUT}`);
-        const midnightFacultyOT = new Date(`01/01/2000 00:00:00 AM`);
-
-        const timeinfacultyOT =
-          endDateFacultyOT < startOfficialTimeFacultyOT
-            ? midnightFacultyOT
-            : startDateFacultyOT > endOfficialTimeFacultyOT
-              ? midnightFacultyOT
-              : startDateFacultyOT < startOfficialTimeFacultyOT
-                ? startOfficialTimeFacultyOT
-                : startDateFacultyOT;
-        const timeoutfacultyOT =
-          timeinfacultyOT === midnightFacultyOT
-            ? midnightFacultyOT
-            : endDateFacultyOT < startOfficialTimeFacultyOT
-              ? midnightFacultyOT
-              : endDateFacultyOT < endOfficialTimeFacultyOT
-                ? endDateFacultyOT
-                : endOfficialTimeFacultyOT;
-
-        const diffMsOT = timeoutfacultyOT - timeinfacultyOT;
-        const hoursFacultyOT = Math.floor(diffMsOT / (1000 * 60 * 60));
-        const minutesFacultyOT = Math.floor((diffMsOT % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsFacultyOT = Math.floor((diffMsOT % (1000 * 60)) / 1000);
-        const formattedFacultyRenderedTimeOT = [
-          String(hoursFacultyOT).padStart(2, "0"),
-          String(minutesFacultyOT).padStart(2, "0"),
-          String(secondsFacultyOT).padStart(2, "0"),
-        ].join(":");
-
-        const diffMsFacultyOT = endOfficialTimeFacultyOT - startOfficialTimeFacultyOT;
-        const hoursFacultyMRTOT = Math.floor(diffMsFacultyOT / (1000 * 60 * 60));
-        const minutesFacultyMRTOT = Math.floor((diffMsFacultyOT % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsFacultyMRTOT = Math.floor((diffMsFacultyOT % (1000 * 60)) / 1000);
-        const formattedFacultyMaxRenderedTimeOT = [
-          String(hoursFacultyMRTOT).padStart(2, "0"),
-          String(minutesFacultyMRTOT).padStart(2, "0"),
-          String(secondsFacultyMRTOT).padStart(2, "0"),
-        ].join(":");
-
-        const tardFinalOT = new Date(`01/01/2000 ${formattedFacultyRenderedTimeOT}`);
-        const tardFinalMaxOT = new Date(`01/01/2000 ${formattedFacultyMaxRenderedTimeOT}`);
-        const finalcalcFacultyOT = tardFinalMaxOT - tardFinalOT;
-        const hoursfinalOT = Math.floor(finalcalcFacultyOT / (1000 * 60 * 60));
-        const minutesfinalOT = Math.floor((finalcalcFacultyOT % (1000 * 60 * 60)) / (1000 * 60));
-        const secondsfinalOT = Math.floor((finalcalcFacultyOT % (1000 * 60)) / 1000);
-        const formattedfinalcalcFacultyOT = [
-          String(hoursfinalOT).padStart(2, "0"),
-          String(minutesfinalOT).padStart(2, "0"),
-          String(secondsfinalOT).padStart(2, "0"),
-        ].join(":");
+        const hn = calcSeg(timeIN, timeOUT, officialHonorariumTimeIN,    officialHonorariumTimeOUT);
+        const sc = calcSeg(timeIN, timeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT);
+        const ot = calcSeg(timeIN, timeOUT, officialOverTimeIN,          officialOverTimeOUT);
 
         return {
           ...row,
-          HonorariumTimeIN,
-          HonorariumTimeOUT,
-          ServiceCreditTimeIN,
-          ServiceCreditTimeOUT,
-          OverTimeIN,
-          OverTimeOUT,
-          officialTimeIN,
-          officialTimeOUT,
-          officialHonorariumTimeIN,
-          officialHonorariumTimeOUT,
-          officialServiceCreditTimeIN,
-          officialServiceCreditTimeOUT,
-          officialOverTimeIN,
-          officialOverTimeOUT,
-          OfficialTimeMorning,
-          OfficialTimeAfternoon,
-          timeIN,
-          timeOUT,
-          OfficialBreakAM,
-          OfficialBreakPM,
-          // Use effective breaktime values in returned data
           breaktimeIN: effectiveBreaktimeIN,
           breaktimeOUT: effectiveBreaktimeOUT,
-          formattedfinalcalcFacultyAM,
-          formattedFacultyMaxRenderedTimeAM,
-          finalcalcFacultyAM,
-          formattedFacultyRenderedTimeAM,
-          formattedFacultyRenderedTimePM,
-          formattedfinalcalcFacultyPM,
-          formattedFacultyMaxRenderedTimePM,
-          finalcalcFacultyPM,
-          formattedfinalcalcFacultyHN,
-          formattedFacultyRenderedTimeHN,
-          formattedFacultyMaxRenderedTimeHN,
-          formattedfinalcalcFacultySC,
-          formattedFacultyRenderedTimeSC,
-          formattedFacultyMaxRenderedTimeSC,
-          formattedfinalcalcFacultyOT,
-          formattedFacultyRenderedTimeOT,
-          formattedFacultyMaxRenderedTimeOT,
+          formattedFacultyRenderedTimeAM,    formattedFacultyMaxRenderedTimeAM, formattedfinalcalcFacultyAM,
+          formattedFacultyRenderedTimePM,    formattedFacultyMaxRenderedTimePM, formattedfinalcalcFacultyPM,
+          formattedFacultyRenderedTimeHN: hn.rendered, formattedFacultyMaxRenderedTimeHN: hn.maxRendered, formattedfinalcalcFacultyHN: hn.tardiness,
+          formattedFacultyRenderedTimeSC: sc.rendered, formattedFacultyMaxRenderedTimeSC: sc.maxRendered, formattedfinalcalcFacultySC: sc.tardiness,
+          formattedFacultyRenderedTimeOT: ot.rendered, formattedFacultyMaxRenderedTimeOT: ot.maxRendered, formattedfinalcalcFacultyOT: ot.tardiness,
         };
       });
 
       setAttendanceData(processedData);
+
+      // ── Fetch furlough maps ──
+      const [suspRes, leaveRes, holidayRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/attendance/api/suspensions`, { params: { startDate, endDate }, ...getAuthHeaders() }),
+        axios.get(`${API_BASE_URL}/attendance/api/leaves`,      { params: { startDate, endDate }, ...getAuthHeaders() }),
+        axios.get(`${API_BASE_URL}/attendance/api/holiday`,     { params: { startDate, endDate }, ...getAuthHeaders() }),
+      ]);
+      setSuspensionByDate(suspRes.data?.byDate  || {});
+      setLeaveByDate(leaveRes.data?.byDate       || {});
+      setHolidayByDate(holidayRes.data?.byDate   || {});
     } catch (err) {
       console.error("Error fetching attendance data:", err);
       const msg = "Failed to fetch attendance data. Please try again.";
@@ -1034,381 +634,160 @@ const AttendanceModuleFacultyDesignated = () => {
     }
   };
 
-  // ── Total calculations ────────────────────────────────────────────────────
-  const calculateTotalRenderedTimeAM = () => {
-    if (!attendanceData || attendanceData.length === 0) return "00:00:00";
-    let totalSeconds = 0;
-    attendanceData.forEach((row) => {
-      const t =
-        !row.officialTimeIN || !row.breaktimeIN || row.formattedFacultyRenderedTimeAM === "NaN:NaN:NaN"
-          ? "00:00:00"
-          : row.formattedFacultyRenderedTimeAM;
-      const [h, m, s] = t.split(":").map(Number);
-      totalSeconds += h * 3600 + m * 60 + s;
+  // ── Totals ────────────────────────────────────────────────────────────────
+  const sumTime = useCallback((values) => {
+    let total = 0;
+    values.forEach((t) => {
+      if (!t || t === "NaN:NaN:NaN" || t === "—") return;
+      const parts = t.split(":").map(Number);
+      if (parts.length === 3 && parts.every((n) => !isNaN(n))) total += parts[0] * 3600 + parts[1] * 60 + parts[2];
     });
-    const hh = Math.floor(totalSeconds / 3600),
-      mm = Math.floor((totalSeconds % 3600) / 60),
-      ss = totalSeconds % 60;
-    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-  };
+    const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+    return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+  }, []);
 
-  const calculateTotalRenderedTimeTardinessAM = () => {
-    let totalSeconds = 0;
-    attendanceData.forEach((row) => {
-      const t =
-        !row.officialTimeIN || !row.breaktimeIN || row.formattedfinalcalcFacultyAM === "NaN:NaN:NaN"
-          ? row.formattedFacultyMaxRenderedTimeAM
-          : row.formattedfinalcalcFacultyAM;
-      const [h, m, s] = t.split(":").map(Number);
-      totalSeconds += h * 3600 + m * 60 + s;
-    });
-    const hh = Math.floor(totalSeconds / 3600),
-      mm = Math.floor((totalSeconds % 3600) / 60),
-      ss = totalSeconds % 60;
-    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-  };
+  const addTimes = useCallback((a, b) => {
+    const parse = (t) => { const [h,m,s] = (t||"00:00:00").split(":").map(Number); return h*3600+m*60+s; };
+    const total = parse(a) + parse(b);
+    const h = Math.floor(total/3600), m = Math.floor((total%3600)/60), s = total%60;
+    return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+  }, []);
 
-  const calculateTotalRenderedTimePM = () => {
-    if (!attendanceData || attendanceData.length === 0) return "00:00:00";
-    let totalSeconds = 0;
-    attendanceData.forEach((row) => {
-      const t =
-        !row.officialBreaktimeOUT || !row.timeOUT || row.formattedFacultyRenderedTimePM === "NaN:NaN:NaN"
-          ? "00:00:00"
-          : row.formattedFacultyRenderedTimePM;
-      const [h, m, s] = t.split(":").map(Number);
-      totalSeconds += h * 3600 + m * 60 + s;
-    });
-    const hh = Math.floor(totalSeconds / 3600),
-      mm = Math.floor((totalSeconds % 3600) / 60),
-      ss = totalSeconds % 60;
-    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-  };
+  const totals = React.useMemo(() => {
+    if (!attendanceData.length) return {};
+    const morningRendered    = sumTime(attendanceData.map(r => getCellValue(r, "_morningRendered",    Boolean(getStatusLabelForDate(r.date)))));
+    const morningTardiness   = sumTime(attendanceData.map(r => getCellValue(r, "_morningTardiness",   Boolean(getStatusLabelForDate(r.date)))));
+    const afternoonRendered  = sumTime(attendanceData.map(r => getCellValue(r, "_afternoonRendered",  Boolean(getStatusLabelForDate(r.date)))));
+    const afternoonTardiness = sumTime(attendanceData.map(r => getCellValue(r, "_afternoonTardiness", Boolean(getStatusLabelForDate(r.date)))));
+    const overallRendered    = addTimes(morningRendered, afternoonRendered);
+    const overallTardiness   = addTimes(morningTardiness, afternoonTardiness);
+    const hnRendered   = sumTime(attendanceData.map(r => getCellValue(r, "_hnRendered",   Boolean(getStatusLabelForDate(r.date)))));
+    const hnTardiness  = sumTime(attendanceData.map(r => getCellValue(r, "_hnTardiness",  Boolean(getStatusLabelForDate(r.date)))));
+    const scRendered   = sumTime(attendanceData.map(r => getCellValue(r, "_scRendered",   Boolean(getStatusLabelForDate(r.date)))));
+    const scTardiness  = sumTime(attendanceData.map(r => getCellValue(r, "_scTardiness",  Boolean(getStatusLabelForDate(r.date)))));
+    const otRendered   = sumTime(attendanceData.map(r => getCellValue(r, "_otRendered",   Boolean(getStatusLabelForDate(r.date)))));
+    const otTardiness  = sumTime(attendanceData.map(r => getCellValue(r, "_otTardiness",  Boolean(getStatusLabelForDate(r.date)))));
+    return { morningRendered, morningTardiness, afternoonRendered, afternoonTardiness, overallRendered, overallTardiness, hnRendered, hnTardiness, scRendered, scTardiness, otRendered, otTardiness };
+  }, [attendanceData, sumTime, addTimes, getStatusLabelForDate]);
 
-  const calculateTotalRenderedTimeTardinessPM = () => {
-    let totalSeconds = 0;
-    attendanceData.forEach((row) => {
-      const t =
-        !row.officialBreaktimeOUT || !row.timeOUT || row.formattedfinalcalcFacultyPM === "NaN:NaN:NaN"
-          ? row.formattedFacultyMaxRenderedTimePM
-          : row.formattedfinalcalcFacultyPM;
-      const [h, m, s] = t.split(":").map(Number);
-      totalSeconds += h * 3600 + m * 60 + s;
-    });
-    const hh = Math.floor(totalSeconds / 3600),
-      mm = Math.floor((totalSeconds % 3600) / 60),
-      ss = totalSeconds % 60;
-    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-  };
-
-  const totalRenderedDay = (() => {
-    const am = calculateTotalRenderedTimeAM(), pm = calculateTotalRenderedTimePM();
-    const [ah, am2, as2] = am.split(":").map(Number);
-    const [ph, pm2, ps] = pm.split(":").map(Number);
-    let ts = as2 + ps, tm = am2 + pm2 + Math.floor(ts / 60), th = ah + ph + Math.floor(tm / 60);
-    ts = ts % 60; tm = tm % 60;
-    return `${String(th).padStart(2, "0")}:${String(tm).padStart(2, "0")}:${String(ts).padStart(2, "0")}`;
-  })();
-
-  const totalTardinessDay = (() => {
-    const am = calculateTotalRenderedTimeTardinessAM(), pm = calculateTotalRenderedTimeTardinessPM();
-    const [ah, am2, as2] = am.split(":").map(Number);
-    const [ph, pm2, ps] = pm.split(":").map(Number);
-    let ts = as2 + ps, tm = am2 + pm2 + Math.floor(ts / 60), th = ah + ph + Math.floor(tm / 60);
-    ts = ts % 60; tm = tm % 60;
-    return `${String(th).padStart(2, "0")}:${String(tm).padStart(2, "0")}:${String(ts).padStart(2, "0")}`;
-  })();
-
-  const calculateTotalRenderedTimeHN = () => {
-    let totalSeconds = 0;
-    attendanceData.forEach((row) => {
-      const t =
-        !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeHN === "NaN:NaN:NaN"
-          ? "00:00:00"
-          : row.formattedFacultyRenderedTimeHN;
-      const [h, m, s] = t.split(":").map(Number);
-      totalSeconds += h * 3600 + m * 60 + s;
-    });
-    const hh = Math.floor(totalSeconds / 3600), mm = Math.floor((totalSeconds % 3600) / 60), ss = totalSeconds % 60;
-    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-  };
-
-  const calculateTotalRenderedTimeTardinessHN = () => {
-    let totalSeconds = 0;
-    attendanceData.forEach((row) => {
-      const t =
-        !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyHN === "NaN:NaN:NaN"
-          ? row.formattedFacultyMaxRenderedTimeHN
-          : row.formattedfinalcalcFacultyHN;
-      const [h, m, s] = t.split(":").map(Number);
-      totalSeconds += h * 3600 + m * 60 + s;
-    });
-    const hh = Math.floor(totalSeconds / 3600), mm = Math.floor((totalSeconds % 3600) / 60), ss = totalSeconds % 60;
-    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-  };
-
-  const calculateTotalRenderedTimeSC = () => {
-    let totalSeconds = 0;
-    attendanceData.forEach((row) => {
-      const t =
-        !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeSC === "NaN:NaN:NaN"
-          ? "00:00:00"
-          : row.formattedFacultyRenderedTimeSC;
-      const [h, m, s] = t.split(":").map(Number);
-      totalSeconds += h * 3600 + m * 60 + s;
-    });
-    const hh = Math.floor(totalSeconds / 3600), mm = Math.floor((totalSeconds % 3600) / 60), ss = totalSeconds % 60;
-    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-  };
-
-  const calculateTotalRenderedTimeTardinessSC = () => {
-    let totalSeconds = 0;
-    attendanceData.forEach((row) => {
-      const t =
-        !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultySC === "NaN:NaN:NaN"
-          ? row.formattedFacultyMaxRenderedTimeSC
-          : row.formattedfinalcalcFacultySC;
-      const [h, m, s] = t.split(":").map(Number);
-      totalSeconds += h * 3600 + m * 60 + s;
-    });
-    const hh = Math.floor(totalSeconds / 3600), mm = Math.floor((totalSeconds % 3600) / 60), ss = totalSeconds % 60;
-    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-  };
-
-  const calculateTotalRenderedTimeOT = () => {
-    let totalSeconds = 0;
-    attendanceData.forEach((row) => {
-      const t =
-        !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeOT === "NaN:NaN:NaN"
-          ? "00:00:00"
-          : row.formattedFacultyRenderedTimeOT;
-      const [h, m, s] = t.split(":").map(Number);
-      totalSeconds += h * 3600 + m * 60 + s;
-    });
-    const hh = Math.floor(totalSeconds / 3600), mm = Math.floor((totalSeconds % 3600) / 60), ss = totalSeconds % 60;
-    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-  };
-
-  const calculateTotalRenderedTimeTardinessOT = () => {
-    let totalSeconds = 0;
-    attendanceData.forEach((row) => {
-      const t =
-        !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyOT === "NaN:NaN:NaN"
-          ? row.formattedFacultyMaxRenderedTimeOT
-          : row.formattedfinalcalcFacultyOT;
-      const [h, m, s] = t.split(":").map(Number);
-      totalSeconds += h * 3600 + m * 60 + s;
-    });
-    const hh = Math.floor(totalSeconds / 3600), mm = Math.floor((totalSeconds % 3600) / 60), ss = totalSeconds % 60;
-    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+  const getTabTotalsValues = (tab) => {
+    switch (tab) {
+      case "regular":       return [totals.morningRendered, totals.morningTardiness, totals.afternoonRendered, totals.afternoonTardiness];
+      case "honorarium":    return [totals.hnRendered, totals.hnTardiness];
+      case "serviceCredit": return [totals.scRendered, totals.scTardiness];
+      case "overtime":      return [totals.otRendered, totals.otTardiness];
+      default:              return [];
+    }
   };
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const saveOverallAttendance = async () => {
+    setSaving(true);
     try {
-      const dup = await axios.get(
-        `${API_BASE_URL}/attendance/api/overall_attendance_record`,
-        {
-          params: { personID: employeeNumber, startDate, endDate },
-          ...getAuthHeaders(),
-        },
-      );
+      const dup = await axios.get(`${API_BASE_URL}/attendance/api/overall_attendance_record`, { params: { personID: employeeNumber, startDate, endDate }, ...getAuthHeaders() });
       if (dup.data?.data?.length) {
-        alert(
-          `Record for Employee Number ${employeeNumber} covering ${startDate}–${endDate} already exists. Please check Overall Attendance to manage.`,
-        );
-        navigate("/attendance_summary");
+        showSnackbar(`Record for Employee ${employeeNumber} covering ${startDate}–${endDate} already exists.`, "warning");
+        setTimeout(() => navigate("/attendance_summary"), 2500);
         return;
       }
     } catch (e) {
       console.error("Duplicate-check failed:", e);
-      alert("Could not verify duplicates. Saving aborted.");
+      showSnackbar("Could not verify duplicates. Saving aborted.", "error");
+      setSaving(false);
       return;
     }
 
     const record = {
-      personID: employeeNumber,
-      startDate,
-      endDate,
-      totalRenderedTimeMorning: calculateTotalRenderedTimeAM(),
-      totalRenderedTimeMorningTardiness: calculateTotalRenderedTimeTardinessAM(),
-      totalRenderedTimeAfternoon: calculateTotalRenderedTimePM(),
-      totalRenderedTimeAfternoonTardiness: calculateTotalRenderedTimeTardinessPM(),
-      totalRenderedHonorarium: calculateTotalRenderedTimeHN(),
-      totalRenderedHonorariumTardiness: calculateTotalRenderedTimeTardinessHN(),
-      totalRenderedServiceCredit: calculateTotalRenderedTimeSC(),
-      totalRenderedServiceCreditTardiness: calculateTotalRenderedTimeTardinessSC(),
-      totalRenderedOvertime: calculateTotalRenderedTimeOT(),
-      totalRenderedOvertimeTardiness: calculateTotalRenderedTimeTardinessOT(),
-      overallRenderedOfficialTime: totalRenderedDay,
-      overallRenderedOfficialTimeTardiness: totalTardinessDay,
+      personID: employeeNumber, startDate, endDate,
+      totalRenderedTimeMorning:            totals.morningRendered,
+      totalRenderedTimeMorningTardiness:   totals.morningTardiness,
+      totalRenderedTimeAfternoon:          totals.afternoonRendered,
+      totalRenderedTimeAfternoonTardiness: totals.afternoonTardiness,
+      totalRenderedHonorarium:             totals.hnRendered,
+      totalRenderedHonorariumTardiness:    totals.hnTardiness,
+      totalRenderedServiceCredit:          totals.scRendered,
+      totalRenderedServiceCreditTardiness: totals.scTardiness,
+      totalRenderedOvertime:               totals.otRendered,
+      totalRenderedOvertimeTardiness:      totals.otTardiness,
+      overallRenderedOfficialTime:         totals.overallRendered,
+      overallRenderedOfficialTimeTardiness:totals.overallTardiness,
     };
 
     try {
-      const response = await axios.post(
-        `${API_BASE_URL}/attendance/api/overall_attendance`,
-        record,
-        getAuthHeaders(),
-      );
-      showSnackbar(
-        response.data.message || "Attendance record saved successfully!",
-        "success",
-      );
+      const response = await axios.post(`${API_BASE_URL}/attendance/api/overall_attendance`, record, getAuthHeaders());
+      showSnackbar(response.data.message || "Attendance record saved successfully!", "success");
       setTimeout(() => navigate("/attendance_summary"), 1500);
     } catch (err) {
       console.error("Error saving overall attendance:", err);
       showSnackbar("Failed to save attendance record.", "error");
+    } finally {
+      setSaving(false);
     }
   };
 
-  // ── Month / date helpers ──────────────────────────────────────────────────
   const handleMonthClick = (monthIndex) => {
     const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
-    const end = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
+    const end   = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
     setStartDate(start.toISOString().substring(0, 10));
     setEndDate(end.toISOString().substring(0, 10));
     setSelectedMonth(monthIndex);
   };
 
   const handleClearFilters = () => {
-    setEmployeeNumber("");
-    setStartDate("");
-    setEndDate("");
-    setAttendanceData([]);
-    setError("");
-    setSelectedMonth(null);
+    setEmployeeNumber(""); setStartDate(""); setEndDate("");
+    setAttendanceData([]); setError(""); setSelectedMonth(null);
+    setSuspensionByDate({}); setLeaveByDate({}); setHolidayByDate({});
   };
 
-  const exportToExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(attendanceData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Attendance");
-    XLSX.writeFile(wb, `Attendance_${employeeNumber}_${startDate}_${endDate}.xlsx`);
-  };
+  // ── Guards ────────────────────────────────────────────────────────────────
+  if (pageLoading || accessLoading) return <AttendanceDesignatedWireframe accentColor={accentColor} primaryColor={primaryColor} secondaryColor={secondaryColor} />;
+  if (hasAccess === false) return <AccessDenied title="Access Denied" message="You do not have permission to access Attendance Module for Faculty (40 hours/Designated). Contact your administrator to request access." returnPath="/admin-home" returnButtonText="Return to Home" />;
 
-  // ── Wireframe / access guards ─────────────────────────────────────────────
-  if (pageLoading || accessLoading)
-    return (
-      <AttendanceDesignatedWireframe
-        accentColor={accentColor}
-        primaryColor={primaryColor}
-        secondaryColor={secondaryColor}
-      />
-    );
-
-  if (hasAccess === false)
-    return (
-      <AccessDenied
-        title="Access Denied"
-        message="You do not have permission to access Attendance Module for Faculty (40 hours/Designated). Contact your administrator to request access."
-        returnPath="/admin-home"
-        returnButtonText="Return to Home"
-      />
-    );
+  const columns      = TAB_COLUMNS[activeTab];
+  const tabTotals    = getTabTotalsValues(activeTab);
+  const calcColCount = columns.filter((c) => c.accent || c.accentDark).length;
+  const nonCalcCount = columns.length - calcColCount;
 
   // ─────────────────────────────────────────────
   // RENDER
   // ─────────────────────────────────────────────
   return (
     <Fade in timeout={500}>
-      <Box
-        sx={{
-          py: { xs: 2, md: 4 },
-          width: "100vw",
-          mx: "auto",
-          maxWidth: "100%",
-          overflow: "hidden",
-          position: "relative",
-          left: "53%",
-          transform: "translateX(-51%)",
-          px: { xs: 2, sm: 3, md: 6 },
-        }}
-      >
-        {/* ── Snackbar ── */}
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={6000}
-          onClose={handleCloseSnackbar}
-          anchorOrigin={{ vertical: "top", horizontal: "center" }}
-        >
-          <Alert
-            onClose={handleCloseSnackbar}
-            severity={snackbar.severity}
-            variant="filled"
-            sx={{
-              width: "100%",
-              fontWeight: 600,
-              backgroundColor: snackbar.severity === "success" ? "#4caf50" : undefined,
-              color: snackbar.severity === "success" ? "#ffffff" : undefined,
-              "& .MuiAlert-icon": {
-                color: snackbar.severity === "success" ? "#ffffff" : undefined,
-              },
-            }}
-          >
+      <Box sx={{
+        py: { xs: 2, md: 4 },
+        width: "100vw", mx: "auto", maxWidth: "100%",
+        overflow: "hidden", position: "relative",
+        left: "53%", transform: "translateX(-51%)",
+        px: { xs: 2, sm: 3, md: 6 },
+        pb: attendanceData.length > 0 ? "160px" : undefined,
+      }}>
+
+        {/* Snackbar */}
+        <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: "top", horizontal: "center" }}>
+          <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled" sx={{ width: "100%", fontWeight: 600 }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <span>{snackbar.message}</span>
               {snackbar.open && snackbarCountdown > 0 && (
-                <Chip
-                  label={`${snackbarCountdown}s`}
-                  size="small"
-                  sx={{
-                    backgroundColor: snackbar.severity === "success" ? "rgba(255,255,255,0.3)" : undefined,
-                    color: snackbar.severity === "success" ? "#ffffff" : undefined,
-                    fontWeight: 700,
-                  }}
-                />
+                <Chip label={`${snackbarCountdown}s`} size="small" sx={{ bgcolor: "rgba(255,255,255,0.3)", color: "#fff", fontWeight: 700 }} />
               )}
             </Box>
           </Alert>
         </Snackbar>
 
-
-        {/* ── Hero Header ── */}
+        {/* Hero Header */}
         <Fade in timeout={500}>
           <Box sx={{ mb: 4 }}>
-            <GlassCard
-              sx={{
-                background: `rgba(${hexToRgb(primaryColor)},0.95)`,
-                boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-                "&:hover": { boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}` },
-              }}
-            >
-              <Box
-                sx={{
-                  p: 5,
-                  background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`,
-                  color: textPrimaryColor,
-                  position: "relative",
-                  overflow: "hidden",
-                }}
-              >
-                <Box
-                  sx={{
-                    position: "absolute", top: -50, right: -50, width: 200, height: 200,
-                    background: `radial-gradient(circle,${alpha(accentColor, 0.1)} 0%,${alpha(accentColor, 0)} 70%)`,
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: "absolute", bottom: -30, left: "30%", width: 150, height: 150,
-                    background: `radial-gradient(circle,${alpha(accentColor, 0.08)} 0%,${alpha(accentColor, 0)} 70%)`,
-                  }}
-                />
+            <GlassCard sx={{ background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
+              <Box sx={{ p: 5, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, position: "relative", overflow: "hidden" }}>
+                <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle,${alpha(accentColor,0.1)} 0%,transparent 70%)` }} />
+                <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, background: `radial-gradient(circle,${alpha(accentColor,0.08)} 0%,transparent 70%)` }} />
                 <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
                   <Box display="flex" alignItems="center">
-                    <Avatar
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.15), mr: 4, width: 64, height: 64,
-                        boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`,
-                      }}
-                    >
+                    <Avatar sx={{ bgcolor: alpha(accentColor,0.15), mr: 4, width: 64, height: 64, boxShadow: `0 8px 24px ${alpha(accentColor,0.15)}` }}>
                       <WorkHistory sx={{ color: textPrimaryColor, fontSize: 32 }} />
                     </Avatar>
                     <Box>
-                      <Typography variant="h4" component="h1"
-                        sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}
-                      >
+                      <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}>
                         Attendance Records for Designated (40hrs)
                       </Typography>
                       <Typography variant="body1" sx={{ opacity: 0.8, color: textPrimaryColor }}>
@@ -1417,25 +796,9 @@ const AttendanceModuleFacultyDesignated = () => {
                     </Box>
                   </Box>
                   <Box display="flex" alignItems="center" gap={2}>
-                    <Chip
-                      label="Designated (40hrs)"
-                      size="small"
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.15), color: textPrimaryColor,
-                        fontWeight: 500, "& .MuiChip-label": { px: 1 },
-                      }}
-                    />
+                    <Chip label="Designated (40hrs)" size="small" sx={{ bgcolor: alpha(accentColor,0.15), color: textPrimaryColor, fontWeight: 500 }} />
                     <Tooltip title="Refresh Data">
-                      <IconButton
-                        onClick={handleSubmit}
-                        disabled={!employeeNumber || !startDate || !endDate}
-                        sx={{
-                          bgcolor: alpha(accentColor, 0.1),
-                          "&:hover": { bgcolor: alpha(accentColor, 0.2) },
-                          color: textPrimaryColor, width: 48, height: 48,
-                          "&:disabled": { bgcolor: alpha(accentColor, 0.05), color: alpha(accentColor, 0.3) },
-                        }}
-                      >
+                      <IconButton onClick={handleSubmit} disabled={!employeeNumber || !startDate || !endDate} sx={{ bgcolor: alpha(accentColor,0.1), "&:hover": { bgcolor: alpha(accentColor,0.2) }, color: textPrimaryColor, width: 48, height: 48 }}>
                         <Refresh />
                       </IconButton>
                     </Tooltip>
@@ -1446,131 +809,45 @@ const AttendanceModuleFacultyDesignated = () => {
           </Box>
         </Fade>
 
-        {/* ── Controls Card ── */}
+        {/* Controls Card */}
         <Fade in timeout={700}>
-          <GlassCard
-            sx={{
-              mb: 4,
-              background: `rgba(${hexToRgb(primaryColor)},0.95)`,
-              boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-              border: `1px solid ${alpha(accentColor, 0.1)}`,
-              "&:hover": { boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}` },
-            }}
-          >
+          <GlassCard sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
             <CardContent sx={{ p: 4, "&:last-child": { pb: 4 } }}>
-              {/* Input fields */}
               <Box sx={{ display: "flex", gap: 2, mb: 3, flexWrap: "wrap" }}>
                 {[
-                  {
-                    label: "Employee Number", value: employeeNumber,
-                    onChange: (e) => setEmployeeNumber(e.target.value),
-                    type: "text", icon: <Person sx={{ color: textPrimaryColor }} />,
-                  },
-                  {
-                    label: "Start Date", value: startDate,
-                    onChange: (e) => setStartDate(e.target.value),
-                    type: "date", icon: <CalendarToday sx={{ color: textPrimaryColor }} />,
-                  },
-                  {
-                    label: "End Date", value: endDate,
-                    onChange: (e) => setEndDate(e.target.value),
-                    type: "date", icon: <CalendarToday sx={{ color: textPrimaryColor }} />,
-                  },
+                  { label: "Employee Number", value: employeeNumber, onChange: (e) => setEmployeeNumber(e.target.value), type: "text", icon: <Person sx={{ color: textPrimaryColor }} /> },
+                  { label: "Start Date",       value: startDate,      onChange: (e) => setStartDate(e.target.value),      type: "date", icon: <CalendarToday sx={{ color: textPrimaryColor }} /> },
+                  { label: "End Date",         value: endDate,        onChange: (e) => setEndDate(e.target.value),        type: "date", icon: <CalendarToday sx={{ color: textPrimaryColor }} /> },
                 ].map(({ label, value, onChange, type, icon }) => (
                   <Box key={label} sx={{ flex: 1, minWidth: 160 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}>
-                      {label}
-                    </Typography>
-                    <ModernTextField
-                      type={type}
-                      value={value}
-                      onChange={onChange}
-                      required
-                      InputLabelProps={type === "date" ? { shrink: true } : {}}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">{icon}</InputAdornment>
-                        ),
-                      }}
-                      fullWidth
-                    />
+                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}>{label}</Typography>
+                    <ModernTextField type={type} value={value} onChange={onChange} required InputLabelProps={type === "date" ? { shrink: true } : {}} InputProps={{ startAdornment: <InputAdornment position="start">{icon}</InputAdornment> }} fullWidth />
                   </Box>
                 ))}
               </Box>
 
-              <Divider sx={{ my: 3, borderColor: alpha(accentColor, 0.1) }} />
+              <Divider sx={{ my: 3, borderColor: alpha(accentColor,0.1) }} />
 
-              {/* Month picker */}
               <Box sx={{ mb: 4 }}>
-                <Box
-                  sx={{
-                    p: 3, borderRadius: 2,
-                    border: `2px dashed ${alpha(accentColor, 0.2)}`,
-                    backgroundColor: alpha(primaryColor, 0.3),
-                  }}
-                >
-                  <Box
-                    sx={{
-                      display: "flex",
-                      flexDirection: { xs: "column", sm: "row" },
-                      alignItems: { xs: "flex-start", sm: "center" },
-                      justifyContent: "space-between",
-                      gap: 2, mb: 2,
-                    }}
-                  >
+                <Box sx={{ p: 3, borderRadius: 2, border: `2px dashed ${alpha(accentColor,0.2)}`, backgroundColor: alpha(primaryColor,0.3) }}>
+                  <Box sx={{ display: "flex", flexDirection: { xs: "column", sm: "row" }, alignItems: { xs: "flex-start", sm: "center" }, justifyContent: "space-between", gap: 2, mb: 2 }}>
                     <Box>
-                      <Typography variant="subtitle1" sx={{ color: textPrimaryColor, fontWeight: 600, mb: 0.5 }}>
-                        Select Entire Month
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: alpha(textPrimaryColor, 0.7) }}>
-                        Choose a year, then click any month to view records for that entire month
-                      </Typography>
+                      <Typography variant="subtitle1" sx={{ color: textPrimaryColor, fontWeight: 600, mb: 0.5 }}>Select Entire Month</Typography>
+                      <Typography variant="body2" sx={{ color: alpha(textPrimaryColor,0.7) }}>Choose a year, then click any month to view records for that entire month</Typography>
                     </Box>
                     <FormControl sx={{ minWidth: 140 }}>
                       <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>
-                      <Select
-                        value={selectedYear}
-                        label="Year"
-                        onChange={(e) => {
-                          setSelectedYear(e.target.value);
-                          setSelectedMonth(null);
-                          showSnackbar("Year changed — please click a month to load records.", "info");
-                        }}
-                        sx={{
-                          backgroundColor: "white",
-                          "& .MuiOutlinedInput-notchedOutline": { borderColor: accentColor },
-                          borderRadius: 2, fontWeight: 600,
-                        }}
-                      >
-                        {yearOptions.map((y) => (
-                          <MenuItem key={y} value={y}>{y}</MenuItem>
-                        ))}
+                      <Select value={selectedYear} label="Year" onChange={(e) => { setSelectedYear(e.target.value); setSelectedMonth(null); showSnackbar("Year changed — please click a month.", "info"); }} sx={{ backgroundColor: "white", borderRadius: 2, fontWeight: 600 }}>
+                        {yearOptions.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
                       </Select>
                     </FormControl>
                   </Box>
-
                   <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, justifyContent: "center" }}>
                     {months.map((month, index) => {
                       const sel = selectedMonth === index;
                       return (
-                        <ProfessionalButton
-                          key={month}
-                          variant={sel ? "contained" : "outlined"}
-                          size="medium"
-                          onClick={() => handleMonthClick(index)}
-                          sx={{
-                            borderColor: accentColor,
-                            backgroundColor: sel ? accentColor : "transparent",
-                            color: sel ? textSecondaryColor : textPrimaryColor,
-                            py: 1.5, px: 4.5, fontWeight: 600,
-                            "&:hover": {
-                              backgroundColor: sel ? accentDark : alpha(accentColor, 0.1),
-                              borderWidth: 2,
-                            },
-                            transition: "all 0.3s ease",
-                            boxShadow: sel ? `0 4px 12px ${alpha(accentColor, 0.3)}` : "none",
-                          }}
-                        >
+                        <ProfessionalButton key={month} variant={sel ? "contained" : "outlined"} size="medium" onClick={() => handleMonthClick(index)}
+                          sx={{ borderColor: accentColor, backgroundColor: sel ? accentColor : "transparent", color: sel ? textSecondaryColor : textPrimaryColor, py: 1.5, px: 4.5, fontWeight: 600, boxShadow: sel ? `0 4px 12px ${alpha(accentColor,0.3)}` : "none" }}>
                           {month}
                         </ProfessionalButton>
                       );
@@ -1579,34 +856,11 @@ const AttendanceModuleFacultyDesignated = () => {
                 </Box>
               </Box>
 
-              {/* Action buttons */}
-              <Box
-                sx={{
-                  display: "flex", justifyContent: "space-between",
-                  alignItems: "center", mt: 3, flexWrap: "wrap", gap: 2,
-                }}
-              >
-                <ProfessionalButton
-                  variant="outlined"
-                  startIcon={<Clear />}
-                  onClick={handleClearFilters}
-                  sx={{
-                    borderColor: "#d32f2f", color: "#d32f2f",
-                    "&:hover": { borderColor: "#b71c1c", backgroundColor: alpha("#d32f2f", 0.05) },
-                  }}
-                >
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 3, flexWrap: "wrap", gap: 2 }}>
+                <ProfessionalButton variant="outlined" startIcon={<Clear />} onClick={handleClearFilters} sx={{ borderColor: "#d32f2f", color: "#d32f2f", "&:hover": { borderColor: "#b71c1c", backgroundColor: alpha("#d32f2f",0.05) } }}>
                   Clear All Filters
                 </ProfessionalButton>
-                <ProfessionalButton
-                  variant="contained"
-                  startIcon={<Refresh />}
-                  onClick={handleSubmit}
-                  disabled={!employeeNumber || !startDate || !endDate}
-                  sx={{
-                    py: 1.5, px: 4, bgcolor: accentColor, color: primaryColor,
-                    fontSize: "1rem", "&:hover": { bgcolor: accentDark },
-                  }}
-                >
+                <ProfessionalButton variant="contained" startIcon={<Refresh />} onClick={handleSubmit} disabled={!employeeNumber || !startDate || !endDate} sx={{ py: 1.5, px: 4, bgcolor: accentColor, color: primaryColor, fontSize: "1rem", "&:hover": { bgcolor: accentDark } }}>
                   Search Records
                 </ProfessionalButton>
               </Box>
@@ -1616,267 +870,172 @@ const AttendanceModuleFacultyDesignated = () => {
 
         {error && (
           <Fade in timeout={300}>
-            <Alert
-              severity="error"
-              sx={{ mb: 3, borderRadius: 3, "& .MuiAlert-message": { fontWeight: 500 } }}
-              onClose={() => setError("")}
-            >
-              {error}
-            </Alert>
+            <Alert severity="error" sx={{ mb: 3, borderRadius: 3 }} onClose={() => setError("")}>{error}</Alert>
           </Fade>
         )}
 
-        {/* ── Results Table ── */}
+        {/* Results Table */}
         {attendanceData.length > 0 && (
           <Fade in={!loading} timeout={500}>
-            {/* Auto-scroll anchor */}
-            <GlassCard
-              ref={resultsRef}
-              sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}
-            >
-              <Box
-                sx={{
-                  p: 4,
-                  background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`,
-                  color: accentColor,
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                }}
-              >
+            <GlassCard ref={resultsRef} sx={{ mb: 17, border: `1px solid ${alpha(accentColor,0.1)}` }}>
+
+              {/* Banner */}
+              <Box sx={{ p: 4, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <Box>
-                  <Typography
-                    variant="body2"
-                    sx={{ opacity: 0.8, mb: 1, textTransform: "uppercase", letterSpacing: "0.1em", color: accentDark }}
-                  >
-                    Designated (40hrs) Attendance Records
-                  </Typography>
-                  <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: accentColor }}>
-                    <b>{employeeNumber}</b>
-                  </Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.8, mb: 1, textTransform: "uppercase", letterSpacing: "0.1em", color: accentDark }}>Designated (40hrs) Attendance Records</Typography>
+                  <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: accentColor }}><b>{employeeNumber}</b></Typography>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 2 }}>
-                    <Chip
-                      icon={<WorkHistory />}
-                      label={`${attendanceData.length} Records`}
-                      size="small"
-                      sx={{ bgcolor: alpha(accentColor, 0.15), color: accentColor, fontWeight: 500 }}
-                    />
-                    <Typography variant="body2" sx={{ opacity: 0.8, color: accentDark }}>
-                      {startDate} to {endDate}
-                    </Typography>
+                    <Chip icon={<WorkHistory />} label={`${attendanceData.length} Records`} size="small" sx={{ bgcolor: alpha(accentColor,0.15), color: accentColor, fontWeight: 500 }} />
+                    <Typography variant="body2" sx={{ opacity: 0.8, color: accentDark }}>{startDate} to {endDate}</Typography>
                   </Box>
                 </Box>
-                <Avatar sx={{ bgcolor: alpha(accentColor, 0.15), width: 80, height: 80, color: accentColor }}>
+                <Avatar sx={{ bgcolor: alpha(accentColor,0.15), width: 80, height: 80, color: accentColor }}>
                   <WorkHistory sx={{ fontSize: 36 }} />
                 </Avatar>
               </Box>
 
-              <PremiumTableContainer sx={{ mt: 3 }}>
-                <Box sx={{ overflowX: "auto" }}>
-                  <Table sx={{ minWidth: 1800 }}>
-                    <TableHead sx={{ bgcolor: alpha(primaryColor, 0.7) }}>
-                      <TableRow>
-                        {[
-                          { label: "Date", minWidth: 150, bg: null },
-                          { label: "Day", minWidth: 100, bg: alpha(primaryColor, 0.5) },
-                          { label: "Time IN", minWidth: 150, bg: null },
-                          { label: "Official Time IN", minWidth: 120, bg: alpha(primaryColor, 0.5) },
-                          { label: "Breaktime IN", minWidth: 150, bg: null },
-                          { label: "Official Breaktime IN", minWidth: 120, bg: alpha(primaryColor, 0.5) },
-                          { label: "Official Time (MORNING) Rendered Time", minWidth: 100, bg: alpha(accentColor, 0.2) },
-                          { label: "Tardiness (MORNING)", minWidth: 100, bg: alpha(accentColor, 0.3) },
-                          { label: "Breaktime OUT", minWidth: 120, bg: null },
-                          { label: "Official Breaktime OUT", minWidth: 120, bg: alpha(primaryColor, 0.5) },
-                          { label: "Time OUT", minWidth: 120, bg: null },
-                          { label: "Official Time OUT", minWidth: 120, bg: alpha(primaryColor, 0.5) },
-                          { label: "Official Time (AFTERNOON) Rendered Time", minWidth: 100, bg: alpha(accentColor, 0.2) },
-                          { label: "TARDINESS (AFTERNOON)", minWidth: 100, bg: alpha(accentColor, 0.3) },
-                          { label: "Honorarium Time IN", minWidth: 140, bg: null },
-                          { label: "OFFICIAL Honorarium Time IN", minWidth: 120, bg: alpha(primaryColor, 0.5) },
-                          { label: "Honorarium Time OUT", minWidth: 150, bg: null },
-                          { label: "OFFICIAL Honorarium Time OUT", minWidth: 120, bg: alpha(primaryColor, 0.5) },
-                          { label: "Honorarium Rendered Time", minWidth: 100, bg: alpha(accentColor, 0.2) },
-                          { label: "TARDINESS (HONORARIUM)", minWidth: 100, bg: alpha(accentColor, 0.3) },
-                          { label: "Service Credit Time IN", minWidth: 160, bg: null },
-                          { label: "OFFICIAL Service Credit Time IN", minWidth: 120, bg: alpha(primaryColor, 0.5) },
-                          { label: "Service Credit Time OUT", minWidth: 170, bg: null },
-                          { label: "OFFICIAL Service Credit Time OUT", minWidth: 120, bg: alpha(primaryColor, 0.5) },
-                          { label: "Service Credit Rendered Time", minWidth: 100, bg: alpha(accentColor, 0.2) },
-                          { label: "TARDINESS (SERVICE CREDIT)", minWidth: 100, bg: alpha(accentColor, 0.3) },
-                          { label: "Overtime Time IN", minWidth: 130, bg: null },
-                          { label: "OFFICIAL Overtime Time IN", minWidth: 120, bg: alpha(primaryColor, 0.5) },
-                          { label: "Overtime Time OUT", minWidth: 140, bg: null },
-                          { label: "OFFICIAL Overtime Time OUT", minWidth: 120, bg: alpha(primaryColor, 0.5) },
-                          { label: "Overtime Rendered Time", minWidth: 100, bg: alpha(accentColor, 0.2) },
-                          { label: "TARDINESS (OVERTIME)", minWidth: 100, bg: alpha(accentColor, 0.3) },
-                        ].map(({ label, minWidth, bg }) => (
-                          <PremiumTableCell key={label} isHeader bgColor={bg} sx={{ color: accentColor, minWidth }}>
-                            {label}
-                          </PremiumTableCell>
-                        ))}
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {attendanceData.map((row, index) => (
-                        <TableRow
-                          key={index}
-                          sx={{
-                            "&:nth-of-type(even)": { bgcolor: alpha(primaryColor, 0.3) },
-                            "&:hover": { bgcolor: alpha(accentColor, 0.05) },
-                            transition: "all 0.2s ease",
-                          }}
-                        >
-                          <PremiumTableCell sx={{ fontWeight: "bold", textAlign: "center" }}>{row.date}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.day}</PremiumTableCell>
-                          <PremiumTableCell>{row.timeIN}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.officialTimeIN}</PremiumTableCell>
-                          <PremiumTableCell>{row.timeIN ? row.breaktimeIN : ""}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.timeIN ? row.officialBreaktimeIN : ""}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeIN || !row.breaktimeIN || row.formattedFacultyRenderedTimeAM === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeAM}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeIN || !row.breaktimeIN || row.formattedfinalcalcFacultyAM === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTimeAM : row.formattedfinalcalcFacultyAM}
-                          </PremiumTableCell>
-                          <PremiumTableCell>{row.timeOUT ? row.breaktimeOUT : ""}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.timeOUT ? row.officialBreaktimeOUT : ""}</PremiumTableCell>
-                          <PremiumTableCell>{row.timeOUT}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.officialTimeOUT}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialBreaktimeOUT || !row.timeOUT || row.formattedFacultyRenderedTimePM === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimePM}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialBreaktimeOUT || !row.timeOUT || row.formattedfinalcalcFacultyPM === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTimePM : row.formattedfinalcalcFacultyPM}
-                          </PremiumTableCell>
-                          <PremiumTableCell>{row.officialHonorariumTimeIN === "00:00:00 AM" ? "N/A" : row.timeIN}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {row.officialHonorariumTimeIN === "00:00:00 AM" ? "N/A" : row.officialHonorariumTimeIN}
-                          </PremiumTableCell>
-                          <PremiumTableCell>{row.officialHonorariumTimeOUT === "00:00:00 AM" ? "N/A" : row.timeOUT}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {row.officialHonorariumTimeOUT === "00:00:00 AM" ? "N/A" : row.officialHonorariumTimeOUT}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeHN === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeHN}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyHN === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTimeHN : row.formattedfinalcalcFacultyHN}
-                          </PremiumTableCell>
-                          <PremiumTableCell>{row.officialServiceCreditTimeIN === "00:00:00 AM" ? "N/A" : row.timeIN}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {row.officialServiceCreditTimeIN === "00:00:00 AM" ? "N/A" : row.officialServiceCreditTimeIN}
-                          </PremiumTableCell>
-                          <PremiumTableCell>{row.officialServiceCreditTimeOUT === "00:00:00 AM" ? "N/A" : row.timeOUT}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {row.officialServiceCreditTimeOUT === "00:00:00 AM" ? "N/A" : row.officialServiceCreditTimeOUT}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeSC || !row.timeOUT || row.formattedFacultyRenderedTimeSC === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeSC}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultySC === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTimeSC : row.formattedfinalcalcFacultySC}
-                          </PremiumTableCell>
-                          <PremiumTableCell>{row.officialOverTimeIN === "00:00:00 AM" ? "N/A" : row.timeIN}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {row.officialOverTimeIN === "00:00:00 AM" ? "N/A" : row.officialOverTimeIN}
-                          </PremiumTableCell>
-                          <PremiumTableCell>{row.officialOverTimeOUT === "00:00:00 AM" ? "N/A" : row.timeOUT}</PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {row.officialOverTimeOUT === "00:00:00 AM" ? "N/A" : row.officialOverTimeOUT}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeOT === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeOT}
-                          </PremiumTableCell>
-                          <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                            {!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyOT === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTimeOT : row.formattedfinalcalcFacultyOT}
-                          </PremiumTableCell>
-                        </TableRow>
-                      ))}
-
-                      {/* Totals row */}
-                      <TableRow>
-                        <PremiumTableCell colSpan={6} sx={{ fontWeight: "bold", textAlign: "right" }}>Total Rendered Time (Morning):</PremiumTableCell>
-                        <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>{calculateTotalRenderedTimeAM()}</PremiumTableCell>
-                        <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>{calculateTotalRenderedTimeTardinessAM()}</PremiumTableCell>
-                        <PremiumTableCell colSpan={4} sx={{ fontWeight: "bold", textAlign: "right" }}>Total Rendered Time (Afternoon):</PremiumTableCell>
-                        <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>{calculateTotalRenderedTimePM()}</PremiumTableCell>
-                        <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>{calculateTotalRenderedTimeTardinessPM()}</PremiumTableCell>
-                        <PremiumTableCell colSpan={4} sx={{ fontWeight: "bold", textAlign: "right" }}>Total Rendered Time (Honorarium):</PremiumTableCell>
-                        <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>{calculateTotalRenderedTimeHN()}</PremiumTableCell>
-                        <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>{calculateTotalRenderedTimeTardinessHN()}</PremiumTableCell>
-                        <PremiumTableCell colSpan={4} sx={{ fontWeight: "bold", textAlign: "right" }}>Total Rendered Time (Service Credit):</PremiumTableCell>
-                        <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>{calculateTotalRenderedTimeSC()}</PremiumTableCell>
-                        <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>{calculateTotalRenderedTimeTardinessSC()}</PremiumTableCell>
-                        <PremiumTableCell colSpan={4} sx={{ fontWeight: "bold", textAlign: "right" }}>Total Rendered Time (Overtime):</PremiumTableCell>
-                        <PremiumTableCell bgColor={alpha(accentColor, 0.2)} sx={{ fontWeight: "bold", textAlign: "center" }}>{calculateTotalRenderedTimeOT()}</PremiumTableCell>
-                        <PremiumTableCell bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "center" }}>{calculateTotalRenderedTimeTardinessOT()}</PremiumTableCell>
-                      </TableRow>
-
-                      {/* Overall summary row */}
-                      <TableRow>
-                        <PremiumTableCell colSpan={2} sx={{ fontWeight: "bold", textAlign: "right" }}>
-                          Overall Rendered Time<br />{startDate} to {endDate}:
-                        </PremiumTableCell>
-                        <PremiumTableCell colSpan={3} bgColor={alpha(primaryColor, 0.5)} sx={{ fontWeight: "bold", textAlign: "left" }}>
-                          {totalRenderedDay}
-                        </PremiumTableCell>
-                        <PremiumTableCell colSpan={2} sx={{ fontWeight: "bold", textAlign: "right" }}>
-                          Overall Tardiness Official Time<br />{startDate} to {endDate}:
-                        </PremiumTableCell>
-                        <PremiumTableCell colSpan={2} bgColor={alpha(accentColor, 0.3)} sx={{ fontWeight: "bold", textAlign: "left" }}>
-                          {totalTardinessDay}
-                        </PremiumTableCell>
-                      </TableRow>
-                    </TableBody>
-                  </Table>
+              {/* Tab switcher */}
+              <Box sx={{ px: 3, pt: 2.5 }}>
+                <Box sx={{ display: "flex", border: `1px solid ${alpha(accentColor, 0.22)}`, borderRadius: 1.5, overflow: "hidden", mb: 2.5 }}>
+                  {VIEW_TABS.map(({ key, label, icon }, i, arr) => (
+                    <Button
+                      key={key}
+                      onClick={() => setActiveTab(key)}
+                      startIcon={icon}
+                      disableElevation
+                      fullWidth
+                      sx={{
+                        borderRadius: 0, textTransform: "none",
+                        fontWeight: activeTab === key ? 700 : 500,
+                        fontSize: "0.84rem", py: 1.1,
+                        bgcolor: activeTab === key ? accentColor : "transparent",
+                        color: activeTab === key ? "#fff" : textPrimaryColor,
+                        borderRight: i < arr.length - 1 ? `1px solid ${alpha(accentColor, 0.2)}` : "none",
+                        transition: "all 0.2s ease",
+                        "&:hover": { bgcolor: activeTab === key ? accentDark : alpha(accentColor, 0.08) },
+                      }}
+                    >
+                      {label}
+                    </Button>
+                  ))}
                 </Box>
-              </PremiumTableContainer>
+              </Box>
+
+              {/* Table */}
+              <Box sx={{ px: 3, pb: 3 }}>
+                <Box sx={{ position: "relative", borderRadius: 2, border: `1px solid ${alpha(accentColor, 0.1)}`, overflow: "hidden" }}>
+                  <Box
+                    ref={tableBodyRef}
+                    sx={{
+                      overflowX: "auto", overflowY: "auto", maxHeight: 520,
+                      scrollbarWidth: "thin",
+                      "&::-webkit-scrollbar": { height: 6, width: 6 },
+                      "&::-webkit-scrollbar-track": { background: "rgba(254,249,225,0.3)", borderRadius: 4 },
+                      "&::-webkit-scrollbar-thumb": { background: "rgba(109,35,35,0.4)", borderRadius: 4 },
+                    }}
+                  >
+                    <Table sx={{ minWidth: columns.reduce((s, c) => s + (c.minWidth || 120), 0) }}>
+                      <TableHead>
+                        <TableRow>
+                          {columns.map(({ label, minWidth, altBg, accent, accentDark: adk }) => {
+                            const bg = accent ? alpha(accentColor, 0.22) : adk ? alpha(accentColor, 0.32) : altBg ? alpha(primaryColor, 0.85) : alpha(primaryColor, 0.92);
+                            return (
+                              <PremiumTableCell key={label} isHeader bgColor={bg} sx={{ color: accentColor, minWidth: minWidth || 120, position: "sticky", top: 0, zIndex: 2, bgcolor: bg }}>
+                                {label}
+                              </PremiumTableCell>
+                            );
+                          })}
+                        </TableRow>
+                      </TableHead>
+
+                      <TableBody>
+                        {attendanceData.map((row, ri) => {
+                          const statusLabel = getStatusLabelForDate(row.date);
+                          const isFurlough  = Boolean(statusLabel);
+                          return (
+                            <TableRow key={ri} sx={{ "&:nth-of-type(even)": { bgcolor: alpha(primaryColor, 0.3) }, "&:hover": { bgcolor: alpha(accentColor, 0.05) }, transition: "all 0.15s ease" }}>
+                              {columns.map(({ key, bold, altBg, accent: ac2, accentDark: adk2 }) => {
+                                const cellBg = ac2 ? alpha(accentColor, 0.1) : adk2 ? alpha(accentColor, 0.18) : altBg ? alpha(primaryColor, 0.45) : null;
+                                if (key === "date") {
+                                  return (
+                                    <PremiumTableCell key={key} bgColor={cellBg} sx={{ fontWeight: bold ? 700 : 500, textAlign: "center" }}>
+                                      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
+                                        <span>{row.date}</span>
+                                        {statusLabel && (
+                                          <Chip size="small" label={statusLabel} sx={{ mt: 0.5, fontWeight: 700, fontSize: "0.70rem", height: 20, ...getStatusStyle(statusLabel) }} />
+                                        )}
+                                      </Box>
+                                    </PremiumTableCell>
+                                  );
+                                }
+                                return (
+                                  <PremiumTableCell key={key} bgColor={cellBg} sx={{ fontWeight: bold ? 700 : 500, textAlign: (bold || ac2 || adk2) ? "center" : "left" }}>
+                                    {getCellValue(row, key, isFurlough)}
+                                  </PremiumTableCell>
+                                );
+                              })}
+                            </TableRow>
+                          );
+                        })}
+
+                        {/* Totals row */}
+                        <TableRow sx={{ bgcolor: alpha(accentColor, 0.07), borderTop: `2px solid ${alpha(accentColor, 0.2)}` }}>
+                          {columns.map(({ key, accent: ac2, accentDark: adk2 }, ci) => {
+                            if (ci === 0) {
+                              return (
+                                <PremiumTableCell key={key} colSpan={nonCalcCount} sx={{ fontWeight: 700, textAlign: "right", color: accentColor, fontSize: "0.8rem", pr: 2 }}>
+                                  TOTAL FOR PERIOD
+                                </PremiumTableCell>
+                              );
+                            }
+                            if (ci < nonCalcCount) return null;
+                            const totalIdx = ci - nonCalcCount;
+                            const bg = ac2 ? alpha(accentColor, 0.22) : adk2 ? alpha(accentColor, 0.32) : null;
+                            return (
+                              <PremiumTableCell key={key} bgColor={bg} sx={{ fontWeight: 800, textAlign: "center", fontFamily: "monospace", fontSize: "0.9rem", color: accentColor }}>
+                                {tabTotals[totalIdx] || "00:00:00"}
+                              </PremiumTableCell>
+                            );
+                          })}
+                        </TableRow>
+
+                        {/* Overall row — only on Regular tab */}
+                        {activeTab === "regular" && (
+                          <TableRow sx={{ bgcolor: alpha(accentColor, 0.12) }}>
+                            <PremiumTableCell
+                              colSpan={nonCalcCount + (calcColCount - 2)}
+                              sx={{ fontWeight: 700, textAlign: "right", color: accentColor, fontSize: "0.8rem", pr: 2 }}
+                            >
+                              OVERALL RENDERED — {startDate} → {endDate}
+                            </PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(accentColor, 0.22)} sx={{ fontWeight: 900, textAlign: "center", fontFamily: "monospace", fontSize: "1rem", color: accentColor }}>
+                              {totals.overallRendered}
+                            </PremiumTableCell>
+                            <PremiumTableCell bgColor={alpha(accentColor, 0.32)} sx={{ fontWeight: 900, textAlign: "center", fontFamily: "monospace", fontSize: "1rem", color: accentColor }}>
+                              {totals.overallTardiness}
+                            </PremiumTableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </Box>
+                </Box>
+              </Box>
             </GlassCard>
           </Fade>
         )}
 
-        {/* ── Save Button Card ── */}
-        {attendanceData.length > 0 && (
-          <Fade in timeout={900}>
-            <GlassCard
-              sx={{
-                background: `rgba(${hexToRgb(primaryColor)},0.95)`,
-                boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-              }}
-            >
-              <CardHeader
-                title={
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                    <Avatar sx={{ bgcolor: alpha(primaryColor, 0.8), color: accentColor }}>
-                      <SaveAs />
-                    </Avatar>
-                    <Typography variant="body2" sx={{ color: accentDark }}>
-                      Save the computed overall attendance record to the database
-                    </Typography>
-                  </Box>
-                }
-                sx={{
-                  bgcolor: alpha(primaryColor, 0.5), pb: 2,
-                  borderBottom: `1px solid ${alpha(accentColor, 0.1)}`,
-                }}
-              />
-              <CardContent sx={{ p: 4, "&:last-child": { pb: 4 } }}>
-                <ProfessionalButton
-                  variant="contained"
-                  fullWidth
-                  startIcon={<SaveAs />}
-                  onClick={saveOverallAttendance}
-                  disabled={loading}
-                  sx={{
-                    py: 2, fontSize: "1rem", bgcolor: accentColor, color: primaryColor,
-                    "&:hover": { bgcolor: accentDark },
-                  }}
-                >
-                  Save Record
-                </ProfessionalButton>
-              </CardContent>
-            </GlassCard>
-          </Fade>
-        )}
+        {/* Unified Floating Bar */}
+        <FloatingTotalsBar
+          accentColor={accentColor}
+          primaryColor={primaryColor}
+          textPrimaryColor={textPrimaryColor}
+          totals={totals}
+          visible={attendanceData.length > 0}
+          onSave={saveOverallAttendance}
+          saving={saving}
+          activeTab={activeTab}
+        />
       </Box>
     </Fade>
   );
