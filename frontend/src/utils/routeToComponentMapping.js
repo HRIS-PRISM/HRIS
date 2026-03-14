@@ -79,6 +79,7 @@ export const routeToComponentMap = {
   '/leave-assignment': 'leave-assignment',
   '/leave-request': 'leave-request',
   '/leave-request-user': 'leave-request-user',
+  '/leave-commutation': 'leave-commutation',
   '/system-settings': 'system-settings',
   '/pds-templates': 'pds-templates',
 };
@@ -97,5 +98,5 @@ export const getComponentIdentifierForRoute = (route) => {
  * @returns {string[]} Array of component identifiers
  */
 export const getAllComponentIdentifiers = () => {
-  return Object.values(routeToComponentMap).filter(id => id !== null);
+  return Object.values(routeToComponentMap).filter((id) => id !== null);
 };

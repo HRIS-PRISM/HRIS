@@ -960,6 +960,9 @@ const UsersList = () => {
         ...prevAccess,
         [pageId]: newAccess,
       }));
+
+      // Notify Sidebar about page access changes
+      window.dispatchEvent(new Event('pageAccessUpdated'));
     } catch (err) {
       console.error('Error updating page access:', err);
       setError('Network error occurred while updating page access');
@@ -969,6 +972,9 @@ const UsersList = () => {
   };
 
   const closePageAccessDialog = () => {
+    // Dispatch event to notify Sidebar about page access changes
+    window.dispatchEvent(new Event('pageAccessUpdated'));
+
     setPageAccessDialog(false);
     setSelectedUser(null);
     setPages([]);
@@ -3030,12 +3036,15 @@ const UsersList = () => {
         <Dialog
           open={pageAccessDialog}
           onClose={closePageAccessDialog}
-          maxWidth="md"
+          maxWidth="lg"
           fullWidth
           PaperProps={{
             sx: {
               borderRadius: 4,
-              bgcolor: settings?.accentColor || '#FEF9E1',
+              bgcolor: '#f7f8fa',
+              height: '90vh',
+              maxHeight: 800,
+              overflow: 'hidden',
             },
           }}
         >
@@ -3048,6 +3057,7 @@ const UsersList = () => {
               justifyContent: 'space-between',
               p: 3,
               fontWeight: 700,
+              flexShrink: 0,
             }}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -3062,83 +3072,367 @@ const UsersList = () => {
             </IconButton>
           </DialogTitle>
 
-          <DialogContent sx={{ p: 4 }}>
+          <DialogContent
+            sx={{ p: 0, display: 'flex', overflow: 'hidden', flex: 1 }}
+          >
             {selectedUser && (
-              <>
+              <Box
+                sx={{
+                  display: 'flex',
+                  width: '100%',
+                  height: '100%',
+                  overflow: 'hidden',
+                }}
+              >
+                {/* ── LEFT SIDEBAR PANEL ── */}
                 <Box
                   sx={{
-                    mb: 4,
-                    p: 3,
-                    borderRadius: 3,
-                    border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
-                    bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.5),
+                    width: 270,
+                    flexShrink: 0,
+                    bgcolor: '#ffffff',
+                    borderRight: `2px solid ${alpha(settings?.primaryColor || '#894444', 0.12)}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '100%',
+                    overflow: 'hidden',
                   }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar
-                      src={selectedUser.avatar || ''}
-                      alt={selectedUser.fullName}
+                  {/* User info header */}
+                  <Box
+                    sx={{
+                      px: 3,
+                      py: 2.5,
+                      borderBottom: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.1)}`,
+                      background: `linear-gradient(135deg, ${alpha(settings?.primaryColor || '#894444', 0.07)} 0%, ${alpha(settings?.primaryColor || '#894444', 0.02)} 100%)`,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Box
                       sx={{
-                        bgcolor: settings?.primaryColor || '#894444',
-                        width: 64,
-                        height: 64,
-                        fontWeight: 700,
-                        fontSize: '1.2rem',
-                        border: '3px solid #fff',
-                        boxShadow: `0 4px 12px ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1.5,
+                        mb: 1.5,
                       }}
                     >
-                      {!selectedUser.avatar &&
-                        getInitials(selectedUser.fullName)}
-                    </Avatar>
-                    <Box>
-                      <Typography
-                        variant="h6"
+                      <Avatar
+                        src={selectedUser.avatar || ''}
+                        alt={selectedUser.fullName}
                         sx={{
+                          bgcolor: settings?.primaryColor || '#894444',
+                          width: 40,
+                          height: 40,
+                          fontWeight: 700,
+                          fontSize: '0.9rem',
+                          border: '2px solid #fff',
+                          boxShadow: `0 4px 12px ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
+                        }}
+                      >
+                        {!selectedUser.avatar &&
+                          getInitials(selectedUser.fullName)}
+                      </Avatar>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography
+                          sx={{
+                            fontWeight: 700,
+                            fontSize: '0.85rem',
+                            color: settings?.textPrimaryColor || '#6D2323',
+                            lineHeight: 1.2,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {selectedUser.fullName}
+                        </Typography>
+                        <Typography
+                          sx={{
+                            fontSize: '0.7rem',
+                            color: alpha(
+                              settings?.textPrimaryColor || '#6D2323',
+                              0.6,
+                            ),
+                            fontFamily: 'monospace',
+                          }}
+                        >
+                          #{selectedUser.employeeNumber} · {selectedUser.role}
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    {/* Active section chip */}
+                    <Box
+                      sx={{
+                        px: 2,
+                        py: 1,
+                        bgcolor: alpha(
+                          settings?.primaryColor || '#894444',
+                          0.06,
+                        ),
+                        borderRadius: 1.5,
+                        border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.15)}`,
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontFamily: 'monospace',
+                          fontSize: '0.55rem',
+                          color: alpha(
+                            settings?.primaryColor || '#894444',
+                            0.5,
+                          ),
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.1em',
+                          mb: 0.25,
+                        }}
+                      >
+                        Current Section
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontWeight: 700,
+                          fontSize: '0.78rem',
+                          color: settings?.primaryColor || '#894444',
+                        }}
+                      >
+                        {activeAccessCategory || 'Select a category'}
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {/* Category nav */}
+                  <Box
+                    sx={{
+                      flex: 1,
+                      overflowY: 'auto',
+                      py: 1,
+                      '&::-webkit-scrollbar': { width: 3 },
+                      '&::-webkit-scrollbar-thumb': {
+                        bgcolor: alpha(
+                          settings?.primaryColor || '#894444',
+                          0.2,
+                        ),
+                        borderRadius: 2,
+                      },
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontFamily: 'monospace',
+                        fontSize: '0.55rem',
+                        fontWeight: 700,
+                        color: alpha(settings?.primaryColor || '#894444', 0.35),
+                        letterSpacing: '0.14em',
+                        textTransform: 'uppercase',
+                        px: 3,
+                        pb: 0.75,
+                        pt: 0.5,
+                      }}
+                    >
+                      Categories
+                    </Typography>
+
+                    {!pageAccessLoading &&
+                      pages.length > 0 &&
+                      (() => {
+                        const groupedPages = pages.reduce((acc, page) => {
+                          const desc = page.page_description || 'Uncategorized';
+                          if (!acc[desc]) acc[desc] = [];
+                          acc[desc].push(page);
+                          return acc;
+                        }, {});
+
+                        const descriptionOrder = [
+                          'General',
+                          'System Administration',
+                          'Registration',
+                          'Information Management',
+                          'Attendance Management',
+                          'Payroll Management',
+                          'Form',
+                          'Pages Management',
+                          'Personal Data Sheets',
+                          'Uncategorized',
+                        ];
+
+                        const sortedDescs = Object.keys(groupedPages).sort(
+                          (a, b) => {
+                            const ia = descriptionOrder.indexOf(a);
+                            const ib = descriptionOrder.indexOf(b);
+                            if (ia !== -1 && ib !== -1) return ia - ib;
+                            if (ia !== -1) return -1;
+                            if (ib !== -1) return 1;
+                            return a.localeCompare(b);
+                          },
+                        );
+
+                        const categoryIcons = {
+                          General: <Category sx={{ fontSize: 15 }} />,
+                          'System Administration': (
+                            <Settings sx={{ fontSize: 15 }} />
+                          ),
+                          Registration: <Assignment sx={{ fontSize: 15 }} />,
+                          'Information Management': (
+                            <Info sx={{ fontSize: 15 }} />
+                          ),
+                          'Attendance Management': (
+                            <Assessment sx={{ fontSize: 15 }} />
+                          ),
+                          'Payroll Management': (
+                            <Payment sx={{ fontSize: 15 }} />
+                          ),
+                          Form: <Description sx={{ fontSize: 15 }} />,
+                          'Pages Management': <Pages sx={{ fontSize: 15 }} />,
+                          'Personal Data Sheets': (
+                            <Folder sx={{ fontSize: 15 }} />
+                          ),
+                          Uncategorized: (
+                            <FolderSpecial sx={{ fontSize: 15 }} />
+                          ),
+                        };
+
+                        return sortedDescs.map((desc) => {
+                          const isActive = activeAccessCategory === desc;
+                          const pagesInGroup = groupedPages[desc] || [];
+                          const enabledInGroup = pagesInGroup.filter(
+                            (p) => pageAccess[p.id],
+                          ).length;
+                          const allEnabled =
+                            enabledInGroup === pagesInGroup.length &&
+                            pagesInGroup.length > 0;
+
+                          return (
+                            <Box
+                              key={desc}
+                              onClick={() => setActiveAccessCategory(desc)}
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1.5,
+                                px: 3,
+                                py: 1.25,
+                                cursor: 'pointer',
+                                borderLeft: isActive
+                                  ? `3px solid ${settings?.primaryColor || '#894444'}`
+                                  : '3px solid transparent',
+                                bgcolor: isActive
+                                  ? alpha(
+                                      settings?.primaryColor || '#894444',
+                                      0.1,
+                                    )
+                                  : 'transparent',
+                                transition: 'all 0.15s ease',
+                                '&:hover': {
+                                  bgcolor: isActive
+                                    ? alpha(
+                                        settings?.primaryColor || '#894444',
+                                        0.1,
+                                      )
+                                    : alpha(
+                                        settings?.primaryColor || '#894444',
+                                        0.04,
+                                      ),
+                                },
+                              }}
+                            >
+                              <Box
+                                sx={{
+                                  color: isActive
+                                    ? settings?.primaryColor || '#894444'
+                                    : alpha(
+                                        settings?.primaryColor || '#894444',
+                                        0.35,
+                                      ),
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {categoryIcons[desc] || (
+                                  <FolderSpecial sx={{ fontSize: 15 }} />
+                                )}
+                              </Box>
+                              <Typography
+                                sx={{
+                                  fontSize: '0.82rem',
+                                  fontWeight: isActive ? 700 : 500,
+                                  color: isActive
+                                    ? settings?.primaryColor || '#894444'
+                                    : '#6b7280',
+                                  flex: 1,
+                                }}
+                              >
+                                {desc}
+                              </Typography>
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 0.5,
+                                }}
+                              >
+                                <Typography
+                                  sx={{
+                                    fontFamily: 'monospace',
+                                    fontSize: '0.62rem',
+                                    fontWeight: 700,
+                                    color: allEnabled
+                                      ? '#16a34a'
+                                      : isActive
+                                        ? settings?.primaryColor || '#894444'
+                                        : '#9ca3af',
+                                  }}
+                                >
+                                  {enabledInGroup}/{pagesInGroup.length}
+                                </Typography>
+                                {isActive && (
+                                  <ChevronRight
+                                    sx={{
+                                      fontSize: 13,
+                                      color: alpha(
+                                        settings?.primaryColor || '#894444',
+                                        0.4,
+                                      ),
+                                    }}
+                                  />
+                                )}
+                              </Box>
+                            </Box>
+                          );
+                        });
+                      })()}
+                  </Box>
+
+                  {/* Toggle all footer */}
+                  <Box
+                    sx={{
+                      px: 3,
+                      py: 2,
+                      borderTop: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.1)}`,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontSize: '0.78rem',
                           fontWeight: 700,
                           color: settings?.textPrimaryColor || '#6D2323',
                         }}
                       >
-                        {selectedUser.fullName}
-                      </Typography>
-                      <Typography
-                        variant="body2"
-                        sx={{
-                          color: settings?.textPrimaryColor || '#6D2323',
-                          mt: 1,
-                        }}
-                      >
-                        Employee: <strong>{selectedUser.employeeNumber}</strong>{' '}
-                        | Role: <strong>{selectedUser.role}</strong>
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-
-                {!pageAccessLoading && pages.length > 0 ? (
-                  <Box>
-                    {/* Toggle All Section */}
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        mb: 1,
-                        gap: 2,
-                      }}
-                    >
-                      <Typography
-                        sx={{
-                          fontWeight: 600,
-                          color: settings?.textPrimaryColor || '#6D2323',
-                        }}
-                      >
-                        Toggle All Pages:
+                        Toggle All Pages
                       </Typography>
                       <Switch
-                        checked={Object.values(pageAccess).every(
-                          (v) => v === true,
-                        )}
+                        size="small"
+                        checked={
+                          !pageAccessLoading &&
+                          pages.length > 0 &&
+                          Object.values(pageAccess).every((v) => v === true)
+                        }
                         onChange={(e) => {
                           const enableAll = e.target.checked;
                           pages.forEach((page) => {
@@ -3148,603 +3442,690 @@ const UsersList = () => {
                         }}
                         sx={{
                           '& .MuiSwitch-switchBase.Mui-checked': {
-                            color: settings?.primaryColor || '#894444',
+                            color: '#16a34a',
                           },
                           '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track':
-                            {
-                              backgroundColor:
-                                settings?.primaryColor || '#894444',
-                            },
+                            { backgroundColor: '#16a34a' },
+                          '& .MuiSwitch-switchBase:not(.Mui-checked)': {
+                            color: '#9ca3af',
+                          },
+                          '& .MuiSwitch-switchBase:not(.Mui-checked) + .MuiSwitch-track':
+                            { backgroundColor: '#d1d5db' },
                         }}
                       />
                     </Box>
+                  </Box>
+                </Box>
 
-                    {/* Grouping Logic */}
-                    {(() => {
-                      // Group pages by their description
+                {/* ── CENTER PAGES PANEL ── */}
+                <Box
+                  sx={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '100%',
+                    overflow: 'hidden',
+                    bgcolor: '#f7f8fa',
+                  }}
+                >
+                  {pageAccessLoading ? (
+                    <Box
+                      sx={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Box sx={{ textAlign: 'center' }}>
+                        <CircularProgress
+                          sx={{
+                            color: settings?.primaryColor || '#894444',
+                            mb: 2,
+                          }}
+                        />
+                        <Typography
+                          sx={{
+                            fontSize: '0.85rem',
+                            color: '#6b7280',
+                            fontWeight: 600,
+                          }}
+                        >
+                          Loading page access...
+                        </Typography>
+                      </Box>
+                    </Box>
+                  ) : !activeAccessCategory ? (
+                    <Box
+                      sx={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Box sx={{ textAlign: 'center', px: 4 }}>
+                        <Security
+                          sx={{
+                            fontSize: 56,
+                            color: alpha(
+                              settings?.primaryColor || '#894444',
+                              0.15,
+                            ),
+                            mb: 2,
+                          }}
+                        />
+                        <Typography
+                          sx={{
+                            fontWeight: 700,
+                            fontSize: '1rem',
+                            color: settings?.textPrimaryColor || '#6D2323',
+                            mb: 0.75,
+                          }}
+                        >
+                          Select a Category
+                        </Typography>
+                        <Typography
+                          sx={{ fontSize: '0.85rem', color: '#9ca3af' }}
+                        >
+                          Choose a category from the left panel to manage page
+                          access
+                        </Typography>
+                      </Box>
+                    </Box>
+                  ) : pages.length === 0 ? (
+                    <Box
+                      sx={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Typography sx={{ color: '#9ca3af', fontWeight: 600 }}>
+                        No pages found in system.
+                      </Typography>
+                    </Box>
+                  ) : (
+                    (() => {
                       const groupedPages = pages.reduce((acc, page) => {
-                        const description =
-                          page.page_description || 'Uncategorized';
-                        if (!acc[description]) {
-                          acc[description] = [];
-                        }
-                        acc[description].push(page);
+                        const desc = page.page_description || 'Uncategorized';
+                        if (!acc[desc]) acc[desc] = [];
+                        acc[desc].push(page);
                         return acc;
                       }, {});
 
-                      // Define the order of descriptions to display
-                      const descriptionOrder = [
-                        'General',
-                        'System Administration',
-                        'Registration',
-                        'Information Management',
-                        'Attendance Management',
-                        'Payroll Management',
-                        'Form',
-                        'Pages Management',
-                        'Personal Data Sheets',
-                        'Uncategorized',
-                      ];
-
-                      // Sort descriptions according to the defined order
-                      const sortedDescriptions = Object.keys(groupedPages).sort(
-                        (a, b) => {
-                          const indexA = descriptionOrder.indexOf(a);
-                          const indexB = descriptionOrder.indexOf(b);
-
-                          // If both are in the order array, sort by their position
-                          if (indexA !== -1 && indexB !== -1) {
-                            return indexA - indexB;
-                          }
-                          // If only A is in the order array, it comes first
-                          if (indexA !== -1) return -1;
-                          // If only B is in the order array, it comes first
-                          if (indexB !== -1) return 1;
-                          // If neither is in the order array, sort alphabetically
-                          return a.localeCompare(b);
-                        },
+                      const pagesInGroup =
+                        groupedPages[activeAccessCategory] || [];
+                      const descriptionInfo = getDescriptionColor(
+                        activeAccessCategory,
+                        settings,
                       );
+                      const enabledCount = pagesInGroup.filter(
+                        (p) => pageAccess[p.id],
+                      ).length;
 
                       return (
-                        <Box>
-                          {/* NAVIGATION BAR WITH ARROWS AND TIPS */}
+                        <Fade
+                          in={!!activeAccessCategory}
+                          timeout={250}
+                          key={activeAccessCategory}
+                        >
                           <Box
                             sx={{
-                              mb: 3,
-                              pb: 3,
-                              borderBottom: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.1)}`,
                               display: 'flex',
-                              alignItems: 'center',
-                              gap: 1,
+                              flexDirection: 'column',
+                              height: '100%',
                             }}
                           >
-                            <IconButton
-                              onClick={() => {
-                                if (chipScrollRef.current) {
-                                  chipScrollRef.current.scrollBy({
-                                    left: -300,
-                                    behavior: 'smooth',
-                                  });
-                                }
-                              }}
+                            {/* Category header */}
+                            <Box
                               sx={{
-                                color: settings?.primaryColor || '#894444',
-                                bgcolor: alpha(
-                                  settings?.primaryColor || '#894444',
-                                  0.1,
-                                ),
-                                borderRadius: '50%',
+                                px: 4,
+                                py: 2.5,
+                                background:
+                                  'linear-gradient(135deg, #ffffff 0%, #f5f5f5 100%)',
+                                borderBottom: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.1)}`,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.06)',
                                 flexShrink: 0,
-                                '&:hover': {
-                                  bgcolor: alpha(
-                                    settings?.primaryColor || '#894444',
-                                    0.2,
-                                  ),
-                                },
                               }}
                             >
-                              <ChevronLeft />
-                            </IconButton>
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 2,
+                                }}
+                              >
+                                <Avatar
+                                  sx={{
+                                    bgcolor: descriptionInfo.sx.bgcolor,
+                                    width: 42,
+                                    height: 42,
+                                  }}
+                                >
+                                  {React.cloneElement(descriptionInfo.icon, {
+                                    sx: {
+                                      color: descriptionInfo.sx.color,
+                                      fontSize: 20,
+                                    },
+                                  })}
+                                </Avatar>
+                                <Box>
+                                  <Typography
+                                    sx={{
+                                      fontWeight: 700,
+                                      fontSize: '0.95rem',
+                                      color:
+                                        settings?.textPrimaryColor || '#6D2323',
+                                      lineHeight: 1.2,
+                                    }}
+                                  >
+                                    {activeAccessCategory}
+                                  </Typography>
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.7rem',
+                                      color: '#9ca3af',
+                                      fontFamily: 'monospace',
+                                    }}
+                                  >
+                                    {enabledCount} of {pagesInGroup.length}{' '}
+                                    pages enabled
+                                  </Typography>
+                                </Box>
+                              </Box>
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 1.5,
+                                }}
+                              >
+                                <Typography
+                                  sx={{
+                                    fontSize: '0.78rem',
+                                    fontWeight: 700,
+                                    color:
+                                      settings?.textPrimaryColor || '#6D2323',
+                                  }}
+                                >
+                                  Toggle All
+                                </Typography>
+                                <Switch
+                                  size="small"
+                                  checked={
+                                    enabledCount === pagesInGroup.length &&
+                                    pagesInGroup.length > 0
+                                  }
+                                  onChange={(e) => {
+                                    const enableAll = e.target.checked;
+                                    pagesInGroup.forEach((page) => {
+                                      if (pageAccess[page.id] !== enableAll)
+                                        handleTogglePageAccess(
+                                          page.id,
+                                          !enableAll,
+                                        );
+                                    });
+                                  }}
+                                  sx={{
+                                    '& .MuiSwitch-switchBase.Mui-checked': {
+                                      color: '#16a34a',
+                                    },
+                                    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track':
+                                      { backgroundColor: '#16a34a' },
+                                    '& .MuiSwitch-switchBase:not(.Mui-checked)':
+                                      { color: '#9ca3af' },
+                                    '& .MuiSwitch-switchBase:not(.Mui-checked) + .MuiSwitch-track':
+                                      { backgroundColor: '#d1d5db' },
+                                  }}
+                                />
+                              </Box>
+                            </Box>
 
+                            {/* Pages list */}
                             <Box
-                              ref={chipScrollRef}
                               sx={{
-                                display: 'flex',
-                                gap: 1.5,
-                                overflowX: 'auto',
-                                pb: 1,
                                 flex: 1,
-                                scrollBehavior: 'smooth',
-                                '&::-webkit-scrollbar': {
-                                  height: 4,
-                                },
+                                overflowY: 'auto',
+                                p: 2.5,
+                                '&::-webkit-scrollbar': { width: 4 },
                                 '&::-webkit-scrollbar-thumb': {
                                   bgcolor: alpha(
                                     settings?.primaryColor || '#894444',
-                                    0.3,
-                                  ),
-                                  borderRadius: 4,
-                                },
-                              }}
-                            >
-                              {sortedDescriptions.map((description) => {
-                                const isActive =
-                                  activeAccessCategory === description;
-
-                                return (
-                                  <Box
-                                    key={description}
-                                    sx={{
-                                      display: 'flex',
-                                      flexDirection: 'column',
-                                      alignItems: 'center',
-                                      position: 'relative',
-                                    }}
-                                  >
-                                    {/* Arrow Indicator for Active Tab */}
-                                    {isActive && (
-                                      <Box
-                                        sx={{
-                                          position: 'absolute',
-                                          bottom: -6,
-                                          left: '50%',
-                                          transform: 'translateX(-50%)',
-                                          width: 0,
-                                          height: 0,
-                                          borderLeft: '6px solid transparent',
-                                          borderRight: '6px solid transparent',
-                                          borderTop: `6px solid ${settings?.primaryColor || '#894444'}`,
-                                          zIndex: 2,
-                                        }}
-                                      />
-                                    )}
-
-                                    <Chip
-                                      label={description}
-                                      size="medium"
-                                      clickable
-                                      onClick={() =>
-                                        setActiveAccessCategory(description)
-                                      }
-                                      sx={{
-                                        borderRadius: 20,
-                                        fontSize: '0.85rem',
-                                        fontWeight: isActive ? 700 : 600,
-                                        bgcolor: isActive
-                                          ? settings?.primaryColor || '#894444'
-                                          : alpha(
-                                              settings?.primaryColor ||
-                                                '#894444',
-                                              0.05,
-                                            ),
-                                        color: isActive
-                                          ? settings?.accentColor || '#FEF9E1'
-                                          : settings?.textPrimaryColor ||
-                                            '#6D2323',
-                                        border: isActive
-                                          ? 'none'
-                                          : `1px solid ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
-                                        whiteSpace: 'nowrap',
-                                        boxShadow: isActive
-                                          ? `0 4px 12px ${alpha(settings?.primaryColor || '#894444', 0.3)}`
-                                          : 'none',
-                                        transition: 'all 0.2s ease',
-                                        mb: 1,
-                                        '&:hover': {
-                                          bgcolor: alpha(
-                                            settings?.primaryColor || '#894444',
-                                            0.1,
-                                          ),
-                                          transform: isActive
-                                            ? 'none'
-                                            : 'translateY(-1px)',
-                                        },
-                                      }}
-                                    />
-                                  </Box>
-                                );
-                              })}
-                            </Box>
-
-                            <IconButton
-                              onClick={() => {
-                                if (chipScrollRef.current) {
-                                  chipScrollRef.current.scrollBy({
-                                    left: 300,
-                                    behavior: 'smooth',
-                                  });
-                                }
-                              }}
-                              sx={{
-                                color: settings?.primaryColor || '#894444',
-                                bgcolor: alpha(
-                                  settings?.primaryColor || '#894444',
-                                  0.1,
-                                ),
-                                borderRadius: '50%',
-                                flexShrink: 0,
-                                '&:hover': {
-                                  bgcolor: alpha(
-                                    settings?.primaryColor || '#894444',
                                     0.2,
                                   ),
+                                  borderRadius: 2,
                                 },
                               }}
                             >
-                              <ChevronRight />
-                            </IconButton>
-                          </Box>
-
-                          {/* TIP SECTION */}
-                          <Box
-                            sx={{
-                              mt: 2,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: 1,
-                              px: 2,
-                              py: 1.5,
-                              bgcolor: alpha(
-                                settings?.primaryColor || '#894444',
-                                0.04,
-                              ),
-                              borderRadius: 2,
-                              border: `1px dashed ${alpha(settings?.primaryColor || '#894444', 0.3)}`,
-                            }}
-                          >
-                            <Info
-                              sx={{
-                                fontSize: 16,
-                                color: settings?.textPrimaryColor || '#6D2323',
-                              }}
-                            />
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                fontWeight: 500,
-                                color: settings?.textPrimaryColor || '#6D2323',
-                              }}
-                            >
-                              Tip: Click a category above to view pages
-                              instantly. Use the switch to toggle access.
-                            </Typography>
-                          </Box>
-
-                          {/* CONTENT AREA - FILTERED BY ACTIVE TAB */}
-                          {activeAccessCategory && (
-                            <Fade in={!!activeAccessCategory} timeout={300}>
                               <Box
                                 sx={{
-                                  mt: 4,
-                                  animation: 'fadeIn 0.3s ease-in-out',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 1,
                                 }}
                               >
-                                {(() => {
-                                  const pagesInGroup =
-                                    groupedPages[activeAccessCategory];
-                                  const descriptionInfo = getDescriptionColor(
-                                    activeAccessCategory,
-                                    settings,
-                                  );
-
-                                  // Calculate how many pages in this group are enabled
-                                  const enabledCount = pagesInGroup.filter(
-                                    (page) => pageAccess[page.id],
-                                  ).length;
-
+                                {pagesInGroup.map((page) => {
+                                  const isEnabled = !!pageAccess[page.id];
                                   return (
                                     <Box
+                                      key={page.id}
                                       sx={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        px: 3,
+                                        py: 2,
+                                        bgcolor: '#ffffff',
+                                        border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.08)}`,
                                         borderRadius: 2,
-                                        overflow: 'hidden',
-                                        border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.15)}`,
-                                        bgcolor: alpha(
-                                          settings?.accentColor || '#FEF9E1',
-                                          0.3,
-                                        ),
-                                        minHeight: 200, // Prevent layout jump
+                                        transition: 'box-shadow 0.2s ease',
+                                        '&:hover': {
+                                          boxShadow: `0 4px 12px ${alpha(settings?.primaryColor || '#894444', 0.1)}`,
+                                        },
                                       }}
                                     >
-                                      {/* Category Header */}
-                                      <Box
-                                        sx={{
-                                          p: 2,
-                                          bgcolor: alpha(
-                                            settings?.primaryColor || '#894444',
-                                            0.08,
-                                          ),
-                                          borderBottom: `1px solid ${alpha(
-                                            settings?.primaryColor || '#894444',
-                                            0.15,
-                                          )}`,
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'space-between',
-                                        }}
-                                      >
-                                        <Box
+                                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                                        <Typography
                                           sx={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 1.5,
+                                            fontWeight: 600,
+                                            fontSize: '0.88rem',
+                                            color:
+                                              settings?.textPrimaryColor ||
+                                              '#6D2323',
+                                            mb: 0.25,
                                           }}
                                         >
-                                          <Box
-                                            sx={{
-                                              width: 40,
-                                              height: 40,
-                                              borderRadius: '50%',
-                                              bgcolor:
-                                                descriptionInfo.sx.bgcolor,
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              justifyContent: 'center',
-                                            }}
-                                          >
-                                            {React.cloneElement(
-                                              descriptionInfo.icon,
-                                              {
-                                                sx: {
-                                                  color:
-                                                    descriptionInfo.sx.color,
-                                                  fontSize: 20,
-                                                },
-                                              },
-                                            )}
-                                          </Box>
-                                          <Box>
-                                            <Typography
-                                              variant="subtitle1"
-                                              sx={{
-                                                fontWeight: 700,
-                                                color:
-                                                  settings?.textPrimaryColor ||
-                                                  '#6D2323',
-                                              }}
-                                            >
-                                              {activeAccessCategory}
-                                            </Typography>
-                                            <Typography
-                                              variant="caption"
-                                              sx={{
-                                                color: alpha(
-                                                  settings?.textPrimaryColor ||
-                                                    '#6D2323',
-                                                  0.7,
-                                                ),
-                                              }}
-                                            >
-                                              {enabledCount} of{' '}
-                                              {pagesInGroup.length} enabled
-                                            </Typography>
-                                          </Box>
-                                        </Box>
-
-                                        {/* Toggle all in category */}
-                                        <Box
+                                          {page.page_name}
+                                        </Typography>
+                                        <Typography
                                           sx={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 1,
+                                            fontSize: '0.68rem',
+                                            color: '#9ca3af',
+                                            fontFamily: 'monospace',
                                           }}
                                         >
-                                          <Typography
-                                            variant="caption"
-                                            sx={{
-                                              color:
-                                                settings?.textPrimaryColor ||
-                                                '#6D2323',
-                                              fontWeight: 500,
-                                            }}
-                                          >
-                                            Toggle All
-                                          </Typography>
-                                          <Switch
-                                            size="small"
-                                            checked={
-                                              enabledCount ===
-                                              pagesInGroup.length
-                                            }
-                                            onChange={(e) => {
-                                              const enableAll =
-                                                e.target.checked;
-                                              pagesInGroup.forEach((page) => {
-                                                if (
-                                                  pageAccess[page.id] !==
-                                                  enableAll
-                                                ) {
-                                                  handleTogglePageAccess(
-                                                    page.id,
-                                                    !enableAll,
-                                                  );
-                                                }
-                                              });
-                                            }}
-                                            sx={{
-                                              '& .MuiSwitch-switchBase.Mui-checked':
-                                                {
-                                                  color:
-                                                    settings?.primaryColor ||
-                                                    '#894444',
-                                                },
-                                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track':
-                                                {
-                                                  backgroundColor:
-                                                    settings?.primaryColor ||
-                                                    '#894444',
-                                                },
-                                            }}
-                                          />
-                                        </Box>
+                                          ID: {page.id}
+                                          {page.page_url &&
+                                            ` · ${page.page_url}`}
+                                        </Typography>
                                       </Box>
 
-                                      {/* Pages in this category */}
-                                      <List sx={{ p: 0 }}>
-                                        {pagesInGroup.map((page, index) => (
-                                          <ListItem
-                                            key={page.id}
+                                      {/* Badge + Switch */}
+                                      <Box
+                                        sx={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: 1.5,
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        {accessChangeInProgress[page.id] ? (
+                                          <CircularProgress
+                                            size={20}
                                             sx={{
-                                              p: 2,
-                                              borderBottom:
-                                                index < pagesInGroup.length - 1
-                                                  ? `1px solid ${alpha(
-                                                      settings?.primaryColor ||
-                                                        '#894444',
-                                                      0.08,
-                                                    )}`
-                                                  : 'none',
-                                              '&:hover': {
-                                                bgcolor: alpha(
-                                                  settings?.primaryColor ||
-                                                    '#894444',
-                                                  0.05,
-                                                ),
-                                              },
+                                              color:
+                                                settings?.primaryColor ||
+                                                '#894444',
                                             }}
-                                          >
-                                            <ListItemText
-                                              primary={
-                                                <Typography
-                                                  variant="subtitle2"
-                                                  sx={{
-                                                    fontWeight: 600,
-                                                    color:
-                                                      settings?.textPrimaryColor ||
-                                                      '#6D2323',
-                                                  }}
-                                                >
-                                                  {page.page_name}
-                                                </Typography>
-                                              }
-                                              secondary={
-                                                <Typography
-                                                  variant="caption"
-                                                  sx={{
-                                                    color:
-                                                      settings?.textPrimaryColor ||
-                                                      '#6D2323',
-                                                  }}
-                                                >
-                                                  Page ID: {page.id}
-                                                  {page.page_url &&
-                                                    ` • ${page.page_url}`}
-                                                </Typography>
-                                              }
-                                            />
+                                          />
+                                        ) : (
+                                          <>
+                                            {/* Colored status badge */}
                                             <Box
                                               sx={{
                                                 display: 'flex',
                                                 alignItems: 'center',
-                                                gap: 1,
+                                                gap: 0.6,
+                                                px: 1.5,
+                                                py: 0.5,
+                                                borderRadius: '20px',
+                                                bgcolor: isEnabled
+                                                  ? alpha('#16a34a', 0.1)
+                                                  : alpha('#6b7280', 0.08),
+                                                border: `1px solid ${
+                                                  isEnabled
+                                                    ? alpha('#16a34a', 0.3)
+                                                    : alpha('#9ca3af', 0.25)
+                                                }`,
+                                                transition: 'all 0.2s ease',
                                               }}
                                             >
-                                              {accessChangeInProgress[
-                                                page.id
-                                              ] ? (
-                                                <CircularProgress
-                                                  size={24}
+                                              {isEnabled ? (
+                                                <LockOpen
                                                   sx={{
-                                                    color:
-                                                      settings?.primaryColor ||
-                                                      '#894444',
+                                                    fontSize: 11,
+                                                    color: '#16a34a',
                                                   }}
                                                 />
                                               ) : (
-                                                <>
-                                                  {pageAccess[page.id] ? (
-                                                    <LockOpen
-                                                      sx={{
-                                                        color:
-                                                          settings?.primaryColor ||
-                                                          '#894444',
-                                                      }}
-                                                    />
-                                                  ) : (
-                                                    <Lock
-                                                      sx={{
-                                                        color:
-                                                          settings?.textPrimaryColor ||
-                                                          '#6D2323',
-                                                      }}
-                                                    />
-                                                  )}
-                                                  <Switch
-                                                    checked={
-                                                      !!pageAccess[page.id]
-                                                    }
-                                                    onChange={() =>
-                                                      handleTogglePageAccess(
-                                                        page.id,
-                                                        !!pageAccess[page.id],
-                                                      )
-                                                    }
-                                                    sx={{
-                                                      '& .MuiSwitch-switchBase.Mui-checked':
-                                                        {
-                                                          color:
-                                                            settings?.primaryColor ||
-                                                            '#894444',
-                                                        },
-                                                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track':
-                                                        {
-                                                          backgroundColor:
-                                                            settings?.primaryColor ||
-                                                            '#894444',
-                                                        },
-                                                    }}
-                                                  />
-                                                </>
+                                                <Lock
+                                                  sx={{
+                                                    fontSize: 11,
+                                                    color: '#9ca3af',
+                                                  }}
+                                                />
                                               )}
+                                              <Typography
+                                                sx={{
+                                                  fontSize: '0.6rem',
+                                                  fontWeight: 800,
+                                                  fontFamily: 'monospace',
+                                                  letterSpacing: '0.1em',
+                                                  textTransform: 'uppercase',
+                                                  color: isEnabled
+                                                    ? '#16a34a'
+                                                    : '#9ca3af',
+                                                  transition: 'color 0.2s',
+                                                }}
+                                              >
+                                                {isEnabled
+                                                  ? 'Enabled'
+                                                  : 'Disabled'}
+                                              </Typography>
                                             </Box>
-                                          </ListItem>
-                                        ))}
-                                      </List>
+
+                                            {/* Switch — green when on, gray when off */}
+                                            <Switch
+                                              checked={isEnabled}
+                                              onChange={() =>
+                                                handleTogglePageAccess(
+                                                  page.id,
+                                                  isEnabled,
+                                                )
+                                              }
+                                              sx={{
+                                                '& .MuiSwitch-switchBase.Mui-checked':
+                                                  { color: '#16a34a' },
+                                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track':
+                                                  {
+                                                    backgroundColor: '#16a34a',
+                                                  },
+                                                '& .MuiSwitch-switchBase:not(.Mui-checked)':
+                                                  { color: '#9ca3af' },
+                                                '& .MuiSwitch-switchBase:not(.Mui-checked) + .MuiSwitch-track':
+                                                  {
+                                                    backgroundColor: '#d1d5db',
+                                                  },
+                                              }}
+                                            />
+                                          </>
+                                        )}
+                                      </Box>
                                     </Box>
                                   );
-                                })()}
+                                })}
                               </Box>
-                            </Fade>
-                          )}
-                        </Box>
+                            </Box>
+                          </Box>
+                        </Fade>
                       );
-                    })()}
-                  </Box>
-                ) : pageAccessLoading ? (
-                  <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}>
-                    <CircularProgress
-                      sx={{ color: settings?.primaryColor || '#894444' }}
-                    />
-                  </Box>
-                ) : (
-                  <Typography
-                    variant="body1"
+                    })()
+                  )}
+                </Box>
+
+                {/* ── RIGHT ACCESSIBLE PAGES PANEL ── */}
+                <Box
+                  sx={{
+                    width: 240,
+                    flexShrink: 0,
+                    bgcolor: '#ffffff',
+                    borderLeft: `3px dashed ${alpha('#16a34a', 0.4)}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '100%',
+                    overflow: 'hidden',
+                    boxShadow: `inset 4px 0 16px ${alpha('#16a34a', 0.04)}`,
+                  }}
+                >
+                  {/* Panel header */}
+                  <Box
                     sx={{
-                      textAlign: 'center',
-                      p: 4,
-                      color: settings?.textPrimaryColor || '#6D2323',
+                      px: 2.5,
+                      py: 2,
+                      borderBottom: `1px solid ${alpha('#16a34a', 0.12)}`,
+                      background: `linear-gradient(135deg, ${alpha('#16a34a', 0.07)} 0%, ${alpha('#16a34a', 0.02)} 100%)`,
+                      flexShrink: 0,
                     }}
                   >
-                    No pages found in system.
-                  </Typography>
-                )}
-              </>
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        mb: 0.5,
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: '50%',
+                          bgcolor: '#16a34a',
+                          boxShadow: '0 0 0 3px rgba(22,163,74,0.2)',
+                          flexShrink: 0,
+                        }}
+                      />
+                      <Typography
+                        sx={{
+                          fontFamily: 'monospace',
+                          fontSize: '0.55rem',
+                          fontWeight: 700,
+                          color: '#16a34a',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.12em',
+                        }}
+                      >
+                        Accessible Pages
+                      </Typography>
+                    </Box>
+                    <Typography
+                      sx={{ fontSize: '0.72rem', color: '#6b7280', pl: 2.25 }}
+                    >
+                      {!pageAccessLoading && pages.length > 0
+                        ? `${pages.filter((p) => pageAccess[p.id]).length} of ${pages.length} total`
+                        : '—'}
+                    </Typography>
+                  </Box>
+
+                  {/* Accessible pages list */}
+                  <Box
+                    sx={{
+                      flex: 1,
+                      overflowY: 'auto',
+                      py: 1.5,
+                      '&::-webkit-scrollbar': { width: 3 },
+                      '&::-webkit-scrollbar-thumb': {
+                        bgcolor: alpha('#16a34a', 0.2),
+                        borderRadius: 2,
+                      },
+                    }}
+                  >
+                    {pageAccessLoading ? (
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          justifyContent: 'center',
+                          py: 4,
+                        }}
+                      >
+                        <CircularProgress size={20} sx={{ color: '#16a34a' }} />
+                      </Box>
+                    ) : pages.filter((p) => pageAccess[p.id]).length > 0 ? (
+                      <Box
+                        sx={{
+                          px: 1.5,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 0.5,
+                        }}
+                      >
+                        {pages
+                          .filter((p) => pageAccess[p.id])
+                          .map((page) => {
+                            const isInActiveCategory =
+                              activeAccessCategory &&
+                              (page.page_description || 'Uncategorized') ===
+                                activeAccessCategory;
+                            return (
+                              <Box
+                                key={page.id}
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 1,
+                                  px: 1.5,
+                                  py: 0.9,
+                                  borderRadius: 1.5,
+                                  bgcolor: isInActiveCategory
+                                    ? alpha('#16a34a', 0.1)
+                                    : alpha('#16a34a', 0.04),
+                                  border: `1px solid ${
+                                    isInActiveCategory
+                                      ? alpha('#16a34a', 0.3)
+                                      : alpha('#16a34a', 0.1)
+                                  }`,
+                                  transition: 'all 0.2s ease',
+                                }}
+                              >
+                                <CheckCircle
+                                  sx={{
+                                    fontSize: 12,
+                                    color: '#16a34a',
+                                    flexShrink: 0,
+                                    opacity: isInActiveCategory ? 1 : 0.6,
+                                  }}
+                                />
+                                <Typography
+                                  sx={{
+                                    fontSize: '0.72rem',
+                                    fontWeight: isInActiveCategory ? 700 : 500,
+                                    color: isInActiveCategory
+                                      ? '#15803d'
+                                      : '#374151',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    transition: 'all 0.2s',
+                                  }}
+                                >
+                                  {page.page_name}
+                                </Typography>
+                              </Box>
+                            );
+                          })}
+                      </Box>
+                    ) : (
+                      <Box sx={{ py: 5, textAlign: 'center', px: 2 }}>
+                        <Lock
+                          sx={{
+                            fontSize: 28,
+                            color: alpha('#16a34a', 0.15),
+                            mb: 1,
+                          }}
+                        />
+                        <Typography
+                          sx={{
+                            fontSize: '0.75rem',
+                            color: '#9ca3af',
+                            fontWeight: 600,
+                          }}
+                        >
+                          No pages granted yet
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+
+                  {/* Footer hint */}
+                  <Box
+                    sx={{
+                      px: 2.5,
+                      py: 1.75,
+                      borderTop: `1px solid ${alpha('#16a34a', 0.12)}`,
+                      flexShrink: 0,
+                      bgcolor: alpha('#16a34a', 0.03),
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontFamily: 'monospace',
+                        fontSize: '0.6rem',
+                        color: '#9ca3af',
+                        textAlign: 'center',
+                      }}
+                    >
+                      Highlighted = current category
+                    </Typography>
+                  </Box>
+                </Box>
+              </Box>
             )}
           </DialogContent>
 
-          <DialogActions sx={{ p: 3 }}>
+          {/* Dialog Actions */}
+          <DialogActions
+            sx={{
+              p: 3,
+              gap: 2,
+              borderTop: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.1)}`,
+              bgcolor: '#ffffff',
+              flexShrink: 0,
+            }}
+          >
+            <Box
+              sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1 }}
+            >
+              <CheckCircle
+                sx={{
+                  fontSize: 16,
+                  color: alpha(settings?.primaryColor || '#894444', 0.5),
+                }}
+              />
+              <Typography
+                sx={{ fontSize: '0.75rem', color: '#9ca3af', fontWeight: 500 }}
+              >
+                Changes are saved automatically. Click "Save & Close" to apply
+                to sidebar.
+              </Typography>
+            </Box>
             <ProfessionalButton
               onClick={closePageAccessDialog}
-              variant="contained"
+              variant="outlined"
               sx={{
-                bgcolor: settings?.primaryColor || '#894444',
-                color: settings?.accentColor || '#FEF9E1',
+                borderColor: settings?.primaryColor || '#894444',
+                color: settings?.primaryColor || '#894444',
                 '&:hover': {
-                  bgcolor: settings?.secondaryColor || '#6d2323',
+                  borderColor: settings?.secondaryColor || '#6d2323',
+                  bgcolor: alpha(settings?.primaryColor || '#894444', 0.05),
                 },
               }}
             >
-              Close
+              Cancel
+            </ProfessionalButton>
+            <ProfessionalButton
+              variant="contained"
+              startIcon={<CheckCircle />}
+              onClick={() => {
+                window.dispatchEvent(
+                  new CustomEvent('pageAccessUpdated', {
+                    detail: { employeeNumber: selectedUser?.employeeNumber },
+                  }),
+                );
+                setSuccessAction('edit');
+                setSuccessOpen(true);
+                closePageAccessDialog();
+              }}
+              sx={{
+                bgcolor: settings?.primaryColor || '#894444',
+                color: settings?.accentColor || '#FEF9E1',
+                '&:hover': { bgcolor: settings?.secondaryColor || '#6d2323' },
+              }}
+            >
+              Save & Close
             </ProfessionalButton>
           </DialogActions>
         </Dialog>
@@ -5341,5 +5722,3 @@ const UsersList = () => {
 };
 
 export default UsersList;
-
-

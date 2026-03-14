@@ -4,29 +4,29 @@ import { getAuthHeaders } from '../utils/auth';
 
 /**
  * Custom hook for checking multiple page accesses at once
- * 
+ *
  * This hook fetches all page access for the current user and provides
  * a function to check if a user has access to a specific component identifier.
- * 
+ *
  * @param {string[]} componentIdentifiers - Array of component identifiers to check
  * @param {Object} options - Optional configuration
  * @param {string} options.employeeNumber - Override employee number (default: from localStorage)
- * 
+ *
  * @returns {Object} - { hasAccess, loading, error, checkAccess }
  *   - hasAccess: function(identifier) - Returns true if user has access to the identifier
  *   - loading: boolean - Whether the access check is in progress
  *   - error: string | null - Error message if something went wrong
  *   - accessMap: Object - Map of component identifier to page ID
- * 
+ *
  * @example
  * const { hasAccess, loading } = usePageAccesses(['pds1', 'pds2', 'registration']);
- * 
+ *
  * if (loading) return <Loading />;
  * if (!hasAccess('pds1')) return <AccessDenied />;
  */
 const usePageAccesses = (componentIdentifiers = [], options = {}) => {
   const { employeeNumber: overrideEmployeeNumber } = options;
-  
+
   const [accessMap, setAccessMap] = useState({}); // Maps component identifier -> page ID -> hasAccess
   const [pageIdMap, setPageIdMap] = useState({}); // Maps component identifier -> page ID
   const [loading, setLoading] = useState(true);
@@ -43,8 +43,9 @@ const usePageAccesses = (componentIdentifiers = [], options = {}) => {
       setError(null);
 
       try {
-        const userId = overrideEmployeeNumber || localStorage.getItem('employeeNumber');
-        
+        const userId =
+          overrideEmployeeNumber || localStorage.getItem('employeeNumber');
+
         if (!userId) {
           setError('No employee number found');
           setLoading(false);
@@ -66,8 +67,10 @@ const usePageAccesses = (componentIdentifiers = [], options = {}) => {
         }
 
         const allPages = await pagesResponse.json();
-        const pagesArray = Array.isArray(allPages) ? allPages : allPages.data || [];
-        
+        const pagesArray = Array.isArray(allPages)
+          ? allPages
+          : allPages.data || [];
+
         // Create a map of component_identifier -> page_id for existing pages
         const existingPagesMap = {};
         pagesArray.forEach((page) => {
@@ -91,7 +94,7 @@ const usePageAccesses = (componentIdentifiers = [], options = {}) => {
           {
             method: 'GET',
             ...authHeaders,
-          }
+          },
         );
 
         if (!accessResponse.ok) {
@@ -133,7 +136,11 @@ const usePageAccesses = (componentIdentifiers = [], options = {}) => {
     };
 
     fetchAccesses();
-  }, [componentIdentifiers.join(','), overrideEmployeeNumber]);
+  }, [
+    componentIdentifiers.join(','),
+    overrideEmployeeNumber,
+    options?.pageAccessVersion,
+  ]);
 
   const hasAccess = (identifier) => {
     return accessMap[identifier] === true;
