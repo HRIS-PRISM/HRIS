@@ -1511,55 +1511,6 @@ const Sidebar = ({
               </ListItem>
             )}
 
-            {shouldShowMenuItem('/leave-commutation') && (
-              <ListItem
-                button
-                component={Link}
-                to="/leave-commutation"
-                onClick={() => handleItemClick('leave-commutation')}
-                sx={{
-                  color:
-                    selectedItem === 'leave-commutation'
-                      ? settings.textPrimaryColor
-                      : settings.textSecondaryColor,
-                  bgcolor:
-                    selectedItem === 'leave-commutation'
-                      ? settings.accentColor || '#FEF9E1'
-                      : 'inherit',
-                  '&:hover': {
-                    bgcolor: settings.hoverColor || '#6D2323',
-                    color: settings.textSecondaryColor,
-                    borderTopRightRadius: '15px',
-                    borderBottomRightRadius: '15px',
-                    '& .MuiListItemIcon-root': {
-                      color: settings.textSecondaryColor,
-                    },
-                  },
-                  borderTopRightRadius:
-                    selectedItem === 'leave-commutation' ? '15px' : 0,
-                  borderBottomRightRadius:
-                    selectedItem === 'leave-commutation' ? '15px' : 0,
-                }}
-              >
-                <ListItemIcon
-                  sx={{
-                    marginRight: '-1rem',
-                    color:
-                      selectedItem === 'leave-commutation'
-                        ? settings.textPrimaryColor
-                        : settings.textSecondaryColor,
-                    '&:hover': { color: settings.textSecondaryColor },
-                  }}
-                >
-                  <MonetizationOnIcon />
-                </ListItemIcon>
-                <ListItemText
-                  primary="Leave Commutation"
-                  sx={{ marginLeft: '-10px' }}
-                />
-              </ListItem>
-            )}
-
             {/* PAYSLIP */}
             {shouldShowMenuItem('/payslip') && (
               <ListItem

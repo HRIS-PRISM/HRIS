@@ -3653,7 +3653,7 @@ const UsersList = () => {
                                       settings?.textPrimaryColor || '#6D2323',
                                   }}
                                 >
-                                  Toggle All
+                                  Toggle Current Pages
                                 </Typography>
                                 <Switch
                                   size="small"

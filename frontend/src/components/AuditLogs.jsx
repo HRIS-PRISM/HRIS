@@ -73,6 +73,8 @@ import {
   Description as FormIcon,
   Folder,
   FolderSpecial,
+  KeyboardArrowDown,
+  KeyboardArrowUp,
 } from "@mui/icons-material";
 import { getUserInfo } from "../utils/auth";
 import usePageAccess from '../hooks/usePageAccess';
@@ -160,6 +162,7 @@ const AuditLogs = () => {
   const [sessionWarningShown, setSessionWarningShown] = useState(false);
   const [sessionWarningOpen, setSessionWarningOpen] = useState(false);
   const [auditPage, setAuditPage] = useState(1);
+  const [expandedOfficialDetails, setExpandedOfficialDetails] = useState({});
   const LOGS_PER_PAGE = 10;
   const logScrollRef = useRef(null);
 
@@ -689,6 +692,64 @@ const AuditLogs = () => {
     const recordHint = log.record_id ? ` (Record #${log.record_id})` : '';
     const targetHint = log.targetEmployeeNumber ? ` on employee #${log.targetEmployeeNumber}` : '';
     return `${actor} performed ${action} on ${module}${recordHint}${targetHint}.`;
+  };
+
+  const isOfficialTimeModule = (tableName) => {
+    const t = String(tableName || "").toLowerCase();
+    return (
+      t.includes("official time") ||
+      t.includes("official_time") ||
+      t.includes("officialtime")
+    );
+  };
+
+  const parseAuditDetails = (raw) => {
+    if (!raw) return null;
+    if (typeof raw === "object") return raw;
+    if (typeof raw !== "string") return null;
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const getOfficialTimeAuditSnapshot = (log) => {
+    if (!isOfficialTimeModule(log?.table_name)) return null;
+    const details = parseAuditDetails(log?.details_json);
+    if (!details || typeof details !== "object") return null;
+
+    if (Array.isArray(details.records) && details.records.length > 0) {
+      return details;
+    }
+
+    // Excel uploads store grouped schedules; flatten for a single audit preview table.
+    if (Array.isArray(details.schedules) && details.schedules.length > 0) {
+      const flattenedRecords = details.schedules.flatMap((schedule) => {
+        const list = Array.isArray(schedule?.records) ? schedule.records : [];
+        return list.map((r) => ({
+          ...r,
+          employeeID:
+            r?.employeeID || schedule?.employeeID || details?.employeeID || null,
+          startDate: r?.startDate || schedule?.startDate || details?.startDate,
+          endDate: r?.endDate || schedule?.endDate || details?.endDate,
+          academicYear:
+            r?.academicYear || schedule?.academicYear || details?.academicYear,
+        }));
+      });
+      if (flattenedRecords.length > 0) {
+        return { ...details, records: flattenedRecords };
+      }
+    }
+
+    return null;
+  };
+
+  const toggleOfficialDetails = (rowKey) => {
+    setExpandedOfficialDetails((prev) => ({
+      ...prev,
+      [rowKey]: !prev[rowKey],
+    }));
   };
 
   const totalPages = Math.max(1, Math.ceil(filteredLogs.length / LOGS_PER_PAGE));
@@ -1464,8 +1525,15 @@ const AuditLogs = () => {
                     )}
                     {visibleLogs.map((log, index) => {
                       const virtualIndex = index;
+                      const rowKey = log.id || `${virtualIndex}-${log.timestamp || "no-time"}`;
                       const actionColor = getActionColor(log.action);
                       const actionBg = alpha(actionColor, 0.1);
+                      const officialSnapshot = getOfficialTimeAuditSnapshot(log);
+                      const hasOfficialSnapshot =
+                        officialSnapshot &&
+                        Array.isArray(officialSnapshot.records) &&
+                        officialSnapshot.records.length > 0;
+                      const isOfficialExpanded = !!expandedOfficialDetails[rowKey];
 
                       const ts = log.timestamp ? new Date(log.timestamp) : null;
                       const timeLabel = ts && !isNaN(ts)
@@ -1476,7 +1544,7 @@ const AuditLogs = () => {
 
                       return (
                         <Box
-                          key={log.id || virtualIndex}
+                          key={rowKey}
                           sx={{
                             bgcolor: '#fff',
                             border: `1px solid ${alpha(actionColor, 0.18)}`,
@@ -1569,6 +1637,155 @@ const AuditLogs = () => {
                           <Typography sx={{ fontSize: '0.85rem', color: '#444', lineHeight: 1.65, fontWeight: 400 }}>
                             {description}
                           </Typography>
+
+                          {hasOfficialSnapshot && (
+                            <Box sx={{ mt: 1.5 }}>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => toggleOfficialDetails(rowKey)}
+                                startIcon={
+                                  isOfficialExpanded ? (
+                                    <KeyboardArrowUp sx={{ fontSize: 16 }} />
+                                  ) : (
+                                    <KeyboardArrowDown sx={{ fontSize: 16 }} />
+                                  )
+                                }
+                                sx={{
+                                  textTransform: "none",
+                                  fontWeight: 700,
+                                  borderColor: alpha(settings?.primaryColor || "#894444", 0.3),
+                                  color: settings?.primaryColor || "#894444",
+                                  fontSize: "0.75rem",
+                                  py: 0.35,
+                                  px: 1,
+                                }}
+                              >
+                                {isOfficialExpanded
+                                  ? "Hide official time schedule record"
+                                  : "View official time schedule record"}
+                              </Button>
+
+                              {isOfficialExpanded && (
+                                <Box
+                                  sx={{
+                                    mt: 1.2,
+                                    borderRadius: 1.5,
+                                    border: `1px solid ${alpha(settings?.primaryColor || "#894444", 0.2)}`,
+                                    bgcolor: alpha(settings?.accentColor || "#FEF9E1", 0.45),
+                                    p: 1.25,
+                                  }}
+                                >
+                                  <Typography
+                                    sx={{
+                                      fontSize: "0.72rem",
+                                      fontWeight: 700,
+                                      color: alpha(settings?.primaryColor || "#894444", 0.85),
+                                      textTransform: "uppercase",
+                                      letterSpacing: "0.03em",
+                                      mb: 0.75,
+                                    }}
+                                  >
+                                    Official Time Schedule Snapshot (Stored in Audit)
+                                  </Typography>
+
+                                  <Typography sx={{ fontSize: "0.74rem", color: "#555", mb: 0.75 }}>
+                                    Employee: #{officialSnapshot.employeeID || log.targetEmployeeNumber || "N/A"}
+                                    {officialSnapshot.startDate ? ` | Start: ${officialSnapshot.startDate}` : ""}
+                                    {officialSnapshot.endDate ? ` | End: ${officialSnapshot.endDate}` : ""}
+                                    {officialSnapshot.academicYear
+                                      ? ` | Academic Year: ${officialSnapshot.academicYear}`
+                                      : ""}
+                                  </Typography>
+
+                                  <Box sx={{ overflowX: "auto" }}>
+                                    <Box
+                                      sx={{
+                                        minWidth: 860,
+                                        border: "1px solid rgba(0,0,0,0.08)",
+                                        borderRadius: 1,
+                                        bgcolor: "#fff",
+                                      }}
+                                    >
+                                      <Box
+                                        sx={{
+                                          display: "grid",
+                                          gridTemplateColumns:
+                                            "120px repeat(4, 120px) 150px 150px 150px",
+                                          px: 1,
+                                          py: 0.7,
+                                          bgcolor: alpha(settings?.primaryColor || "#894444", 0.08),
+                                          borderBottom: "1px solid rgba(0,0,0,0.08)",
+                                          fontSize: "0.7rem",
+                                          fontWeight: 700,
+                                          color: settings?.primaryColor || "#894444",
+                                        }}
+                                      >
+                                        <Box>DAY</Box>
+                                        <Box>TIME IN</Box>
+                                        <Box>BREAK IN</Box>
+                                        <Box>BREAK OUT</Box>
+                                        <Box>TIME OUT</Box>
+                                        <Box>HONORARIUM</Box>
+                                        <Box>SERVICE CREDIT</Box>
+                                        <Box>OVERTIME</Box>
+                                      </Box>
+
+                                      {officialSnapshot.records.map((r, idx2) => {
+                                        const honorarium = `${r.officialHonorariumTimeIN || "-"} -> ${
+                                          r.officialHonorariumTimeOUT || "-"
+                                        }`;
+                                        const serviceCredit = `${
+                                          r.officialServiceCreditTimeIN || "-"
+                                        } -> ${r.officialServiceCreditTimeOUT || "-"}`;
+                                        const overtime = `${r.officialOverTimeIN || "-"} -> ${
+                                          r.officialOverTimeOUT || "-"
+                                        }`;
+
+                                        return (
+                                          <Box
+                                            key={`${rowKey}-record-${idx2}`}
+                                            sx={{
+                                              display: "grid",
+                                              gridTemplateColumns:
+                                                "120px repeat(4, 120px) 150px 150px 150px",
+                                              px: 1,
+                                              py: 0.65,
+                                              borderBottom:
+                                                idx2 < officialSnapshot.records.length - 1
+                                                  ? "1px solid rgba(0,0,0,0.05)"
+                                                  : "none",
+                                              fontSize: "0.72rem",
+                                              color: "#333",
+                                              bgcolor: idx2 % 2 === 0 ? "#fff" : "#fafafa",
+                                              fontFamily: "monospace",
+                                            }}
+                                          >
+                                            <Box sx={{ fontFamily: "inherit", fontWeight: 700 }}>
+                                              {r.day || "-"}
+                                            </Box>
+                                            <Box>{r.officialTimeIN || "-"}</Box>
+                                            <Box>{r.officialBreaktimeIN || "-"}</Box>
+                                            <Box>{r.officialBreaktimeOUT || "-"}</Box>
+                                            <Box>{r.officialTimeOUT || "-"}</Box>
+                                            <Box>{honorarium}</Box>
+                                            <Box>{serviceCredit}</Box>
+                                            <Box>{overtime}</Box>
+                                          </Box>
+                                        );
+                                      })}
+                                    </Box>
+                                  </Box>
+
+                                  {officialSnapshot.truncated && (
+                                    <Typography sx={{ fontSize: "0.72rem", color: "#b25c00", mt: 0.8 }}>
+                                      Snapshot truncated in audit storage.
+                                    </Typography>
+                                  )}
+                                </Box>
+                              )}
+                            </Box>
+                          )}
                         </Box>
                       );
                     })}
