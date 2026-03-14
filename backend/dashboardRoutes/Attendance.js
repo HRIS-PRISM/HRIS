@@ -173,12 +173,12 @@ router.get('/api/attendance', authenticateToken, (req, res) => {
       return;
     }
     logAudit(
-      req.user,
-      'view',
-      'attendance-module',
-      `${startDate} && ${endDate}`,
-      personId,
-    );
+  req.user,
+  `Viewed Attendance Records`,
+  'Attendance Module (Non-Teaching/30hrs/40hrs)',
+  `${startDate} to ${endDate}`,
+  personId,
+);
     res.json(results);
   });
 });
@@ -264,12 +264,12 @@ router.post('/api/attendance', authenticateToken, (req, res) => {
     }
 
     logAudit(
-      req.user,
-      'search',
-      'Device Attendance Records',
-      `${startDate} && ${endDate}`,
-      personID,
-    );
+  req.user,
+  `Searched Attendance Record State`,
+  'Attendance State',
+  `${startDate} to ${endDate}`,
+  personID,
+);
 
     const records = results.map((record) => {
       const date = new Date(record.AttendanceDateTime);
@@ -502,13 +502,13 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
 
   db.query(query, [personID, startDate, endDate], (err, results) => {
     if (err) return res.status(500).send(err);
-    logAudit(
-      req.user,
-      'view',
-      'Overall DTR',
-      `${startDate} && ${endDate}`,
-      personID,
-    );
+   logAudit(
+  req.user,
+  `Viewed DTR Records`,
+  'Daily Time Record Overall',
+  `${startDate} to ${endDate}`,
+  personID,
+);
     res.send(results);
   });
 });
@@ -573,9 +573,9 @@ router.post('/api/view-attendance-all-users', authenticateToken, (req, res) => {
 
     logAudit(
       req.user,
-      'view',
-      'Overall DTR - All Users',
-      `${startDate} && ${endDate}`,
+      `Viewed DTR Records - All Users`,
+      'Daily Time Record Overall',
+      `${startDate} to ${endDate}`,
       'all-users',
     );
 
@@ -608,12 +608,12 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
         if (err) reject(err);
         else {
           logAudit(
-            req.user,
-            'update',
-            'Overall DTR',
-            record.date,
-            record.personID,
-          );
+          req.user,
+          `Updated Attendance Record`,
+          'Attendance Modification',
+          record.date,
+          record.personID,
+        );
           resolve(result);
         }
       });
@@ -720,12 +720,12 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
         return res.status(500).json({ message: 'Database error', error });
       }
       logAudit(
-        req.user,
-        'create',
-        'Overall Attendance Record',
-        `${startDate} && ${endDate}`,
-        personID,
-      );
+      req.user,
+      `Saved Overall Attendance Record`,
+      'Attendance Module (Non-Teaching/30hrs/40hrs)',
+      `${startDate} to ${endDate}`,
+      personID,
+    );
       notifyAttendanceChanged('overall-created', {
         scope: 'overall_attendance_record',
         personID,
@@ -765,11 +765,11 @@ router.get('/api/overall_attendance_record', authenticateToken, (req, res) => {
       console.error('Error Fetching data:', error);
       return res.status(500).json({ message: 'Database error', error });
     }
-    logAudit(
+   logAudit(
       req.user,
-      'search',
-      'Overall Attendance Record',
-      `${startDate} && ${endDate}`,
+      `Search Overall Attendance Record`,
+      'Attendance Summary',
+      `${startDate} to ${endDate}`,
       personID,
     );
     res.status(200).json({
@@ -865,12 +865,12 @@ router.put(
               return res.status(500).json({ message: 'Database error', error });
             }
             logAudit(
-              req.user,
-              'update',
-              'Overall Attendance Record',
-              id,
-              personID,
-            );
+                req.user,
+                `Updated Overall Attendance Record`,
+                'AttendanceSummary',
+                `${startDate} to ${endDate}`,
+                personID,
+              );
             notifyAttendanceChanged('overall-updated', {
               scope: 'overall_attendance_record',
               id,
@@ -908,9 +908,14 @@ router.delete(
           message: 'Attendance record not found or personID mismatch',
         });
       }
-
-      logAudit(req.user, 'delete', 'overall_attendance_record', id, personID);
-      notifyAttendanceChanged('overall-deleted', {
+        logAudit(
+          req.user,
+          `Deleted Overall Attendance Record`,
+          'AttendanceSummary',
+          id,
+          personID,
+        );      
+notifyAttendanceChanged('overall-deleted', {
         scope: 'overall_attendance_record',
         id,
         personID,
@@ -1053,11 +1058,12 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
         return res.status(500).json({ error: err.message });
       }
 
+      // ✅ CHANGED: search audit log
       logAudit(
         req.user,
-        'search',
-        'Device Attendance Records',
-        `${startDate} && ${endDate}`,
+        `Searched Attendance Device Records`,
+        'Attendance Device',
+        `${startDate} to ${endDate}`,
         personID,
       );
 
@@ -1181,8 +1187,8 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
                   } else {
                     logAudit(
                       req.user,
-                      'auto-create',
-                      'Device Attendance Auto-Save',
+                      `Auto-Saved New Attendance Record`,
+                      'Attendance Device',
                       record.Date,
                       record.PersonID,
                     );
@@ -1232,10 +1238,11 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
                       console.error('Error updating record:', err);
                       reject(err);
                     } else {
-                      logAudit(
+                      // ✅ CHANGED: auto-update audit log
+                     logAudit(
                         req.user,
-                        'auto-update',
-                        'Device Attendance Auto-Save',
+                        `Auto-Updated Existing Attendance Record`,
+                        'Attendance Device',
                         record.Date,
                         record.PersonID,
                       );
@@ -1635,12 +1642,11 @@ router.post('/api/mark-dtr-printed', authenticateToken, async (req, res) => {
       return res.status(500).json({ error: err.message });
     }
 
-    // Log audit trail
     logAudit(
       req.user,
-      'print',
-      'DTR',
-      `${employeeNumbers.length} records for ${year}-${month}`,
+      `Printed DTR Records`,
+      'Daily Time Record Overall',
+      `${startDate} to ${endDate}`,
       employeeNumbers.join(', '),
     );
 

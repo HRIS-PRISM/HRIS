@@ -120,6 +120,7 @@ const ensureAuditLogTableSQL = `
     table_name VARCHAR(128) NULL,
     record_id INT NULL,
     targetEmployeeNumber VARCHAR(64) NULL,
+    details_json LONGTEXT NULL,
     timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `;
@@ -129,6 +130,12 @@ db.query(ensureAuditLogTableSQL, (err) => {
     console.error('Failed to ensure audit_log table exists:', err);
   } else {
     console.log('Audit log table ready');
+  }
+});
+
+db.query('ALTER TABLE audit_log ADD COLUMN details_json LONGTEXT NULL', (err) => {
+  if (err && err.code !== 'ER_DUP_FIELDNAME') {
+    console.error('Audit log migration details_json:', err.message);
   }
 });
 

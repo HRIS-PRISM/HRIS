@@ -166,6 +166,73 @@ function buildTimeOverlapPayload({ day, employeeID, segA, segB }) {
   };
 }
 
+const OFFICIAL_TIME_AUDIT_ROW_FIELDS = [
+  'day',
+  'officialTimeIN',
+  'officialBreaktimeIN',
+  'officialBreaktimeOUT',
+  'officialTimeOUT',
+  'officialHonorariumTimeIN',
+  'officialHonorariumTimeOUT',
+  'officialServiceCreditTimeIN',
+  'officialServiceCreditTimeOUT',
+  'officialOverTimeIN',
+  'officialOverTimeOUT',
+  'breaktime',
+  'status',
+  'startDate',
+  'endDate',
+  'academicYear',
+];
+
+function normalizeAuditValue(val) {
+  if (val == null) return null;
+  const s = String(val).trim();
+  return s === '' ? null : s;
+}
+
+function sanitizeOfficialTimeRows(rows, maxRows = 200) {
+  const list = Array.isArray(rows) ? rows : [];
+  const sliced = list.slice(0, maxRows);
+  const records = sliced.map((row) => {
+    const src = row || {};
+    const out = {};
+    OFFICIAL_TIME_AUDIT_ROW_FIELDS.forEach((key) => {
+      out[key] = normalizeAuditValue(src[key]);
+    });
+    return out;
+  });
+
+  return {
+    records,
+    totalRows: list.length,
+    truncated: list.length > maxRows,
+  };
+}
+
+function buildOfficialTimeAuditDetails(payload = {}) {
+  const base = payload || {};
+  const { records, totalRows, truncated } = sanitizeOfficialTimeRows(
+    base.records,
+    200,
+  );
+  return {
+    module: 'officialtime',
+    source: base.source || 'unknown',
+    employeeID:
+      base.employeeID == null ? null : String(base.employeeID).trim() || null,
+    academicYear: normalizeAuditValue(base.academicYear),
+    startDate: normalizeAuditValue(base.startDate),
+    endDate: normalizeAuditValue(base.endDate),
+    lookupEndDate: normalizeAuditValue(base.lookupEndDate),
+    notes: normalizeAuditValue(base.notes),
+    records,
+    totalRows,
+    truncated,
+    recordedAt: new Date().toISOString(),
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SCHOOL YEAR ACTIVATOR (stubs — no dedicated table)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -206,17 +273,31 @@ router.get('/officialtimetable/:employeeID', authenticateToken, (req, res) => {
   db.query(sql, params, (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
 
-    try {
-      logAudit(req.user, `View`, 'Official Time', null, employeeID);
-    } catch (e) {
-      console.error('Audit log error:', e);
-    }
-
     const out = (results || []).map((row) => ({
       ...row,
       startDate: toDateOnlyString(row.startDate),
       endDate: toDateOnlyString(row.endDate),
     }));
+
+    try {
+      logAudit(
+        req.user,
+        `View`,
+        'Official Time',
+        null,
+        employeeID,
+        buildOfficialTimeAuditDetails({
+          source: 'view-db',
+          employeeID,
+          startDate: startDate || date || null,
+          endDate: endDate || date || null,
+          records: out,
+        }),
+      );
+    } catch (e) {
+      console.error('Audit log error:', e);
+    }
+
     res.json(out);
   });
 });
@@ -339,6 +420,14 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
         'Official Time',
         null,
         employeeID,
+        buildOfficialTimeAuditDetails({
+          source: 'manual-create',
+          employeeID,
+          academicYear: academicYearVal,
+          startDate,
+          endDate,
+          records,
+        }),
       );
     } catch (e) {
       console.error('Audit log error:', e);
@@ -1015,6 +1104,31 @@ router.post(
         });
       }
 
+      try {
+        logAudit(
+          req.user,
+          `Upload official time schedules via Excel (${insertedCount} rows)`,
+          'Official Time',
+          null,
+          null,
+          {
+            module: 'officialtime',
+            source: 'excel-upload',
+            schedules: scheduleList.map((s) => ({
+              employeeID: String(s.employeeID),
+              academicYear: s.academicYear || null,
+              startDate: s.startDate,
+              endDate: s.endDate,
+              ...sanitizeOfficialTimeRows(s.rows, 50),
+            })),
+            insertedCount,
+            recordedAt: new Date().toISOString(),
+          },
+        );
+      } catch (e) {
+        console.error('Audit log error:', e);
+      }
+
       res.json({
         message:
           'Upload complete. New schedules are set to Active; status is not read from the file.',
@@ -1256,6 +1370,23 @@ router.post(
               'Official Time',
               null,
               null,
+              {
+                module: 'officialtime',
+                source: 'set-default-for-users',
+                processedCount,
+                insertedCount,
+                skippedCount,
+                userCount: users.length,
+                employeeNumbers:
+                  Array.isArray(employeeNumbers) && employeeNumbers.length > 0
+                    ? employeeNumbers.map((v) => String(v))
+                    : null,
+                defaultSchedule: sanitizeOfficialTimeRows(
+                  days.map((day) => ({ day, ...defaultTimes })),
+                  20,
+                ),
+                recordedAt: new Date().toISOString(),
+              },
             );
           } catch (e) {
             console.error('Audit log error:', e);
@@ -1472,6 +1603,29 @@ router.post(
       (sum, r) => sum + (r.inserted || 0),
       0,
     );
+
+    try {
+      logAudit(
+        req.user,
+        `Bulk create official time schedules (${employeeIDs.length} employees)`,
+        'Official Time',
+        null,
+        null,
+        {
+          module: 'officialtime',
+          source: 'bulk-create',
+          employeeIDs: employeeIDs.map((v) => String(v)),
+          blocks,
+          rowTemplate: sanitizeOfficialTimeRows(records, 30),
+          totalInserted,
+          results,
+          recordedAt: new Date().toISOString(),
+        },
+      );
+    } catch (e) {
+      console.error('Audit log error:', e);
+    }
+
     res.json({
       message: 'Bulk schedules processed.',
       totalInserted,
@@ -1599,6 +1753,14 @@ router.put(
           'Official Time',
           null,
           employeeID,
+          buildOfficialTimeAuditDetails({
+            source: 'manual-edit',
+            employeeID,
+            startDate,
+            endDate,
+            lookupEndDate,
+            records,
+          }),
         );
       } catch (e) {
         console.error('Audit log error:', e);
