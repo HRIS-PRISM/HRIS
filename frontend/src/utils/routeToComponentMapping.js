@@ -82,6 +82,7 @@ export const routeToComponentMap = {
   '/leave-commutation': 'leave-commutation',
   '/system-settings': 'system-settings',
   '/pds-templates': 'pds-templates',
+  '/leave-commutation': 'leave-commutation',
 };
 
 /**
