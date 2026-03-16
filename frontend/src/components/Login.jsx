@@ -185,6 +185,21 @@ const Login = () => {
     };
   }, []);
 
+  // ── Dismiss intro slide on Space or Enter key ──────────────────────────────
+  useEffect(() => {
+    if (!showIntro) return;
+    const handleKeyDown = (e) => {
+      if (e.code === "Space" || e.code === "Enter") {
+        e.preventDefault();
+        const introEl = document.getElementById("introSlide");
+        if (introEl) introEl.style.transform = "translateY(-100%)";
+        setTimeout(() => setShowIntro(false), 800);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showIntro]);
+
   const employeeNumberForRequests = useMemo(
     () => resolvedEmployeeNumber || employeeNumber,
     [resolvedEmployeeNumber, employeeNumber]
@@ -785,7 +800,7 @@ const Login = () => {
               </Box>
 
               <Typography variant="h4" sx={{ color: darkText, fontWeight: 800, mb: 1 }}>
-                Human Resource Information System
+                Human Resources Information System
               </Typography>
               <Typography sx={{ mb: 3, color: mediumText }}>Sign in to access your account</Typography>
 
@@ -933,7 +948,7 @@ const Login = () => {
                 H R I S
               </Typography>
               <Typography variant="h5" sx={{ fontWeight: 600, mb: 2, color: "#FFFFFF", textShadow: "1px 1px 5px rgba(0,0,0,0.5)" }}>
-                Human Resource Information System
+                Human Resources Information System
               </Typography>
             </Box>
 
