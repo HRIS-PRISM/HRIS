@@ -71,7 +71,7 @@ const isNotExpired = (date_end) => {
 const buildCarouselItems = (announcements = [], suspensions = [], rawHolidays = []) => {
   const holidayItems = rawHolidays
     .filter((h) => (h.status || "").toLowerCase() === "active")
-    .filter((h) => isHolidayActive(h.date_start || h.date, h.date_end || h.date, h.date))
+.filter((h) => isNotExpired(h.date_end || h.date))
     .map((h) => ({
       id: `holiday-${h.id}`,
       type: "HOLIDAY",
