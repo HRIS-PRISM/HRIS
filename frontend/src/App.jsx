@@ -339,6 +339,7 @@ function App() {
         },
       },
 
+
       MuiTableHead: {
         styleOverrides: {
           root: {
@@ -351,6 +352,7 @@ function App() {
         },
       },
 
+
       MuiChip: {
         styleOverrides: {
           filled: {
@@ -359,6 +361,7 @@ function App() {
           },
         },
       },
+
 
       MuiTab: {
         styleOverrides: {
@@ -369,6 +372,7 @@ function App() {
           },
         },
       },
+
 
       MuiLinearProgress: {
         styleOverrides: {
