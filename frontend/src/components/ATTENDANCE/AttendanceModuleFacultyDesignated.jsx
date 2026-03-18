@@ -31,6 +31,10 @@ import {
   Snackbar,
   Collapse,
   Paper,
+   Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import {
   WorkHistory,
@@ -45,6 +49,11 @@ import {
   Star,
   CreditScore,
   AccessTime,
+    CheckCircle as CheckCircleIcon,
+  Warning as WarningIcon,
+  Error as ErrorIcon,
+  Info as InfoIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import * as XLSX from 'xlsx';
@@ -989,6 +998,140 @@ const StickyScrollbar = ({ innerRef }) => {
 };
 
 // ─────────────────────────────────────────────
+// STYLED MODAL
+// ─────────────────────────────────────────────
+const StyledModal = ({
+  open, onClose, title, message, type = "info",
+  onConfirm, showCancel = false,
+  accentColor = "#6D2323", accentDark = "#8B3333",
+  primaryColor = "#FEF9E1", secondaryColor = "#FFF8E7",
+  textPrimaryColor = "#6D2323",
+}) => {
+  const typeConfig = {
+    success: {
+      icon: <CheckCircleIcon sx={{ fontSize: 30, color: "#2e7d32" }} />,
+      avatarBg: "rgba(46,125,50,0.15)", chipColor: "#2e7d32",
+      chipBg: "rgba(46,125,50,0.1)", label: "Success",
+    },
+    warning: {
+      icon: <WarningIcon sx={{ fontSize: 30, color: "#92400e" }} />,
+      avatarBg: "rgba(146,64,14,0.15)", chipColor: "#92400e",
+      chipBg: "rgba(146,64,14,0.1)", label: "Warning",
+    },
+    error: {
+      icon: <ErrorIcon sx={{ fontSize: 30, color: "#991b1b" }} />,
+      avatarBg: "rgba(153,27,27,0.15)", chipColor: "#991b1b",
+      chipBg: "rgba(153,27,27,0.1)", label: "Error",
+    },
+    info: {
+      icon: <InfoIcon sx={{ fontSize: 30, color: textPrimaryColor }} />,
+      avatarBg: alpha(accentColor, 0.14), chipColor: accentColor,
+      chipBg: alpha(accentColor, 0.1), label: "Notice",
+    },
+  };
+  const cfg = typeConfig[type] || typeConfig.info;
+
+  const lines = message.split("\n").map((l) => l.trim()).filter(Boolean);
+  const isListItem = (l) =>
+    l.startsWith("•") || l.startsWith("-") ||
+    /^\d{5,}/.test(l) || /^Employee\s+\d/.test(l);
+  const isNote = (l) =>
+    /^(contact|please|this action|note:|important)/i.test(l);
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: "24px", overflow: "hidden",
+          boxShadow: `0 32px 80px ${alpha(accentColor, 0.25)}, 0 8px 24px ${alpha(accentColor, 0.12)}`,
+          border: `1px solid ${alpha(accentColor, 0.14)}`,
+          bgcolor: primaryColor,
+        },
+      }}
+    >
+      {/* Header */}
+      <Box sx={{
+        px: 4, pt: 4, pb: 3.5,
+        background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+        position: "relative", overflow: "hidden",
+      }}>
+        <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, borderRadius: "50%", background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, transparent 70%)`, pointerEvents: "none" }} />
+        <Box sx={{ position: "absolute", bottom: -30, left: "25%", width: 150, height: 150, borderRadius: "50%", background: `radial-gradient(circle, ${alpha(accentColor, 0.07)} 0%, transparent 70%)`, pointerEvents: "none" }} />
+        <IconButton size="small" onClick={onClose} sx={{ position: "absolute", top: 16, right: 16, zIndex: 2, color: textPrimaryColor, opacity: 0.45, "&:hover": { opacity: 1, bgcolor: alpha(accentColor, 0.1) } }}>
+          <CloseIcon fontSize="small" />
+        </IconButton>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2.5, position: "relative", zIndex: 1 }}>
+          <Avatar sx={{ bgcolor: cfg.avatarBg, width: 60, height: 60, boxShadow: `0 8px 24px ${alpha(accentColor, 0.18)}`, border: `2px solid ${alpha(accentColor, 0.1)}` }}>
+            {cfg.icon}
+          </Avatar>
+          <Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 0.5 }}>
+              <Typography sx={{ fontWeight: 800, fontSize: "1.2rem", color: textPrimaryColor, lineHeight: 1.2, letterSpacing: "-0.01em" }}>
+                {title}
+              </Typography>
+              <Chip label={cfg.label} size="small" sx={{ bgcolor: cfg.chipBg, color: cfg.chipColor, fontWeight: 700, fontSize: "0.65rem", letterSpacing: "0.07em", textTransform: "uppercase", height: 20, borderRadius: "6px", border: `1px solid ${alpha(cfg.chipColor, 0.2)}` }} />
+            </Box>
+            <Typography sx={{ fontSize: "0.78rem", color: alpha(textPrimaryColor, 0.5), fontWeight: 500 }}>
+              {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+
+      {/* Body */}
+      <Box sx={{ px: 4, py: 3, bgcolor: alpha(primaryColor, 0.6), borderTop: `1px solid ${alpha(accentColor, 0.08)}`, borderBottom: `1px solid ${alpha(accentColor, 0.08)}` }}>
+        {lines.map((line, i) => {
+          if (isListItem(line)) {
+            const clean = line.replace(/^[•\-]\s*/, "");
+            const [empPart, ...rest] = clean.split(":");
+            return (
+              <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 2, mb: 1, px: 2, py: 1.25, borderRadius: "12px", bgcolor: "rgba(255,255,255,0.75)", border: `1px solid ${alpha(accentColor, 0.1)}`, backdropFilter: "blur(4px)", boxShadow: `0 2px 8px ${alpha(accentColor, 0.06)}` }}>
+                <Box sx={{ width: 32, height: 32, borderRadius: "8px", flexShrink: 0, bgcolor: alpha(accentColor, 0.1), display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Person sx={{ fontSize: 16, color: accentColor, opacity: 0.7 }} />
+                </Box>
+                <Box>
+                  <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: textPrimaryColor, lineHeight: 1.2 }}>{empPart?.trim()}</Typography>
+                  {rest.length > 0 && <Typography sx={{ fontSize: "0.75rem", color: alpha(textPrimaryColor, 0.55), fontWeight: 500, mt: 0.15 }}>{rest.join(":").trim()}</Typography>}
+                </Box>
+              </Box>
+            );
+          }
+          if (isNote(line)) {
+            return (
+              <Box key={i} sx={{ mt: 1.5, px: 2, py: 1.5, borderRadius: "12px", bgcolor: alpha(accentColor, 0.06), border: `1px solid ${alpha(accentColor, 0.14)}`, borderLeft: `4px solid ${alpha(accentColor, 0.5)}`, display: "flex", alignItems: "flex-start", gap: 1.25 }}>
+                <InfoIcon sx={{ fontSize: 15, color: accentColor, opacity: 0.6, mt: 0.2, flexShrink: 0 }} />
+                <Typography sx={{ fontSize: "0.82rem", color: alpha(textPrimaryColor, 0.75), fontWeight: 600, lineHeight: 1.65 }}>{line}</Typography>
+              </Box>
+            );
+          }
+          return (
+            <Typography key={i} sx={{ fontSize: "0.9rem", color: alpha(textPrimaryColor, 0.8), lineHeight: 1.8, fontWeight: 500, mb: i < lines.length - 1 ? 1.25 : 0 }}>
+              {line}
+            </Typography>
+          );
+        })}
+      </Box>
+
+      {/* Footer */}
+      <Box sx={{ px: 4, py: 2.5, bgcolor: alpha(primaryColor, 0.8), display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 1.5 }}>
+        {showCancel && (
+          <ProfessionalButton onClick={onClose} variant="outlined" sx={{ borderColor: alpha(accentColor, 0.3), color: textPrimaryColor, bgcolor: "rgba(255,255,255,0.6)", "&:hover": { borderColor: accentColor, bgcolor: "rgba(255,255,255,0.9)" } }}>
+            Cancel
+          </ProfessionalButton>
+        )}
+        <ProfessionalButton onClick={onConfirm || onClose} variant="contained" sx={{ bgcolor: accentColor, color: primaryColor, boxShadow: `0 4px 16px ${alpha(accentColor, 0.4)}`, "&:hover": { bgcolor: accentDark, boxShadow: `0 6px 20px ${alpha(accentColor, 0.5)}` } }}>
+          {showCancel ? "Confirm" : "OK"}
+        </ProfessionalButton>
+      </Box>
+    </Dialog>
+  );
+};
+
+// ─────────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────────
 const AttendanceModuleFacultyDesignated = () => {
@@ -1055,6 +1198,14 @@ const AttendanceModuleFacultyDesignated = () => {
     setSnackbarCountdown(6);
   };
   const handleCloseSnackbar = () => setSnackbar((p) => ({ ...p, open: false }));
+
+  const [modal, setModal] = useState({
+  open: false, title: "", message: "", type: "info",
+  onConfirm: null, showCancel: false,
+});
+const showModal = (title, message, type = "info", onConfirm = null, showCancel = false) =>
+  setModal({ open: true, title, message, type, onConfirm, showCancel });
+const closeModal = () => setModal((p) => ({ ...p, open: false }));
 
   useEffect(() => {
     let timer;
@@ -1501,20 +1652,29 @@ const AttendanceModuleFacultyDesignated = () => {
           ...getAuthHeaders(),
         },
       );
-      if (dup.data?.data?.length) {
-        showSnackbar(
-          `Record for Employee ${employeeNumber} covering ${startDate}–${endDate} already exists.`,
-          'warning',
-        );
-        setTimeout(() => navigate('/attendance_summary'), 2500);
-        return;
-      }
-    } catch (e) {
-      console.error('Duplicate-check failed:', e);
-      showSnackbar('Could not verify duplicates. Saving aborted.', 'error');
-      setSaving(false);
-      return;
+if (dup.data?.data?.length) {
+  setSaving(false);
+  showModal(
+    "Duplicate Attendance Record",
+    `The system has detected an existing attendance record for the specified period.\n\n• Employee ${employeeNumber}: ${startDate} → ${endDate}\n\nNote: This record has already been submitted and saved. To make changes, please locate and edit the existing record in the Overall Attendance Summary.`,
+    "warning",
+    () => {
+      closeModal();
+      navigate("/attendance_summary");
     }
+  );
+  return;
+}
+   } catch (e) {
+  console.error("Duplicate-check failed:", e);
+  setSaving(false);
+  showModal(
+    "Verification Failed",
+    "Could not verify existing records. Saving has been aborted.\n\nPlease try again or contact your administrator.",
+    "error"
+  );
+  return;
+}
 
     const record = {
       personID: employeeNumber,
@@ -2378,6 +2538,21 @@ const AttendanceModuleFacultyDesignated = () => {
           saving={saving}
           activeTab={activeTab}
         />
+
+        <StyledModal
+  open={modal.open}
+  onClose={closeModal}
+  title={modal.title}
+  message={modal.message}
+  type={modal.type}
+  onConfirm={modal.onConfirm}
+  showCancel={modal.showCancel}
+  accentColor={accentColor}
+  accentDark={accentDark}
+  primaryColor={primaryColor}
+  secondaryColor={secondaryColor}
+  textPrimaryColor={textPrimaryColor}
+/>
       </Box>
     </Fade>
   );

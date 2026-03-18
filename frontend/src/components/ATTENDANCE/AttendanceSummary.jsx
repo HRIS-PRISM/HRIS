@@ -717,6 +717,9 @@ const OverallAttendance = () => {
   const textPrimaryColor = settings.textPrimaryColor || '#6D2323';
   const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
 
+  const [showJOConfirm, setShowJOConfirm] = useState(false);
+  const [confirmJOChecked, setConfirmJOChecked] = useState(false);
+
   // Access control
   const {
     hasAccess,
@@ -752,6 +755,7 @@ const OverallAttendance = () => {
   const [successOverlay, setSuccessOverlay] = useState(false);
   const [successRedirect, setSuccessRedirect] = useState('');
   const [successAction, setSuccessAction] = useState('send');
+  const resultsRef = useRef(null);
 
   // Month picker state
   const currentYear = new Date().getFullYear();
@@ -847,11 +851,14 @@ const OverallAttendance = () => {
           ...getAuthHeaders(),
         },
       );
-      if (response.status === 200) {
-        setAttendanceData(response.data.data);
-      } else {
-        console.error('Error: ', response.status);
-      }
+     if (response.status === 200) {
+  setAttendanceData(response.data.data);
+  setTimeout(() => {
+    resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 150);
+} else {
+  console.error('Error: ', response.status);
+}
     } catch (error) {
       console.error('Error fetching data:', error);
       showModal(
@@ -1005,11 +1012,11 @@ const OverallAttendance = () => {
           .map((r) => `${r.employeeNumber}: ${r.reason}`)
           .join('\n');
         if (filteredRecords.length === 0) {
-          showModal(
-            'Submission Blocked',
-            `Employee(s) not eligible for Regular payroll:\n\n${invalidList}\n\nContact HR Department to update employment category.`,
-            'warning',
-          );
+         showModal(
+  'Submission Blocked — Regular Payroll',
+  `The following employee(s) could not be processed for Regular Payroll submission:\n\n${invalidRecords.map(r => `• Employee ${r.employeeNumber}: ${r.reason}`).join('\n')}\n\nPlease verify and update the employment category on record before resubmitting.`,
+  'warning',
+);
           setProcessingOverlay(false);
           setIsSubmitting(false);
           return;
@@ -1127,10 +1134,10 @@ const OverallAttendance = () => {
         'Server error occurred';
       if (status === 409)
         showModal(
-          'Duplicate Entry',
-          'Record already exists in payroll.',
-          'warning',
-        );
+  'Duplicate Entries — Job Order Payroll',
+  `The system has detected existing Job Order Payroll records for the specified period:\n\n${duplicateRecords.map(r => `• Employee ${r.employeeNumber}: ${r.startDate} → ${r.endDate}`).join('\n')}\n\nPlease verify and review the existing entries before resubmitting.`,
+  'warning',
+);
       else if (status === 400) showModal('Invalid Data', message, 'error');
       else showModal('Server Error', `Error ${status}: ${message}`, 'error');
     } else if (error.request) {
@@ -1193,10 +1200,10 @@ const OverallAttendance = () => {
           .join('\n');
         if (filteredRecords.length === 0) {
           showModal(
-            'Submission Blocked',
-            `Employees not eligible for JO payroll:\n\n${invalidList}\n\nContact HR to update employment status.`,
-            'warning',
-          );
+  'Submission Blocked — Job Order Payroll',
+  `The following employee(s) could not be processed for Job Order (JO) Payroll submission:\n\n${invalidRecords.map(r => `• Employee ${r.employeeNumber}: ${r.reason}`).join('\n')}\n\nPlease verify and update the employment status on record before resubmitting.`,
+  'warning',
+);
           setProcessingOverlay(false);
           setIsSubmittingJO(false);
           return;
@@ -1252,17 +1259,11 @@ const OverallAttendance = () => {
       }
 
       if (duplicateRecords.length > 0) {
-        const duplicateList = duplicateRecords
-          .map(
-            (r) =>
-              `• Employee ${r.employeeNumber} (${r.startDate} to ${r.endDate})`,
-          )
-          .join('\n');
-        showModal(
-          'Duplicate Entries',
-          `Records already exist:\n\n${duplicateList}`,
-          'warning',
-        );
+      showModal(
+  'Duplicate Entries — Job Order Payroll',
+  `The system has detected existing Job Order Payroll records for the specified period:\n\n${duplicateRecords.map(r => `• Employee ${r.employeeNumber}: ${r.startDate} → ${r.endDate}`).join('\n')}\n\nPlease verify and review the existing entries before resubmitting.`,
+  'warning',
+);
         setProcessingOverlay(false);
         return;
       }
@@ -1790,6 +1791,7 @@ const OverallAttendance = () => {
         {attendanceData.length > 0 && (
           <Fade in={!loading} timeout={500}>
             <GlassCard
+            ref={resultsRef}
               sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}
             >
               {/* Banner */}
@@ -2379,7 +2381,7 @@ const OverallAttendance = () => {
                 {/* ── JO Payroll Card ── */}
                 <Grid item xs={12} md={6}>
                   <Box
-                    onClick={!isSubmittingJO ? submitPayrollJO : undefined}
+                    onClick={!isSubmittingJO ? () => setShowJOConfirm(true) : undefined}
                     sx={{
                       position: 'relative',
                       borderRadius: '20px',
@@ -2523,178 +2525,223 @@ const OverallAttendance = () => {
           </Fade>
         )}
 
-        {/* ── Regular Payroll Confirmation Dialog ── */}
-        <Dialog
-          open={showRegularConfirm}
-          onClose={() => {
-            setShowRegularConfirm(false);
-            setConfirmRegularChecked(false);
-          }}
-          maxWidth="sm"
-          fullWidth
-          PaperProps={{
-            sx: {
-              borderRadius: 3,
-              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-              border: '2px solid #6D2323',
-              overflow: 'hidden',
-            },
-          }}
-        >
-          <DialogTitle
-            sx={{
-              px: 3,
-              pt: 2.5,
-              pb: 2,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 2,
-              borderBottom: '3px solid #6D2323',
-              backgroundColor: '#FFFFFF',
-            }}
-          >
-            <Avatar
-              sx={{
-                bgcolor: 'rgba(109,35,35,0.08)',
-                color: '#6D2323',
-                width: 52,
-                height: 52,
-              }}
-            >
-              <Assignment sx={{ fontSize: 26 }} />
-            </Avatar>
-            <Box>
-              <Typography
-                variant="h6"
-                sx={{ fontWeight: 'bold', color: '#333' }}
-              >
-                Confirm Regular Payroll Submission
-              </Typography>
-              <Typography variant="body2" sx={{ color: '#666' }}>
-                Final confirmation required before submitting to Regular
-                payroll.
-              </Typography>
-            </Box>
-          </DialogTitle>
+{/* ── Regular Payroll Confirmation Dialog ── */}
+<Dialog
+  open={showRegularConfirm}
+  onClose={() => { setShowRegularConfirm(false); setConfirmRegularChecked(false); }}
+  maxWidth="sm"
+  fullWidth
+  PaperProps={{
+    sx: {
+      borderRadius: '24px', overflow: 'hidden',
+      boxShadow: `0 32px 80px ${alpha(accentColor, 0.25)}, 0 8px 24px ${alpha(accentColor, 0.12)}`,
+      border: `1px solid ${alpha(accentColor, 0.14)}`,
+      bgcolor: primaryColor,
+    },
+  }}
+>
+  {/* Header */}
+  <Box sx={{
+    px: 4, pt: 4, pb: 3.5,
+    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+    position: 'relative', overflow: 'hidden',
+  }}>
+    <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
+    <Box sx={{ position: 'absolute', bottom: -30, left: '25%', width: 150, height: 150, borderRadius: '50%', background: `radial-gradient(circle, ${alpha(accentColor, 0.07)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
+    <IconButton size="small" onClick={() => { setShowRegularConfirm(false); setConfirmRegularChecked(false); }}
+      sx={{ position: 'absolute', top: 16, right: 16, zIndex: 2, color: textPrimaryColor, opacity: 0.45, '&:hover': { opacity: 1, bgcolor: alpha(accentColor, 0.1) } }}>
+      <CloseIcon fontSize="small" />
+    </IconButton>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
+      <Avatar sx={{ bgcolor: alpha(accentColor, 0.14), width: 60, height: 60, boxShadow: `0 8px 24px ${alpha(accentColor, 0.18)}`, border: `2px solid ${alpha(accentColor, 0.1)}` }}>
+        <Assignment sx={{ fontSize: 28, color: accentColor }} />
+      </Avatar>
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
+          <Typography sx={{ fontWeight: 800, fontSize: '1.2rem', color: textPrimaryColor, lineHeight: 1.2, letterSpacing: '-0.01em' }}>
+            Regular Payroll Submission
+          </Typography>
+          <Chip label="Confirmation" size="small" sx={{ bgcolor: alpha(accentColor, 0.1), color: accentColor, fontWeight: 700, fontSize: '0.65rem', letterSpacing: '0.07em', textTransform: 'uppercase', height: 20, borderRadius: '6px', border: `1px solid ${alpha(accentColor, 0.2)}` }} />
+        </Box>
+        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.5), fontWeight: 500 }}>
+          {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+        </Typography>
+      </Box>
+    </Box>
+  </Box>
 
-          <DialogContent
-            sx={{ px: 4, pt: 5, pb: 3, backgroundColor: '#FFFFFF' }}
-          >
-            <Alert
-              severity="info"
-              icon={<InfoIcon />}
-              sx={{
-                mt: 2,
-                mb: 3.5,
-                borderRadius: 2,
-                bgcolor: 'rgba(109,35,35,0.04)',
-                border: '1px solid rgba(109,35,35,0.2)',
-                '& .MuiAlert-icon': { color: '#6D2323', fontSize: 24 },
-              }}
-            >
-              <Typography
-                variant="body1"
-                sx={{ fontWeight: 600, mb: 0.5, color: '#333' }}
-              >
-                {attendanceData.length} record(s) will be validated and
-                submitted.
-              </Typography>
-              <Typography variant="body2" sx={{ color: '#555' }}>
-                Please ensure all attendance records are complete and accurate
-                before continuing. This action will forward data to Regular
-                payroll processing.
-              </Typography>
-            </Alert>
-            <Box
-              sx={{
-                p: 2.5,
-                bgcolor: '#f9f9f9',
-                borderRadius: 2,
-                border: `2px solid ${confirmRegularChecked ? '#6D2323' : '#e0e0e0'}`,
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 1.5,
-                transition: 'all 0.2s ease',
-                ...(confirmRegularChecked && {
-                  bgcolor: 'rgba(109,35,35,0.04)',
-                }),
-              }}
-            >
-              <Checkbox
-                checked={confirmRegularChecked}
-                onChange={(e) => setConfirmRegularChecked(e.target.checked)}
-                sx={{
-                  color: '#6D2323',
-                  '&.Mui-checked': { color: '#6D2323' },
-                  mt: -0.5,
-                }}
-              />
-              <Box>
-                <Typography
-                  variant="body1"
-                  sx={{ fontWeight: 600, color: '#333', mb: 0.5 }}
-                >
-                  I confirm that I have reviewed all Regular payroll records.
-                </Typography>
-                <Typography variant="body2" sx={{ color: '#666' }}>
-                  All information for Regular employees is accurate and ready
-                  for submission to payroll. I understand this action cannot be
-                  undone.
-                </Typography>
-              </Box>
-            </Box>
-          </DialogContent>
+  {/* Body */}
+  <Box sx={{ px: 4, py: 3, bgcolor: alpha(primaryColor, 0.6), borderTop: `1px solid ${alpha(accentColor, 0.08)}`, borderBottom: `1px solid ${alpha(accentColor, 0.08)}` }}>
+    <Typography sx={{ fontSize: '0.9rem', color: alpha(textPrimaryColor, 0.8), lineHeight: 1.8, fontWeight: 500, mb: 2 }}>
+      The following records are pending submission to Regular Payroll. Verify all entries are accurate before proceeding.
+    </Typography>
 
-          <DialogActions
-            sx={{
-              px: 4,
-              py: 3,
-              backgroundColor: '#FFFFFF',
-              borderTop: '1px solid rgba(0,0,0,0.06)',
-              display: 'flex',
-              justifyContent: 'flex-end',
-              gap: 1.5,
-            }}
-          >
-            <ProfessionalButton
-              variant="outlined"
-              onClick={() => {
-                setShowRegularConfirm(false);
-                setConfirmRegularChecked(false);
-              }}
-              sx={{
-                minWidth: 120,
-                borderColor: '#6D2323',
-                color: '#6D2323',
-                fontWeight: 600,
-              }}
-            >
-              Cancel
-            </ProfessionalButton>
-            <ProfessionalButton
-              variant="contained"
-              disabled={!confirmRegularChecked || isSubmitting}
-              onClick={async () => {
-                setShowRegularConfirm(false);
-                setConfirmRegularChecked(false);
-                await submitToPayroll();
-              }}
-              sx={{
-                minWidth: 160,
-                bgcolor: '#6D2323',
-                color: '#FEF9E1',
-                fontWeight: 600,
-                '&:hover': { bgcolor: '#8B3333' },
-                '&:disabled': {
-                  bgcolor: 'rgba(0,0,0,0.12)',
-                  color: 'rgba(0,0,0,0.4)',
-                },
-              }}
-            >
-              {isSubmitting ? 'Submitting...' : 'Confirm & Submit'}
-            </ProfessionalButton>
-          </DialogActions>
-        </Dialog>
+    {/* Record count card */}
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, px: 2, py: 1.5, borderRadius: '12px', bgcolor: 'rgba(255,255,255,0.75)', border: `1px solid ${alpha(accentColor, 0.1)}`, backdropFilter: 'blur(4px)', boxShadow: `0 2px 8px ${alpha(accentColor, 0.06)}` }}>
+      <Box sx={{ width: 36, height: 36, borderRadius: '8px', flexShrink: 0, bgcolor: alpha(accentColor, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Assignment sx={{ fontSize: 18, color: accentColor }} />
+      </Box>
+      <Box>
+        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.5), fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Records for Submission</Typography>
+        <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: textPrimaryColor, lineHeight: 1.2 }}>
+          {attendanceData.length} {attendanceData.length === 1 ? 'Record' : 'Records'} — Regular Payroll
+        </Typography>
+      </Box>
+    </Box>
+
+    {/* Confirmation checkbox */}
+    <Box sx={{
+      p: 2.5, borderRadius: '12px',
+      border: `2px solid ${confirmRegularChecked ? accentColor : alpha(accentColor, 0.15)}`,
+      bgcolor: confirmRegularChecked ? alpha(accentColor, 0.05) : 'rgba(255,255,255,0.5)',
+      display: 'flex', alignItems: 'flex-start', gap: 1.5,
+      transition: 'all 0.2s ease', cursor: 'pointer',
+    }} onClick={() => setConfirmRegularChecked(p => !p)}>
+      <Checkbox
+        checked={confirmRegularChecked}
+        onChange={(e) => setConfirmRegularChecked(e.target.checked)}
+        onClick={(e) => e.stopPropagation()}
+        sx={{ color: alpha(accentColor, 0.4), '&.Mui-checked': { color: accentColor }, mt: -0.5, p: 0.5 }}
+      />
+      <Box>
+        <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: textPrimaryColor, mb: 0.4, lineHeight: 1.3 }}>
+          I confirm all records have been reviewed and are accurate.
+        </Typography>
+        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.55), fontWeight: 500, lineHeight: 1.6 }}>
+          This action will submit the records to Regular payroll processing and cannot be undone.
+        </Typography>
+      </Box>
+    </Box>
+  </Box>
+
+  {/* Footer */}
+  <Box sx={{ px: 4, py: 2.5, bgcolor: alpha(primaryColor, 0.8), display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1.5 }}>
+    <ProfessionalButton
+      onClick={() => { setShowRegularConfirm(false); setConfirmRegularChecked(false); }}
+      variant="outlined"
+      sx={{ borderColor: alpha(accentColor, 0.3), color: textPrimaryColor, bgcolor: 'rgba(255,255,255,0.6)', '&:hover': { borderColor: accentColor, bgcolor: 'rgba(255,255,255,0.9)' } }}
+    >
+      Cancel
+    </ProfessionalButton>
+    <ProfessionalButton
+      variant="contained"
+      disabled={!confirmRegularChecked || isSubmitting}
+      onClick={async () => { setShowRegularConfirm(false); setConfirmRegularChecked(false); await submitToPayroll(); }}
+      sx={{ bgcolor: accentColor, color: primaryColor, boxShadow: `0 4px 16px ${alpha(accentColor, 0.4)}`, '&:hover': { bgcolor: accentDark, boxShadow: `0 6px 20px ${alpha(accentColor, 0.5)}` }, '&:disabled': { bgcolor: alpha(accentColor, 0.25), color: alpha(primaryColor, 0.5) } }}
+    >
+      {isSubmitting ? 'Submitting…' : 'Submit'}
+    </ProfessionalButton>
+  </Box>
+</Dialog>
+
+{/* ── JO Payroll Confirmation Dialog ── */}
+<Dialog
+  open={showJOConfirm}
+  onClose={() => { setShowJOConfirm(false); setConfirmJOChecked(false); }}
+  maxWidth="sm"
+  fullWidth
+  PaperProps={{
+    sx: {
+      borderRadius: '24px', overflow: 'hidden',
+      boxShadow: `0 32px 80px ${alpha(accentColor, 0.25)}, 0 8px 24px ${alpha(accentColor, 0.12)}`,
+      border: `1px solid ${alpha(accentColor, 0.14)}`,
+      bgcolor: primaryColor,
+    },
+  }}
+>
+  {/* Header */}
+  <Box sx={{
+    px: 4, pt: 4, pb: 3.5,
+    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+    position: 'relative', overflow: 'hidden',
+  }}>
+    <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
+    <Box sx={{ position: 'absolute', bottom: -30, left: '25%', width: 150, height: 150, borderRadius: '50%', background: `radial-gradient(circle, ${alpha(accentColor, 0.07)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
+    <IconButton size="small" onClick={() => { setShowJOConfirm(false); setConfirmJOChecked(false); }}
+      sx={{ position: 'absolute', top: 16, right: 16, zIndex: 2, color: textPrimaryColor, opacity: 0.45, '&:hover': { opacity: 1, bgcolor: alpha(accentColor, 0.1) } }}>
+      <CloseIcon fontSize="small" />
+    </IconButton>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
+      <Avatar sx={{ bgcolor: alpha(accentColor, 0.14), width: 60, height: 60, boxShadow: `0 8px 24px ${alpha(accentColor, 0.18)}`, border: `2px solid ${alpha(accentColor, 0.1)}` }}>
+        <Assignment sx={{ fontSize: 28, color: accentColor }} />
+      </Avatar>
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
+          <Typography sx={{ fontWeight: 800, fontSize: '1.2rem', color: textPrimaryColor, lineHeight: 1.2, letterSpacing: '-0.01em' }}>
+            Job Order Payroll Submission
+          </Typography>
+          <Chip label="Confirmation" size="small" sx={{ bgcolor: alpha(accentColor, 0.1), color: accentColor, fontWeight: 700, fontSize: '0.65rem', letterSpacing: '0.07em', textTransform: 'uppercase', height: 20, borderRadius: '6px', border: `1px solid ${alpha(accentColor, 0.2)}` }} />
+        </Box>
+        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.5), fontWeight: 500 }}>
+          {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+        </Typography>
+      </Box>
+    </Box>
+  </Box>
+
+  {/* Body */}
+  <Box sx={{ px: 4, py: 3, bgcolor: alpha(primaryColor, 0.6), borderTop: `1px solid ${alpha(accentColor, 0.08)}`, borderBottom: `1px solid ${alpha(accentColor, 0.08)}` }}>
+    <Typography sx={{ fontSize: '0.9rem', color: alpha(textPrimaryColor, 0.8), lineHeight: 1.8, fontWeight: 500, mb: 2 }}>
+      The following records are pending submission to Job Order Payroll. Verify all entries are accurate before proceeding.
+    </Typography>
+
+    {/* Record count card */}
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, px: 2, py: 1.5, borderRadius: '12px', bgcolor: 'rgba(255,255,255,0.75)', border: `1px solid ${alpha(accentColor, 0.1)}`, backdropFilter: 'blur(4px)', boxShadow: `0 2px 8px ${alpha(accentColor, 0.06)}` }}>
+      <Box sx={{ width: 36, height: 36, borderRadius: '8px', flexShrink: 0, bgcolor: alpha(accentColor, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Assignment sx={{ fontSize: 18, color: accentColor }} />
+      </Box>
+      <Box>
+        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.5), fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Records for Submission</Typography>
+        <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: textPrimaryColor, lineHeight: 1.2 }}>
+          {attendanceData.length} {attendanceData.length === 1 ? 'Record' : 'Records'} — Job Order Payroll
+        </Typography>
+      </Box>
+    </Box>
+
+    {/* Confirmation checkbox */}
+    <Box sx={{
+      p: 2.5, borderRadius: '12px',
+      border: `2px solid ${confirmJOChecked ? accentColor : alpha(accentColor, 0.15)}`,
+      bgcolor: confirmJOChecked ? alpha(accentColor, 0.05) : 'rgba(255,255,255,0.5)',
+      display: 'flex', alignItems: 'flex-start', gap: 1.5,
+      transition: 'all 0.2s ease', cursor: 'pointer',
+    }} onClick={() => setConfirmJOChecked(p => !p)}>
+      <Checkbox
+        checked={confirmJOChecked}
+        onChange={(e) => setConfirmJOChecked(e.target.checked)}
+        onClick={(e) => e.stopPropagation()}
+        sx={{ color: alpha(accentColor, 0.4), '&.Mui-checked': { color: accentColor }, mt: -0.5, p: 0.5 }}
+      />
+      <Box>
+        <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: textPrimaryColor, mb: 0.4, lineHeight: 1.3 }}>
+          I confirm all records have been reviewed and are accurate.
+        </Typography>
+        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.55), fontWeight: 500, lineHeight: 1.6 }}>
+          This action will submit the records to Job Order payroll processing and cannot be undone.
+        </Typography>
+      </Box>
+    </Box>
+  </Box>
+
+  {/* Footer */}
+  <Box sx={{ px: 4, py: 2.5, bgcolor: alpha(primaryColor, 0.8), display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1.5 }}>
+    <ProfessionalButton
+      onClick={() => { setShowJOConfirm(false); setConfirmJOChecked(false); }}
+      variant="outlined"
+      sx={{ borderColor: alpha(accentColor, 0.3), color: textPrimaryColor, bgcolor: 'rgba(255,255,255,0.6)', '&:hover': { borderColor: accentColor, bgcolor: 'rgba(255,255,255,0.9)' } }}
+    >
+      Cancel
+    </ProfessionalButton>
+    <ProfessionalButton
+      variant="contained"
+      disabled={!confirmJOChecked || isSubmittingJO}
+      onClick={async () => { setShowJOConfirm(false); setConfirmJOChecked(false); await submitPayrollJO(); }}
+      sx={{ bgcolor: accentColor, color: primaryColor, boxShadow: `0 4px 16px ${alpha(accentColor, 0.4)}`, '&:hover': { bgcolor: accentDark, boxShadow: `0 6px 20px ${alpha(accentColor, 0.5)}` }, '&:disabled': { bgcolor: alpha(accentColor, 0.25), color: alpha(primaryColor, 0.5) } }}
+    >
+      {isSubmittingJO ? 'Submitting…' : 'Submit'}
+    </ProfessionalButton>
+  </Box>
+</Dialog>
 
         {/* ── StyledModal ── */}
         <StyledModal
