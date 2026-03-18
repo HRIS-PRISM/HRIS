@@ -760,7 +760,7 @@ const LearningAndDevelopment = () => {
                         Learning and Development Management
                       </Typography>
                       <Typography variant="body1" sx={{ opacity: 0.8, fontWeight: 400, color: accentDark }}>
-                        Add and manage learning and development records for employees
+                        Add and manage learning and development Seminars, Interventions, and Training programs attended by employees.
                       </Typography>
                     </Box>
                   </Box>
@@ -818,10 +818,10 @@ const LearningAndDevelopment = () => {
                   <LightbulbIcon sx={{ fontSize: "1.8rem", mr: 2 }} />
                   <Box>
                     <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                      Add New Learning Program
+                      Add New Program 
                     </Typography>
                     <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                      Fill in the learning program information
+                      Fill in the program information 
                     </Typography>
                   </Box>
                 </Box>
@@ -1033,7 +1033,7 @@ const LearningAndDevelopment = () => {
                         },
                       }}
                     >
-                      Add Learning Program
+                      Add Program
                     </ProfessionalButton>
                   </Box>
                 </Box>
@@ -1060,7 +1060,7 @@ const LearningAndDevelopment = () => {
                     <LightbulbIcon sx={{ fontSize: "1.8rem", mr: 2 }} />
                     <Box>
                       <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                        Learning Programs
+                        Programs
                       </Typography>
                       <Typography variant="caption" sx={{ opacity: 0.9 }}>
                         View and manage existing programs
@@ -1403,7 +1403,7 @@ const LearningAndDevelopment = () => {
                   }}
                 >
                   <Typography variant="h6" sx={{ fontWeight: 'bold', color: settings.accentColor || '#FEF9E1' }}>
-                    {isEditing ? "Edit Learning Program" : "Learning Program Details"}
+                    {isEditing ? "Edit Program" : "Program Details"}
                   </Typography>
                   <IconButton onClick={handleCloseModal} sx={{ color: settings.accentColor || '#FEF9E1' }}>
                     <Close />

@@ -560,7 +560,7 @@ const Profile = () => {
     { key:6,  label:'Work Experience',  icon:WorkIcon,              title:'Work Experience',        subtitle:'Professional history and appointments.' },
     { key:7,  label:'Eligibility',      icon:FactCheckIcon,         title:'Eligibility',            subtitle:'Civil service examination results and ratings.' },
     { key:8,  label:'Voluntary Work',   icon:VolunteerActivismIcon, title:'Voluntary Work',         subtitle:'Involvement in civic/NGO/voluntary organizations.' },
-    { key:9,  label:'Seminars & Training',   icon:BookIcon,         title:'Seminars & Training', subtitle:'Training and development programs attended.' },
+    { key:9,  label:'Learning and Development',   icon:BookIcon,         title:'Learning and Development', subtitle:'Seminars | Interventions | Training programs attended.' },
     { key:10, label:'Other Information',       icon:InfoIcon,              title:'Other Information',      subtitle:'Special skills, distinctions, and associations.' },
   ];
 

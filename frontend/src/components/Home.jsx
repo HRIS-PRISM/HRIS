@@ -515,7 +515,7 @@ const Home = () => {
     () =>
       (rawHolidays || [])
         .filter((h) => (h.status || "").toLowerCase() === "active")
-.filter((h) => isNotExpired(h.date_end || h.date))
+        .filter((h) => isNotExpired(h.date_end || h.date))
         .map((h) => ({
           id: `holiday-${h.id}`,
           title: h.title || h.description || "",
@@ -860,26 +860,35 @@ const Home = () => {
 
   useEffect(() => {
     const fetchProfilePicture = async () => {
+      if (!employeeNumber) return;
       try {
-        const res = await axios.get(`${API_BASE_URL}/personalinfo/person_table`);
-        const list = Array.isArray(res.data) ? res.data : [];
-        const match = list.find((p) => String(p.agencyEmployeeNum) === String(employeeNumber));
-        if (match && match.profile_picture) setProfilePicture(match.profile_picture);
-        const fullNameFromPerson = `${match?.firstName || ""} ${match?.middleName || ""} ${match?.lastName || ""} ${match?.nameExtension || ""}`.trim();
+        const token = localStorage.getItem("token");
+        const res = await axios.get(`${API_BASE_URL}/personalinfo/${employeeNumber}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = Array.isArray(res.data) ? (res.data[0] ?? {}) : (res.data ?? {});
+        if (data.profile_picture) setProfilePicture(data.profile_picture);
+        const fullNameFromPerson = `${data.firstName || ""} ${data.middleName || ""} ${data.lastName || ""} ${data.nameExtension || ""}`.trim();
         if (fullNameFromPerson) setFullName(fullNameFromPerson);
       } catch {}
     };
-    if (employeeNumber) fetchProfilePicture();
+    fetchProfilePicture();
   }, [employeeNumber]);
 
+  // ── Fetch payslip data from released-payroll (not payroll-processed) ──────
   useEffect(() => {
     const fetchPayrollData = async () => {
       if (!employeeNumber) return;
       try {
-        const res = await axios.get(`${API_BASE_URL}/api/finalized-payroll`);
+        const token = localStorage.getItem("token");
+        const res = await axios.get(`${API_BASE_URL}/PayrollReleasedRoute/released-payroll`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         const list = Array.isArray(res.data) ? res.data : [];
+        // released-payroll is ordered by dateReleased DESC, so the first
+        // match is the most recently released record for this employee
         const userPayroll = list.find(
-          (p) => String(p.employeeNumber) === String(employeeNumber) || String(p.agencyEmployeeNum) === String(employeeNumber)
+          (p) => String(p.employeeNumber) === String(employeeNumber)
         );
         setPayrollData(userPayroll || null);
       } catch {}
