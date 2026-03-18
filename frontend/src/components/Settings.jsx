@@ -964,7 +964,7 @@ const Settings = () => {
         {/* ── CONTACT SUPPORT ───────────────────────────────────────── */}
         {activeSection === "contact" && (
           <>
-            <GlassCard sx={{ mb: 4, overflow: "hidden" }}>
+            <GlassCard sx={{ mb: -40, overflow: "hidden" }}>
               <SectionHeader P={P} S={S} icon={ContactSupport} title="Contact Support | Messages | Tickets" subtitle="View and manage your communications with us"
                 action={
                   <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>

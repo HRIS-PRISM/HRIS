@@ -699,55 +699,57 @@ function App() {
       </Box>
     </Box>
 
-{/* RIGHT: Live Clock */}
-<Box
-  sx={{
-    display: "flex",
-    alignItems: "center",
-    gap: 1,
-    bgcolor: "rgba(255,255,255,0.1)",
-    border: "1px solid rgba(255,255,255,0.2)",
-    borderRadius: "8px",
-    px: 2,
-    py: 0.5,
-  }}
->
-  <AccessTime sx={{ fontSize: 18, color: systemSettings.textColor, opacity: 0.85 }} />
-  <Box>
-    <Typography
-      sx={{
-        fontWeight: "bold",
-        fontFamily: "monospace",
-        fontSize: "1rem",
-        letterSpacing: 1.5,
-        color: systemSettings.textColor,
-        lineHeight: 1.2,
-      }}
-    >
-      {currentTime.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      })}
-    </Typography>
-    <Typography
-      sx={{
-        fontSize: "0.65rem",
-        color: systemSettings.textColor,
-        opacity: 0.75,
-        letterSpacing: 0.5,
-        lineHeight: 1,
-      }}
-    >
-      {currentTime.toLocaleDateString([], {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      })}
-    </Typography>
+{/* RIGHT: Live Clock — only shown on authenticated pages */}
+{isAuthenticatedPage && (
+  <Box
+    sx={{
+      display: "flex",
+      alignItems: "center",
+      gap: 1,
+      bgcolor: "rgba(255,255,255,0.1)",
+      border: "1px solid rgba(255,255,255,0.2)",
+      borderRadius: "8px",
+      px: 2,
+      py: 0.5,
+    }}
+  >
+    <AccessTime sx={{ fontSize: 18, color: systemSettings.textColor, opacity: 0.85 }} />
+    <Box>
+      <Typography
+        sx={{
+          fontWeight: "bold",
+          fontFamily: "monospace",
+          fontSize: "1rem",
+          letterSpacing: 1.5,
+          color: systemSettings.textColor,
+          lineHeight: 1.2,
+        }}
+      >
+        {currentTime.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        })}
+      </Typography>
+      <Typography
+        sx={{
+          fontSize: "0.65rem",
+          color: systemSettings.textColor,
+          opacity: 0.75,
+          letterSpacing: 0.5,
+          lineHeight: 1,
+        }}
+      >
+        {currentTime.toLocaleDateString([], {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })}
+      </Typography>
+    </Box>
   </Box>
-</Box>
+)}
   </Toolbar>
 </AppBar>
 

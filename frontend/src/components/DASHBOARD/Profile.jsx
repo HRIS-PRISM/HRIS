@@ -1196,7 +1196,7 @@ const Profile = () => {
         <Box sx={{ px: 3, py: 2, borderTop: `1px solid ${alpha(P, 0.08)}`, flexShrink: 0, bgcolor: alpha(P, 0.013) }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <AssignmentIndIcon sx={{ fontSize: 13, color: alpha(P, 0.4) }} />
-            <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', color: alpha(P, 0.4) }}>CS Form No. 212 · HRIS</Typography>
+            <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', color: alpha(P, 0.4) }}>Personal Data Sheet | PDS · HRIS</Typography>
           </Box>
         </Box>
       </Box>
@@ -1301,7 +1301,7 @@ const Profile = () => {
                   })}
                 </Box>
                 <Box sx={{ px: 3, py: 1.75, borderTop: `1px solid ${alpha(P, 0.08)}`, flexShrink: 0, bgcolor: alpha(P, 0.015) }}>
-                  <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.58rem', color: alpha(P, 0.38) }}>CS Form No. 212 · HRIS</Typography>
+                  <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.58rem', color: alpha(P, 0.38) }}>Personal Data Sheet | PDS · HRIS</Typography>
                 </Box>
               </Box>
 
@@ -1356,7 +1356,7 @@ const Profile = () => {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <SaveIcon sx={{ fontSize: 14, color: alpha(P, 0.4) }} />
                     <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', color: MUTED }}>
-                      Changes will be saved to CS Form No. 212
+                      Changes will be saved to Personal Data Sheet | PDS
                     </Typography>
                   </Box>
                   <Box sx={{ display: 'flex', gap: 1.25 }}>
