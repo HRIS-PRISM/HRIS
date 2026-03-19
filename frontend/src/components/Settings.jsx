@@ -75,49 +75,241 @@ const LASkeletonBox = ({ width = "100%", height = 16, borderRadius = 8, sx = {} 
 );
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   LOADING WIREFRAME
+   LOADING WIREFRAME — aligned to match the real layout exactly
 ───────────────────────────────────────────────────────────────────────────── */
 const SettingsWireframe = () => (
-  <Box sx={{ minHeight: "100vh", bgcolor: PAGE_BG }}>
+  <Box sx={{ minHeight: "100vh"}}>
     <style>{GLOBAL_CSS}</style>
-    <Box sx={{ width: SIDEBAR_W, bgcolor: "#fff", borderLeft: `2px solid ${alpha(FALLBACK_P, 0.3)}`, position: "fixed", right: 0, top: 0, height: "100vh", zIndex: 100 }}>
-      <Box sx={{ px: 3, py: 2.5, borderBottom: `1px solid ${alpha(FALLBACK_P, 0.12)}`, display: "flex", alignItems: "center", gap: 2 }}>
-        <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: alpha(FALLBACK_P, 0.12), flexShrink: 0 }} />
+
+    {/* ── SIDEBAR ghost — fixed right, identical to real sidebar ── */}
+    <Box sx={{
+      width: SIDEBAR_W,
+      bgcolor: "#fff",
+      borderLeft: `2px solid ${alpha(FALLBACK_P, 0.3)}`,
+      position: "fixed",
+      right: 0,
+      top: 0,
+      height: "100vh",
+      zIndex: 1200,
+      display: "flex",
+      flexDirection: "column",
+    }}>
+      {/* Sidebar header */}
+      <Box sx={{
+        px: 3, py: 2.5,
+        borderBottom: `1px solid ${alpha(FALLBACK_P, 0.12)}`,
+        display: "flex", alignItems: "center", gap: 2,
+        flexShrink: 0,
+        background: `linear-gradient(135deg, ${alpha(FALLBACK_P, 0.07)} 0%, ${alpha(FALLBACK_P, 0.02)} 100%)`,
+        animation: "laPulse 2s ease-in-out infinite",
+      }}>
+        <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: alpha(FALLBACK_P, 0.18), flexShrink: 0 }} />
         <Box sx={{ flex: 1 }}>
           <LASkeletonBox width="55%" height={12} borderRadius={4} sx={{ mb: 0.75 }} />
           <LASkeletonBox width="38%" height={8} borderRadius={3} />
         </Box>
       </Box>
-      {[0,1,2,3,4,5,6].map(i => (
-        <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 1.75, px: 3, py: 1.4 }}>
-          <Box sx={{ width: 17, height: 17, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, i === 0 ? 0.15 : 0.06), flexShrink: 0 }} />
-          <LASkeletonBox width={`${52 + i * 6}%`} height={11} borderRadius={3} />
+
+      {/* Active section chip ghost */}
+      <Box sx={{
+        mx: 2.5, my: 2, px: 2, py: 1.25,
+        bgcolor: alpha(FALLBACK_P, 0.06),
+        borderRadius: 1.5,
+        border: `1px solid ${alpha(FALLBACK_P, 0.14)}`,
+        flexShrink: 0,
+        animation: "laPulse 2s ease-in-out 0.05s infinite",
+      }}>
+        <LASkeletonBox width="45%" height={8} borderRadius={3} sx={{ mb: 0.6 }} />
+        <LASkeletonBox width="70%" height={12} borderRadius={4} />
+      </Box>
+
+      {/* "Account" group label */}
+      <Box sx={{ px: 3, pb: 0.75, pt: 0.5 }}>
+        <LASkeletonBox width="40%" height={8} borderRadius={3} />
+      </Box>
+
+      {/* Nav items — 3 account rows, divider label, 4 info rows */}
+      {[52, 44, 66, null, 40, 28, 36, 55].map((w, i) =>
+        w === null ? (
+          <Box key={i} sx={{ px: 3, pb: 0.75, pt: 1.25 }}>
+            <LASkeletonBox width="45%" height={8} borderRadius={3} />
+          </Box>
+        ) : (
+          <Box key={i} sx={{
+            display: "flex", alignItems: "center", gap: 1.75,
+            px: 3, py: 1.35,
+            animation: `laPulse 2s ease-in-out ${i * 0.06}s infinite`,
+            ...(i === 0 ? {
+              borderLeft: `3px solid ${FALLBACK_P}`,
+              bgcolor: alpha(FALLBACK_P, 0.08),
+            } : {
+              borderLeft: "3px solid transparent",
+            }),
+          }}>
+            <Box sx={{ width: 16, height: 16, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, i === 0 ? 0.18 : 0.07), flexShrink: 0 }} />
+            <LASkeletonBox width={`${w}%`} height={11} borderRadius={3} />
+          </Box>
+        )
+      )}
+
+      {/* Footer ghost */}
+      <Box sx={{ mt: "auto", px: 3, py: 2.5, borderTop: `1px solid ${alpha(FALLBACK_P, 0.1)}`, flexShrink: 0 }}>
+        <Box sx={{
+          display: "flex", alignItems: "center", gap: 1.5,
+          py: 1.25, px: 1.75,
+          borderRadius: 2, border: `1px solid ${alpha(FALLBACK_P, 0.12)}`,
+          bgcolor: alpha(FALLBACK_P, 0.04),
+          animation: "laPulse 2s ease-in-out 0.3s infinite",
+        }}>
+          <Box sx={{ width: 16, height: 16, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.1), flexShrink: 0 }} />
+          <LASkeletonBox width="60%" height={11} borderRadius={3} />
         </Box>
-      ))}
+      </Box>
     </Box>
-    <Box sx={{ pr: `${SIDEBAR_W + 32}px`, pl: { xs: 2, sm: 3, md: 6 }, py: 4, boxSizing: "border-box" }}>
-      <Box sx={{ mb: 4, borderRadius: 3, overflow: "hidden", border: `1px solid ${alpha(FALLBACK_P, 0.1)}`, animation: "laPulse 2s ease-in-out infinite" }}>
-        <Box sx={{ p: 5, background: "linear-gradient(135deg,#fff 0%,#f5f5f5 100%)", position: "relative", overflow: "hidden" }}>
-          <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.06) }} />
+
+    {/* ── MAIN CONTENT — uses the exact same offsets as the real layout ── */}
+    <Box sx={{
+      width: "100vw",
+      maxWidth: "100%",
+      position: "relative",
+      left: "63%",
+      transform: "translateX(-61%)",
+      boxSizing: "border-box",
+      pl: { xs: 2, sm: 3, md: 6 },
+      pr: `${SIDEBAR_W + 16}px`,
+      py: { xs: 2, md: 4 },
+    }}>
+
+      {/* Breadcrumb ghost */}
+      <Box sx={{
+        display: "flex", alignItems: "center", gap: 1.5, mb: 4,
+        animation: "laPulse 2s ease-in-out infinite",
+      }}>
+        <LASkeletonBox width={60} height={10} borderRadius={3} />
+        <LASkeletonBox width={8} height={10} borderRadius={3} />
+        <LASkeletonBox width={120} height={10} borderRadius={3} />
+        <Box sx={{ flex: 1 }} />
+        {/* Identity pill ghost */}
+        <Box sx={{
+          display: "flex", alignItems: "center", gap: 1,
+          px: 2, py: 0.75,
+          bgcolor: "#fff",
+          border: `1px solid ${alpha(FALLBACK_P, 0.12)}`,
+          borderRadius: "20px",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+        }}>
+          <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.25), flexShrink: 0 }} />
+          <LASkeletonBox width={160} height={10} borderRadius={3} />
+        </Box>
+      </Box>
+
+      {/* Hero card skeleton */}
+      <Box sx={{
+        mb: 4, borderRadius: 3, overflow: "hidden",
+        border: `1px solid ${alpha(FALLBACK_P, 0.1)}`,
+        boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
+        animation: "laPulse 2s ease-in-out 0.04s infinite",
+      }}>
+        <Box sx={{
+          p: 5,
+          background: "linear-gradient(135deg,#fff 0%,#f5f5f5 100%)",
+          position: "relative", overflow: "hidden",
+        }}>
+          <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.06), pointerEvents: "none" }} />
+          <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.04), pointerEvents: "none" }} />
           <Box sx={{ display: "flex", alignItems: "center", gap: 3, position: "relative", zIndex: 1 }}>
             <Box sx={{ width: 64, height: 64, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.12), flexShrink: 0 }} />
             <Box>
               <LASkeletonBox width={260} height={26} borderRadius={6} sx={{ mb: 1.25 }} />
-              <LASkeletonBox width={360} height={13} borderRadius={4} />
+              <LASkeletonBox width={380} height={13} borderRadius={4} />
             </Box>
           </Box>
         </Box>
       </Box>
-      <Box sx={{ borderRadius: 3, border: `1px solid ${alpha(FALLBACK_P, 0.1)}`, bgcolor: PANEL, animation: "laPulse 2s ease-in-out 0.14s infinite" }}>
-        <Box sx={{ p: 4, background: "linear-gradient(135deg,#fff 0%,#f5f5f5 100%)", display: "flex", alignItems: "center", gap: 2, boxShadow: "0 2px 4px rgba(0,0,0,0.08)" }}>
+
+      {/* Section card skeleton */}
+      <Box sx={{
+        borderRadius: 3, overflow: "hidden",
+        border: `1px solid ${alpha(FALLBACK_P, 0.1)}`,
+        boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
+        bgcolor: "#fff",
+        animation: "laPulse 2s ease-in-out 0.14s infinite",
+      }}>
+        {/* SectionHeader ghost */}
+        <Box sx={{
+          px: 4, py: 3,
+          background: "linear-gradient(135deg,#fff 0%,#f5f5f5 100%)",
+          display: "flex", alignItems: "center", gap: 2,
+          boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
+          borderBottom: `1px solid ${alpha(FALLBACK_P, 0.08)}`,
+        }}>
           <Box sx={{ width: 56, height: 56, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.1), flexShrink: 0 }} />
-          <Box><LASkeletonBox width={190} height={15} borderRadius={4} sx={{ mb: 0.75 }} /><LASkeletonBox width={260} height={11} borderRadius={3} /></Box>
+          <Box>
+            <LASkeletonBox width={190} height={15} borderRadius={4} sx={{ mb: 0.75 }} />
+            <LASkeletonBox width={270} height={11} borderRadius={3} />
+          </Box>
         </Box>
-        <Box sx={{ p: 4 }}>
-          {[0,1].map(i => <Box key={i} sx={{ mb: 3 }}><LASkeletonBox width="18%" height={10} borderRadius={3} sx={{ mb: 1 }} /><Box sx={{ height: 46, borderRadius: 2, border: `1px solid ${alpha(FALLBACK_P, 0.15)}`, bgcolor: SUBTLE }} /></Box>)}
-          <Box sx={{ width: 196, height: 44, borderRadius: 2, bgcolor: alpha(FALLBACK_P, 0.2) }} />
+
+        {/* Card body */}
+        <Box sx={{ p: { xs: 3, md: 4 } }}>
+          {/* Step indicator ghost */}
+          <Box sx={{ display: "flex", alignItems: "center", mb: 4 }}>
+            {[0, 1, 2].map((i) => (
+              <React.Fragment key={i}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                  <Box sx={{
+                    width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+                    bgcolor: i === 0 ? alpha(FALLBACK_P, 0.35) : alpha(FALLBACK_P, 0.1),
+                  }} />
+                  <LASkeletonBox width={i === 0 ? 90 : i === 1 ? 80 : 110} height={12} borderRadius={4} />
+                </Box>
+                {i < 2 && (
+                  <Box sx={{ flex: 1, height: 2, bgcolor: alpha(FALLBACK_P, 0.1), mx: 2, borderRadius: 2 }} />
+                )}
+              </React.Fragment>
+            ))}
+          </Box>
+
+          {/* Inner form box ghost */}
+          <Box sx={{
+            border: `1px solid ${alpha(FALLBACK_P, 0.12)}`,
+            bgcolor: SUBTLE, p: 3.5, borderRadius: 2,
+          }}>
+            {/* Info box ghost */}
+            <Box sx={{ display: "flex", mb: 3 }}>
+              <Box sx={{ width: 4, bgcolor: alpha(FALLBACK_P, 0.4), borderRadius: "4px 0 0 4px", flexShrink: 0 }} />
+              <Box sx={{
+                flex: 1, px: 2.5, py: 2,
+                bgcolor: alpha(FALLBACK_P, 0.04),
+                border: `1px solid ${alpha(FALLBACK_P, 0.14)}`,
+                borderLeft: "none",
+                borderRadius: "0 8px 8px 0",
+              }}>
+                <LASkeletonBox width="85%" height={11} borderRadius={3} sx={{ mb: 0.75 }} />
+                <LASkeletonBox width="60%" height={11} borderRadius={3} />
+              </Box>
+            </Box>
+
+            {/* Field label + input */}
+            <Box sx={{ mb: 3 }}>
+              <LASkeletonBox width="18%" height={10} borderRadius={3} sx={{ mb: 1 }} />
+              <Box sx={{
+                height: 46, borderRadius: 2,
+                border: `1px solid ${alpha(FALLBACK_P, 0.15)}`,
+                bgcolor: SUBTLE,
+                display: "flex", alignItems: "center", px: 1.75, gap: 1,
+              }}>
+                <LASkeletonBox width="55%" height={13} borderRadius={4} />
+                <Box sx={{ ml: "auto", width: 28, height: 28, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.08) }} />
+              </Box>
+            </Box>
+
+            {/* CTA button ghost */}
+            <Box sx={{ width: 210, height: 44, borderRadius: 2, bgcolor: alpha(FALLBACK_P, 0.22) }} />
+          </Box>
         </Box>
       </Box>
+
     </Box>
   </Box>
 );
@@ -438,7 +630,6 @@ const Settings = () => {
     setLoading(true); setErrMsg("");
     try {
       const fd = new FormData();
-      // Always use the logged-in user's details — not the form fields
       fd.append("name", [firstName, lastName].filter(Boolean).join(" ") || userEmail);
       fd.append("email", userEmail);
       fd.append("employee_number", employeeNumber || "");
@@ -584,7 +775,6 @@ const Settings = () => {
     return () => socket.off("contactThreadChanged", onContactThreadChanged);
   }, [socket, connected, activeSection, selectedSub?.id]);
 
-  // Sync contact form name/email from user data (read-only display only)
   useEffect(() => {
     if (!firstName && !lastName && !userEmail) return;
     setContactForm(p => ({
@@ -995,8 +1185,6 @@ const Settings = () => {
                           <Box key={sub.id}
                             onClick={() => { setSelectedSub(sub); setAdminReply(sub.admin_notes || ""); setContactView("thread"); if (isAdmin && sub.status === "new") handleUpdateSubStatus(sub.id, "read", null); }}
                             sx={{ px: 2.5, py: 2, borderBottom: `1px solid ${alpha(P, 0.08)}`, cursor: "pointer", bgcolor: isActive ? alpha(P, 0.08) : "transparent", transition: "background-color 0.15s", "&:hover": { bgcolor: isActive ? alpha(P, 0.08) : SUBTLE }, "&:last-child": { borderBottom: "none" } }}>
-
-                            {/* Row 1: Name + Employee Number + Status Badge */}
                             <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.4 }}>
                               <Typography sx={{ fontSize: "0.855rem", fontWeight: 700, color: TXT, flex: 1, lineHeight: 1.3 }}>
                                 {sub.name || "Unknown"}
@@ -1008,13 +1196,9 @@ const Settings = () => {
                               </Typography>
                               <StatusBadge status={sub.status} />
                             </Box>
-
-                            {/* Row 2: Subject */}
                             <Typography sx={{ fontSize: "0.82rem", color: isActive ? P : TXT, fontWeight: isActive ? 700 : 500, mb: 0.3, lineHeight: 1.4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                               {sub.subject || "General Inquiry"}
                             </Typography>
-
-                            {/* Row 3: Date */}
                             <Typography sx={{ fontSize: "0.7rem", color: MUTED, fontFamily: "'IBM Plex Mono', monospace" }}>
                               {new Date(sub.created_at).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
                             </Typography>
@@ -1032,28 +1216,21 @@ const Settings = () => {
                   {/* ── Thread / Composer Panel ── */}
                   <Box sx={{ border: `1px solid ${alpha(P, 0.12)}`, borderRadius: 2, height: 565, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-                    {/* Compose View */}
                     {contactView === "compose" && (
                       <Box sx={{ p: 3.5, flex: 1, overflowY: "auto" }}>
                         <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.7rem", color: MUTED, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700, mb: 2.5 }}>New Message</Typography>
-
-                        {/* Locked sender identity banner */}
                         <Box sx={{ mb: 3, p: 2, bgcolor: alpha(P, 0.04), border: `1px solid ${alpha(P, 0.15)}`, borderRadius: 2, display: "flex", alignItems: "center", gap: 1.5 }}>
                           <LockOutlined sx={{ fontSize: 16, color: P, flexShrink: 0 }} />
                           <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.5 }}>
                             Sender identity is locked to your account and cannot be changed.
                           </Typography>
                         </Box>
-
                         <Grid container spacing={2.5}>
-                          {/* Full Name — read-only */}
                           <Grid item xs={12} sm={4}>
                             <FL P={P}>Full Name</FL>
                             <TextField fullWidth size="small" sx={ReadOnlyFX} value={displayName} disabled
                               InputProps={{ endAdornment: <InputAdornment position="end"><LockOutlined sx={{ fontSize: 14, color: alpha(P, 0.4) }} /></InputAdornment> }} />
                           </Grid>
-
-                          {/* Employee Number — read-only */}
                           <Grid item xs={12} sm={4}>
                             <FL P={P}>Employee No.</FL>
                             <TextField fullWidth size="small"
@@ -1061,21 +1238,15 @@ const Settings = () => {
                               value={displayEmpNo} disabled
                               InputProps={{ endAdornment: <InputAdornment position="end"><LockOutlined sx={{ fontSize: 14, color: alpha(P, 0.4) }} /></InputAdornment> }} />
                           </Grid>
-
-                          {/* Email — read-only */}
                           <Grid item xs={12} sm={4}>
                             <FL P={P}>Email Address</FL>
                             <TextField fullWidth size="small" sx={ReadOnlyFX} value={displayEmail} disabled
                               InputProps={{ endAdornment: <InputAdornment position="end"><LockOutlined sx={{ fontSize: 14, color: alpha(P, 0.4) }} /></InputAdornment> }} />
                           </Grid>
-
-                          {/* Subject */}
                           <Grid item xs={12}>
                             <FL P={P}>Subject</FL>
                             <TextField fullWidth size="small" sx={FX} value={contactForm.subject} onChange={e => setContactForm(p => ({ ...p, subject: e.target.value }))} placeholder="Brief description of your concern" />
                           </Grid>
-
-                          {/* Message */}
                           <Grid item xs={12}>
                             <FL req P={P}>Message</FL>
                             <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
@@ -1087,7 +1258,6 @@ const Settings = () => {
                             {contactAttachment && <Chip size="small" label={contactAttachment.name} onDelete={() => setContactAttachment(null)} sx={{ mt: 1, bgcolor: SUBTLE, border: `1px solid ${BD}`, fontWeight: 700 }} />}
                           </Grid>
                         </Grid>
-
                         <Box sx={{ mt: 3, display: "flex", gap: 1 }}>
                           <Btn outline onClick={() => setContactView("thread")}>Cancel</Btn>
                           <Btn onClick={handleContactSubmit} disabled={loading || (!contactForm.message.trim() && !contactAttachment)} startIcon={<Save />}>{loading ? "Sending…" : "Send Message"}</Btn>
@@ -1095,7 +1265,6 @@ const Settings = () => {
                       </Box>
                     )}
 
-                    {/* Thread view */}
                     {contactView === "thread" && selectedSub && (
                       <>
                         <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${alpha(P, 0.1)}`, display: "flex", alignItems: "center", justifyContent: "space-between", bgcolor: alpha(P, 0.03), flexShrink: 0 }}>
@@ -1158,7 +1327,6 @@ const Settings = () => {
                       </>
                     )}
 
-                    {/* Empty state */}
                     {contactView !== "compose" && !selectedSub && (
                       <Box sx={{ flex: 1, display: "grid", placeItems: "center" }}>
                         <Box sx={{ textAlign: "center" }}>
@@ -1179,26 +1347,18 @@ const Settings = () => {
 
       {/* ══ SIDEBAR ═══════════════════════════════════════════════════ */}
       <Box sx={{
-        width: SIDEBAR_W,
-        bgcolor: "#ffffff",
+        width: SIDEBAR_W, bgcolor: "#ffffff",
         borderLeft: `2px solid ${alpha(P, 0.3)}`,
         boxShadow: `-4px 0 20px ${alpha(P, 0.06)}`,
-        display: "flex",
-        flexDirection: "column",
-        position: "fixed",
-        right: 0,
-        top: 0,
-        height: "100vh",
-        overflowY: "auto",
-        zIndex: 1200,
+        display: "flex", flexDirection: "column",
+        position: "fixed", right: 0, top: 0, height: "100vh",
+        overflowY: "auto", zIndex: 1200,
         transition: "border-color 0.3s ease, box-shadow 0.3s ease",
       }}>
-        {/* Header */}
         <Box sx={{
           px: 3, py: 2.5,
           borderBottom: `1px solid ${alpha(P, 0.12)}`,
-          display: "flex", alignItems: "center", gap: 2,
-          flexShrink: 0,
+          display: "flex", alignItems: "center", gap: 2, flexShrink: 0,
           background: `linear-gradient(135deg, ${alpha(P, 0.07)} 0%, ${alpha(P, 0.02)} 100%)`,
         }}>
           <Box sx={{ width: 36, height: 36, bgcolor: P, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 1.5, flexShrink: 0, boxShadow: `0 4px 12px ${alpha(P, 0.45)}` }}>
@@ -1210,13 +1370,11 @@ const Settings = () => {
           </Box>
         </Box>
 
-        {/* Active section chip */}
         <Box sx={{ mx: 2.5, my: 2, px: 2, py: 1.25, bgcolor: alpha(P, 0.07), borderRadius: 1.5, border: `1px solid ${alpha(P, 0.18)}`, flexShrink: 0 }}>
           <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.58rem", color: alpha(P, 0.45), textTransform: "uppercase", letterSpacing: "0.1em", mb: 0.25 }}>Current Section</Typography>
           <Typography sx={{ fontWeight: 900, fontSize: "0.82rem", color: P }}>{sectionMeta[activeSection]}</Typography>
         </Box>
 
-        {/* Nav */}
         <Box sx={{ flex: 1 }}>
           <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.58rem", fontWeight: 700, color: alpha(P, 0.35), letterSpacing: "0.14em", textTransform: "uppercase", px: 3, pb: 0.75, pt: 0.5 }}>Account</Typography>
           <NavItem section="password" icon={VpnKey}        label="Change Password" />
@@ -1230,14 +1388,12 @@ const Settings = () => {
           <NavItem section="contact" icon={ContactSupport} label="Contact Support"  />
         </Box>
 
-        {/* Footer */}
         <Box sx={{ px: 3, py: 2.5, borderTop: `1px solid ${alpha(P, 0.1)}`, flexShrink: 0 }}>
           {userRole !== "staff" && (
             <Box onClick={() => navigate("/users-list")} sx={{
               display: "flex", alignItems: "center", gap: 1.5,
               py: 1.25, px: 1.75, cursor: "pointer",
-              color: MUTED, borderRadius: 2,
-              border: "1px solid transparent",
+              color: MUTED, borderRadius: 2, border: "1px solid transparent",
               transition: "all 0.15s",
               "&:hover": { color: P, bgcolor: alpha(P, 0.05), borderColor: alpha(P, 0.2) },
             }}>
@@ -1247,7 +1403,6 @@ const Settings = () => {
           )}
         </Box>
       </Box>
-      {/* ══ END SIDEBAR ═══════════════════════════════════════════════ */}
 
       {/* ══ MODALS ════════════════════════════════════════════════════ */}
 
