@@ -24,7 +24,7 @@ import {
   Link,
   IconButton,
 } from "@mui/material";
-import { AccessTime, Lock, Logout, Email, Facebook } from "@mui/icons-material";
+import { AccessTime, Lock, Logout, Email, Facebook, ContactSupport } from "@mui/icons-material";
 import axios from "axios";
 import ProtectedRoute from "./components/ProtectedRoute";
 import {
@@ -113,13 +113,14 @@ import IndividualFacultyLoading from "./components/FORMS/IndividualFacultyLoadin
 import HrmsRequestForms from "./components/FORMS/HRMSRequestForms";
 import EmploymentCategoryManagement from "./components/EmploymentCategory";
 
+import PDSTemplates from "./components/PDS/PDSTemplates";
 import PDS1 from "./components/PDS/PDS1";
 import PDS2 from "./components/PDS/PDS2";
 import PDS3 from "./components/PDS/PDS3";
 import PDS4 from "./components/PDS/PDS4";
 
 import Payslip from "./components/PAYROLL/Payslip";
-import PayslipOverall from "./components/PAYROLL/PayslipOverall";
+import PayslipOverall from "./components/PAYROLL/RETIRED-PayslipOverall";
 import PayslipDistribution from "./components/PAYROLL/PayslipDistribution";
 
 import LeaveRequestUser from "./components/LEAVE/LeaveRequestUser";
@@ -338,6 +339,7 @@ function App() {
         },
       },
 
+
       MuiTableHead: {
         styleOverrides: {
           root: {
@@ -350,6 +352,7 @@ function App() {
         },
       },
 
+
       MuiChip: {
         styleOverrides: {
           filled: {
@@ -358,6 +361,7 @@ function App() {
           },
         },
       },
+
 
       MuiTab: {
         styleOverrides: {
@@ -368,6 +372,7 @@ function App() {
           },
         },
       },
+
 
       MuiLinearProgress: {
         styleOverrides: {
@@ -501,14 +506,18 @@ function App() {
 
   // --- Idle and token expiration handling ---
   const [idleWarningOpen, setIdleWarningOpen] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+
   const [sessionExpired, setSessionExpired] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
 
   const idleTimeoutRef = useRef(null);
   const logoutTimeoutRef = useRef(null);
 
-  const IDLE_WARNING_TIME = 10 * 60 * 1000;
-  const AUTO_LOGOUT_TIME = 15 * 60 * 1000;
+
+  // SESSION EXPIRATION TIMES (in milliseconds)
+  const IDLE_WARNING_TIME = 20 * 60 * 1000;
+  const AUTO_LOGOUT_TIME = 30 * 60 * 1000;
   const COUNTDOWN_SECONDS = (AUTO_LOGOUT_TIME - IDLE_WARNING_TIME) / 1000;
 
   const isAuthenticatedPage = ![
@@ -557,6 +566,13 @@ function App() {
     setSessionExpired(false);
     navigate("/");
   };
+
+  useEffect(() => {
+  const clockInterval = setInterval(() => {
+    setCurrentTime(new Date());
+  }, 1000);
+  return () => clearInterval(clockInterval);
+}, []);
 
   useEffect(() => {
     let interval;
@@ -627,58 +643,113 @@ function App() {
     overflow: "hidden",
   }}
 >
-  <Toolbar sx={{ display: "flex", alignItems: "center" }}>
-<Box
-  sx={{
-    width: 46,
-    height: 46,
-    marginRight: "10px",
-    marginLeft: "-15px",
-    borderRadius: "50%",
-    border: "1px solid white",
-    overflow: "hidden",
-    flexShrink: 0,
-    bgcolor: "rgba(255,255,255,0.15)",
-  }}
->
-  {systemSettings.institutionLogo && (
-    <img
-      src={systemSettings.institutionLogo}
-      alt="Institution Logo"
-      style={{
-        width: "100%",
-        height: "100%",
-        objectFit: "cover",
-        display: "block",
-        imageRendering: "auto",
-      }}
-    />
-  )}
-</Box>
+  <Toolbar sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+    {/* LEFT: Logo + System Name */}
+    <Box sx={{ display: "flex", alignItems: "center" }}>
+      <Box
+        sx={{
+          width: 46,
+          height: 46,
+          marginRight: "10px",
+          marginLeft: "-15px",
+          borderRadius: "50%",
+          border: "1px solid white",
+          overflow: "hidden",
+          flexShrink: 0,
+          bgcolor: "rgba(255,255,255,0.15)",
+        }}
+      >
+        {systemSettings.institutionLogo && (
+          <img
+            src={systemSettings.institutionLogo}
+            alt="Institution Logo"
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              display: "block",
+              imageRendering: "auto",
+            }}
+          />
+        )}
+      </Box>
+      <Box>
+        <Typography
+          variant="body2"
+          noWrap
+          sx={{
+            lineHeight: 1.2,
+            color: systemSettings.textColor,
+            marginTop: "8px",
+          }}
+        >
+          {systemSettings.institutionName}
+        </Typography>
+        <Typography
+          variant="subtitle1"
+          noWrap
+          sx={{
+            color: systemSettings.textColor,
+            fontWeight: "bold",
+            marginTop: "-5px",
+          }}
+        >
+          {systemSettings.systemName}
+        </Typography>
+      </Box>
+    </Box>
+
+{/* RIGHT: Live Clock — only shown on authenticated pages */}
+{isAuthenticatedPage && (
+  <Box
+    sx={{
+      display: "flex",
+      alignItems: "center",
+      gap: 1,
+      bgcolor: "rgba(255,255,255,0.1)",
+      border: "1px solid rgba(255,255,255,0.2)",
+      borderRadius: "8px",
+      px: 2,
+      py: 0.5,
+    }}
+  >
+    <AccessTime sx={{ fontSize: 18, color: systemSettings.textColor, opacity: 0.85 }} />
     <Box>
       <Typography
-        variant="body2"
-        noWrap
         sx={{
-          lineHeight: 1.2,
+          fontWeight: "bold",
+          fontFamily: "monospace",
+          fontSize: "1rem",
+          letterSpacing: 1.5,
           color: systemSettings.textColor,
-          marginTop: "8px",
+          lineHeight: 1.2,
         }}
       >
-        {systemSettings.institutionName}
+        {currentTime.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        })}
       </Typography>
       <Typography
-        variant="subtitle1"
-        noWrap
         sx={{
+          fontSize: "0.65rem",
           color: systemSettings.textColor,
-          fontWeight: "bold",
-          marginTop: "-5px",
+          opacity: 0.75,
+          letterSpacing: 0.5,
+          lineHeight: 1,
         }}
       >
-        {systemSettings.systemName}
+        {currentTime.toLocaleDateString([], {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })}
       </Typography>
     </Box>
+  </Box>
+)}
   </Toolbar>
 </AppBar>
 
@@ -1058,6 +1129,19 @@ function App() {
                 </ProtectedRoute>
               }
             />
+              <Route
+              path="/pds-templates"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "superadmin",
+                    "technical",
+                  ]}
+                >
+                  <PDSTemplates />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/pds1"
               element={
@@ -1073,6 +1157,7 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            
             <Route
               path="/pds2"
               element={
@@ -1463,7 +1548,7 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            <Route
+            {/* <Route
               path="/overall-payslip"
               element={
                 <ProtectedRoute
@@ -1477,7 +1562,7 @@ function App() {
                   <PayslipOverall />
                 </ProtectedRoute>
               }
-            />
+            /> */}
             <Route
               path="/distribution-payslip"
               element={
@@ -1663,7 +1748,7 @@ function App() {
               path="/system-settings"
               element={
                 <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
+                  allowedRoles={["technical"]}
                 >
                   <SystemSetting />
                 </ProtectedRoute>
@@ -1878,6 +1963,16 @@ function App() {
         </Typography>
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <IconButton
+  onClick={() => {
+    window.location.href = "/settings?tab=contactus";
+  }}
+  color="inherit"
+  size="small"
+  title="Contact Us"
+>
+  <ContactSupport fontSize="small" />
+</IconButton>
           <IconButton
             component="a"
             href={`https://mail.google.com/mail/?view=cm&fs=1&to=${systemSettings.adminEmail}`}
@@ -1906,3 +2001,4 @@ export default function WrappedApp() {
     </SystemSettingsProvider>
   );
 }
+

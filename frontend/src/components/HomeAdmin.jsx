@@ -1524,12 +1524,21 @@ const AdminHome = () => {
     return true;
   };
 
+  const isNotExpired = (date_end) => {
+  if (!date_end) return true;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const e = new Date(date_end);
+  e.setHours(0, 0, 0, 0);
+  return today <= e;
+};
+
   const scheduledHolidaysForCarousel = useMemo(() =>
     (rawHolidays || [])
       .filter((h) =>
-        (h.status || "").toLowerCase() === "active" &&
-        isActiveToday(h.date_start || h.date, h.date_end || h.date, h.date)
-      )
+  (h.status || "").toLowerCase() === "active" &&
+  isNotExpired(h.date_end || h.date)
+)
       .map((h) => ({
         id: `holiday-${h.id}`,
         title: h.title || h.description || "",

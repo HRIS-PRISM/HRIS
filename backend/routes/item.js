@@ -59,12 +59,6 @@ router.get('/api/item-table', authenticateToken, (req, res) => {
     }
     console.log('==============================');
 
-    try {
-      logAudit(req.user, 'View', 'item_table', null, null);
-    } catch (e) {
-      console.error('Audit log error:', e);
-    }
-
     res.json(result);
   });
 });

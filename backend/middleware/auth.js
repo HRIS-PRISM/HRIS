@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const db = require('../db');
+const { broadcastNewAuditLog } = require('../socket/socketService');
 
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
@@ -21,20 +22,63 @@ function logAudit(
   action,
   tableName,
   recordId,
-  targetEmployeeNumber = null
+  targetEmployeeNumber = null,
+  details = null,
 ) {
   const auditQuery = `
-    INSERT INTO audit_log (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
-    VALUES (?, ?, ?, ?, ?, NOW())
+    INSERT INTO audit_log (employeeNumber, action, table_name, record_id, targetEmployeeNumber, details_json, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, NOW())
   `;
+
+  const employeeNumber =
+    user && typeof user === 'object' && user.employeeNumber
+      ? user.employeeNumber
+      : user || null;
+
+  let detailsJson = null;
+  if (details != null) {
+    if (typeof details === 'string') {
+      detailsJson = details;
+    } else {
+      try {
+        detailsJson = JSON.stringify(details);
+      } catch (e) {
+        detailsJson = JSON.stringify({
+          error: 'Failed to serialize audit details',
+        });
+      }
+    }
+  }
+
+  const timestamp = new Date().toISOString();
 
   db.query(
     auditQuery,
-    [user.employeeNumber, action, tableName, recordId, targetEmployeeNumber],
-    (err) => {
+    [
+      employeeNumber,
+      action,
+      tableName,
+      recordId,
+      targetEmployeeNumber,
+      detailsJson,
+    ],
+    (err, result) => {
       if (err) {
         console.error('Error inserting audit log:', err);
+        return;
       }
+
+      // Broadcast the new log entry via WebSocket for real-time updates
+      broadcastNewAuditLog({
+        id: result.insertId,
+        employeeNumber,
+        action,
+        table_name: tableName,
+        record_id: recordId,
+        targetEmployeeNumber: targetEmployeeNumber || null,
+        details_json: detailsJson,
+        timestamp,
+      });
     }
   );
 }

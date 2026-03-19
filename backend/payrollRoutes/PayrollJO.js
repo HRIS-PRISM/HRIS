@@ -1,46 +1,8 @@
 const db = require("../db");
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const { notifyPayrollChanged } = require('../socket/socketService');
-
-
-
-// Authentication middleware
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) return res.status(401).json({ error: 'No token provided' });
-
-  jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, user) => {
-    if (err) return res.status(403).json({ error: 'Invalid token' });
-    req.user = user;
-    next();
-  });
-}
-
-// Audit logging
-function logAudit(
-  user,
-  action,
-  tableName,
-  recordId,
-  targetEmployeeNumber = null
-) {
-  const auditQuery = `
-    INSERT INTO audit_log (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
-    VALUES (?, ?, ?, ?, ?, NOW())
-  `;
-
-  db.query(
-    auditQuery,
-    [user.employeeNumber, action, tableName, recordId, targetEmployeeNumber],
-    (err) => {
-      if (err) console.error('Error inserting audit log:', err);
-    }
-  );
-}
+const { authenticateToken, logAudit } = require('../middleware/auth');
 
 // =========================
 // CRUD ROUTES
@@ -48,6 +10,26 @@ function logAudit(
 
 // GET all JO payroll records with item_table and department joins
 router.get('/payroll-jo', authenticateToken, (req, res) => {
+  const { employeeNumber, startDate, endDate } = req.query;
+
+  // When called with specific params, just check for existence (used by duplicate pre-check)
+  if (employeeNumber && startDate && endDate) {
+    const checkQuery = `
+      SELECT id FROM payroll_processing
+      WHERE employeeNumber = ? AND startDate = ? AND endDate = ?
+        AND rh IS NOT NULL AND rh != ''
+      LIMIT 1
+    `;
+    db.query(checkQuery, [employeeNumber, startDate, endDate], (err, result) => {
+      if (err) {
+        console.error('Error checking JO payroll record:', err);
+        return res.status(500).json({ message: 'Error checking record' });
+      }
+      return res.json(result);
+    });
+    return;
+  }
+
   const sql = `
   SELECT 
     p.id,
@@ -118,7 +100,6 @@ router.get('/payroll-jo', authenticateToken, (req, res) => {
       return res.status(500).json({ message: 'Error fetching records' });
     }
 
-    logAudit(req.user, 'View', 'payroll_processing_jo', null, null);
     res.json(result);
   });
 });
@@ -195,13 +176,6 @@ router.get('/payroll-jo/:id', authenticateToken, (req, res) => {
     if (result.length === 0)
       return res.status(404).json({ message: 'Payroll record not found' });
 
-    logAudit(
-      req.user,
-      'View',
-      'payroll_processing_jo',
-      id,
-      result[0].employeeNumber
-    );
     res.json(result[0]);
   });
 });
@@ -281,7 +255,6 @@ router.get('/payroll-jo/search', authenticateToken, (req, res) => {
         return res.status(500).json({ message: 'Error searching records' });
       }
 
-      logAudit(req.user, 'Search', 'payroll_processing_jo', null, searchTerm);
       res.json(result);
     }
   );
@@ -377,6 +350,11 @@ router.post('/payroll-jo', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error('Error adding JO payroll record:', err);
+    try {
+      logAudit(req.user, 'Insert Failed', 'Payroll Processing (JO)', null, req.body.employeeNumber || null);
+    } catch (e) {
+      console.error('Audit log error:', e);
+    }
     res.status(500).json({ message: 'Error adding payroll record' });
   }
 });
@@ -427,6 +405,7 @@ router.put('/payroll-jo/:id', authenticateToken, (req, res) => {
     (err, result) => {
       if (err) {
         console.error('Error updating JO payroll record:', err);
+        logAudit(req.user, 'Update Failed', 'payroll_processing_jo', id, employeeNumber);
         return res
           .status(500)
           .json({ message: 'Error updating payroll record' });
@@ -453,6 +432,7 @@ router.delete('/payroll-jo/:id', authenticateToken, (req, res) => {
   db.query(sql, [id], (err, result) => {
     if (err) {
       console.error('Error deleting JO payroll record:', err);
+      logAudit(req.user, 'Delete Failed', 'payroll_processing_jo', id, null);
       return res.status(500).json({ message: 'Error deleting payroll record' });
     }
     if (result.affectedRows === 0)
@@ -494,6 +474,7 @@ router.put('/payroll-jo/:id/contributions', authenticateToken, (req, res) => {
         (insertErr, insertResult) => {
           if (insertErr) {
             console.error('Error creating remittance record:', insertErr);
+            logAudit(req.user, 'Insert Failed', 'remittance_table', null, employeeNumber);
             return res.status(500).json({ message: 'Error creating remittance record' });
           }
           logAudit(req.user, 'Create', 'remittance_table', insertResult.insertId, employeeNumber);
@@ -517,6 +498,7 @@ router.put('/payroll-jo/:id/contributions', authenticateToken, (req, res) => {
         (updateErr, updateResult) => {
           if (updateErr) {
             console.error('Error updating remittance record:', updateErr);
+            logAudit(req.user, 'Update Failed', 'remittance_table', result[0].id, employeeNumber);
             return res.status(500).json({ message: 'Error updating remittance record' });
           }
           logAudit(req.user, 'Update', 'remittance_table', result[0].id, employeeNumber);

@@ -5,7 +5,16 @@ const { authenticateToken, logAudit } = require('../middleware/auth');
 
 // GET audit logs
 router.get('/audit-logs', authenticateToken, (req, res) => {
-  const query = 'SELECT * FROM audit_log ORDER BY timestamp DESC';
+  const query = `
+    SELECT
+      al.*,
+      TRIM(CONCAT(p1.firstName, ' ', COALESCE(p1.middleName, ''), ' ', p1.lastName)) AS actorName,
+      TRIM(CONCAT(p2.firstName, ' ', COALESCE(p2.middleName, ''), ' ', p2.lastName)) AS targetName
+    FROM audit_log al
+    LEFT JOIN person_table p1 ON p1.agencyEmployeeNum = al.employeeNumber
+    LEFT JOIN person_table p2 ON p2.agencyEmployeeNum = al.targetEmployeeNumber
+    ORDER BY al.timestamp DESC
+  `;
   db.query(query, (err, result) => {
     if (err) {
       console.error('Error fetching audit logs:', err);

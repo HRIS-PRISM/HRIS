@@ -215,6 +215,7 @@ const Sidebar = ({
   const [employeeNumber, setEmployeeNumber] = useState("");
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [hasUsersListAccess, setHasUsersListAccess] = useState(false);
+  const [pageAccessVersion, setPageAccessVersion] = useState(0);
   const settings = useSystemSettings();
 
   const navigate = useNavigate();
@@ -225,7 +226,10 @@ const Sidebar = ({
 
   // Check page access for all menu items
   const { hasAccess: checkPageAccess, loading: accessLoading } =
-    usePageAccesses(allComponentIdentifiers, { employeeNumber });
+    usePageAccesses(allComponentIdentifiers, {
+      employeeNumber,
+      pageAccessVersion,
+    });
 
   // Helper function to check if a route should be shown based on page access
   const shouldShowMenuItem = (route) => {
@@ -250,6 +254,91 @@ const Sidebar = ({
     // Returns false if no access, so item will be completely hidden
     return checkPageAccess(componentIdentifier) === true;
   };
+
+  // Menu item arrays for access control
+  const informationManagementItems = [
+    "personalinfo",
+    "children",
+    "college",
+    "graduate",
+    "vocational",
+    "learningdev",
+    "eligibility",
+    "voluntarywork",
+    "workexperience",
+    "other-information",
+  ];
+
+  const attendanceManagementItems = [
+    "view_attendance",
+    "attendance_form",
+    "search_attendance",
+    "daily_time_record_faculty",
+    "attendance_module",
+    "attendance_module_faculty",
+    "attendance_module_faculty_40hrs",
+    "attendance_summary",
+    "official_time",
+  ];
+
+  const payrollManagementItems = [
+    "payroll-table",
+    "payroll-jo",
+    "payroll-processed",
+    "payroll-processed-jo",
+    "payroll-released",
+    "distribution-payslip",
+    "overall-payslip",
+    "remittance-table",
+    "item-table",
+    "salary-grade",
+    "department-table",
+    "department-assignment",
+    "holiday",
+    "philhealth",
+    "payroll-formulas",
+    "leave-table",
+    "leave-assignment",
+    "leave-request",
+    "leave-request-user",
+  ];
+
+  const leaveManagementItems = [
+    "leave-table",
+    "leave-assignment",
+    "leave-request",
+    "leave-request-user",
+    "leave-commutation",
+  ];
+
+  const formsItems = [
+    "assessment-clearance",
+    "clearance",
+    "faculty-clearance",
+    "hrms-request-forms",
+    "individual-faculty-loading",
+    "in-service-training",
+    "leave-card",
+    "locator-slip",
+    "permission-to-teach",
+    "request-for-id",
+    "saln-front",
+    "scholarship-agreement",
+    "subject",
+  ];
+
+  const pdsItems = ["pds1", "pds2", "pds3", "pds4"];
+
+  const systemAdministrationItems = [
+    "reports",
+    "user-management",
+    "system-settings",
+    "registration",
+    "reset-password",
+    "payroll-formulas",
+    "admin-security",
+    "pds-templates",
+  ];
 
   useEffect(() => {
     const storedUser = localStorage.getItem("username");
@@ -360,6 +449,78 @@ const Sidebar = ({
     }
   }, [employeeNumber]);
 
+  // Listen for page access updates from UsersList dialog
+  useEffect(() => {
+    const handlePageAccessUpdated = () => {
+      // Increment version to force usePageAccesses to re-run
+      setPageAccessVersion((prev) => prev + 1);
+
+      // Also re-check the Users List specific access
+      const recheckAccess = async () => {
+        if (!employeeNumber) return;
+        try {
+          const authHeaders = getAuthHeaders();
+          const pagesResponse = await fetch(`${API_BASE_URL}/pages`, {
+            method: "GET",
+            ...authHeaders,
+          });
+
+          if (!pagesResponse.ok) return;
+
+          let pagesData = await pagesResponse.json();
+          pagesData = Array.isArray(pagesData)
+            ? pagesData
+            : pagesData.pages || pagesData.data || [];
+
+          const usersListPage = pagesData.find(
+            (page) =>
+              page.page_name &&
+              (page.page_name.toLowerCase().includes("user") ||
+                page.page_name.toLowerCase().includes("users list") ||
+                page.page_name.toLowerCase().includes("user management")),
+          );
+
+          if (!usersListPage) {
+            setHasUsersListAccess(false);
+            return;
+          }
+
+          const accessResponse = await fetch(
+            `${API_BASE_URL}/page_access/${employeeNumber}`,
+            { method: "GET", ...authHeaders },
+          );
+
+          if (!accessResponse.ok) {
+            setHasUsersListAccess(false);
+            return;
+          }
+
+          const accessDataRaw = await accessResponse.json();
+          const accessData = Array.isArray(accessDataRaw)
+            ? accessDataRaw
+            : accessDataRaw.data || [];
+
+          const hasAccess = accessData.some(
+            (access) =>
+              access.page_id === usersListPage.id &&
+              String(access.page_privilege) === "1",
+          );
+
+          setHasUsersListAccess(hasAccess);
+        } catch (error) {
+          console.error("Error rechecking page access:", error);
+        }
+      };
+
+      recheckAccess();
+    };
+
+    window.addEventListener("pageAccessUpdated", handlePageAccessUpdated);
+    return () => {
+      window.removeEventListener("pageAccessUpdated", handlePageAccessUpdated);
+    };
+  }, [employeeNumber]);
+
   const currentPath = location.pathname;
   useEffect(() => {
     // ... (all the path checks remain the same)
@@ -371,6 +532,8 @@ const Sidebar = ({
       setSelectedItem("daily_time_record");
     } else if (currentPath === "/payslip") {
       setSelectedItem("payslip");
+    } else if (currentPath === "/pds-templates") {
+      setSelectedItem("pds-templates");
     } else if (currentPath === "/pds1") {
       setSelectedItem("pds1");
     } else if (currentPath === "/pds2") {
@@ -464,6 +627,8 @@ const Sidebar = ({
       setSelectedItem("leave-request");
     } else if (currentPath === "/leave-request-user") {
       setSelectedItem("leave-request-user");
+    } else if (currentPath === "/leave-commutation") {
+      setSelectedItem("leave-commutation");
     } else if (currentPath === "/assessment-clearance") {
       setSelectedItem("assessment-clearance");
     } else if (currentPath === "/clearance") {
@@ -561,77 +726,6 @@ const Sidebar = ({
 
   const handleItemClick = (item) => {
     setSelectedItem(item);
-
-    const informationManagementItems = [
-      "personalinfo",
-      "children",
-      "college",
-      "graduate",
-      "vocational",
-      "learningdev",
-      "eligibility",
-      "voluntarywork",
-      "workexperience",
-      "other-information",
-    ];
-
-    const attendanceManagementItems = [
-      "view_attendance",
-      "attendance_form",
-      "search_attendance",
-      "daily_time_record_faculty",
-      "attendance_module",
-      "attendance_module_faculty",
-      "attendance_module_faculty_40hrs",
-      "attendance_summary",
-      "official_time",
-    ];
-
-    const payrollManagementItems = [
-      "payroll-table",
-      "payroll-jo",
-      "payroll-processed",
-      "payroll-processed-jo",
-      "payroll-released",
-      "distribution-payslip",
-      "overall-payslip",
-      "remittance-table",
-      "item-table",
-      "salary-grade",
-      "department-table",
-      "department-assignment",
-      "leave-table",
-      "leave-assignment",
-      "leave-request",
-    ];
-
-    const formsItems = [
-      "assessment-clearance",
-      "clearance",
-      "faculty-clearance",
-      "hrms-request-forms",
-      "individual-faculty-loading",
-      "in-service-training",
-      "leave-card",
-      "locator-slip",
-      "permission-to-teach",
-      "request-for-id",
-      "saln-front",
-      "scholarship-agreement",
-      "subject",
-    ];
-
-    const pdsItems = ["pds1", "pds2", "pds3", "pds4"];
-
-    const systemAdministrationItems = [
-      "reports",
-      "user-management",
-      "system-settings",
-      "registration",
-      "reset-password",
-      "payroll-formulas",
-      "admin-security",
-    ];
 
     if (informationManagementItems.includes(item) && !open) {
       handleClick();
@@ -951,26 +1045,32 @@ const Sidebar = ({
               </>
             )}
 
-            <List
-              subheader={
-                <ListSubheader
-                  component="div"
-                  sx={{
-                    bgcolor: "transparent",
-                    fontWeight: "bold",
-                    fontSize: "0.7rem",
-                    color: settings.textSecondaryColor,
-                    fontFamily: "Poppins, sans-serif",
-                    textTransform: "uppercase",
-                    mb: -1,
-                  }}
-                >
-                  General Panel
-                </ListSubheader>
-              }
-            >
-              {" "}
-            </List>
+            {drawerOpen ? (
+              <List
+                subheader={
+                  <ListSubheader
+                    component="div"
+                    sx={{
+                      bgcolor: "transparent",
+                      fontWeight: "bold",
+                      fontSize: "0.7rem",
+                      color: settings.textSecondaryColor,
+                      fontFamily: "Poppins, sans-serif",
+                      textTransform: "uppercase",
+                      mb: -1,
+                    }}
+                  >
+                    General Panel
+                  </ListSubheader>
+                }
+              >
+                {" "}
+              </List>
+            ) : (
+              <Divider
+                sx={{ borderColor: "rgba(255,255,255,0.2)", mx: 1, my: 1 }}
+              />
+            )}
 
             {/* HOME */}
             <ListItem
@@ -1788,27 +1888,32 @@ const Sidebar = ({
             )}
 
             <>
-              {userRole !== "staff" && (
-                <List
-                  subheader={
-                    <ListSubheader
-                      component="div"
-                      sx={{
-                        bgcolor: "transparent",
-                        fontWeight: "bold",
-                        fontSize: "0.7rem",
-                        color: settings.textSecondaryColor || "white",
-                        fontFamily: "Poppins, sans-serif",
-                        textTransform: "uppercase",
-                        mt: -1,
-                        mb: -1.5,
-                      }}
-                    >
-                      Administrative Panel
-                    </ListSubheader>
-                  }
-                ></List>
-              )}
+              {userRole !== "staff" &&
+                (drawerOpen ? (
+                  <List
+                    subheader={
+                      <ListSubheader
+                        component="div"
+                        sx={{
+                          bgcolor: "transparent",
+                          fontWeight: "bold",
+                          fontSize: "0.7rem",
+                          color: settings.textSecondaryColor || "white",
+                          fontFamily: "Poppins, sans-serif",
+                          textTransform: "uppercase",
+                          mt: -1,
+                          mb: -1.5,
+                        }}
+                      >
+                        Administrative Panel
+                      </ListSubheader>
+                    }
+                  ></List>
+                ) : (
+                  <Divider
+                    sx={{ borderColor: "rgba(255,255,255,0.2)", mx: 1, my: 1 }}
+                  />
+                ))}
             </>
 
             {/* System Administration */}
@@ -2228,6 +2333,61 @@ const Sidebar = ({
                         </ListItem>
                       )}
 
+                    {/* PDS Templates - Technical only */}
+                    {(userRole === "technical" || userRole === "superadmin") &&
+                      shouldShowMenuItem("/pds-templates") && (
+                        <ListItem
+                          button
+                          component={Link}
+                          to="/pds-templates"
+                          onClick={() => handleItemClick("pds-templates")}
+                          sx={{
+                            bgcolor:
+                              selectedItem === "pds-templates"
+                                ? settings.accentColor || "#FEF9E1"
+                                : "inherit",
+                            color:
+                              selectedItem === "pds-templates"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color:
+                                selectedItem === "pds-templates"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color:
+                                selectedItem === "pds-templates"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "&:hover": {
+                              bgcolor: settings.hoverColor || "#6D2323",
+                              color: settings.textSecondaryColor,
+                              "& .MuiListItemIcon-root": {
+                                color: settings.textSecondaryColor,
+                              },
+                              "& .MuiListItemText-primary": {
+                                color: settings.textSecondaryColor,
+                              },
+                            },
+                            borderTopRightRadius:
+                              selectedItem === "pds-templates" ? "15px" : 0,
+                            borderBottomRightRadius:
+                              selectedItem === "pds-templates" ? "15px" : 0,
+                          }}
+                        >
+                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                            <ContactPageIcon />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="PDS Version Templates"
+                            sx={{ marginLeft: "-10px" }}
+                          />
+                        </ListItem>
+                      )}
+
                     {/* System Settings - Technical only */}
                     {(userRole === "technical" || userRole === "superadmin") &&
                       shouldShowMenuItem("/system-settings") && (
@@ -2344,525 +2504,528 @@ const Sidebar = ({
               </ListItem>
             )} */}
 
-            {userRole !== "staff" && (
-              <>
-                <ListItem
-                  button
-                  onClick={() => {
-                    handleClickAttendance("Records");
-                    handleClickAttendance();
-                  }}
-                  sx={{
-                    color: settings.textSecondaryColor,
-                    cursor: "pointer",
-                    borderTopRightRadius:
-                      selectedItem === "Records" ? "15px" : 0,
-                    borderBottomRightRadius:
-                      selectedItem === "Records" ? "15px" : 0,
-                  }}
-                >
-                  <ListItemIcon>
-                    <AccessTimeIcon
-                      sx={{ color: settings.textSecondaryColor }}
-                    />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="Attendance Management"
-                    sx={{ marginLeft: "-10px" }}
-                  />
-                  <ListItemIcon
+            {userRole !== "staff" &&
+              attendanceManagementItems.some((item) =>
+                shouldShowMenuItem(`/${item.replace(/_/g, "-")}`),
+              ) && (
+                <>
+                  <ListItem
+                    button
+                    onClick={() => {
+                      handleClickAttendance("Records");
+                      handleClickAttendance();
+                    }}
                     sx={{
-                      marginLeft: "10rem",
                       color: settings.textSecondaryColor,
+                      cursor: "pointer",
+                      borderTopRightRadius:
+                        selectedItem === "Records" ? "15px" : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "Records" ? "15px" : 0,
                     }}
                   >
-                    {open2 ? <ExpandLess /> : <ExpandMore />}
-                  </ListItemIcon>
-                </ListItem>
-
-                <Collapse in={open2} timeout="auto" unmountOnExit>
-                  <List component="div" disablePadding sx={{ pl: 5.4 }}>
-                    {/* DEVICE RECORD */}
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/view_attendance"
-                      onClick={() => handleItemClick("view_attendance")}
-                      sx={{
-                        bgcolor:
-                          selectedItem === "view_attendance"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        color:
-                          selectedItem === "view_attendance"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-
-                        "& .MuiListItemIcon-root": {
-                          color:
-                            selectedItem === "view_attendance"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                        },
-                        "& .MuiListItemText-primary": {
-                          color:
-                            selectedItem === "view_attendance"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                        },
-
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                          "& .MuiListItemText-primary": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-
-                        borderTopRightRadius:
-                          selectedItem === "view_attendance" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "view_attendance" ? "15px" : 0,
-                      }}
-                    >
-                      <ListItemIcon sx={{ marginRight: "-1rem" }}>
-                        <DevicesIcon />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Device Record"
-                        sx={{ marginLeft: "-10px" }}
+                    <ListItemIcon>
+                      <AccessTimeIcon
+                        sx={{ color: settings.textSecondaryColor }}
                       />
-                    </ListItem>
-
-                    {/* ATTENDANCE STATE */}
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/attendance_form"
-                      onClick={() => handleItemClick("attendance_form")}
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Attendance Management"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                    <ListItemIcon
                       sx={{
-                        bgcolor:
-                          selectedItem === "attendance_form"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        color:
-                          selectedItem === "attendance_form"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-
-                        "& .MuiListItemIcon-root": {
-                          color:
-                            selectedItem === "attendance_form"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                        },
-                        "& .MuiListItemText-primary": {
-                          color:
-                            selectedItem === "attendance_form"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                        },
-
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                          "& .MuiListItemText-primary": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-
-                        borderTopRightRadius:
-                          selectedItem === "attendance_form" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "attendance_form" ? "15px" : 0,
+                        marginLeft: "10rem",
+                        color: settings.textSecondaryColor,
                       }}
                     >
-                      <ListItemIcon sx={{ marginRight: "-1rem" }}>
-                        <EventNote />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Attendance State"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
+                      {open2 ? <ExpandLess /> : <ExpandMore />}
+                    </ListItemIcon>
+                  </ListItem>
 
-                    {/* ATTENDANCE MODIFICATION */}
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/search_attendance"
-                      onClick={() => handleItemClick("search_attendance")}
-                      sx={{
-                        bgcolor:
-                          selectedItem === "search_attendance"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        color:
-                          selectedItem === "search_attendance"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-
-                        "& .MuiListItemIcon-root": {
-                          color:
-                            selectedItem === "search_attendance"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                        },
-                        "& .MuiListItemText-primary": {
-                          color:
-                            selectedItem === "search_attendance"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                        },
-
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                          "& .MuiListItemText-primary": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-
-                        borderTopRightRadius:
-                          selectedItem === "search_attendance" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "search_attendance" ? "15px" : 0,
-                      }}
-                    >
-                      <ListItemIcon sx={{ marginRight: "-1rem" }}>
-                        <EditCalendar />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Attendance Modification"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-
-                    {/* OVERALL DAILY TIME RECORD */}
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/daily_time_record_faculty"
-                      onClick={() =>
-                        handleItemClick("daily_time_record_faculty")
-                      }
-                      sx={{
-                        bgcolor:
-                          selectedItem === "daily_time_record_faculty"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        color:
-                          selectedItem === "daily_time_record_faculty"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-
-                        "& .MuiListItemIcon-root": {
-                          color:
-                            selectedItem === "daily_time_record_faculty"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                        },
-                        "& .MuiListItemText-primary": {
-                          color:
-                            selectedItem === "daily_time_record_faculty"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                        },
-
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                          "& .MuiListItemText-primary": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-
-                        borderTopRightRadius:
-                          selectedItem === "daily_time_record_faculty"
-                            ? "15px"
-                            : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "daily_time_record_faculty"
-                            ? "15px"
-                            : 0,
-                      }}
-                    >
-                      <ListItemIcon sx={{ marginRight: "-1rem" }}>
-                        <BadgeRounded />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Overall Daily Time Record"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-
-                    {/* Attendance Module (Non-teaching) */}
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/attendance_module"
-                      sx={{
-                        color:
-                          selectedItem === "attendance_module"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "attendance_module"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "attendance_module" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "attendance_module" ? "15px" : 0,
-                      }}
-                      onClick={() => handleItemClick("attendance_module")}
-                    >
-                      <ListItemIcon
+                  <Collapse in={open2} timeout="auto" unmountOnExit>
+                    <List component="div" disablePadding sx={{ pl: 5.4 }}>
+                      {/* DEVICE RECORD */}
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/view_attendance"
+                        onClick={() => handleItemClick("view_attendance")}
                         sx={{
-                          marginRight: "-1rem",
+                          bgcolor:
+                            selectedItem === "view_attendance"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          color:
+                            selectedItem === "view_attendance"
+                              ? settings.textPrimaryColor
+                              : settings.textSecondaryColor,
+
+                          "& .MuiListItemIcon-root": {
+                            color:
+                              selectedItem === "view_attendance"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          },
+                          "& .MuiListItemText-primary": {
+                            color:
+                              selectedItem === "view_attendance"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          },
+
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+
+                          borderTopRightRadius:
+                            selectedItem === "view_attendance" ? "15px" : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "view_attendance" ? "15px" : 0,
+                        }}
+                      >
+                        <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                          <DevicesIcon />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Device Record"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+
+                      {/* ATTENDANCE STATE */}
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/attendance_form"
+                        onClick={() => handleItemClick("attendance_form")}
+                        sx={{
+                          bgcolor:
+                            selectedItem === "attendance_form"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          color:
+                            selectedItem === "attendance_form"
+                              ? settings.textPrimaryColor
+                              : settings.textSecondaryColor,
+
+                          "& .MuiListItemIcon-root": {
+                            color:
+                              selectedItem === "attendance_form"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          },
+                          "& .MuiListItemText-primary": {
+                            color:
+                              selectedItem === "attendance_form"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          },
+
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+
+                          borderTopRightRadius:
+                            selectedItem === "attendance_form" ? "15px" : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "attendance_form" ? "15px" : 0,
+                        }}
+                      >
+                        <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                          <EventNote />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Attendance State"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+
+                      {/* ATTENDANCE MODIFICATION */}
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/search_attendance"
+                        onClick={() => handleItemClick("search_attendance")}
+                        sx={{
+                          bgcolor:
+                            selectedItem === "search_attendance"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          color:
+                            selectedItem === "search_attendance"
+                              ? settings.textPrimaryColor
+                              : settings.textSecondaryColor,
+
+                          "& .MuiListItemIcon-root": {
+                            color:
+                              selectedItem === "search_attendance"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          },
+                          "& .MuiListItemText-primary": {
+                            color:
+                              selectedItem === "search_attendance"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          },
+
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+
+                          borderTopRightRadius:
+                            selectedItem === "search_attendance" ? "15px" : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "search_attendance" ? "15px" : 0,
+                        }}
+                      >
+                        <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                          <EditCalendar />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Attendance Modification"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+
+                      {/* OVERALL DAILY TIME RECORD */}
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/daily_time_record_faculty"
+                        onClick={() =>
+                          handleItemClick("daily_time_record_faculty")
+                        }
+                        sx={{
+                          bgcolor:
+                            selectedItem === "daily_time_record_faculty"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          color:
+                            selectedItem === "daily_time_record_faculty"
+                              ? settings.textPrimaryColor
+                              : settings.textSecondaryColor,
+
+                          "& .MuiListItemIcon-root": {
+                            color:
+                              selectedItem === "daily_time_record_faculty"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          },
+                          "& .MuiListItemText-primary": {
+                            color:
+                              selectedItem === "daily_time_record_faculty"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          },
+
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+
+                          borderTopRightRadius:
+                            selectedItem === "daily_time_record_faculty"
+                              ? "15px"
+                              : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "daily_time_record_faculty"
+                              ? "15px"
+                              : 0,
+                        }}
+                      >
+                        <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                          <BadgeRounded />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Overall Daily Time Record"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+
+                      {/* Attendance Module (Non-teaching) */}
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/attendance_module"
+                        sx={{
                           color:
                             selectedItem === "attendance_module"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
-                        <WorkHistory />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Attendance Records (Non-teaching | JO)"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-
-                    {/* Attendance Module Faculty (30hrs) */}
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/attendance_module_faculty"
-                      sx={{
-                        color:
-                          selectedItem === "attendance_module_faculty"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "attendance_module_faculty"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
+                          bgcolor:
+                            selectedItem === "attendance_module"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
                             color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
                           },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "attendance_module_faculty"
-                            ? "15px"
-                            : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "attendance_module_faculty"
-                            ? "15px"
-                            : 0,
-                      }}
-                      onClick={() =>
-                        handleItemClick("attendance_module_faculty")
-                      }
-                    >
-                      <ListItemIcon
+                          borderTopRightRadius:
+                            selectedItem === "attendance_module" ? "15px" : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "attendance_module" ? "15px" : 0,
+                        }}
+                        onClick={() => handleItemClick("attendance_module")}
+                      >
+                        <ListItemIcon
+                          sx={{
+                            marginRight: "-1rem",
+                            color:
+                              selectedItem === "attendance_module"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "&:hover": { color: settings.textSecondaryColor },
+                          }}
+                        >
+                          <WorkHistory />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Attendance Records (Non-teaching | JO)"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+
+                      {/* Attendance Module Faculty (30hrs) */}
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/attendance_module_faculty"
                         sx={{
-                          marginRight: "-1rem",
                           color:
                             selectedItem === "attendance_module_faculty"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
-                        <WorkHistory />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Attendance Records (30 Hours)"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-
-                    {/* Attendance Module Faculty (Designated) */}
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/attendance_module_faculty_40hrs"
-                      sx={{
-                        color:
-                          selectedItem === "attendance_module_faculty_40hrs"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "attendance_module_faculty_40hrs"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
+                          bgcolor:
+                            selectedItem === "attendance_module_faculty"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
                             color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
                           },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "attendance_module_faculty_40hrs"
-                            ? "15px"
-                            : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "attendance_module_faculty_40hrs"
-                            ? "15px"
-                            : 0,
-                      }}
-                      onClick={() =>
-                        handleItemClick("attendance_module_faculty_40hrs")
-                      }
-                    >
-                      <ListItemIcon
+                          borderTopRightRadius:
+                            selectedItem === "attendance_module_faculty"
+                              ? "15px"
+                              : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "attendance_module_faculty"
+                              ? "15px"
+                              : 0,
+                        }}
+                        onClick={() =>
+                          handleItemClick("attendance_module_faculty")
+                        }
+                      >
+                        <ListItemIcon
+                          sx={{
+                            marginRight: "-1rem",
+                            color:
+                              selectedItem === "attendance_module_faculty"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "&:hover": { color: settings.textSecondaryColor },
+                          }}
+                        >
+                          <WorkHistory />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Attendance Records (30 Hours)"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+
+                      {/* Attendance Module Faculty (Designated) */}
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/attendance_module_faculty_40hrs"
                         sx={{
-                          marginRight: "-1rem",
                           color:
                             selectedItem === "attendance_module_faculty_40hrs"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
-                        <WorkHistory />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Attendance Records (Designated)"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-
-                    {/* Attendance Overall Summary */}
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/attendance_summary"
-                      sx={{
-                        color:
-                          selectedItem === "attendance_summary"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "attendance_summary"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
+                          bgcolor:
+                            selectedItem === "attendance_module_faculty_40hrs"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
                             color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
                           },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "attendance_summary" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "attendance_summary" ? "15px" : 0,
-                      }}
-                      onClick={() => handleItemClick("attendance_summary")}
-                    >
-                      <ListItemIcon
+                          borderTopRightRadius:
+                            selectedItem === "attendance_module_faculty_40hrs"
+                              ? "15px"
+                              : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "attendance_module_faculty_40hrs"
+                              ? "15px"
+                              : 0,
+                        }}
+                        onClick={() =>
+                          handleItemClick("attendance_module_faculty_40hrs")
+                        }
+                      >
+                        <ListItemIcon
+                          sx={{
+                            marginRight: "-1rem",
+                            color:
+                              selectedItem === "attendance_module_faculty_40hrs"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "&:hover": { color: settings.textSecondaryColor },
+                          }}
+                        >
+                          <WorkHistory />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Attendance Records (Designated)"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+
+                      {/* Attendance Overall Summary */}
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/attendance_summary"
                         sx={{
-                          marginRight: "-1rem",
                           color:
                             selectedItem === "attendance_summary"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
-                        <FolderSpecial />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Attendance Overall Summary"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-
-                    {/* Official Time Form */}
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/official_time"
-                      sx={{
-                        color:
-                          selectedItem === "official_time"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "official_time"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
+                          bgcolor:
+                            selectedItem === "attendance_summary"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
                             color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
                           },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "official_time" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "official_time" ? "15px" : 0,
-                      }}
-                      onClick={() => handleItemClick("official_time")}
-                    >
-                      <ListItemIcon
+                          borderTopRightRadius:
+                            selectedItem === "attendance_summary" ? "15px" : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "attendance_summary" ? "15px" : 0,
+                        }}
+                        onClick={() => handleItemClick("attendance_summary")}
+                      >
+                        <ListItemIcon
+                          sx={{
+                            marginRight: "-1rem",
+                            color:
+                              selectedItem === "attendance_summary"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "&:hover": { color: settings.textSecondaryColor },
+                          }}
+                        >
+                          <FolderSpecial />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Attendance Overall Summary"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+
+                      {/* Official Time Form */}
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/official_time"
                         sx={{
-                          marginRight: "-1rem",
                           color:
                             selectedItem === "official_time"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
+                          bgcolor:
+                            selectedItem === "official_time"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+                          borderTopRightRadius:
+                            selectedItem === "official_time" ? "15px" : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "official_time" ? "15px" : 0,
                         }}
+                        onClick={() => handleItemClick("official_time")}
                       >
-                        <AccessAlarm />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Official Time Form"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-                  </List>
-                </Collapse>
-              </>
-            )}
+                        <ListItemIcon
+                          sx={{
+                            marginRight: "-1rem",
+                            color:
+                              selectedItem === "official_time"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "&:hover": { color: settings.textSecondaryColor },
+                          }}
+                        >
+                          <AccessAlarm />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Official Time Form"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+                    </List>
+                  </Collapse>
+                </>
+              )}
 
             {/* LEAVE DROPDOWN */}
             {(shouldShowMenuItem("/leave-table") ||
@@ -3123,357 +3286,370 @@ const Sidebar = ({
               </>
             )}
 
-            {userRole !== "staff" && (
-              <>
-                <ListItem
-                  button
-                  onClick={handleClickPayroll}
-                  sx={{
-                    color: settings.textSecondaryColor,
-                    cursor: "pointer",
-                  }}
-                >
-                  <ListItemIcon>
-                    <PointOfSale sx={{ color: settings.textSecondaryColor }} />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="Payroll Management"
-                    sx={{ marginLeft: "-10px" }}
-                  />
-                  <ListItemIcon
+            {userRole !== "staff" &&
+              payrollManagementItems.some((item) =>
+                shouldShowMenuItem(`/${item.replace(/_/g, "-")}`),
+              ) && (
+                <>
+                  <ListItem
+                    button
+                    onClick={handleClickPayroll}
                     sx={{
-                      marginLeft: "10rem",
                       color: settings.textSecondaryColor,
+                      cursor: "pointer",
                     }}
                   >
-                    {open3 ? <ExpandLess /> : <ExpandMore />}
-                  </ListItemIcon>
-                </ListItem>
-
-                <Collapse in={open3} timeout="auto" unmountOnExit>
-                  <List component="div" disablePadding sx={{ pl: 5.4 }}>
-                    {/* Regular Payroll Dropdown */}
-                    <ListSubheader
-                      component="div"
+                    <ListItemIcon>
+                      <PointOfSale
+                        sx={{ color: settings.textSecondaryColor }}
+                      />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Payroll Management"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                    <ListItemIcon
                       sx={{
-                        bgcolor: "transparent",
-                        fontWeight: "bold",
-                        fontSize: "0.7rem",
+                        marginLeft: "10rem",
                         color: settings.textSecondaryColor,
-                        fontFamily: "Poppins, sans-serif",
-                        textTransform: "uppercase",
-                        mb: -1,
-                        pl: 2,
                       }}
                     >
-                      Regular Payroll
-                    </ListSubheader>
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/payroll-table"
-                      selected={selectedItem === "payroll-table"}
-                      onClick={() => handleItemClick("payroll-table")}
-                      sx={{
-                        color:
-                          selectedItem === "payroll-table"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "payroll-table"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
+                      {open3 ? <ExpandLess /> : <ExpandMore />}
+                    </ListItemIcon>
+                  </ListItem>
+
+                  <Collapse in={open3} timeout="auto" unmountOnExit>
+                    <List component="div" disablePadding sx={{ pl: 5.4 }}>
+                      {/* Regular Payroll Dropdown */}
+                      <ListSubheader
+                        component="div"
+                        sx={{
+                          bgcolor: "transparent",
+                          fontWeight: "bold",
+                          fontSize: "0.7rem",
                           color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "payroll-table" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "payroll-table" ? "15px" : 0,
-                      }}
-                    >
-                      <ListItemIcon
+                          fontFamily: "Poppins, sans-serif",
+                          textTransform: "uppercase",
+                          mb: -1,
+                          pl: 2,
+                        }}
+                      >
+                        Regular Payroll
+                      </ListSubheader>
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/payroll-table"
+                        selected={selectedItem === "payroll-table"}
+                        onClick={() => handleItemClick("payroll-table")}
                         sx={{
                           color:
                             selectedItem === "payroll-table"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
+                          bgcolor:
+                            selectedItem === "payroll-table"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+                          borderTopRightRadius:
+                            selectedItem === "payroll-table" ? "15px" : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "payroll-table" ? "15px" : 0,
                         }}
                       >
-                        <Assessment />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Payroll Processing | Regular"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/payroll-processed"
-                      selected={selectedItem === "payroll-processed"}
-                      onClick={() => handleItemClick("payroll-processed")}
-                      sx={{
-                        color:
-                          selectedItem === "payroll-processed"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "payroll-processed"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "payroll-processed" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "payroll-processed" ? "15px" : 0,
-                      }}
-                    >
-                      <ListItemIcon
+                        <ListItemIcon
+                          sx={{
+                            color:
+                              selectedItem === "payroll-table"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          }}
+                        >
+                          <Assessment />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Payroll Processing | Regular"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/payroll-processed"
+                        selected={selectedItem === "payroll-processed"}
+                        onClick={() => handleItemClick("payroll-processed")}
                         sx={{
                           color:
                             selectedItem === "payroll-processed"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
+                          bgcolor:
+                            selectedItem === "payroll-processed"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+                          borderTopRightRadius:
+                            selectedItem === "payroll-processed" ? "15px" : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "payroll-processed" ? "15px" : 0,
                         }}
                       >
-                        <PaymentsIcon />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Payroll Processed | Regular"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
+                        <ListItemIcon
+                          sx={{
+                            color:
+                              selectedItem === "payroll-processed"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          }}
+                        >
+                          <PaymentsIcon />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Payroll Processed | Regular"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
 
-                    {/* JO Payroll Dropdown */}
-                    <ListSubheader
-                      component="div"
-                      sx={{
-                        bgcolor: "transparent",
-                        fontWeight: "bold",
-                        fontSize: "0.7rem",
-                        color: settings.textSecondaryColor,
-                        fontFamily: "Poppins, sans-serif",
-                        textTransform: "uppercase",
-                        mb: -1,
-                        pl: 2,
-                      }}
-                    >
-                      JO Payroll
-                    </ListSubheader>
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/payroll-jo"
-                      selected={selectedItem === "payroll-jo"}
-                      onClick={() => handleItemClick("payroll-jo")}
-                      sx={{
-                        color:
-                          selectedItem === "payroll-jo"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "payroll-jo"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
+                      {/* JO Payroll Dropdown */}
+                      <ListSubheader
+                        component="div"
+                        sx={{
+                          bgcolor: "transparent",
+                          fontWeight: "bold",
+                          fontSize: "0.7rem",
                           color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "payroll-jo" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "payroll-jo" ? "15px" : 0,
-                      }}
-                    >
-                      <ListItemIcon
+                          fontFamily: "Poppins, sans-serif",
+                          textTransform: "uppercase",
+                          mb: -1,
+                          pl: 2,
+                        }}
+                      >
+                        JO Payroll
+                      </ListSubheader>
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/payroll-jo"
+                        selected={selectedItem === "payroll-jo"}
+                        onClick={() => handleItemClick("payroll-jo")}
                         sx={{
                           color:
                             selectedItem === "payroll-jo"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
+                          bgcolor:
+                            selectedItem === "payroll-jo"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+                          borderTopRightRadius:
+                            selectedItem === "payroll-jo" ? "15px" : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "payroll-jo" ? "15px" : 0,
                         }}
                       >
-                        <Assessment />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Payroll Processing | JO"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/payroll-processed-jo"
-                      selected={selectedItem === "payroll-processed-jo"}
-                      onClick={() => handleItemClick("payroll-processed-jo")}
-                      sx={{
-                        color:
-                          selectedItem === "payroll-processed-jo"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "payroll-processed-jo"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "payroll-processed-jo" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "payroll-processed-jo" ? "15px" : 0,
-                      }}
-                    >
-                      <ListItemIcon
+                        <ListItemIcon
+                          sx={{
+                            color:
+                              selectedItem === "payroll-jo"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          }}
+                        >
+                          <Assessment />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Payroll Processing | JO"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/payroll-processed-jo"
+                        selected={selectedItem === "payroll-processed-jo"}
+                        onClick={() => handleItemClick("payroll-processed-jo")}
                         sx={{
                           color:
                             selectedItem === "payroll-processed-jo"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
+                          bgcolor:
+                            selectedItem === "payroll-processed-jo"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+                          borderTopRightRadius:
+                            selectedItem === "payroll-processed-jo"
+                              ? "15px"
+                              : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "payroll-processed-jo"
+                              ? "15px"
+                              : 0,
                         }}
                       >
-                        <PaymentsIcon />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Payroll Processed | JO"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
+                        <ListItemIcon
+                          sx={{
+                            color:
+                              selectedItem === "payroll-processed-jo"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          }}
+                        >
+                          <PaymentsIcon />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Payroll Processed | JO"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
 
-                    {/* Payroll Administration Dropdown */}
-                    <ListSubheader
-                      component="div"
-                      sx={{
-                        bgcolor: "transparent",
-                        fontWeight: "bold",
-                        fontSize: "0.7rem",
-                        color: settings.textSecondaryColor,
-                        fontFamily: "Poppins, sans-serif",
-                        textTransform: "uppercase",
-                        mb: -1,
-                        pl: 2,
-                      }}
-                    >
-                      Payslips
-                    </ListSubheader>
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/payroll-released"
-                      selected={selectedItem === "payroll-released"}
-                      onClick={() => handleItemClick("payroll-released")}
-                      sx={{
-                        color:
-                          selectedItem === "payroll-released"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "payroll-released"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
+                      {/* Payroll Administration Dropdown */}
+                      <ListSubheader
+                        component="div"
+                        sx={{
+                          bgcolor: "transparent",
+                          fontWeight: "bold",
+                          fontSize: "0.7rem",
                           color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "payroll-released" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "payroll-released" ? "15px" : 0,
-                      }}
-                    >
-                      <ListItemIcon
+                          fontFamily: "Poppins, sans-serif",
+                          textTransform: "uppercase",
+                          mb: -1,
+                          pl: 2,
+                        }}
+                      >
+                        Payslips
+                      </ListSubheader>
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/payroll-released"
+                        selected={selectedItem === "payroll-released"}
+                        onClick={() => handleItemClick("payroll-released")}
                         sx={{
                           color:
                             selectedItem === "payroll-released"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
+                          bgcolor:
+                            selectedItem === "payroll-released"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+                          borderTopRightRadius:
+                            selectedItem === "payroll-released" ? "15px" : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "payroll-released" ? "15px" : 0,
                         }}
                       >
-                        <NewReleases />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Payroll | Released"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/distribution-payslip"
-                      selected={selectedItem === "distribution-payslip"}
-                      onClick={() => handleItemClick("distribution-payslip")}
-                      sx={{
-                        color:
-                          selectedItem === "distribution-payslip"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "distribution-payslip"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "distribution-payslip" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "distribution-payslip" ? "15px" : 0,
-                      }}
-                    >
-                      <ListItemIcon
+                        <ListItemIcon
+                          sx={{
+                            color:
+                              selectedItem === "payroll-released"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          }}
+                        >
+                          <NewReleases />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Payroll | Released"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/distribution-payslip"
+                        selected={selectedItem === "distribution-payslip"}
+                        onClick={() => handleItemClick("distribution-payslip")}
                         sx={{
                           color:
                             selectedItem === "distribution-payslip"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
+                          bgcolor:
+                            selectedItem === "distribution-payslip"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+                          borderTopRightRadius:
+                            selectedItem === "distribution-payslip"
+                              ? "15px"
+                              : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "distribution-payslip"
+                              ? "15px"
+                              : 0,
                         }}
                       >
-                        <ReceiptLong />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Payslip Distribution"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
+                        <ListItemIcon
+                          sx={{
+                            color:
+                              selectedItem === "distribution-payslip"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          }}
+                        >
+                          <ReceiptLong />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Payslip Records & Distribution"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
 
-                    <ListItem
+                      {/* <ListItem
                       button
                       component={Link}
                       to="/overall-payslip"
@@ -3517,257 +3693,261 @@ const Sidebar = ({
                         primary="Payslip Records"
                         sx={{ marginLeft: "-10px" }}
                       />
-                    </ListItem>
+                    </ListItem> */}
 
-                    <ListSubheader
-                      component="div"
-                      sx={{
-                        bgcolor: "transparent",
-                        fontWeight: "bold",
-                        fontSize: "0.7rem",
-                        color: settings.textSecondaryColor,
-                        fontFamily: "Poppins, sans-serif",
-                        textTransform: "uppercase",
-                        mb: -1,
-                        pl: 2,
-                      }}
-                    >
-                      Payroll Administration
-                    </ListSubheader>
-
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/remittance-table"
-                      selected={selectedItem === "remittance-table"}
-                      onClick={() => handleItemClick("remittance-table")}
-                      sx={{
-                        color:
-                          selectedItem === "remittance-table"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "remittance-table"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
+                      <ListSubheader
+                        component="div"
+                        sx={{
+                          bgcolor: "transparent",
+                          fontWeight: "bold",
+                          fontSize: "0.7rem",
                           color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "remittance-table" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "remittance-table" ? "15px" : 0,
-                      }}
-                    >
-                      <ListItemIcon
+                          fontFamily: "Poppins, sans-serif",
+                          textTransform: "uppercase",
+                          mb: -1,
+                          pl: 2,
+                        }}
+                      >
+                        Payroll Administration
+                      </ListSubheader>
+
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/remittance-table"
+                        selected={selectedItem === "remittance-table"}
+                        onClick={() => handleItemClick("remittance-table")}
                         sx={{
                           color:
                             selectedItem === "remittance-table"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
+                          bgcolor:
+                            selectedItem === "remittance-table"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+                          borderTopRightRadius:
+                            selectedItem === "remittance-table" ? "15px" : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "remittance-table" ? "15px" : 0,
                         }}
                       >
-                        <AccountBalanceIcon />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Remittances"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
+                        <ListItemIcon
+                          sx={{
+                            color:
+                              selectedItem === "remittance-table"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          }}
+                        >
+                          <AccountBalanceIcon />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Remittances"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
 
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/item-table"
-                      selected={selectedItem === "item-table"}
-                      onClick={() => handleItemClick("item-table")}
-                      sx={{
-                        color:
-                          selectedItem === "item-table"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "item-table"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "item-table" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "item-table" ? "15px" : 0,
-                      }}
-                    >
-                      <ListItemIcon
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/item-table"
+                        selected={selectedItem === "item-table"}
+                        onClick={() => handleItemClick("item-table")}
                         sx={{
                           color:
                             selectedItem === "item-table"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
+                          bgcolor:
+                            selectedItem === "item-table"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+                          borderTopRightRadius:
+                            selectedItem === "item-table" ? "15px" : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "item-table" ? "15px" : 0,
                         }}
                       >
-                        <Badge />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Item Table"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
+                        <ListItemIcon
+                          sx={{
+                            color:
+                              selectedItem === "item-table"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          }}
+                        >
+                          <Badge />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Item Table"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
 
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/department-table"
-                      sx={{
-                        color:
-                          selectedItem === "department-table"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "department-table"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "department-table" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "department-table" ? "15px" : 0,
-                      }}
-                      onClick={() => handleItemClick("department-table")}
-                    >
-                      <ListItemIcon
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/department-table"
                         sx={{
                           color:
                             selectedItem === "department-table"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
-                        <BusinessIcon />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Department"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/department-assignment"
-                      sx={{
-                        color:
-                          selectedItem === "department-assignment"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "department-assignment"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
+                          bgcolor:
+                            selectedItem === "department-table"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
                             color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
                           },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "department-assignment" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "department-assignment" ? "15px" : 0,
-                      }}
-                      onClick={() => handleItemClick("department-assignment")}
-                    >
-                      <ListItemIcon
+                          borderTopRightRadius:
+                            selectedItem === "department-table" ? "15px" : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "department-table" ? "15px" : 0,
+                        }}
+                        onClick={() => handleItemClick("department-table")}
+                      >
+                        <ListItemIcon
+                          sx={{
+                            color:
+                              selectedItem === "department-table"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "&:hover": { color: settings.textSecondaryColor },
+                          }}
+                        >
+                          <BusinessIcon />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Department"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/department-assignment"
                         sx={{
                           color:
                             selectedItem === "department-assignment"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
-                          "&:hover": { color: settings.textSecondaryColor },
-                        }}
-                      >
-                        <BusinessCenterIcon />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Department Assignment"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-
-                    <ListItem
-                      button
-                      component={Link}
-                      to="/salary-grade"
-                      selected={selectedItem === "salary-grade"}
-                      onClick={() => handleItemClick("salary-grade")}
-                      sx={{
-                        color:
-                          selectedItem === "salary-grade"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "salary-grade"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
+                          bgcolor:
+                            selectedItem === "department-assignment"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
                             color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
                           },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "salary-grade" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "salary-grade" ? "15px" : 0,
-                      }}
-                    >
-                      <ListItemIcon
+                          borderTopRightRadius:
+                            selectedItem === "department-assignment"
+                              ? "15px"
+                              : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "department-assignment"
+                              ? "15px"
+                              : 0,
+                        }}
+                        onClick={() => handleItemClick("department-assignment")}
+                      >
+                        <ListItemIcon
+                          sx={{
+                            color:
+                              selectedItem === "department-assignment"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "&:hover": { color: settings.textSecondaryColor },
+                          }}
+                        >
+                          <BusinessCenterIcon />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Department Assignment"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/salary-grade"
+                        selected={selectedItem === "salary-grade"}
+                        onClick={() => handleItemClick("salary-grade")}
                         sx={{
                           color:
                             selectedItem === "salary-grade"
                               ? settings.textPrimaryColor
                               : settings.textSecondaryColor,
+                          bgcolor:
+                            selectedItem === "salary-grade"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            borderTopRightRadius: "15px",
+                            borderBottomRightRadius: "15px",
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+                          borderTopRightRadius:
+                            selectedItem === "salary-grade" ? "15px" : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "salary-grade" ? "15px" : 0,
                         }}
                       >
-                        <AccountTree />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Salary Grade | Tranche"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem>
-                  </List>
-                </Collapse>
-              </>
-            )}
+                        <ListItemIcon
+                          sx={{
+                            color:
+                              selectedItem === "salary-grade"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          }}
+                        >
+                          <AccountTree />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Salary Grade | Tranche"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+                    </List>
+                  </Collapse>
+                </>
+              )}
 
             {/* Rest of the sidebar items continue... */}
             {userRole !== "staff" && (
@@ -4142,7 +4322,7 @@ const Sidebar = ({
                           <PsychologyIcon />
                         </ListItemIcon>
                         <ListItemText
-                          primary="Seminars & Trainings"
+                          primary="Learning and Development"
                           sx={{ marginLeft: "-10px" }}
                         />
                       </ListItem>

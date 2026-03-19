@@ -56,6 +56,7 @@ const reportsRoutes = require('./routes/reports');
 const settingsExtendedRoutes = require('./routes/settings-extended');
 const confidentialPasswordRoutes = require('./routes/confidential-password');
 const commutationRoute = require('./routes/commutation');
+const pdsTemplatesRoutes = require('./routes/pds-templates');
 
 
 const app = express();
@@ -68,6 +69,9 @@ const allowedOrigins = [
   'http://192.168.50.45:5137',
   'http://136.239.248.42:5137',
   'http://192.168.50.97:5137',
+  'http://192.168.50.86:5173',
+  'http://192.168.50.62:5173',
+  'http://192.168.50.65:5173'
 ];
 
 function isOriginAllowed(origin) {
@@ -116,6 +120,7 @@ const ensureAuditLogTableSQL = `
     table_name VARCHAR(128) NULL,
     record_id INT NULL,
     targetEmployeeNumber VARCHAR(64) NULL,
+    details_json LONGTEXT NULL,
     timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `;
@@ -125,6 +130,12 @@ db.query(ensureAuditLogTableSQL, (err) => {
     console.error('Failed to ensure audit_log table exists:', err);
   } else {
     console.log('Audit log table ready');
+  }
+});
+
+db.query('ALTER TABLE audit_log ADD COLUMN details_json LONGTEXT NULL', (err) => {
+  if (err && err.code !== 'ER_DUP_FIELDNAME') {
+    console.error('Audit log migration details_json:', err.message);
   }
 });
 
@@ -227,6 +238,80 @@ db.query(ensureSuspensionsTableSQL, (err) => {
   else console.log('Suspensions table ready');
 });
 
+// Ensure contact messages table exists (threaded replies)
+const ensureContactMessagesTableSQL = `
+  CREATE TABLE IF NOT EXISTS contact_us_messages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    contact_id INT NOT NULL,
+    sender_role VARCHAR(32) NULL,
+    sender_employee_number VARCHAR(64) NULL,
+    sender_name VARCHAR(255) NULL,
+    sender_email VARCHAR(255) NULL,
+    message TEXT NOT NULL,
+    attachment VARCHAR(512) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_contact_id (contact_id),
+    INDEX idx_created_at (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Stores threaded replies for contact_us';
+`;
+
+db.query(ensureContactMessagesTableSQL, (err) => {
+  if (err)
+    console.error('Failed to ensure contact_us_messages table exists:', err.message);
+  else console.log('Contact messages table ready');
+});
+
+// Ensure contact_us_messages has attachment column
+db.query('ALTER TABLE contact_us_messages ADD COLUMN attachment VARCHAR(512) NULL', (err) => {
+  if (err && err.code !== 'ER_DUP_FIELDNAME') {
+    console.error('Contact messages attachment migration:', err.message);
+  }
+});
+
+// Ensure feedbacks table exists
+const ensureFeedbacksTableSQL = `
+  CREATE TABLE IF NOT EXISTS feedbacks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    contact_id INT NOT NULL,
+    sender_role VARCHAR(32) NULL,
+    sender_employee_number VARCHAR(64) NULL,
+    sender_name VARCHAR(255) NULL,
+    sender_email VARCHAR(255) NULL,
+    message TEXT NOT NULL,
+    attachment VARCHAR(512) NULL,
+    rating TINYINT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_contact_id (contact_id),
+    INDEX idx_created_at (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Stores feedback threads for resolved contact tickets';
+`;
+
+db.query(ensureFeedbacksTableSQL, (err) => {
+  if (err)
+    console.error('Failed to ensure feedbacks table exists:', err.message);
+  else console.log('Feedbacks table ready');
+});
+
+// Ensure feedbacks has rating column
+db.query('ALTER TABLE feedbacks ADD COLUMN rating TINYINT NULL', (err) => {
+  if (err && err.code !== 'ER_DUP_FIELDNAME') {
+    console.error('Feedbacks rating migration:', err.message);
+  }
+});
+
+// Ensure contact_us status enum includes on_process
+const ensureContactStatusEnumSQL = `
+  ALTER TABLE contact_us
+  MODIFY COLUMN status ENUM('new','on_process','read','replied','resolved')
+  NOT NULL DEFAULT 'new'
+  COMMENT 'Status of the contact message';
+`;
+db.query(ensureContactStatusEnumSQL, (err) => {
+  if (err && err.code !== 'ER_BAD_FIELD_ERROR') {
+    console.error('Contact status enum migration:', err.message);
+  }
+});
+
 // existing routes
 app.use('/ChildrenRoute', childrenRouter);
 app.use('/VoluntaryRoute', VoluntaryWork);
@@ -275,6 +360,7 @@ app.use('/', settingsExtendedRoutes);
 app.use('/', confidentialPasswordRoutes);
 app.use('/', PayrollFormulas);
 app.use('/commutationRoute', commutationRoute);
+app.use('/pds-templates', pdsTemplatesRoutes);
 
 // Server startup with Socket.IO
 const PORT = process.env.WEB_PORT || 5000;
@@ -284,6 +370,10 @@ const server = http.createServer(app);
 
 // Initialize Socket.IO
 const io = initializeSocket(server);
+
+// Wire up Socket.IO to route files that use it for real-time events
+leaveRoutes.setSocketIO(io);
+commutationRoute.setSocketIO(io);
 
 // Make io accessible to routes via app.locals
 app.locals.io = io;

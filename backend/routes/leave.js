@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db");
 const jwt = require("jsonwebtoken");
+const { logAudit } = require("../middleware/auth");
 
 let io;
 router.setSocketIO = (socketIO) => {
@@ -68,16 +69,29 @@ const getActorEmployeeNumber = (req, fallback = null) => {
   return fallback ? String(fallback) : "unknown";
 };
 
-const insertTransactionLog = (employeeId, message) =>
+const insertTransactionLog = (employeeId, message, actorEmployeeNumber = null) =>
   new Promise((resolve) => {
     if (!employeeId || !message) return resolve();
 
     db.query(
       "INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)",
       [employeeId, message],
-      (err) => {
+      (err, result) => {
         if (err) {
           console.error("[leave] Failed to insert transaction log:", err.message);
+          return resolve();
+        }
+        // Mirror to audit_log so it appears in the Audit Trail in real-time
+        try {
+          logAudit(
+            { employeeNumber: actorEmployeeNumber || employeeId },
+            message,
+            'leave_transaction',
+            result.insertId,
+            employeeId,
+          );
+        } catch (e) {
+          console.error("[leave] Failed to mirror to audit_log:", e.message);
         }
         resolve();
       },
@@ -114,28 +128,40 @@ const buildLeaveTransactionMessage = ({
   action,
   actorDisplayName,
   requesterDisplayName,
-  leaveCode,
+  leaveDesc,
+  leaveDates,
 }) => {
   if (!action) return null;
 
+  const dateStr = (() => {
+    if (!leaveDates) return '';
+    const arr = Array.isArray(leaveDates)
+      ? leaveDates.filter(Boolean)
+      : String(leaveDates).split(',').map((s) => s.trim()).filter(Boolean);
+    if (!arr.length) return '';
+    if (arr.length === 1) return ` on ${arr[0]}`;
+    const sorted = [...arr].sort();
+    return ` from ${sorted[0]} to ${sorted[sorted.length - 1]} (${arr.length} day(s))`;
+  })();
+
   if (action === "request") {
-    return `${actorDisplayName} requested ${leaveCode}`;
+    return `${actorDisplayName} submitted a ${leaveDesc} request${dateStr}.`;
   }
 
   if (action === "denied") {
-    return `${actorDisplayName} rejected ${requesterDisplayName}'s request for ${leaveCode}`;
+    return `${actorDisplayName} denied ${requesterDisplayName}'s ${leaveDesc} request.`;
   }
 
   if (action === "immediateSupervisor_approved") {
-    return `Immediate supervisor ${actorDisplayName} approve the request ${leaveCode} of ${requesterDisplayName}`;
+    return `Immediate Supervisor ${actorDisplayName} approved ${requesterDisplayName}'s ${leaveDesc} request.`;
   }
 
   if (action === "hr_approved") {
-    return `HR ${actorDisplayName} approve the request ${leaveCode} of ${requesterDisplayName}`;
+    return `HR Officer ${actorDisplayName} fully approved ${requesterDisplayName}'s ${leaveDesc} request.`;
   }
 
   if (action === "cancelled") {
-    return `${actorDisplayName} cancelled its requests ${leaveCode}`;
+    return `${actorDisplayName} cancelled their ${leaveDesc} request.`;
   }
 
   return null;
@@ -189,8 +215,11 @@ db.query(
   "INSERT INTO leave_table (leave_code, leave_description, leave_hours, gender_restriction) VALUES (?, ?, ?, ?)",
   [leave_code, leave_description, leave_hours || 0, gender_restriction || null],
     (err, result) => {
-      if (err)
+      if (err) {
+        logAudit({ employeeNumber: getActorEmployeeNumber(req) }, 'Insert Failed', 'leave_table', null, null);
         return res.status(500).json({ error: "Failed to create leave type" });
+      }
+      logAudit({ employeeNumber: getActorEmployeeNumber(req) }, 'Insert', 'leave_table', result.insertId, null);
       res.json({
         id: result.insertId,
         leave_code,
@@ -208,8 +237,11 @@ db.query(
   "UPDATE leave_table SET leave_code = ?, leave_description = ?, leave_hours = ?, gender_restriction = ? WHERE id = ?",
   [leave_code, leave_description, leave_hours, gender_restriction || null, id],
     (err) => {
-      if (err)
+      if (err) {
+        logAudit({ employeeNumber: getActorEmployeeNumber(req) }, 'Update Failed', 'leave_table', id, null);
         return res.status(500).json({ error: "Failed to update leave type" });
+      }
+      logAudit({ employeeNumber: getActorEmployeeNumber(req) }, 'Update', 'leave_table', id, null);
       res.json({ id, leave_code, leave_description, leave_hours });
     },
   );
@@ -217,8 +249,11 @@ db.query(
 
 router.delete("/leave_table/:id", (req, res) => {
   db.query("DELETE FROM leave_table WHERE id = ?", [req.params.id], (err) => {
-    if (err)
+    if (err) {
+      logAudit({ employeeNumber: getActorEmployeeNumber(req) }, 'Delete Failed', 'leave_table', req.params.id, null);
       return res.status(500).json({ error: "Failed to delete leave type" });
+    }
+    logAudit({ employeeNumber: getActorEmployeeNumber(req) }, 'Delete', 'leave_table', req.params.id, null);
     res.json({ message: "Leave type deleted successfully" });
   });
 });
@@ -364,13 +399,34 @@ router.post("/leave_assignment", (req, res) => {
             semester,
           ],
           (insertErr, result) => {
-            if (insertErr)
+            if (insertErr) {
+              logAudit({ employeeNumber: getActorEmployeeNumber(req, employeeNumber) }, 'Assign Leave Failed', 'leave_assignment', null, employeeNumber);
               return res
                 .status(500)
                 .json({
                   error:
                     "Failed to create leave assignment: " + insertErr.message,
                 });
+            }
+            const actorEmpNum = getActorEmployeeNumber(req, employeeNumber);
+            const insertedId = result.insertId;
+            (async () => {
+              try {
+                const [empName, actorName] = await Promise.all([
+                  getEmployeeFullName(String(employeeNumber)),
+                  getEmployeeFullName(actorEmpNum),
+                ]);
+                const leaveDesc = await new Promise(resolve =>
+                  db.query('SELECT leave_description FROM leave_table WHERE leave_code = ? LIMIT 1', [leave_code], (e, r) =>
+                    resolve((r && r[0] && r[0].leave_description) || leave_code)
+                  )
+                );
+                const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+                const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
+                logAudit({ employeeNumber: actorEmpNum }, `Assign Leave - ${leaveDesc} (${customHours} hrs)`, 'leave_assignment', insertedId, employeeNumber);
+                await insertTransactionLog(String(employeeNumber), `${actorDisplay} assigned ${leaveDesc} (${customHours} hrs) to ${empDisplay}`, actorEmpNum);
+              } catch (e) { console.error('[leave] Assign log error:', e.message); }
+            })();
             emitLeaveChange("leaveAssignmentChanged");
             res.json({
               id: result.insertId,
@@ -416,10 +472,31 @@ router.post("/leave_assignment", (req, res) => {
                 semester,
               ],
               (insertErr, result) => {
-                if (insertErr)
+                if (insertErr) {
+                  logAudit({ employeeNumber: getActorEmployeeNumber(req, employeeNumber) }, 'Assign Leave Failed', 'leave_assignment', null, employeeNumber);
                   return res
                     .status(500)
                     .json({ error: "Failed to create leave assignment" });
+                }
+                const actorEmpNum = getActorEmployeeNumber(req, employeeNumber);
+                const insertedId = result.insertId;
+                (async () => {
+                  try {
+                    const [empName, actorName] = await Promise.all([
+                      getEmployeeFullName(String(employeeNumber)),
+                      getEmployeeFullName(actorEmpNum),
+                    ]);
+                    const leaveDescDefault = await new Promise(resolve =>
+                      db.query('SELECT leave_description FROM leave_table WHERE leave_code = ? LIMIT 1', [leave_code], (e, r) =>
+                        resolve((r && r[0] && r[0].leave_description) || leave_code)
+                      )
+                    );
+                    const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+                    const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
+                    logAudit({ employeeNumber: actorEmpNum }, `Assign Leave - ${leaveDescDefault} (${defaultHours} hrs)`, 'leave_assignment', insertedId, employeeNumber);
+                    await insertTransactionLog(String(employeeNumber), `${actorDisplay} assigned ${leaveDescDefault} (${defaultHours} hrs) to ${empDisplay}`, actorEmpNum);
+                  } catch (e) { console.error('[leave] Assign log error:', e.message); }
+                })();
                 emitLeaveChange("leaveAssignmentChanged");
                 res.json({
                   id: result.insertId,
@@ -514,10 +591,30 @@ router.put("/leave_assignment/:id", (req, res) => {
           id,
         ],
         (updateErr) => {
-          if (updateErr)
+          if (updateErr) {
+            logAudit({ employeeNumber: getActorEmployeeNumber(req) }, 'Update Leave Assignment Failed', 'leave_assignment', id, employeeNumber);
             return res
               .status(500)
               .json({ error: "Failed to update leave assignment" });
+          }
+          const actorEmpNum = getActorEmployeeNumber(req);
+          (async () => {
+            try {
+              const [empName, actorName] = await Promise.all([
+                getEmployeeFullName(String(employeeNumber)),
+                getEmployeeFullName(actorEmpNum),
+              ]);
+              const leaveDesc = await new Promise(resolve =>
+                db.query('SELECT leave_description FROM leave_table WHERE leave_code = ? LIMIT 1', [leave_code], (e, r) =>
+                  resolve((r && r[0] && r[0].leave_description) || leave_code)
+                )
+              );
+              const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+              const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
+              logAudit({ employeeNumber: actorEmpNum }, `Update Leave Assignment - ${leaveDesc} (${newTotal} hrs)`, 'leave_assignment', id, employeeNumber);
+              await insertTransactionLog(String(employeeNumber), `${actorDisplay} updated ${leaveDesc} assignment for ${empDisplay} (${newTotal} hrs total, ${newRemaining} hrs remaining)`, actorEmpNum);
+            } catch (e) { console.error('[leave] Update assignment log error:', e.message); }
+          })();
           emitLeaveChange("leaveAssignmentChanged");
           res.json({
             id,
@@ -538,16 +635,46 @@ router.put("/leave_assignment/:id", (req, res) => {
 });
 
 router.delete("/leave_assignment/:id", (req, res) => {
+  const actorEmpNum = getActorEmployeeNumber(req);
+  // Fetch first so we have employee info for logging
   db.query(
-    "DELETE FROM leave_assignment WHERE id = ?",
+    "SELECT employeeNumber, leave_code FROM leave_assignment WHERE id = ?",
     [req.params.id],
-    (err) => {
-      if (err)
-        return res
-          .status(500)
-          .json({ error: "Failed to delete leave assignment" });
-      emitLeaveChange("leaveAssignmentChanged");
-      res.json({ message: "Leave assignment deleted successfully" });
+    (fetchErr, rows) => {
+      const targetRecord = (!fetchErr && rows && rows[0]) ? rows[0] : null;
+      db.query(
+        "DELETE FROM leave_assignment WHERE id = ?",
+        [req.params.id],
+        (err) => {
+          if (err) {
+            if (targetRecord) logAudit({ employeeNumber: actorEmpNum }, 'Delete Leave Assignment Failed', 'leave_assignment', req.params.id, targetRecord.employeeNumber);
+            return res
+              .status(500)
+              .json({ error: "Failed to delete leave assignment" });
+          }
+          if (targetRecord) {
+            (async () => {
+              try {
+                const [empName, actorName] = await Promise.all([
+                  getEmployeeFullName(String(targetRecord.employeeNumber)),
+                  getEmployeeFullName(actorEmpNum),
+                ]);
+                const leaveDesc = await new Promise(resolve =>
+                  db.query('SELECT leave_description FROM leave_table WHERE leave_code = ? LIMIT 1', [targetRecord.leave_code], (e, r) =>
+                    resolve((r && r[0] && r[0].leave_description) || targetRecord.leave_code)
+                  )
+                );
+                const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+                const empDisplay = formatUserDisplayName(String(targetRecord.employeeNumber), empName);
+                logAudit({ employeeNumber: actorEmpNum }, `Delete Leave Assignment - ${leaveDesc}`, 'leave_assignment', req.params.id, targetRecord.employeeNumber);
+                await insertTransactionLog(String(targetRecord.employeeNumber), `${actorDisplay} deleted ${leaveDesc} assignment for ${empDisplay}`, actorEmpNum);
+              } catch (e) { console.error('[leave] Delete assignment log error:', e.message); }
+            })();
+          }
+          emitLeaveChange("leaveAssignmentChanged");
+          res.json({ message: "Leave assignment deleted successfully" });
+        },
+      );
     },
   );
 });
@@ -577,7 +704,7 @@ router.get("/leave_request/transactions", (req, res) => {
   const query = `
     SELECT *
     FROM transaction_table
-    ORDER BY id DESC
+    ORDER BY id ASC
   `;
   db.query(query, (err, results) => {
     if (err) {
@@ -610,7 +737,7 @@ router.get("/leave_request/transactions/:employeeNumber", (req, res) => {
     SELECT *
     FROM transaction_table
     WHERE employee_id = ?
-    ORDER BY id DESC
+    ORDER BY id ASC
   `;
   db.query(query, [req.params.employeeNumber], (err, results) => {
     if (err) {
@@ -695,28 +822,58 @@ router.post("/leave_request", (req, res) => {
     );
 
     Promise.all(insertPromises)
-      .then(async () => {
-        const actorFullName = await getEmployeeFullName(actorEmployeeNumber);
-        const actorDisplayName = formatUserDisplayName(
-          actorEmployeeNumber,
-          actorFullName,
-        );
-        const requestMessage = buildLeaveTransactionMessage({
-          action: "request",
-          actorDisplayName,
-          requesterDisplayName: actorDisplayName,
-          leaveCode: leave_code,
-        });
-        await insertTransactionLog(actorEmployeeNumber, requestMessage);
+.then(() => {
+  db.query(
+    "SELECT leave_description FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1",
+    [leave_code],
+    async (err, leaveTypeRows) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: "Leave type lookup failed" });
+      }
 
-        emitLeaveChange("leaveRequestChanged");
-        res.json({
-          message: "Leave requests created successfully",
-          count: dates.length,
-        });
-      })
+      const leave_description =
+        (leaveTypeRows &&
+          leaveTypeRows[0] &&
+          leaveTypeRows[0].leave_description) ||
+        leave_code;
+
+      const actorFullName = await getEmployeeFullName(
+        actorEmployeeNumber
+      );
+
+      const actorDisplayName = formatUserDisplayName(
+        actorEmployeeNumber,
+        actorFullName
+      );
+
+      const requestMessage = buildLeaveTransactionMessage({
+        action: "request",
+        actorDisplayName,
+        requesterDisplayName: actorDisplayName,
+        leaveDesc: leave_description,
+        leaveDates: dates,
+      });
+
+      await insertTransactionLog(
+        actorEmployeeNumber,
+        requestMessage,
+        actorEmployeeNumber
+      );
+
+      logAudit({ employeeNumber: actorEmployeeNumber }, `Submit Leave Request - ${leave_description} (${dates.length} day(s))`, 'leave_request', null, employeeNumber);
+      emitLeaveChange("leaveRequestChanged");
+
+      res.json({
+        message: "Leave requests created successfully",
+        count: dates.length,
+      });
+    }
+  );
+})
       .catch((err) => {
         console.error("Error creating leave requests:", err);
+        logAudit({ employeeNumber: actorEmployeeNumber }, 'Submit Leave Request Failed', 'leave_request', null, employeeNumber);
         res.status(500).json({ error: "Failed to create leave requests" });
       });
   };
@@ -752,7 +909,7 @@ router.put("/leave_request/bulk-update", (req, res) => {
 
   const placeholders = ids.map(() => "?").join(",");
   db.query(
-    `SELECT id, employeeNumber, leave_code, leave_date, status FROM leave_request WHERE id IN (${placeholders})`,
+    `SELECT lr.id, lr.employeeNumber, lr.leave_code, lr.leave_date, lr.status, lt.leave_description FROM leave_request lr LEFT JOIN leave_table lt ON lr.leave_code = lt.leave_code WHERE lr.id IN (${placeholders})`,
     ids,
     (err, requests) => {
       if (err) return res.status(500).json({ error: err.message });
@@ -834,9 +991,9 @@ router.put("/leave_request/bulk-update", (req, res) => {
                       action,
                       actorDisplayName,
                       requesterDisplayName,
-                      leaveCode: request.leave_code,
+                      leaveDesc: request.leave_description,
                     });
-                    return insertTransactionLog(actorEmployeeNumber, message);
+                    return insertTransactionLog(String(request.employeeNumber), message, actorEmployeeNumber);
                   }),
                 );
               })();
@@ -922,9 +1079,10 @@ router.put("/leave_request/bulk-update", (req, res) => {
                     action,
                     actorDisplayName,
                     requesterDisplayName,
-                    leaveCode: request.leave_code,
+                    leaveDesc: request.leave_description,
+                    leaveDates: request.leave_date,
                   });
-                  return insertTransactionLog(actorEmployeeNumber, message);
+                  return insertTransactionLog(String(request.employeeNumber), message, actorEmployeeNumber);
                 }),
               );
             })();
@@ -973,29 +1131,48 @@ router.put("/leave_request/:id", (req, res) => {
           "UPDATE leave_request SET employeeNumber = ?, leave_code = ?, leave_date = ?, status = ? WHERE id = ?",
           [employeeNumber, leave_code, leave_date, newStatus, id],
           async (updateErr) => {
-            if (updateErr)
+            if (updateErr) {
+              logAudit({ employeeNumber: actorEmployeeNumber }, 'Update Leave Request Failed', 'leave_request', id, employeeNumber);
               return res.status(500).json({ error: "Failed to update status" });
-
-            const action = statusToLeaveAction(newStatus);
-            if (action) {
-              const actorFullName = await getEmployeeFullName(actorEmployeeNumber);
-              const requesterFullName = await getEmployeeFullName(employeeNumber);
-              const actorDisplayName = formatUserDisplayName(
-                actorEmployeeNumber,
-                actorFullName,
-              );
-              const requesterDisplayName = formatUserDisplayName(
-                employeeNumber,
-                requesterFullName,
-              );
-              const message = buildLeaveTransactionMessage({
-                action,
-                actorDisplayName,
-                requesterDisplayName,
-                leaveCode: leave_code,
-              });
-              await insertTransactionLog(actorEmployeeNumber, message);
             }
+            db.query(
+              "SELECT leave_description FROM leave_table WHERE leave_code = ?",
+              [leave_code], async (err, leaveRows) => {
+                if (err) {
+                  console.error("[Update Status] Error fetching leave description:", err);
+                  return res.status(500).json({ error: "Failed to fetch leave description" });
+                }
+
+                const leave_description = leaveRows[0]?.leave_description || "Unknown Leave Type";
+                const action = statusToLeaveAction(newStatus);
+                if (action) {
+                  const actorFullName = await getEmployeeFullName(actorEmployeeNumber);
+                  const requesterFullName = await getEmployeeFullName(employeeNumber);
+                  const actorDisplayName = formatUserDisplayName(
+                  actorEmployeeNumber,
+                  actorFullName,
+                );
+                const requesterDisplayName = formatUserDisplayName(
+                  employeeNumber,
+                  requesterFullName,
+                );
+                const message = buildLeaveTransactionMessage({
+                  action,
+                  actorDisplayName,
+                  requesterDisplayName,
+                  leaveDesc: leave_description,
+                  leaveDates: leave_date,
+                });
+                await insertTransactionLog(String(employeeNumber), message, actorEmployeeNumber);
+            }
+
+            const auditActionStr = {
+              immediateSupervisor_approved: 'Supervisor Approved Leave',
+              hr_approved: 'HR Approved Leave',
+              denied: 'Leave Request Denied',
+              cancelled: 'Cancel Leave Request',
+            }[statusToLeaveAction(newStatus)] || 'Update Leave Request';
+            logAudit({ employeeNumber: actorEmployeeNumber }, `${auditActionStr} - ${leave_description}`, 'leave_request', id, employeeNumber);
 
             emitLeaveChange("leaveRequestChanged");
             res.json({
@@ -1006,7 +1183,8 @@ router.put("/leave_request/:id", (req, res) => {
               status: newStatus,
               message: "Status updated successfully",
             });
-          },
+          })}
+          ,
         );
       };
 
@@ -1117,12 +1295,36 @@ router.put("/leave_request/:id", (req, res) => {
 
 // DELETE leave request
 router.delete("/leave_request/:id", (req, res) => {
-  db.query("DELETE FROM leave_request WHERE id = ?", [req.params.id], (err) => {
-    if (err)
-      return res.status(500).json({ error: "Failed to delete leave request" });
-    emitLeaveChange("leaveRequestChanged");
-    res.json({ message: "Leave request deleted successfully" });
-  });
+  const actorEmpNum = getActorEmployeeNumber(req);
+  // Fetch first so we have employee info for logging
+  db.query(
+    "SELECT lr.employeeNumber, lr.leave_code, lt.leave_description FROM leave_request lr LEFT JOIN leave_table lt ON lr.leave_code = lt.leave_code WHERE lr.id = ?",
+    [req.params.id],
+    (fetchErr, rows) => {
+      const targetRecord = (!fetchErr && rows && rows[0]) ? rows[0] : null;
+      db.query("DELETE FROM leave_request WHERE id = ?", [req.params.id], async (err) => {
+        if (err) {
+          if (targetRecord) logAudit({ employeeNumber: actorEmpNum }, 'Delete Leave Request Failed', 'leave_request', req.params.id, targetRecord.employeeNumber);
+          return res.status(500).json({ error: "Failed to delete leave request" });
+        }
+        if (targetRecord) {
+          logAudit({ employeeNumber: actorEmpNum }, 'Delete Leave Request', 'leave_request', req.params.id, targetRecord.employeeNumber);
+          try {
+            const [empName, actorName] = await Promise.all([
+              getEmployeeFullName(String(targetRecord.employeeNumber)),
+              getEmployeeFullName(actorEmpNum),
+            ]);
+            const leaveDesc = targetRecord.leave_description || targetRecord.leave_code;
+            const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+            const empDisplay = formatUserDisplayName(String(targetRecord.employeeNumber), empName);
+            await insertTransactionLog(String(targetRecord.employeeNumber), `${actorDisplay} deleted leave request for ${leaveDesc} of ${empDisplay}`, actorEmpNum);
+          } catch (e) { console.error('[leave] Delete request log error:', e.message); }
+        }
+        emitLeaveChange("leaveRequestChanged");
+        res.json({ message: "Leave request deleted successfully" });
+      });
+    },
+  );
 });
 
 module.exports = router;

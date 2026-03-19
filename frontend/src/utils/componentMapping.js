@@ -198,7 +198,7 @@ export const componentMapping = {
     description: 'Daily Time Record - Regular Work Days',
     icon: CalendarMonth,
   },
-    'daily-time-record-faculty': {
+  'daily-time-record-faculty': {
     componentPath: 'components/ATTENDANCE/DailyTimeRecordOverall.jsx',
     routePath: '/daily_time_record_faculty',
     componentName: 'DailyTimeRecordOverall',
@@ -451,14 +451,27 @@ export const componentMapping = {
     description: 'User Leave Request',
     icon: EventNote,
   },
-   'system-settings': {
+  'leave-commutation': {
+    componentPath: 'components/LEAVE/LeaveCommutation.jsx',
+    routePath: '/leave-commutation',
+    componentName: 'LeaveCommutation',
+    description: 'Leave Commutation Management',
+    icon: MonetizationOn,
+  },
+  'system-settings': {
     componentPath: './SystemSettings.jsx',
     routePath: '/system-settings',
     componentName: 'SystemSettings',
     description: 'System Settings',
     icon: AdminPanelSettings,
   },
-
+  'pds-templates': {
+    componentPath: './PDSTemplates.jsx',
+    routePath: '/pds-templates',
+    componentName: 'PDSTemplates',
+    description: 'PDS Version Templates',
+    icon: FileCopy,
+  },
 };
 
 /**
