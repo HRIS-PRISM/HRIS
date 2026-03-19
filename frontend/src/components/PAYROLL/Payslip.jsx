@@ -1,6 +1,7 @@
 import API_BASE_URL from '../../apiConfig';
 import { jwtDecode } from 'jwt-decode';
 import React, { useRef, forwardRef, useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Container,
   Paper,
@@ -129,7 +130,7 @@ const DeductionRow = ({ items, isEven }) => (
   </Box>
 );
 
-// ── Summary Card (no Gross Salary — only Total Deductions + Net) ───────────
+// ── Summary Card ───────────────────────────────────────────────────────────
 const SummaryCard = ({ icon, label, value, accent = false }) => (
   <Box sx={{ flex: 1, borderRadius: 2, p: 1.5, background: accent ? 'linear-gradient(135deg, #f5ede8 0%, #ede0d8 100%)' : '#fff', border: accent ? '2.5px solid #6d2323' : '2.5px solid #c9a8a8', boxShadow: accent ? '0 4px 16px rgba(109,35,35,0.25)' : 'none', display: 'flex', flexDirection: 'column', gap: 0.8 }}>
     <Typography sx={{ fontSize: '17px', fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#6d2323', fontFamily: '"Poppins", sans-serif' }}>{label}</Typography>
@@ -160,26 +161,12 @@ const Shim = ({ w = '100%', h = 16, r = 8, sx = {} }) => (
   }} />
 );
 
-const FieldShim = ({ h = 56, labelW = '40%', delay = 0 }) => (
-  <Box sx={{ animation: `psPulse 2.2s ease-in-out ${delay}s infinite` }}>
-    <Shim w={labelW} h={13} r={4} sx={{ mb: 0.5 }} />
-    <Shim w="100%" h={h} r={10} />
-  </Box>
-);
-
 const PayslipWireframe = () => (
   <>
     <style>{psKeyframes}</style>
     <Box sx={{ py: 4, pt: -10, width: '1200px', mx: 'auto', overflow: 'hidden' }}>
       <Box sx={{ px: 6 }}>
-
-        {/* ── Header card skeleton ── */}
-        <Box sx={{
-          mb: 4, borderRadius: 16, overflow: 'hidden',
-          border: '1px solid rgba(109,35,35,0.10)',
-          background: 'linear-gradient(135deg,rgba(109,35,35,0.08) 0%,rgba(109,35,35,0.05) 100%)',
-          animation: 'psPulse 2.2s ease-in-out infinite',
-        }}>
+        <Box sx={{ mb: 4, borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(109,35,35,0.10)', background: 'linear-gradient(135deg,rgba(109,35,35,0.08) 0%,rgba(109,35,35,0.05) 100%)', animation: 'psPulse 2.2s ease-in-out infinite' }}>
           <Box sx={{ p: 4, position: 'relative', overflow: 'hidden' }}>
             <Box sx={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 6, bgcolor: 'rgba(109,35,35,0.25)', borderRadius: '0 3px 3px 0' }} />
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pl: 2 }}>
@@ -194,143 +181,44 @@ const PayslipWireframe = () => (
             </Box>
           </Box>
         </Box>
-
-        {/* ── Controls card skeleton ── */}
-        <Box sx={{
-          mb: 4, borderRadius: 16, overflow: 'hidden',
-          border: '1px solid rgba(109,35,35,0.10)',
-          bgcolor: '#fff',
-          boxShadow: '0 2px 16px rgba(109,35,35,0.04)',
-          animation: 'psPulse 2.2s ease-in-out 0.07s infinite',
-        }}>
+        <Box sx={{ mb: 4, borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(109,35,35,0.10)', bgcolor: '#fff', boxShadow: '0 2px 16px rgba(109,35,35,0.04)', animation: 'psPulse 2.2s ease-in-out 0.07s infinite' }}>
           <Box sx={{ p: 4 }}>
             <Grid container spacing={3} sx={{ mb: 3 }}>
-              <Grid item xs={12} md={6}>
-                <Box sx={{ height: 56, borderRadius: 10, border: '1px solid rgba(109,35,35,0.15)', bgcolor: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', gap: 1.5, px: 2 }}>
-                  <Box sx={{ width: 20, height: 20, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.15)', flexShrink: 0 }} />
-                  <Shim w="50%" h={13} r={4} />
-                </Box>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Box sx={{ height: 56, borderRadius: 10, border: '1px solid rgba(109,35,35,0.15)', bgcolor: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', gap: 1.5, px: 2 }}>
-                  <Shim w="40%" h={13} r={4} />
-                  <Box sx={{ ml: 'auto', width: 16, height: 16, borderRadius: 2, bgcolor: 'rgba(109,35,35,0.12)', flexShrink: 0 }} />
-                </Box>
-              </Grid>
+              {[0, 1].map((i) => (
+                <Grid item xs={12} md={6} key={i}>
+                  <Box sx={{ height: 56, borderRadius: 10, border: '1px solid rgba(109,35,35,0.15)', bgcolor: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', gap: 1.5, px: 2 }}>
+                    <Shim w="50%" h={13} r={4} />
+                  </Box>
+                </Grid>
+              ))}
             </Grid>
             <Box sx={{ borderBottom: '1px solid rgba(109,35,35,0.08)', mb: 3 }} />
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5 }}>
-              <Box sx={{ width: 20, height: 20, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)', flexShrink: 0 }} />
-              <Shim w={130} h={16} r={4} />
-            </Box>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 1 }}>
               {Array.from({ length: 12 }).map((_, i) => (
-                <Box key={i} sx={{ height: 40, borderRadius: 2, border: '1.5px solid rgba(109,35,35,0.15)', bgcolor: 'transparent', animation: `psPulse 2.2s ease-in-out ${i * 0.04}s infinite` }}>
+                <Box key={i} sx={{ height: 40, borderRadius: 2, border: '1.5px solid rgba(109,35,35,0.15)', animation: `psPulse 2.2s ease-in-out ${i * 0.04}s infinite` }}>
                   <Shim w="100%" h="100%" r={6} sx={{ opacity: 0.6 }} />
                 </Box>
               ))}
             </Box>
           </Box>
         </Box>
-
-        {/* ── Payslip display card skeleton ── */}
-        <Box sx={{
-          mb: 4, borderRadius: 16, overflow: 'hidden',
-          border: '1px solid rgba(109,35,35,0.10)',
-          boxShadow: '0 4px 24px rgba(109,35,35,0.06)',
-          animation: 'psPulse 2.2s ease-in-out 0.13s infinite',
-        }}>
-          <Box sx={{ p: 3, background: 'linear-gradient(135deg,rgba(109,35,35,0.08) 0%,rgba(109,35,35,0.05) 100%)', borderBottom: '2px solid rgba(109,35,35,0.10)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Box>
-              <Shim w={100} h={11} r={3} sx={{ mb: 1 }} />
-              <Shim w={220} h={24} r={5} sx={{ mb: 1.5 }} />
-              <Box sx={{ display: 'flex', gap: 1.5 }}>
-                <Shim w={110} h={26} r={13} />
-                <Shim w={90} h={26} r={13} />
-              </Box>
+        <Box sx={{ mb: 4, borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(109,35,35,0.10)', boxShadow: '0 4px 24px rgba(109,35,35,0.06)', animation: 'psPulse 2.2s ease-in-out 0.13s infinite' }}>
+          <Box sx={{ p: 3, background: 'linear-gradient(135deg,rgba(109,35,35,0.08) 0%,rgba(109,35,35,0.05) 100%)', borderBottom: '2px solid rgba(109,35,35,0.10)' }}>
+            <Shim w={220} h={24} r={5} sx={{ mb: 1.5 }} />
+            <Box sx={{ display: 'flex', gap: 1.5 }}>
+              <Shim w={110} h={26} r={13} />
+              <Shim w={90} h={26} r={13} />
             </Box>
           </Box>
-          <Box sx={{ p: 3, pb: 4, bgcolor: '#fff', width: '1100px', mx: 'auto', boxSizing: 'border-box' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2.5, background: 'rgba(109,35,35,0.18)', borderRadius: '6px', p: '20px 28px', gap: 2 }}>
-              <Box sx={{ width: 88, height: 88, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.25)', flexShrink: 0 }} />
-              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, px: 2 }}>
-                <Shim w="40%" h={14} r={4} sx={{ background: 'rgba(255,255,255,0.3)', backgroundSize: '800px 100%', animation: 'none' }} />
-                <Shim w="65%" h={20} r={5} sx={{ background: 'rgba(255,255,255,0.3)', backgroundSize: '800px 100%', animation: 'none' }} />
-                <Shim w="55%" h={14} r={4} sx={{ background: 'rgba(255,255,255,0.3)', backgroundSize: '800px 100%', animation: 'none' }} />
+          <Box sx={{ p: 3, pb: 4, bgcolor: '#fff' }}>
+            {Array.from({ length: 6 }).map((_, row) => (
+              <Box key={row} sx={{ display: 'flex', justifyContent: 'space-between', py: 1.5, borderBottom: '1px solid rgba(109,35,35,0.08)' }}>
+                <Shim w="40%" h={16} r={4} />
+                <Shim w="25%" h={16} r={4} />
               </Box>
-              <Box sx={{ width: 100, height: 100, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.25)', flexShrink: 0 }} />
-            </Box>
-            <Box sx={{ border: '2.5px solid rgba(109,35,35,0.25)', borderRadius: '6px', mb: 2, overflow: 'hidden' }}>
-              <Box sx={{ bgcolor: 'rgba(109,35,35,0.20)', px: 2, py: 1, display: 'flex', alignItems: 'center' }}>
-                <Shim w={200} h={16} r={4} sx={{ background: 'rgba(255,255,255,0.35)', backgroundSize: '800px 100%', animation: 'none' }} />
-              </Box>
-              <Grid container>
-                {[0,1,2,3].map((i) => (
-                  <Grid item xs={12} md={6} key={i}>
-                    <Box sx={{ p: 2, borderRight: i % 2 === 0 ? '2px solid rgba(109,35,35,0.12)' : 'none', borderBottom: i < 2 ? '2px solid rgba(109,35,35,0.12)' : 'none', minHeight: 70 }}>
-                      <Shim w="35%" h={13} r={3} sx={{ mb: 1 }} />
-                      <Shim w="55%" h={22} r={4} />
-                    </Box>
-                  </Grid>
-                ))}
-              </Grid>
-            </Box>
-            {/* Deductions skeleton */}
-            <Box sx={{ border: '2.5px solid rgba(109,35,35,0.25)', borderRadius: '6px', mb: 2, overflow: 'hidden' }}>
-              <Box sx={{ bgcolor: 'rgba(109,35,35,0.20)', px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Box sx={{ width: 20, height: 20, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.25)', flexShrink: 0 }} />
-                <Shim w={180} h={16} r={4} sx={{ background: 'rgba(255,255,255,0.35)', backgroundSize: '800px 100%', animation: 'none' }} />
-              </Box>
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', bgcolor: 'rgba(109,35,35,0.05)', borderBottom: '2px solid rgba(109,35,35,0.12)' }}>
-                {[0,1,2].map((i) => (
-                  <Box key={i} sx={{ px: 2, py: 1.2, borderRight: i < 2 ? '2px solid rgba(109,35,35,0.12)' : 'none' }}>
-                    <Shim w="65%" h={14} r={3} />
-                  </Box>
-                ))}
-              </Box>
-              {Array.from({ length: 8 }).map((_, row) => (
-                <Box key={row} sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', bgcolor: row % 2 === 0 ? 'rgba(109,35,35,0.02)' : '#fff', borderBottom: '1.5px solid rgba(109,35,35,0.08)', animation: `psPulse 2.2s ease-in-out ${row * 0.04}s infinite` }}>
-                  {[0,1,2].map((col) => (
-                    <Box key={col} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 1.5, py: 0.75, borderRight: col < 2 ? '1.5px solid rgba(109,35,35,0.08)' : 'none', minHeight: 38 }}>
-                      <Shim w="45%" h={13} r={3} />
-                      <Shim w="30%" h={13} r={3} />
-                    </Box>
-                  ))}
-                </Box>
-              ))}
-            </Box>
-            {/* Summary row (2 cards only) */}
-            <Box sx={{ display: 'flex', gap: 1.5, mb: 3 }}>
-              {[false, true].map((accent, i) => (
-                <Box key={i} sx={{ flex: 1, borderRadius: 2, p: 1.5, background: accent ? 'rgba(109,35,35,0.06)' : '#fff', border: accent ? '2.5px solid rgba(109,35,35,0.30)' : '2.5px solid rgba(109,35,35,0.15)', display: 'flex', flexDirection: 'column', gap: 0.8 }}>
-                  <Shim w="55%" h={13} r={3} />
-                  <Shim w="70%" h={30} r={5} />
-                </Box>
-              ))}
-            </Box>
-            {/* Payment Breakdown */}
-            <Box sx={{ border: '2.5px solid rgba(109,35,35,0.25)', borderRadius: '6px', mb: 2, overflow: 'hidden' }}>
-              <Box sx={{ bgcolor: 'rgba(109,35,35,0.20)', px: 2, py: 1 }}>
-                <Shim w={180} h={16} r={4} sx={{ background: 'rgba(255,255,255,0.35)', backgroundSize: '800px 100%', animation: 'none' }} />
-              </Box>
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)' }}>
-                {[0,1].map((i) => (
-                  <Box key={i} sx={{ p: 2, borderRight: i === 0 ? '2px solid rgba(109,35,35,0.12)' : 'none', minHeight: 70 }}>
-                    <Shim w="40%" h={14} r={3} sx={{ mb: 1 }} />
-                    <Shim w="55%" h={26} r={5} />
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-            {/* Certifier footer */}
-            <Box sx={{ mt: 5, pt: 4, borderTop: '2.5px solid rgba(109,35,35,0.12)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-              <Shim w={140} h={13} r={3} />
-              <Shim w={200} h={22} r={5} />
-              <Shim w={160} h={16} r={4} />
-            </Box>
+            ))}
           </Box>
         </Box>
-
       </Box>
     </Box>
   </>
@@ -340,35 +228,43 @@ const PayslipWireframe = () => (
 const Payslip = forwardRef(({ employee }, ref) => {
   const payslipRef = ref || useRef();
 
+  // ── Read navigation state passed from Home's "View Full" button ─────────
+  const location = useLocation();
+  const locationState = location?.state || {};
+
   const [allPayroll, setAllPayroll] = useState([]);
   const [displayEmployee, setDisplayEmployee] = useState(employee || null);
   const [loading, setLoading] = useState(!employee);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const [modal, setModal] = useState({ open: false, type: 'success', message: '' });
-  const [selectedMonth, setSelectedMonth] = useState(null);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+
+  // Pre-populate from Home navigation state if present
+  const [selectedMonth, setSelectedMonth] = useState(
+    locationState.selectedMonth !== undefined ? locationState.selectedMonth : null
+  );
+  const [selectedYear, setSelectedYear] = useState(
+    locationState.selectedYear !== undefined ? locationState.selectedYear : new Date().getFullYear()
+  );
+
   const [hasSearched, setHasSearched] = useState(false);
   const [personID, setPersonID] = useState('');
-
   const [pageLoading, setPageLoading] = useState(true);
 
   const monthsShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const years = Array.from({ length: 2060 - 1990 + 1 }, (_, i) => 1990 + i);
 
   const { settings } = useSystemSettings();
-  const primaryColor        = settings.accentColor       || '#FEF9E1';
-  const secondaryColor      = settings.backgroundColor   || '#FFF8E7';
-  const accentColor         = settings.primaryColor      || '#6d2323';
-  const accentDark          = settings.secondaryColor    || '#8B3333';
-  const institutionLogo     = settings.institutionLogo   || '';
-  const dynamicHrisLogo     = settings.hrisLogo          || '';
-  const textPrimaryColor    = settings.textPrimaryColor  || '#6d2323';
-  const textSecondaryColor  = settings.textSecondaryColor|| '#FEF9E1';
-  const hoverColor          = settings.hoverColor        || '#6D2323';
-  const blackColor          = '#1a1a1a';
-  const whiteColor          = '#FFFFFF';
-  const grayColor           = '#6c757d';
+  const primaryColor       = settings.accentColor        || '#FEF9E1';
+  const secondaryColor     = settings.backgroundColor    || '#FFF8E7';
+  const accentColor        = settings.primaryColor       || '#6d2323';
+  const accentDark         = settings.secondaryColor     || '#8B3333';
+  const institutionLogo    = settings.institutionLogo    || '';
+  const dynamicHrisLogo    = settings.hrisLogo           || '';
+  const textPrimaryColor   = settings.textPrimaryColor   || '#6d2323';
+  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
+  const hoverColor         = settings.hoverColor         || '#6D2323';
+  const grayColor          = '#6c757d';
 
   const institutionName    = settings.institutionName    || 'Institution Name';
   const institutionAddress = settings.institutionAddress || 'Institute Address';
@@ -384,6 +280,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
     },
   });
 
+  // ── Fetch all released payroll records ───────────────────────────────────
   const fetchPayrollData = async () => {
     if (!personID) return;
     try {
@@ -392,8 +289,8 @@ const Payslip = forwardRef(({ employee }, ref) => {
         `${API_BASE_URL}/PayrollReleasedRoute/released-payroll-detailed`,
         getAuthHeaders(),
       );
-      setAllPayroll(res.data);
-      setDisplayEmployee(null);
+      setAllPayroll(Array.isArray(res.data) ? res.data : []);
+      // Don't reset displayEmployee here — let the auto-select effect handle it
     } catch (err) {
       console.error('Error fetching payroll:', err);
       setError('Failed to fetch payroll data. Please try again.');
@@ -404,6 +301,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
 
   usePayrollRealtimeRefresh(() => { if (!employee) fetchPayrollData(); });
 
+  // Decode token to get personID
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
@@ -412,6 +310,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
     }
   }, []);
 
+  // Fetch payroll once personID is ready
   useEffect(() => {
     const init = async () => {
       if (!employee) await fetchPayrollData();
@@ -419,12 +318,28 @@ const Payslip = forwardRef(({ employee }, ref) => {
     init();
   }, [employee, personID]); // eslint-disable-line
 
+  // ── KEY FIX: Auto-select the month once data is loaded ───────────────────
+  // Fires when allPayroll populates AND we have a month from Home navigation.
+  // !hasSearched ensures this only runs once automatically — after that the
+  // user controls month selection manually.
+  useEffect(() => {
+    if (
+      locationState.selectedMonth !== undefined &&
+      personID &&
+      allPayroll.length > 0 &&
+      !hasSearched
+    ) {
+      handleMonthSelect(locationState.selectedMonth);
+    }
+  }, [allPayroll, personID]); // eslint-disable-line
+
   useEffect(() => {
     if (!accessLoading && !loading) {
       setTimeout(() => setPageLoading(false), 300);
     }
   }, [accessLoading, loading]);
 
+  // ── Month selection — same logic as original, untouched ─────────────────
   const handleMonthSelect = (idx) => {
     setSelectedMonth(idx);
     const result = allPayroll.filter((emp) => {
@@ -464,7 +379,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
   const formatRenderedDays = (v) => {
     const totalHours = Number(v);
     if (!isNaN(totalHours) && totalHours > 0) {
-      const days = Math.floor(totalHours / 8);
+      const days  = Math.floor(totalHours / 8);
       const hours = totalHours % 8;
       return `${days} days${hours > 0 ? ` & ${hours} hrs` : ''}`;
     }
@@ -480,22 +395,18 @@ const Payslip = forwardRef(({ employee }, ref) => {
   const formatPeriod = (startDate, endDate) => {
     if (!startDate || !endDate) return 'Unknown';
     const start = new Date(startDate);
-    const month = start.toLocaleString('en-US', { month: 'long' });
-    const year = start.getFullYear();
-    return `${month}_${year}`;
+    return `${start.toLocaleString('en-US', { month: 'long' })}_${start.getFullYear()}`;
   };
 
-  // ── ABS value: show "Deducted from VL" if blank ───────────────────────
   const formatAbs = (v) => {
     const formatted = formatCurrency(v);
     return formatted || 'Deducted from VL';
   };
 
-  // ── Net Pay = Net Salary − Total Deductions ───────────────────────────
   const computeNetPay = (emp) => {
-    const net   = parseFloat(emp.netSalary)      || 0;
+    const net        = parseFloat(emp.netSalary)      || 0;
     const deductions = parseFloat(emp.totalDeductions) || 0;
-    const result = net - deductions;
+    const result     = net - deductions;
     return !isNaN(result) && result !== 0 ? `₱${result.toLocaleString()}` : '—';
   };
 
@@ -505,7 +416,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
 
     const currentStart = new Date(displayEmployee.startDate);
     const currentMonth = currentStart.getMonth();
-    const currentYear = currentStart.getFullYear();
+    const currentYear  = currentStart.getFullYear();
 
     const monthsToGet = [0, 1, 2].map((i) => {
       const d = new Date(currentYear, currentMonth - i, 1);
@@ -515,24 +426,25 @@ const Payslip = forwardRef(({ employee }, ref) => {
     const records = monthsToGet.map(({ month, year, label }) => ({
       label,
       payroll: allPayroll.find(
-        (p) => p.employeeNumber === displayEmployee.employeeNumber &&
+        (p) =>
+          p.employeeNumber === displayEmployee.employeeNumber &&
           new Date(p.startDate).getMonth() === month &&
           new Date(p.startDate).getFullYear() === year,
       ),
     }));
 
-    const pdf = new jsPDF('l', 'mm', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pdf        = new jsPDF('l', 'mm', 'a4');
+    const pageWidth  = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 10, gap = 5;
-    const payslipWidth = (pageWidth - 2 * margin - 2 * gap) / 3;
+    const margin     = 10, gap = 5;
+    const payslipWidth  = (pageWidth - 2 * margin - 2 * gap) / 3;
     const payslipHeight = pageHeight - 2 * margin;
-    const positions = [margin, margin + payslipWidth + gap, margin + 2 * payslipWidth + 2 * gap];
+    const positions     = [margin, margin + payslipWidth + gap, margin + 2 * payslipWidth + 2 * gap];
 
     const tempContainer = document.createElement('div');
-    tempContainer.style.position = 'absolute';
-    tempContainer.style.left = '-9999px';
-    tempContainer.style.width = '1200px';
+    tempContainer.style.position        = 'absolute';
+    tempContainer.style.left            = '-9999px';
+    tempContainer.style.width           = '1200px';
     tempContainer.style.backgroundColor = '#fff';
     document.body.appendChild(tempContainer);
 
@@ -542,9 +454,8 @@ const Payslip = forwardRef(({ employee }, ref) => {
       if (payroll) {
         setDisplayEmployee(payroll);
         await new Promise((resolve) => setTimeout(resolve, 300));
-        const input = payslipRef.current;
-        const clone = input.cloneNode(true);
-        clone.style.width = '1200px';
+        const clone = payslipRef.current.cloneNode(true);
+        clone.style.width    = '1200px';
         clone.style.overflow = 'hidden';
         tempContainer.innerHTML = '';
         tempContainer.appendChild(clone);
@@ -557,8 +468,9 @@ const Payslip = forwardRef(({ employee }, ref) => {
         });
         imgData = canvas.toDataURL('image/png');
       } else {
-        const placeholderCanvas = document.createElement('canvas');
-        placeholderCanvas.width = 1200; placeholderCanvas.height = 1700;
+        const placeholderCanvas  = document.createElement('canvas');
+        placeholderCanvas.width  = 1200;
+        placeholderCanvas.height = 1700;
         const ctx = placeholderCanvas.getContext('2d');
         ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 1200, 1700);
         ctx.fillStyle = '#6D2323'; ctx.font = 'bold 48px Arial'; ctx.textAlign = 'center';
@@ -570,11 +482,8 @@ const Payslip = forwardRef(({ employee }, ref) => {
     }
 
     document.body.removeChild(tempContainer);
-    const surname = getSurname(displayEmployee.name);
-    const period = formatPeriod(displayEmployee.startDate, displayEmployee.endDate);
-    pdf.save(`${surname}_${period}.pdf`);
+    pdf.save(`${getSurname(displayEmployee.name)}_${formatPeriod(displayEmployee.startDate, displayEmployee.endDate)}.pdf`);
 
-    // Audit log for print
     try {
       await axios.post(
         `${API_BASE_URL}/PayrollReleasedRoute/log-print`,
@@ -709,7 +618,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                       label={(() => {
                         if (!displayEmployee.startDate || !displayEmployee.endDate) return '—';
                         const start = new Date(displayEmployee.startDate);
-                        const end = new Date(displayEmployee.endDate);
+                        const end   = new Date(displayEmployee.endDate);
                         return `${start.toLocaleString('en-US', { month: 'short' }).toUpperCase()} ${start.getDate()}–${end.getDate()}`;
                       })()}
                       size="small"
@@ -743,55 +652,50 @@ const Payslip = forwardRef(({ employee }, ref) => {
                 <Box sx={{ position: 'relative', zIndex: 1 }}>
                   {(() => {
                     const isJO = (displayEmployee.employmentCategory ?? -1) === 0;
+
                     if (isJO) {
                       return (
                         <>
-                          {/* 1. Employee Information */}
                           <Box sx={{ border: '2.5px solid #6d2323', borderRadius: '6px', mb: 2, overflow: 'hidden' }}>
-                            <Box sx={{ backgroundColor: '#6D2323', color: 'white', px: 2, py: 0.8, display: 'flex', alignItems: 'center', gap: 1.2 }}>
+                            <Box sx={{ backgroundColor: '#6D2323', color: 'white', px: 2, py: 0.8 }}>
                               <Typography sx={{ fontWeight: 800, fontSize: '20px', letterSpacing: '0.07em', fontFamily: '"Poppins", sans-serif' }}>EMPLOYEE INFORMATION</Typography>
                             </Box>
-                            <Box sx={{ p: 0 }}>
-                              <Grid container>
-                                {[
-                                  ['EMPLOYEE NUMBER', <Typography sx={{ fontSize: '26px', color: '#c0392b', fontWeight: 900, fontFamily: '"Poppins", sans-serif', lineHeight: 1.2 }}>{displayEmployee.employeeNumber ? `${parseFloat(displayEmployee.employeeNumber)}` : '—'}</Typography>],
-                                  ['NAME', <Typography sx={{ fontSize: '26px', color: '#c0392b', fontWeight: 900, fontFamily: '"Poppins", sans-serif', lineHeight: 1.2 }}>{displayEmployee.name || '—'}</Typography>],
-                                  ['PERIOD', <Typography sx={{ fontSize: '21px', fontWeight: 700, color: '#1a1a1a', fontFamily: '"Poppins", sans-serif' }}>
-                                    {(() => { if (!displayEmployee.startDate || !displayEmployee.endDate) return '—'; const start = new Date(displayEmployee.startDate); const end = new Date(displayEmployee.endDate); return `${start.toLocaleString('en-US', { month: 'long' }).toUpperCase()} ${start.getDate()}–${end.getDate()} ${end.getFullYear()}`; })()}
-                                  </Typography>],
-                                  ['RENDERED DAYS', <Typography sx={{ fontSize: '21px', fontWeight: 700, color: '#1a1a1a', fontFamily: '"Poppins", sans-serif' }}>{formatRenderedDays(displayEmployee.rh) || '—'}</Typography>],
-                                ].map(([label, content], i) => (
-                                  <Grid item xs={12} md={6} key={i}>
-                                    <Box sx={{ p: 1.5, borderRight: i % 2 === 0 ? '2px solid #e0c8c8' : 'none', borderBottom: i < 2 ? '2px solid #e0c8c8' : 'none', minHeight: '60px' }}>
-                                      <Typography sx={{ fontSize: '18px', fontWeight: 800, letterSpacing: '0.06em', color: '#6d2323', mb: 1, fontFamily: '"Poppins", sans-serif', textTransform: 'uppercase' }}>{label}</Typography>
-                                      {content}
-                                    </Box>
-                                  </Grid>
-                                ))}
-                              </Grid>
-                            </Box>
+                            <Grid container>
+                              {[
+                                ['EMPLOYEE NUMBER', <Typography sx={{ fontSize: '26px', color: '#c0392b', fontWeight: 900, fontFamily: '"Poppins", sans-serif', lineHeight: 1.2 }}>{displayEmployee.employeeNumber ? `${parseFloat(displayEmployee.employeeNumber)}` : '—'}</Typography>],
+                                ['NAME', <Typography sx={{ fontSize: '26px', color: '#c0392b', fontWeight: 900, fontFamily: '"Poppins", sans-serif', lineHeight: 1.2 }}>{displayEmployee.name || '—'}</Typography>],
+                                ['PERIOD', <Typography sx={{ fontSize: '21px', fontWeight: 700, color: '#1a1a1a', fontFamily: '"Poppins", sans-serif' }}>
+                                  {(() => { if (!displayEmployee.startDate || !displayEmployee.endDate) return '—'; const s = new Date(displayEmployee.startDate); const e = new Date(displayEmployee.endDate); return `${s.toLocaleString('en-US', { month: 'long' }).toUpperCase()} ${s.getDate()}–${e.getDate()} ${e.getFullYear()}`; })()}
+                                </Typography>],
+                                ['RENDERED DAYS', <Typography sx={{ fontSize: '21px', fontWeight: 700, color: '#1a1a1a', fontFamily: '"Poppins", sans-serif' }}>{formatRenderedDays(displayEmployee.rh) || '—'}</Typography>],
+                              ].map(([label, content], i) => (
+                                <Grid item xs={12} md={6} key={i}>
+                                  <Box sx={{ p: 1.5, borderRight: i % 2 === 0 ? '2px solid #e0c8c8' : 'none', borderBottom: i < 2 ? '2px solid #e0c8c8' : 'none', minHeight: '60px' }}>
+                                    <Typography sx={{ fontSize: '18px', fontWeight: 800, letterSpacing: '0.06em', color: '#6d2323', mb: 1, fontFamily: '"Poppins", sans-serif', textTransform: 'uppercase' }}>{label}</Typography>
+                                    {content}
+                                  </Box>
+                                </Grid>
+                              ))}
+                            </Grid>
                           </Box>
 
-                          {/* 2. Deductions */}
                           <Box sx={{ border: '2.5px solid #6d2323', borderRadius: '6px', mb: 2, overflow: 'hidden' }}>
                             <Box sx={{ backgroundColor: '#6D2323', color: 'white', px: 2, py: 0.8, display: 'flex', alignItems: 'center', gap: 1.2 }}>
                               <RemoveCircleOutlineIcon sx={{ fontSize: 22 }} />
                               <Typography sx={{ fontWeight: 800, fontSize: '20px', letterSpacing: '0.07em', fontFamily: '"Poppins", sans-serif' }}>DEDUCTIONS</Typography>
                             </Box>
                             <Box>
-                              <MoneyCell label="SSS" value={formatCurrency(displayEmployee.sss)} />
+                              <MoneyCell label="SSS"     value={formatCurrency(displayEmployee.sss)} />
                               <MoneyCell label="Pag-IBIG" value={formatCurrency(displayEmployee.pagibigFundCont)} />
                             </Box>
                           </Box>
 
-                          {/* 3. Net Salary | Total Deductions | Net Pay */}
                           <Box sx={{ display: 'flex', gap: 1.5, mb: 3 }}>
                             <SummaryCard label="Net Salary"       value={formatCurrency(displayEmployee.netSalary)} />
                             <SummaryCard label="Total Deductions" value={formatCurrency(displayEmployee.totalDeductions)} />
                             <SummaryCard label="Net Pay"          value={computeNetPay(displayEmployee)} accent />
                           </Box>
 
-                          {/* Certifier */}
                           <Box sx={{ borderTop: '2.5px solid #e0c8c8', mt: 5, pt: 4, textAlign: 'center' }}>
                             <Typography sx={{ fontSize: '18px', color: '#555', mb: 1.5, fontFamily: '"Poppins", sans-serif', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>Certified Correct</Typography>
                             <Typography sx={{ fontSize: '24px', fontWeight: 900, color: '#1a1a1a', fontFamily: '"Poppins", sans-serif' }}>{certifierName}</Typography>
@@ -800,17 +704,17 @@ const Payslip = forwardRef(({ employee }, ref) => {
                         </>
                       );
                     }
+
                     return (
                       <>
-                        {/* 1. Employee Information */}
                         <Box sx={{ border: '2.5px solid #6d2323', borderRadius: '6px', mb: 2, overflow: 'hidden' }}>
-                          <Box sx={{ backgroundColor: '#6D2323', color: 'white', px: 2, py: 0.8, display: 'flex', alignItems: 'center', gap: 1.2 }}>
+                          <Box sx={{ backgroundColor: '#6D2323', color: 'white', px: 2, py: 0.8 }}>
                             <Typography sx={{ fontWeight: 800, fontSize: '20px', letterSpacing: '0.07em', fontFamily: '"Poppins", sans-serif' }}>EMPLOYEE INFORMATION</Typography>
                           </Box>
                           <Grid container>
                             {[
                               ['PERIOD', <Typography sx={{ fontSize: '21px', fontWeight: 700, color: '#1a1a1a', fontFamily: '"Poppins", sans-serif' }}>
-                                {(() => { if (!displayEmployee.startDate || !displayEmployee.endDate) return '—'; const start = new Date(displayEmployee.startDate); const end = new Date(displayEmployee.endDate); return `${start.toLocaleString('en-US', { month: 'long' }).toUpperCase()} ${start.getDate()}–${end.getDate()} ${end.getFullYear()}`; })()}
+                                {(() => { if (!displayEmployee.startDate || !displayEmployee.endDate) return '—'; const s = new Date(displayEmployee.startDate); const e = new Date(displayEmployee.endDate); return `${s.toLocaleString('en-US', { month: 'long' }).toUpperCase()} ${s.getDate()}–${e.getDate()} ${e.getFullYear()}`; })()}
                               </Typography>],
                               ['EMPLOYEE NUMBER', <Typography sx={{ fontSize: '26px', color: '#c0392b', fontWeight: 900, fontFamily: '"Poppins", sans-serif', lineHeight: 1.2 }}>{displayEmployee.employeeNumber ? `${parseFloat(displayEmployee.employeeNumber)}` : '—'}</Typography>],
                               ['NAME', <Typography sx={{ fontSize: '26px', color: '#c0392b', fontWeight: 900, fontFamily: '"Poppins", sans-serif', lineHeight: 1.2 }}>{displayEmployee.name || '—'}</Typography>],
@@ -825,9 +729,8 @@ const Payslip = forwardRef(({ employee }, ref) => {
                           </Grid>
                         </Box>
 
-                        {/* 2. Deductions Breakdown */}
                         <Box sx={{ border: '2.5px solid #6d2323', borderRadius: '6px', mb: 2, overflow: 'hidden' }}>
-                          <Box sx={{ backgroundColor: '#6D2323', color: 'white', px: 2, py: 0.8, display: 'flex', alignItems: 'center', gap: 1.2 }}>
+                          <Box sx={{ backgroundColor: '#6D2323', color: 'white', px: 2, py: 0.8 }}>
                             <Typography sx={{ fontWeight: 800, fontSize: '20px', letterSpacing: '0.07em', fontFamily: '"Poppins", sans-serif' }}>DEDUCTIONS BREAKDOWN</Typography>
                           </Box>
                           <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', backgroundColor: '#f5eaea', borderBottom: '2px solid #c9a8a8' }}>
@@ -836,27 +739,25 @@ const Payslip = forwardRef(({ employee }, ref) => {
                             ))}
                           </Box>
                           {[
-                            [["Withholding Tax", formatCurrency(displayEmployee.withholdingTax)], ["GSIS Salary Loan", formatCurrency(displayEmployee.gsisSalaryLoan)], ["Life & Retirement", formatCurrency(displayEmployee.personalLifeRetIns)]],
-                            [["PhilHealth", formatCurrency(displayEmployee.PhilHealthContribution)], ["GSIS Policy Loan", formatCurrency(displayEmployee.gsisPolicyLoan)], ["PhilHealth Diff", formatCurrency(displayEmployee.philhealthDiff)]],
-                            [["Pag-IBIG", formatCurrency(displayEmployee.pagibigFundCont)], ["GSIS Housing Loan", formatCurrency(displayEmployee.gsisHousingLoan)], ["Pag-IBIG 2", formatCurrency(displayEmployee.pagibig2)]],
-                            [["SSS", formatCurrency(displayEmployee.sss)], ["GSIS Arrears", formatCurrency(displayEmployee.gsisArrears)], ["LBP Loan", formatCurrency(displayEmployee.lbpLoan)]],
-                            [["ECC", formatCurrency(displayEmployee.ecc)], ["GFAL", formatCurrency(displayEmployee.gfal)], ["MTSLAI", formatCurrency(displayEmployee.mtslai)]],
-                            [["To Be Refunded", formatCurrency(displayEmployee.toBeRefunded)], ["CPL", formatCurrency(displayEmployee.cpl)], ["ESLAI", formatCurrency(displayEmployee.eslai)]],
-                            [["FEU", formatCurrency(displayEmployee.feu)], ["MPL", formatCurrency(displayEmployee.mpl)], ["ABS", formatAbs(displayEmployee.abs)]],
-                            [["", ""], ["MPL Lite", formatCurrency(displayEmployee.mplLite)], ["ELA", formatCurrency(displayEmployee.ela)]],
+                            [["Withholding Tax",  formatCurrency(displayEmployee.withholdingTax)],        ["GSIS Salary Loan",  formatCurrency(displayEmployee.gsisSalaryLoan)],  ["Life & Retirement", formatCurrency(displayEmployee.personalLifeRetIns)]],
+                            [["PhilHealth",       formatCurrency(displayEmployee.PhilHealthContribution)], ["GSIS Policy Loan",  formatCurrency(displayEmployee.gsisPolicyLoan)],  ["PhilHealth Diff",   formatCurrency(displayEmployee.philhealthDiff)]],
+                            [["Pag-IBIG",         formatCurrency(displayEmployee.pagibigFundCont)],        ["GSIS Housing Loan", formatCurrency(displayEmployee.gsisHousingLoan)], ["Pag-IBIG 2",        formatCurrency(displayEmployee.pagibig2)]],
+                            [["SSS",              formatCurrency(displayEmployee.sss)],                   ["GSIS Arrears",      formatCurrency(displayEmployee.gsisArrears)],     ["LBP Loan",          formatCurrency(displayEmployee.lbpLoan)]],
+                            [["ECC",              formatCurrency(displayEmployee.ecc)],                   ["GFAL",              formatCurrency(displayEmployee.gfal)],            ["MTSLAI",            formatCurrency(displayEmployee.mtslai)]],
+                            [["To Be Refunded",   formatCurrency(displayEmployee.toBeRefunded)],          ["CPL",               formatCurrency(displayEmployee.cpl)],             ["ESLAI",             formatCurrency(displayEmployee.eslai)]],
+                            [["FEU",              formatCurrency(displayEmployee.feu)],                   ["MPL",               formatCurrency(displayEmployee.mpl)],             ["ABS",               formatAbs(displayEmployee.abs)]],
+                            [["",                 ""],                                                    ["MPL Lite",          formatCurrency(displayEmployee.mplLite)],         ["ELA",               formatCurrency(displayEmployee.ela)]],
                           ].map((row, i) => <DeductionRow key={i} items={row} isEven={i % 2 === 0} />)}
                         </Box>
 
-                        {/* 3. Net Salary | Total Deductions | Net Pay */}
                         <Box sx={{ display: 'flex', gap: 1.5, mb: 3 }}>
                           <SummaryCard label="Net Salary"       value={formatCurrency(displayEmployee.netSalary)} />
                           <SummaryCard label="Total Deductions" value={formatCurrency(displayEmployee.totalDeductions)} />
                           <SummaryCard label="Net Pay"          value={computeNetPay(displayEmployee)} accent />
                         </Box>
 
-                        {/* 4. Payment Breakdown */}
                         <Box sx={{ border: '2.5px solid #6d2323', borderRadius: '6px', mb: 2, overflow: 'hidden' }}>
-                          <Box sx={{ backgroundColor: '#6D2323', color: 'white', px: 2, py: 0.8, display: 'flex', alignItems: 'center', gap: 1.2 }}>
+                          <Box sx={{ backgroundColor: '#6D2323', color: 'white', px: 2, py: 0.8 }}>
                             <Typography sx={{ fontWeight: 800, fontSize: '20px', letterSpacing: '0.07em', fontFamily: '"Poppins", sans-serif' }}>PAYMENT BREAKDOWN</Typography>
                           </Box>
                           <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)' }}>
@@ -869,7 +770,6 @@ const Payslip = forwardRef(({ employee }, ref) => {
                           </Box>
                         </Box>
 
-                        {/* Certifier */}
                         <Box sx={{ mt: 5, pt: 4, textAlign: 'center' }}>
                           <Typography sx={{ fontSize: '18px', color: '#555', mb: 1.5, fontFamily: '"Poppins", sans-serif', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>Certified Correct</Typography>
                           <Typography sx={{ fontSize: '24px', fontWeight: 900, color: '#1a1a1a', fontFamily: '"Poppins", sans-serif' }}>{certifierName}</Typography>
@@ -891,12 +791,14 @@ const Payslip = forwardRef(({ employee }, ref) => {
                   <CalendarToday sx={{ fontSize: 36 }} />
                 </Avatar>
                 <Typography variant="h6" color={accentColor} gutterBottom sx={{ fontWeight: 700, fontFamily: '"Poppins", sans-serif' }}>No Payslip Found</Typography>
-                <Typography variant="body2" color={grayColor} sx={{ mb: 2.5 }}>No records found for <b>{monthsShort[selectedMonth]}</b> {selectedYear}</Typography>
+                <Typography variant="body2" color={grayColor} sx={{ mb: 2.5 }}>
+                  No records found for <b>{monthsShort[selectedMonth]}</b> {selectedYear}
+                </Typography>
                 <Chip label="Please select a different period" sx={{ bgcolor: alpha(accentColor, 0.1), color: accentColor, fontWeight: 600 }} />
               </CardContent>
             </GlassCard>
           </Fade>
-        ) : hasSearched ? (
+        ) : (
           <Fade in timeout={600}>
             <GlassCard sx={{ mb: 4 }}>
               <CardContent sx={{ p: 4, textAlign: 'center' }}>
@@ -908,7 +810,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
               </CardContent>
             </GlassCard>
           </Fade>
-        ) : null}
+        )}
 
         {/* ══ DOWNLOAD FAB ════════════════════════════════════════════════ */}
         {displayEmployee && (
@@ -933,7 +835,6 @@ const Payslip = forwardRef(({ employee }, ref) => {
           </Box>
         )}
 
-        {/* Dialog */}
         <Dialog open={modal.open} onClose={() => setModal({ ...modal, open: false })} PaperProps={{ sx: { borderRadius: 4, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' } }}>
           <SuccessfulOverlay open={modal.open && modal.type === 'success'} action={modal.action} onClose={() => setModal({ ...modal, open: false })} />
           {modal.type === 'error' && (

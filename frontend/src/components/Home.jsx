@@ -222,43 +222,16 @@ const WireframeLoading = ({ settings }) => (
             border: `1px solid ${settings.primaryColor}26`,
             borderRadius: 4, overflow: "hidden", position: "relative",
           }}>
-            {/* Image shimmer */}
             <SkeletonBox width="100%" height="100%" borderRadius={0} sx={{ position: "absolute", inset: 0 }} />
-
-            {/* Arrow ghost buttons */}
-            <Box sx={{
-              position: "absolute", left: 24, top: "50%", transform: "translateY(-50%)",
-              width: 44, height: 44, borderRadius: "50%",
-              border: `1px dashed ${settings.primaryColor}40`,
-              bgcolor: `${settings.primaryColor}12`,
-            }} />
-            <Box sx={{
-              position: "absolute", right: 24, top: "50%", transform: "translateY(-50%)",
-              width: 44, height: 44, borderRadius: "50%",
-              border: `1px dashed ${settings.primaryColor}40`,
-              bgcolor: `${settings.primaryColor}12`,
-            }} />
-            {/* Play ghost */}
-            <Box sx={{
-              position: "absolute", top: 24, right: 24,
-              width: 40, height: 40, borderRadius: "50%",
-              border: `1px dashed ${settings.primaryColor}40`,
-              bgcolor: `${settings.primaryColor}12`,
-            }} />
-
-            {/* Bottom text overlay */}
-            <Box sx={{
-              position: "absolute", bottom: 0, left: 0, right: 0,
-              background: `linear-gradient(to top, ${settings.secondaryColor}55 0%, transparent 100%)`,
-              p: 4,
-            }}>
+            <Box sx={{ position: "absolute", left: 24, top: "50%", transform: "translateY(-50%)", width: 44, height: 44, borderRadius: "50%", border: `1px dashed ${settings.primaryColor}40`, bgcolor: `${settings.primaryColor}12` }} />
+            <Box sx={{ position: "absolute", right: 24, top: "50%", transform: "translateY(-50%)", width: 44, height: 44, borderRadius: "50%", border: `1px dashed ${settings.primaryColor}40`, bgcolor: `${settings.primaryColor}12` }} />
+            <Box sx={{ position: "absolute", top: 24, right: 24, width: 40, height: 40, borderRadius: "50%", border: `1px dashed ${settings.primaryColor}40`, bgcolor: `${settings.primaryColor}12` }} />
+            <Box sx={{ position: "absolute", bottom: 0, left: 0, right: 0, background: `linear-gradient(to top, ${settings.secondaryColor}55 0%, transparent 100%)`, p: 4 }}>
               <SkeletonBox light width={110} height={22} borderRadius={11} sx={{ mb: 2 }} />
               <SkeletonBox light width="65%" height={36} borderRadius={6} sx={{ mb: 1.5 }} />
               <SkeletonBox light width="42%" height={36} borderRadius={6} sx={{ mb: 2 }} />
               <SkeletonBox light width={200} height={16} borderRadius={4} />
             </Box>
-
-            {/* Dot indicators */}
             <Box sx={{ position: "absolute", bottom: 24, right: 24, display: "flex", gap: 1.5 }}>
               {[32, 10, 10, 10].map((w, i) => (
                 <SkeletonBox key={i} light width={w} height={10} borderRadius={5} />
@@ -269,20 +242,9 @@ const WireframeLoading = ({ settings }) => (
 
         {/* RIGHT column */}
         <Grid item xs={12} md={4.5}>
-          <Box sx={{
-            display: "flex", flexDirection: { xs: "column-reverse", md: "row" },
-            gap: 2, height: "calc(100vh - 230px)",
-          }}>
-
-            {/* ── Left sub-column ── */}
+          <Box sx={{ display: "flex", flexDirection: { xs: "column-reverse", md: "row" }, gap: 2, height: "calc(100vh - 230px)" }}>
             <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 1.5 }}>
-
-              {/* Quick Access */}
-              <Box sx={{
-                background: settings.accentColor, border: `1px solid ${settings.primaryColor}26`,
-                borderRadius: 4, p: 1.25,
-                animation: "skeletonPulse 2s ease-in-out 0.1s infinite",
-              }}>
+              <Box sx={{ background: settings.accentColor, border: `1px solid ${settings.primaryColor}26`, borderRadius: 4, p: 1.25, animation: "skeletonPulse 2s ease-in-out 0.1s infinite" }}>
                 <Box sx={{ display: "flex", alignItems: "center", mb: 0.75, gap: 0.5 }}>
                   <SkeletonBox width={16} height={16} borderRadius={4} />
                   <SkeletonBox width={90} height={13} borderRadius={4} />
@@ -290,12 +252,7 @@ const WireframeLoading = ({ settings }) => (
                 <Grid container spacing={0.5}>
                   {[...Array(4)].map((_, i) => (
                     <Grid item xs={3} key={i}>
-                      <Box sx={{
-                        p: 0.75, borderRadius: 2,
-                        border: `1px dashed ${settings.primaryColor}30`,
-                        display: "flex", flexDirection: "column", alignItems: "center", gap: 0.5,
-                        bgcolor: `${settings.primaryColor}06`,
-                      }}>
+                      <Box sx={{ p: 0.75, borderRadius: 2, border: `1px dashed ${settings.primaryColor}30`, display: "flex", flexDirection: "column", alignItems: "center", gap: 0.5, bgcolor: `${settings.primaryColor}06` }}>
                         <SkeletonBox width={22} height={22} borderRadius={11} />
                         <SkeletonBox width={26} height={9} borderRadius={3} />
                       </Box>
@@ -303,13 +260,7 @@ const WireframeLoading = ({ settings }) => (
                   ))}
                 </Grid>
               </Box>
-
-              {/* Calendar */}
-              <Box sx={{
-                background: settings.accentColor, border: `1px solid ${settings.primaryColor}26`,
-                borderRadius: 4, p: 1.25,
-                animation: "skeletonPulse 2s ease-in-out 0.2s infinite",
-              }}>
+              <Box sx={{ background: settings.accentColor, border: `1px solid ${settings.primaryColor}26`, borderRadius: 4, p: 1.25, animation: "skeletonPulse 2s ease-in-out 0.2s infinite" }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.75 }}>
                   <SkeletonBox width={14} height={14} borderRadius={4} />
                   <SkeletonBox width={90} height={13} borderRadius={4} />
@@ -329,14 +280,7 @@ const WireframeLoading = ({ settings }) => (
                     <Grid item xs={12 / 7} key={i}>
                       <Box sx={{ display: "flex", justifyContent: "center", py: 0.2 }}>
                         {i >= 1 && i < 31 ? (
-                          <SkeletonBox
-                            width={18} height={18} borderRadius={i === 8 ? 9 : 3}
-                            sx={i === 8 ? {
-                              background: `linear-gradient(135deg, ${settings.primaryColor}55, ${settings.secondaryColor}55)`,
-                              backgroundSize: "initial",
-                              animation: "skeletonPulse 2s ease-in-out infinite",
-                            } : {}}
-                          />
+                          <SkeletonBox width={18} height={18} borderRadius={i === 8 ? 9 : 3} sx={i === 8 ? { background: `linear-gradient(135deg, ${settings.primaryColor}55, ${settings.secondaryColor}55)`, backgroundSize: "initial", animation: "skeletonPulse 2s ease-in-out infinite" } : {}} />
                         ) : (
                           <Box sx={{ width: 18, height: 18 }} />
                         )}
@@ -348,14 +292,7 @@ const WireframeLoading = ({ settings }) => (
                   <SkeletonBox width="75%" height={10} borderRadius={3} />
                 </Box>
               </Box>
-
-              {/* Notes & Events */}
-              <Box sx={{
-                flex: 1, background: settings.accentColor,
-                border: `1px solid ${settings.primaryColor}26`,
-                borderRadius: 4, p: 1.1, overflow: "hidden",
-                animation: "skeletonPulse 2s ease-in-out 0.3s infinite",
-              }}>
+              <Box sx={{ flex: 1, background: settings.accentColor, border: `1px solid ${settings.primaryColor}26`, borderRadius: 4, p: 1.1, overflow: "hidden", animation: "skeletonPulse 2s ease-in-out 0.3s infinite" }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
                   <SkeletonBox width={100} height={13} borderRadius={4} />
                   <Box sx={{ display: "flex", gap: 0.5 }}>
@@ -364,27 +301,15 @@ const WireframeLoading = ({ settings }) => (
                   </Box>
                 </Box>
                 {[["55%", "#ff9800"], ["80%", settings.primaryColor], ["40%", "#4caf50"]].map(([w, color], i) => (
-                  <Box key={i} sx={{
-                    mb: 0.75, pl: 0.75, py: 0.6, borderRadius: 1,
-                    borderLeft: `2px solid ${color}50`,
-                    bgcolor: `${color}08`,
-                  }}>
+                  <Box key={i} sx={{ mb: 0.75, pl: 0.75, py: 0.6, borderRadius: 1, borderLeft: `2px solid ${color}50`, bgcolor: `${color}08` }}>
                     <SkeletonBox width={w} height={10} borderRadius={3} sx={{ mb: 0.4 }} />
                     <SkeletonBox width="90%" height={8} borderRadius={3} />
                   </Box>
                 ))}
               </Box>
             </Box>
-
-            {/* ── Right sub-column ── */}
             <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 1.5 }}>
-
-              {/* Payslip */}
-              <Box sx={{
-                background: settings.accentColor, border: `1px solid ${settings.primaryColor}26`,
-                borderRadius: 4, p: 1.5,
-                animation: "skeletonPulse 2s ease-in-out 0.15s infinite",
-              }}>
+              <Box sx={{ background: settings.accentColor, border: `1px solid ${settings.primaryColor}26`, borderRadius: 4, p: 1.5, animation: "skeletonPulse 2s ease-in-out 0.15s infinite" }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                     <SkeletonBox width={18} height={18} borderRadius={4} />
@@ -395,11 +320,7 @@ const WireframeLoading = ({ settings }) => (
                 <Grid container spacing={0.5}>
                   {[0, 1].map((i) => (
                     <Grid item xs={6} key={i}>
-                      <Box sx={{
-                        borderRadius: 2, py: 1, px: 1, textAlign: "center",
-                        background: `linear-gradient(135deg, ${settings.primaryColor}30, ${settings.secondaryColor}30)`,
-                        border: `1px dashed ${settings.primaryColor}30`,
-                      }}>
+                      <Box sx={{ borderRadius: 2, py: 1, px: 1, textAlign: "center", background: `linear-gradient(135deg, ${settings.primaryColor}30, ${settings.secondaryColor}30)`, border: `1px dashed ${settings.primaryColor}30` }}>
                         <SkeletonBox light width="60%" height={9} borderRadius={3} sx={{ mb: 0.75, mx: "auto" }} />
                         <SkeletonBox light width="80%" height={18} borderRadius={4} sx={{ mx: "auto" }} />
                       </Box>
@@ -408,14 +329,7 @@ const WireframeLoading = ({ settings }) => (
                 </Grid>
                 <SkeletonBox width={80} height={18} borderRadius={4} sx={{ mt: 0.75, mx: "auto" }} />
               </Box>
-
-              {/* Leave Credits */}
-              <Box sx={{
-                flex: 1, background: settings.accentColor,
-                border: `1px solid ${settings.primaryColor}26`,
-                borderRadius: 4, p: 1, overflow: "hidden",
-                animation: "skeletonPulse 2s ease-in-out 0.25s infinite",
-              }}>
+              <Box sx={{ flex: 1, background: settings.accentColor, border: `1px solid ${settings.primaryColor}26`, borderRadius: 4, p: 1, overflow: "hidden", animation: "skeletonPulse 2s ease-in-out 0.25s infinite" }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                     <SkeletonBox width={16} height={16} borderRadius={4} />
@@ -424,25 +338,15 @@ const WireframeLoading = ({ settings }) => (
                   <SkeletonBox width={65} height={20} borderRadius={10} />
                 </Box>
                 {[["#2E7D32", "70%"], ["#EF6C00", "35%"], ["#B71C1C", "10%"]].map(([color, pct], i) => (
-                  <Box key={i} sx={{
-                    mb: 1, p: 0.75, borderRadius: 1.5,
-                    border: `1px solid ${settings.primaryColor}18`,
-                    bgcolor: `${settings.primaryColor}04`,
-                  }}>
+                  <Box key={i} sx={{ mb: 1, p: 0.75, borderRadius: 1.5, border: `1px solid ${settings.primaryColor}18`, bgcolor: `${settings.primaryColor}04` }}>
                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
                       <SkeletonBox width="50%" height={11} borderRadius={3} />
                       <SkeletonBox width={30} height={15} borderRadius={7} />
                     </Box>
                     <SkeletonBox width={42} height={20} borderRadius={4} sx={{ mb: 0.25 }} />
                     <SkeletonBox width={50} height={9} borderRadius={3} sx={{ mb: 0.5 }} />
-                    {/* Animated progress bar */}
                     <Box sx={{ height: 2.5, borderRadius: 2, bgcolor: `${color}20`, overflow: "hidden" }}>
-                      <Box sx={{
-                        height: "100%", width: pct, borderRadius: 2,
-                        background: `linear-gradient(90deg, ${color}70 25%, ${color}BB 50%, ${color}70 75%)`,
-                        backgroundSize: "400px 100%",
-                        animation: "shimmer 1.8s infinite linear",
-                      }} />
+                      <Box sx={{ height: "100%", width: pct, borderRadius: 2, background: `linear-gradient(90deg, ${color}70 25%, ${color}BB 50%, ${color}70 75%)`, backgroundSize: "400px 100%", animation: "shimmer 1.8s infinite linear" }} />
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", mt: 0.25 }}>
                       <SkeletonBox width={48} height={8} borderRadius={3} />
@@ -464,7 +368,6 @@ const Home = () => {
   const settings = useSystemSettings();
   const { socket, connected } = useSocket();
 
-  // pageLoading drives the wireframe → real transition
   const [pageLoading, setPageLoading] = useState(true);
 
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -480,6 +383,10 @@ const Home = () => {
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [holidays, setHolidays] = useState([]);
   const [rawHolidays, setRawHolidays] = useState([]);
+
+  // ── Payroll: store full list, derive current record via useMemo ──────────
+  const [allPayroll, setAllPayroll] = useState([]);
+
   const [notifModalOpen, setNotifModalOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -498,9 +405,10 @@ const Home = () => {
   const openMenu = Boolean(anchorEl);
   const [calendarLegendAnchorEl, setCalendarLegendAnchorEl] = useState(null);
   const openCalendarLegend = Boolean(calendarLegendAnchorEl);
+
+  // ── Payslip month/year selectors ─────────────────────────────────────────
   const [payslipMonth, setPayslipMonth] = useState(new Date().getMonth());
   const [payslipYear, setPayslipYear] = useState(new Date().getFullYear());
-  const [allPayroll, setAllPayroll] = useState([]);
 
   const navigate = useNavigate();
 
@@ -509,19 +417,23 @@ const Home = () => {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  // ── Carousel items ────────────────────────────────────────────────────────
-
+  // ── Derive payrollData from allPayroll based on selected month/year ──────
+  // Matches the same logic as Payslip.jsx which uses `startDate`
   const payrollData = useMemo(() => {
-  if (!allPayroll.length) return null;
-  return allPayroll.find((p) => {
-    const released = new Date(p.dateReleased || p.date || p.period_date || p.created_at);
-    return (
-      released.getMonth() === payslipMonth &&
-      released.getFullYear() === payslipYear
-    );
-  }) || null;
-}, [allPayroll, payslipMonth, payslipYear]);
+    if (!allPayroll.length || !employeeNumber) return null;
+    const match = allPayroll.find((p) => {
+      if (!p.startDate) return false;
+      const d = new Date(p.startDate);
+      return (
+        String(p.employeeNumber) === String(employeeNumber) &&
+        d.getMonth() === payslipMonth &&
+        d.getFullYear() === payslipYear
+      );
+    });
+    return match || null;
+  }, [allPayroll, employeeNumber, payslipMonth, payslipYear]);
 
+  // ── Carousel items ────────────────────────────────────────────────────────
   const scheduledHolidaysForCarousel = useMemo(
     () =>
       (rawHolidays || [])
@@ -573,9 +485,6 @@ const Home = () => {
     [scheduledHolidaysForCarousel, suspensionsForCarousel, announcementsInRange]
   );
 
-
-  
-
   const {
     currentSlide,
     isPlaying,
@@ -586,7 +495,6 @@ const Home = () => {
   } = useCarousel(carouselItems);
 
   // ── Fetch functions ───────────────────────────────────────────────────────
-
   const fetchHolidays = useCallback(async () => {
     try {
       const res = await axios.get(`${API_BASE_URL}/holiday`);
@@ -854,7 +762,27 @@ const Home = () => {
     if (userInfo.employeeNumber) setEmployeeNumber(userInfo.employeeNumber);
   }, []);
 
-  // ── Initial page load: fetch essentials, then reveal real UI ─────────────
+  // ── Fetch payroll: store the full released-payroll list ──────────────────
+  // Uses the same endpoint as Payslip.jsx (released-payroll-detailed)
+  // so the startDate field is available for filtering
+  useEffect(() => {
+    const fetchPayrollData = async () => {
+      if (!employeeNumber) return;
+      try {
+        const token = localStorage.getItem("token");
+        const res = await axios.get(
+          `${API_BASE_URL}/PayrollReleasedRoute/released-payroll-detailed`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const list = Array.isArray(res.data) ? res.data : [];
+        // Store ALL records — the useMemo above will pick the right one
+        setAllPayroll(list);
+      } catch {}
+    };
+    fetchPayrollData();
+  }, [employeeNumber]);
+
+  // ── Initial page load ─────────────────────────────────────────────────────
   useEffect(() => {
     const init = async () => {
       await Promise.allSettled([
@@ -862,7 +790,6 @@ const Home = () => {
         fetchHolidays(),
         fetchSuspensions(),
       ]);
-      // Small extra pause so the skeleton is always visible at least briefly
       setTimeout(() => setPageLoading(false), 400);
     };
     init();
@@ -888,23 +815,6 @@ const Home = () => {
     };
     fetchProfilePicture();
   }, [employeeNumber]);
-
-  // ── Fetch payslip data from released-payroll (not payroll-processed) ──────
-useEffect(() => {
-  const fetchPayrollData = async () => {
-    if (!employeeNumber) return;
-    try {
-      const token = localStorage.getItem("token");
-      const res = await axios.get(`${API_BASE_URL}/PayrollReleasedRoute/released-payroll`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const list = Array.isArray(res.data) ? res.data : [];
-      // Store the FULL list, not just the first match
-      setAllPayroll(list.filter((p) => String(p.employeeNumber) === String(employeeNumber)));
-    } catch {}
-  };
-  fetchPayrollData();
-}, [employeeNumber]);
 
   const formatCurrency = (value) => {
     if (value === undefined || value === null || value === "" || value === "0") return "₱0.00";
@@ -1018,7 +928,9 @@ useEffect(() => {
     return "#B71C1C";
   };
 
-  // ── Show wireframe until initial data is ready ────────────────────────────
+  // ── Month name helper for payslip display ────────────────────────────────
+  const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
   if (pageLoading) {
     return (
       <Box sx={{ borderRadius: "1px", width: "100vw", maxWidth: "100%", position: "relative", left: "50%", transform: "translateX(-50%)", mt: -4 }}>
@@ -1102,38 +1014,21 @@ useEffect(() => {
                     ) : carouselItems.length > 0 ? (
                       <Fade in key={currentSlide} timeout={{ enter: 800, exit: 400 }}>
                         <Box sx={{ position: "relative", height: "100%", flex: 1 }}>
-                          <Box
-                            component="img"
-                            src={carouselItems[currentSlide]?.image ? `${API_BASE_URL}${carouselItems[currentSlide].image}` : "/api/placeholder/1200/600"}
-                            alt={carouselItems[currentSlide]?.title || "Announcement"}
-                            sx={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform 0.7s ease", transform: "scale(1)" }}
-                          />
+                          <Box component="img" src={carouselItems[currentSlide]?.image ? `${API_BASE_URL}${carouselItems[currentSlide].image}` : "/api/placeholder/1200/600"} alt={carouselItems[currentSlide]?.title || "Announcement"} sx={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform 0.7s ease", transform: "scale(1)" }} />
                           <Box sx={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0) 70%)" }} />
 
-                          <IconButton onClick={(e) => { e.stopPropagation(); handlePrevSlide(); }}
-                            sx={{ position: "absolute", left: { xs: 10, md: 24 }, top: "50%", transform: "translateY(-50%)", bgcolor: `${settings.primaryColor}4D`, backdropFilter: "blur(10px)", border: `1px solid ${settings.primaryColor}26`, "&:hover": { bgcolor: `${settings.primaryColor}80`, transform: "translateY(-50%) scale(1.1)" }, color: "#ffffff", boxShadow: "0 4px 24px rgba(0,0,0,0.2)", transition: "all 0.3s", zIndex: 10 }}>
+                          <IconButton onClick={(e) => { e.stopPropagation(); handlePrevSlide(); }} sx={{ position: "absolute", left: { xs: 10, md: 24 }, top: "50%", transform: "translateY(-50%)", bgcolor: `${settings.primaryColor}4D`, backdropFilter: "blur(10px)", border: `1px solid ${settings.primaryColor}26`, "&:hover": { bgcolor: `${settings.primaryColor}80`, transform: "translateY(-50%) scale(1.1)" }, color: "#ffffff", boxShadow: "0 4px 24px rgba(0,0,0,0.2)", transition: "all 0.3s", zIndex: 10 }}>
                             <ArrowBackIosNewIcon />
                           </IconButton>
-                          <IconButton onClick={(e) => { e.stopPropagation(); handleNextSlide(); }}
-                            sx={{ position: "absolute", right: { xs: 10, md: 24 }, top: "50%", transform: "translateY(-50%)", bgcolor: `${settings.primaryColor}4D`, backdropFilter: "blur(10px)", border: `1px solid ${settings.primaryColor}26`, "&:hover": { bgcolor: `${settings.primaryColor}80`, transform: "translateY(-50%) scale(1.1)" }, color: "#ffffff", boxShadow: "0 4px 24px rgba(0,0,0,0.2)", transition: "all 0.3s", zIndex: 10 }}>
+                          <IconButton onClick={(e) => { e.stopPropagation(); handleNextSlide(); }} sx={{ position: "absolute", right: { xs: 10, md: 24 }, top: "50%", transform: "translateY(-50%)", bgcolor: `${settings.primaryColor}4D`, backdropFilter: "blur(10px)", border: `1px solid ${settings.primaryColor}26`, "&:hover": { bgcolor: `${settings.primaryColor}80`, transform: "translateY(-50%) scale(1.1)" }, color: "#ffffff", boxShadow: "0 4px 24px rgba(0,0,0,0.2)", transition: "all 0.3s", zIndex: 10 }}>
                             <ArrowForwardIosIcon />
                           </IconButton>
-                          <IconButton onClick={(e) => { e.stopPropagation(); togglePlayPause(); }}
-                            sx={{ position: "absolute", top: { xs: 10, md: 24 }, right: { xs: 10, md: 24 }, bgcolor: `${settings.primaryColor}4D`, backdropFilter: "blur(10px)", border: `1px solid ${settings.primaryColor}26`, "&:hover": { bgcolor: `${settings.primaryColor}80`, transform: "scale(1.1)" }, color: "#ffffff", boxShadow: "0 4px 24px rgba(0,0,0,0.2)", transition: "all 0.3s", zIndex: 10 }}>
+                          <IconButton onClick={(e) => { e.stopPropagation(); togglePlayPause(); }} sx={{ position: "absolute", top: { xs: 10, md: 24 }, right: { xs: 10, md: 24 }, bgcolor: `${settings.primaryColor}4D`, backdropFilter: "blur(10px)", border: `1px solid ${settings.primaryColor}26`, "&:hover": { bgcolor: `${settings.primaryColor}80`, transform: "scale(1.1)" }, color: "#ffffff", boxShadow: "0 4px 24px rgba(0,0,0,0.2)", transition: "all 0.3s", zIndex: 10 }}>
                             {isPlaying ? <Pause /> : <PlayArrow />}
                           </IconButton>
 
-                          <Box onClick={() => handleOpenModal(carouselItems[currentSlide])}
-                            sx={{ position: "absolute", bottom: 0, left: 0, right: 0, p: { xs: 2, md: 4 }, color: "#ffffff", cursor: "pointer", transition: "transform 0.3s", "&:hover": { transform: "translateY(-4px)" }, zIndex: 10 }}>
-                            <Chip
-                              label={
-                                carouselItems[currentSlide]?.id?.toString().startsWith("holiday-") ? "HOLIDAY"
-                                : carouselItems[currentSlide]?.id?.toString().startsWith("suspension-") ? "SUSPENSION"
-                                : "ANNOUNCEMENT"
-                              }
-                              size="small"
-                              sx={{ mb: 2, bgcolor: `${settings.primaryColor}80`, backdropFilter: "blur(10px)", color: "#ffffff", fontWeight: 700, fontSize: "0.7rem", border: "1px solid rgba(254, 249, 225, 0.3)" }}
-                            />
+                          <Box onClick={() => handleOpenModal(carouselItems[currentSlide])} sx={{ position: "absolute", bottom: 0, left: 0, right: 0, p: { xs: 2, md: 4 }, color: "#ffffff", cursor: "pointer", transition: "transform 0.3s", "&:hover": { transform: "translateY(-4px)" }, zIndex: 10 }}>
+                            <Chip label={carouselItems[currentSlide]?.id?.toString().startsWith("holiday-") ? "HOLIDAY" : carouselItems[currentSlide]?.id?.toString().startsWith("suspension-") ? "SUSPENSION" : "ANNOUNCEMENT"} size="small" sx={{ mb: 2, bgcolor: `${settings.primaryColor}80`, backdropFilter: "blur(10px)", color: "#ffffff", fontWeight: 700, fontSize: "0.7rem", border: "1px solid rgba(254, 249, 225, 0.3)" }} />
                             <Typography variant="h3" sx={{ color: "#ffffff", fontWeight: 800, mb: 1, textShadow: "0 4px 12px rgba(0,0,0,0.5)", lineHeight: 1.2, fontSize: { xs: "1.25rem", md: "2rem" } }}>
                               {carouselItems[currentSlide]?.title}
                             </Typography>
@@ -1145,10 +1040,7 @@ useEffect(() => {
 
                           <Box sx={{ position: "absolute", bottom: 24, right: 24, display: "flex", gap: 1.5, alignItems: "center", zIndex: 10 }}>
                             {carouselItems.map((_, idx) => (
-                              <Box key={idx}
-                                sx={{ width: currentSlide === idx ? 32 : 10, height: 10, borderRadius: 5, bgcolor: currentSlide === idx ? "#ffffff" : "rgba(254,249,225,0.4)", transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)", cursor: "pointer", border: "1px solid rgba(254,249,225,0.3)", "&:hover": { bgcolor: "rgba(254,249,225,0.7)", transform: "scale(1.2)" } }}
-                                onClick={(e) => { e.stopPropagation(); handleSlideSelect(idx); }}
-                              />
+                              <Box key={idx} sx={{ width: currentSlide === idx ? 32 : 10, height: 10, borderRadius: 5, bgcolor: currentSlide === idx ? "#ffffff" : "rgba(254,249,225,0.4)", transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)", cursor: "pointer", border: "1px solid rgba(254,249,225,0.3)", "&:hover": { bgcolor: "rgba(254,249,225,0.7)", transform: "scale(1.2)" } }} onClick={(e) => { e.stopPropagation(); handleSlideSelect(idx); }} />
                             ))}
                           </Box>
                         </Box>
@@ -1156,9 +1048,7 @@ useEffect(() => {
                     ) : (
                       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 2 }}>
                         <Flag sx={{ fontSize: 80, color: `${settings.primaryColor}4D` }} />
-                        <Typography variant="h5" sx={{ color: settings.textPrimaryColor }}>
-                          No announcements, suspensions, or holidays available
-                        </Typography>
+                        <Typography variant="h5" sx={{ color: settings.textPrimaryColor }}>No announcements, suspensions, or holidays available</Typography>
                       </Box>
                     )}
                   </Box>
@@ -1231,9 +1121,7 @@ useEffect(() => {
                               const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
                               return (
                                 <Grid item xs={12 / 7} key={index}>
-                                  <Box
-                                    onClick={() => { if (day) { setSelectedDate(currentDateStr); setViewNotesDialog(true); } }}
-                                    sx={{ textAlign: "center", py: 0.2, fontSize: "0.75rem", borderRadius: 0.5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: holidayData ? "#d32f2f" : isToday ? settings.textColor : day ? settings.textPrimaryColor : "transparent", backgroundColor: isToday ? settings.secondaryColor : hasNotesOrEvents ? `${settings.primaryColor}0F` : "transparent", fontWeight: holidayData || isToday || hasNotesOrEvents ? 700 : 400, cursor: day ? "pointer" : "default", position: "relative", minHeight: 21, transition: "all 0.2s", "&:hover": day ? { backgroundColor: isToday ? settings.hoverColor : `${settings.primaryColor}1A`, transform: "scale(1.1)" } : {} }}>
+                                  <Box onClick={() => { if (day) { setSelectedDate(currentDateStr); setViewNotesDialog(true); } }} sx={{ textAlign: "center", py: 0.2, fontSize: "0.75rem", borderRadius: 0.5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: holidayData ? "#d32f2f" : isToday ? settings.textColor : day ? settings.textPrimaryColor : "transparent", backgroundColor: isToday ? settings.secondaryColor : hasNotesOrEvents ? `${settings.primaryColor}0F` : "transparent", fontWeight: holidayData || isToday || hasNotesOrEvents ? 700 : 400, cursor: day ? "pointer" : "default", position: "relative", minHeight: 21, transition: "all 0.2s", "&:hover": day ? { backgroundColor: isToday ? settings.hoverColor : `${settings.primaryColor}1A`, transform: "scale(1.1)" } : {} }}>
                                     {day || ""}
                                     {hasNotesOrEvents && day && (
                                       <Box sx={{ display: "flex", gap: 0.15, position: "absolute", bottom: 2 }}>
@@ -1305,7 +1193,8 @@ useEffect(() => {
 
                 {/* Right sub-column */}
                 <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 1.5, minWidth: { md: 220 }, minHeight: 0, height: "100%" }}>
-                  {/* Payslip */}
+
+                  {/* ── Payslip Card ── */}
                   <Grow in timeout={500}>
                     <Card sx={{ background: settings.accentColor, backdropFilter: "blur(15px)", border: `1px solid ${settings.primaryColor}26`, borderRadius: 4, boxShadow: `0 15px 40px ${settings.primaryColor}33`, flexShrink: 0 }}>
                       <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 }, display: "flex", flexDirection: "column", justifyContent: "center" }}>
@@ -1314,34 +1203,68 @@ useEffect(() => {
                             <Receipt sx={{ color: settings.textPrimaryColor, mr: 0.5, fontSize: 18 }} />
                             <Typography variant="h6" sx={{ fontWeight: 700, color: settings.textPrimaryColor, fontSize: "0.85rem" }}>Payslip</Typography>
                           </Box>
+                          {/* Month selector */}
                           <FormControl size="small" sx={{ minWidth: 70 }}>
                             <InputLabel sx={{ color: settings.textPrimaryColor, fontSize: "0.7rem" }}>Month</InputLabel>
-                            <Select value={payslipMonth} label="Month" onChange={(e) => setPayslipMonth(Number(e.target.value))} sx={{ color: settings.textPrimaryColor, fontSize: "0.7rem", height: 30, "& .MuiOutlinedInput-notchedOutline": { borderColor: `${settings.primaryColor}40` }, "& .MuiSelect-select": { py: 0.5 } }}>
-                              {Array.from({ length: 12 }, (_, i) => (
-                                <MenuItem key={i} value={i}>{new Date(2000, i).toLocaleString("en-US", { month: "short" })}</MenuItem>
+                            <Select
+                              value={payslipMonth}
+                              label="Month"
+                              onChange={(e) => setPayslipMonth(Number(e.target.value))}
+                              sx={{ color: settings.textPrimaryColor, fontSize: "0.7rem", height: 30, "& .MuiOutlinedInput-notchedOutline": { borderColor: `${settings.primaryColor}40` }, "& .MuiSelect-select": { py: 0.5 } }}
+                            >
+                              {monthNames.map((name, i) => (
+                                <MenuItem key={i} value={i}>{name.slice(0, 3)}</MenuItem>
                               ))}
                             </Select>
                           </FormControl>
                         </Box>
+
+                        {/* Pay amounts — show dashes when no data for selected month */}
                         <Grid container spacing={0.5}>
                           <Grid item xs={6}>
                             <Card elevation={0} sx={{ background: `linear-gradient(135deg, ${settings.primaryColor} 0%, ${settings.secondaryColor} 100%)`, color: settings.textColor, borderRadius: 2, py: 1, textAlign: "center" }}>
                               <Typography variant="caption" sx={{ opacity: 0.9, fontSize: "0.65rem" }}>1st Half</Typography>
-                              <Typography variant="h6" sx={{ fontWeight: 700, fontSize: "0.9rem" }}>{payrollData ? formatCurrency(payrollData.pay1st) : "₱-.--"}</Typography>
+                              <Typography variant="h6" sx={{ fontWeight: 700, fontSize: "0.9rem" }}>
+                                {payrollData ? (() => {
+                                  const n = parseFloat(payrollData.pay1st);
+                                  return !isNaN(n) && n !== 0 ? `₱${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "₱0.00";
+                                })() : "₱-.--"}
+                              </Typography>
                             </Card>
                           </Grid>
                           <Grid item xs={6}>
                             <Card elevation={0} sx={{ background: `linear-gradient(135deg, ${settings.secondaryColor} 0%, ${settings.primaryColor} 100%)`, color: settings.textColor, borderRadius: 2, py: 1, textAlign: "center" }}>
                               <Typography variant="caption" sx={{ opacity: 0.9, fontSize: "0.65rem" }}>2nd Half</Typography>
-                              <Typography variant="h6" sx={{ fontWeight: 700, fontSize: "0.9rem" }}>{payrollData ? formatCurrency(payrollData.pay2nd) : "₱-.--"}</Typography>
+                              <Typography variant="h6" sx={{ fontWeight: 700, fontSize: "0.9rem" }}>
+                                {payrollData ? (() => {
+                                  const n = parseFloat(payrollData.pay2nd);
+                                  return !isNaN(n) && n !== 0 ? `₱${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "₱0.00";
+                                })() : "₱-.--"}
+                              </Typography>
                             </Card>
                           </Grid>
                         </Grid>
-                        <Link to="/payslip" style={{ textDecoration: "none" }}>
-                          <Button fullWidth variant="text" size="small" sx={{ mt: 0.5, color: settings.textPrimaryColor, fontWeight: 600, fontSize: "0.7rem" }} endIcon={<ArrowForward sx={{ fontSize: 14 }} />}>
-                            View Full
-                          </Button>
-                        </Link>
+
+                        {/* No data notice for selected month */}
+                        {!payrollData && (
+                          <Typography sx={{ fontSize: "0.6rem", color: settings.textPrimaryColor, opacity: 0.55, textAlign: "center", mt: 0.5 }}>
+                            No payslip for {monthNames[payslipMonth]}
+                          </Typography>
+                        )}
+
+                        {/* View Full — passes selected month/year so Payslip page opens on that period */}
+                        <Button
+                          fullWidth
+                          variant="text"
+                          size="small"
+                          onClick={() => navigate("/payslip", {
+                            state: { selectedMonth: payslipMonth, selectedYear: payslipYear }
+                          })}
+                          sx={{ mt: 0.5, color: settings.textPrimaryColor, fontWeight: 600, fontSize: "0.7rem" }}
+                          endIcon={<ArrowForward sx={{ fontSize: 14 }} />}
+                        >
+                          View Full
+                        </Button>
                       </CardContent>
                     </Card>
                   </Grow>
