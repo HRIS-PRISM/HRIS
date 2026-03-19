@@ -480,7 +480,6 @@ const Home = () => {
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [holidays, setHolidays] = useState([]);
   const [rawHolidays, setRawHolidays] = useState([]);
-  const [payrollData, setPayrollData] = useState(null);
   const [notifModalOpen, setNotifModalOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -501,6 +500,7 @@ const Home = () => {
   const openCalendarLegend = Boolean(calendarLegendAnchorEl);
   const [payslipMonth, setPayslipMonth] = useState(new Date().getMonth());
   const [payslipYear, setPayslipYear] = useState(new Date().getFullYear());
+  const [allPayroll, setAllPayroll] = useState([]);
 
   const navigate = useNavigate();
 
@@ -510,6 +510,17 @@ const Home = () => {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   // ── Carousel items ────────────────────────────────────────────────────────
+
+  const payrollData = useMemo(() => {
+  if (!allPayroll.length) return null;
+  return allPayroll.find((p) => {
+    const released = new Date(p.dateReleased || p.date || p.period_date || p.created_at);
+    return (
+      released.getMonth() === payslipMonth &&
+      released.getFullYear() === payslipYear
+    );
+  }) || null;
+}, [allPayroll, payslipMonth, payslipYear]);
 
   const scheduledHolidaysForCarousel = useMemo(
     () =>
@@ -561,6 +572,9 @@ const Home = () => {
       ),
     [scheduledHolidaysForCarousel, suspensionsForCarousel, announcementsInRange]
   );
+
+
+  
 
   const {
     currentSlide,
@@ -876,25 +890,21 @@ const Home = () => {
   }, [employeeNumber]);
 
   // ── Fetch payslip data from released-payroll (not payroll-processed) ──────
-  useEffect(() => {
-    const fetchPayrollData = async () => {
-      if (!employeeNumber) return;
-      try {
-        const token = localStorage.getItem("token");
-        const res = await axios.get(`${API_BASE_URL}/PayrollReleasedRoute/released-payroll`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const list = Array.isArray(res.data) ? res.data : [];
-        // released-payroll is ordered by dateReleased DESC, so the first
-        // match is the most recently released record for this employee
-        const userPayroll = list.find(
-          (p) => String(p.employeeNumber) === String(employeeNumber)
-        );
-        setPayrollData(userPayroll || null);
-      } catch {}
-    };
-    fetchPayrollData();
-  }, [employeeNumber]);
+useEffect(() => {
+  const fetchPayrollData = async () => {
+    if (!employeeNumber) return;
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.get(`${API_BASE_URL}/PayrollReleasedRoute/released-payroll`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const list = Array.isArray(res.data) ? res.data : [];
+      // Store the FULL list, not just the first match
+      setAllPayroll(list.filter((p) => String(p.employeeNumber) === String(employeeNumber)));
+    } catch {}
+  };
+  fetchPayrollData();
+}, [employeeNumber]);
 
   const formatCurrency = (value) => {
     if (value === undefined || value === null || value === "" || value === "0") return "₱0.00";
