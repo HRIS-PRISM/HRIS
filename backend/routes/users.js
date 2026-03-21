@@ -1996,59 +1996,60 @@ router.delete('/users/:employeeNumber', authenticateToken, (req, res) => {
   });
 });
 
-// POST: Grant default page access to all existing staff users
+// POST: Grant default page access based on role (reads from pages.page_group)
 router.post(
-  '/users/grant-default-access',
+  '/users/grant-role-access/:role',
   authenticateToken,
   async (req, res) => {
     try {
-      // Get all staff users
-      const getStaffQuery = 'SELECT employeeNumber FROM users WHERE role = ?';
+      const { role } = req.params;
 
-      db.query(getStaffQuery, ['staff'], (err, staffUsers) => {
-        if (err) {
-          console.error('Error fetching staff users:', err);
-          return res.status(500).json({ error: 'Failed to fetch staff users' });
+      // 1️⃣ Get users with that role
+      const getUsersQuery = `SELECT employeeNumber FROM users WHERE role = ?`;
+
+      db.query(getUsersQuery, [role], (userErr, users) => {
+        if (userErr) {
+          console.error('Error fetching users:', userErr);
+          return res.status(500).json({ error: 'Failed to fetch users' });
         }
 
-        if (staffUsers.length === 0) {
+        if (users.length === 0) {
           return res.status(200).json({
-            message: 'No staff users found',
+            message: `No users found for role: ${role}`,
             usersProcessed: 0,
           });
         }
 
-        // Get default pages for staff
-const getDefaultPagesQuery = `
-  SELECT id FROM pages 
-  WHERE page_url IN ('home', 'admin-home', 'attendance-user-state', 'daily-time-record', 'payslip', 'pds1', 'pds2', 'pds3', 'pds4', 'settings') 
-  OR component_identifier IN ('HomeEmployee', 'HomeAdmin', 'AttendanceUserState', 'DailyTimeRecord', 'Payslip', 'PDS1', 'PDS2', 'PDS3', 'PDS4', 'Settings', 'attendance-user-state', 'daily-time-record', 'daily-time-record-honorarium', 'daily-time-record-service-credits', 'daily-time-record-overtime')
-`;
+        // 2️⃣ Get pages where page_group contains this role
+        const getPagesQuery = `
+          SELECT id FROM pages 
+          WHERE FIND_IN_SET(?, REPLACE(page_group, ', ', ','))
+        `;
 
-        db.query(getDefaultPagesQuery, (pagesErr, pages) => {
-          if (pagesErr) {
-            console.error('Error fetching pages:', pagesErr);
+        db.query(getPagesQuery, [role], (pageErr, pages) => {
+          if (pageErr) {
+            console.error('Error fetching pages:', pageErr);
             return res.status(500).json({ error: 'Failed to fetch pages' });
           }
 
           if (pages.length === 0) {
-            return res
-              .status(404)
-              .json({ error: 'No default pages found in database' });
+            return res.status(404).json({
+              error: `No pages configured for role: ${role}`,
+            });
           }
 
           let processedCount = 0;
           let errorCount = 0;
-          const totalOperations = staffUsers.length * pages.length;
+          const totalOperations = users.length * pages.length;
 
-          // Grant access to each staff user for each default page
-          staffUsers.forEach((user) => {
+          // 3️⃣ Insert into page_access
+          users.forEach((user) => {
             pages.forEach((page) => {
               const upsertAccessQuery = `
-              INSERT INTO page_access (employeeNumber, page_id, page_privilege)
-              VALUES (?, ?, '1')
-              ON DUPLICATE KEY UPDATE page_privilege = '1'
-            `;
+                INSERT INTO page_access (employeeNumber, page_id, page_privilege)
+                VALUES (?, ?, '1')
+                ON DUPLICATE KEY UPDATE page_privilege='1'
+              `;
 
               db.query(
                 upsertAccessQuery,
@@ -2064,11 +2065,10 @@ const getDefaultPagesQuery = `
                     processedCount++;
                   }
 
-                  // Check if all operations are complete
                   if (processedCount + errorCount === totalOperations) {
                     res.status(200).json({
-                      message: 'Default access granted to all staff users',
-                      usersProcessed: staffUsers.length,
+                      message: `Default access granted for role: ${role}`,
+                      usersProcessed: users.length,
                       pagesGranted: pages.length,
                       successfulOperations: processedCount,
                       failedOperations: errorCount,
@@ -2081,110 +2081,9 @@ const getDefaultPagesQuery = `
         });
       });
     } catch (err) {
-      console.error('Error granting default access:', err);
-      res.status(500).json({ error: 'Failed to grant default access' });
+      console.error('Error granting role access:', err);
+      res.status(500).json({ error: 'Failed to grant role access' });
     }
   },
 );
-
-// POST: Grant default page access to all existing administrator users (excluding User Management, Payroll Formulas, Admin Security)
-router.post(
-  '/users/grant-default-access-administrator',
-  authenticateToken,
-  async (req, res) => {
-    try {
-      // Get all administrator users
-      const getAdminQuery = 'SELECT employeeNumber FROM users WHERE role = ?';
-
-      db.query(getAdminQuery, ['administrator'], (err, adminUsers) => {
-        if (err) {
-          console.error('Error fetching administrator users:', err);
-          return res
-            .status(500)
-            .json({ error: 'Failed to fetch administrator users' });
-        }
-
-        if (adminUsers.length === 0) {
-          return res.status(200).json({
-            message: 'No administrator users found',
-            usersProcessed: 0,
-          });
-        }
-
-        // Get all pages EXCEPT User Management, Payroll Formulas, and Admin Security
-        // Exclude by page_url or component_identifier
-        const getDefaultPagesQuery = `
-        SELECT id FROM pages 
-        WHERE (page_url NOT LIKE '%users-list%' 
-          AND page_url NOT LIKE '%user-management%'
-          AND page_url NOT LIKE '%payroll-formulas%'
-          AND page_url NOT LIKE '%admin-security%'
-          AND component_identifier NOT IN ('users-list', 'UsersList', 'UserManagement', 'payroll-formulas', 'PayrollFormulas', 'admin-security', 'AdminSecurity'))
-      `;
-
-        db.query(getDefaultPagesQuery, (pagesErr, pages) => {
-          if (pagesErr) {
-            console.error('Error fetching pages:', pagesErr);
-            return res.status(500).json({ error: 'Failed to fetch pages' });
-          }
-
-          if (pages.length === 0) {
-            return res
-              .status(404)
-              .json({ error: 'No default pages found in database' });
-          }
-
-          let processedCount = 0;
-          let errorCount = 0;
-          const totalOperations = adminUsers.length * pages.length;
-
-          // Grant access to each administrator user for each default page
-          adminUsers.forEach((user) => {
-            pages.forEach((page) => {
-              const upsertAccessQuery = `
-              INSERT INTO page_access (employeeNumber, page_id, page_privilege)
-              VALUES (?, ?, '1')
-              ON DUPLICATE KEY UPDATE page_privilege = '1'
-            `;
-
-              db.query(
-                upsertAccessQuery,
-                [user.employeeNumber, page.id],
-                (accessErr) => {
-                  if (accessErr) {
-                    console.error(
-                      `Error granting access to ${user.employeeNumber} for page ${page.id}:`,
-                      accessErr,
-                    );
-                    errorCount++;
-                  } else {
-                    processedCount++;
-                  }
-
-                  // Check if all operations are complete
-                  if (processedCount + errorCount === totalOperations) {
-                    res.status(200).json({
-                      message:
-                        'Default access granted to all administrator users (excluding User Management, Payroll Formulas, Admin Security)',
-                      usersProcessed: adminUsers.length,
-                      pagesGranted: pages.length,
-                      successfulOperations: processedCount,
-                      failedOperations: errorCount,
-                    });
-                  }
-                },
-              );
-            });
-          });
-        });
-      });
-    } catch (err) {
-      console.error('Error granting default access to administrators:', err);
-      res
-        .status(500)
-        .json({ error: 'Failed to grant default access to administrators' });
-    }
-  },
-);
-
 module.exports = router;

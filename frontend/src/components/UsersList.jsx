@@ -1,5 +1,11 @@
 import API_BASE_URL from '../apiConfig';
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAuthHeaders } from '../utils/auth';
 import {
@@ -533,7 +539,64 @@ const getDescriptionColor = (description, settings) => {
   }
 };
 
-const RETRY_DELAYS = [2, 4, 8, 15, 30];
+// ── Internet-proof retry config ────────────────────────────────────────────
+// Same strategy as Facebook/Twitter PWA:
+// Never flash an error on the first failure — silently retry with exponential
+// back-off and show only a quiet inline banner inside the skeleton.
+const RETRY_DELAYS = [2, 4, 8, 15, 30]; // seconds between attempts
+
+// ── Quiet offline banner shown INSIDE the skeleton card ───────────────────
+const OfflineBanner = ({ visible, retryIn, primaryColor }) => {
+  const p = primaryColor || '#894444';
+  return (
+    <Fade in={visible} timeout={600} unmountOnExit>
+      <Box sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1.5,
+        px: 2.5,
+        py: 1.5,
+        mb: 3,
+        mx: 6,
+        borderRadius: 3,
+        bgcolor: alpha(p, 0.05),
+        border: `1px solid ${alpha(p, 0.18)}`,
+        borderLeft: `4px solid ${alpha(p, 0.45)}`,
+      }}>
+        <WifiOffIcon sx={{
+          fontSize: 18,
+          color: alpha(p, 0.5),
+          animation: 'umBounce 2s ease-in-out infinite',
+          flexShrink: 0,
+          '@keyframes umBounce': {
+            '0%, 100%': { transform: 'translateY(0)' },
+            '50%': { transform: 'translateY(-3px)' },
+          },
+        }} />
+        <Box sx={{ flex: 1 }}>
+          <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: alpha(p, 0.75), lineHeight: 1.2 }}>
+            Waiting for connection…
+          </Typography>
+          {retryIn > 0 && (
+            <Typography sx={{ fontSize: '0.72rem', color: alpha(p, 0.45), mt: 0.3 }}>
+              Retrying in {retryIn}s
+            </Typography>
+          )}
+        </Box>
+        <Box sx={{
+          width: 8, height: 8, borderRadius: '50%',
+          bgcolor: alpha(p, 0.35),
+          animation: 'umPulse 1.8s ease-in-out infinite',
+          flexShrink: 0,
+          '@keyframes umPulse': {
+            '0%, 100%': { opacity: 1 },
+            '50%': { opacity: 0.3 },
+          },
+        }} />
+      </Box>
+    </Fade>
+  );
+};
 
 const UsersList = () => {
   const detectedRole = getUserRole();
@@ -557,6 +620,7 @@ const UsersList = () => {
   const [rowsPerPage, setRowsPerPage]     = useState(10);
   const [refreshing, setRefreshing]       = useState(false);
 
+  // ── Internet-proof fetch state ─────────────────────────────────────────
   const [offline, setOffline]   = useState(false);
   const [retryIn, setRetryIn]   = useState(0);
   const retryTimerRef           = useRef(null);
@@ -694,72 +758,124 @@ const UsersList = () => {
   const handleModuleAccessCancel = () => navigate('/admin-home');
 
   const clearRetryTimers = useCallback(() => {
-    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-    if (countdownRef.current)  clearInterval(countdownRef.current);
+    if (retryTimerRef.current)  clearTimeout(retryTimerRef.current);
+    if (countdownRef.current)   clearInterval(countdownRef.current);
   }, []);
 
   const doFetchUsers = useCallback(async () => {
     const authHeaders = getAuthHeaders();
     const [usersResp, personsResp, empCatsResp] = await Promise.all([
-      fetch(`${API_BASE_URL}/users`,                                                    { method: 'GET', ...authHeaders }),
-      fetch(`${API_BASE_URL}/personalinfo/person_table`,                                { method: 'GET', ...authHeaders }),
-      fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,             { method: 'GET', ...authHeaders }),
+      fetch(`${API_BASE_URL}/users`, { method: 'GET', ...authHeaders }),
+      fetch(`${API_BASE_URL}/personalinfo/person_table`, { method: 'GET', ...authHeaders }),
+      fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, { method: 'GET', ...authHeaders }),
     ]);
-    if (!usersResp.ok) { const err = await usersResp.json().catch(() => ({})); throw new Error(err.error || 'Failed to fetch users'); }
+
+    if (!usersResp.ok) {
+      const err = await usersResp.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to fetch users');
+    }
+
     const usersDataRaw   = await usersResp.json();
     const personsDataRaw = await personsResp.json().catch(() => []);
     const empCatsDataRaw = empCatsResp?.ok ? await empCatsResp.json().catch(() => []) : [];
+
     const usersArray   = Array.isArray(usersDataRaw)   ? usersDataRaw   : usersDataRaw.users   || usersDataRaw.data   || [];
     const personsArray = Array.isArray(personsDataRaw) ? personsDataRaw : personsDataRaw.persons || personsDataRaw.data || [];
     const empCatsArray = Array.isArray(empCatsDataRaw) ? empCatsDataRaw : empCatsDataRaw.data   || empCatsDataRaw.records || [];
+
     const empCatsMap = (empCatsArray || []).reduce((acc, row) => {
       const key = String(row.employeeNumber ?? row.employee_number ?? '');
       if (key) acc[key] = row;
       return acc;
     }, {});
     return (usersArray || []).map((user) => {
-      const person    = (personsArray || []).find((p) => String(p.agencyEmployeeNum) === String(user.employeeNumber));
+      const person = (personsArray || []).find(
+        (p) => String(p.agencyEmployeeNum) === String(user.employeeNumber),
+      );
       const empCatRow = empCatsMap[String(user.employeeNumber)] || null;
-      const fullName  = person
+      const fullName = person
         ? `${person.firstName || ''} ${person.middleName || ''} ${person.lastName || ''} ${person.nameExtension || ''}`.trim()
-        : user.fullName || user.username || `${user.firstName || ''} ${user.lastName || ''}`.trim();
+        : user.fullName ||
+          user.username ||
+          `${user.firstName || ''} ${user.lastName || ''}`.trim();
       const avatar = person?.profile_picture
         ? `${API_BASE_URL}${person.profile_picture}`
-        : user.avatar ? String(user.avatar).startsWith('http') ? user.avatar : `${API_BASE_URL}${user.avatar}` : null;
+        : user.avatar
+          ? String(user.avatar).startsWith('http') ? user.avatar : `${API_BASE_URL}${user.avatar}`
+          : null;
       return {
-        ...user, fullName: fullName || 'Username', avatar: avatar || null, personData: person || {},
-        employmentCategory: empCatRow?.employmentCategory !== undefined && empCatRow?.employmentCategory !== null ? empCatRow.employmentCategory : user.employmentCategory !== undefined && user.employmentCategory !== null ? user.employmentCategory : null,
-        customCategory: empCatRow?.customCategory ?? empCatRow?.custom_category ?? user.customCategory ?? user.custom_category ?? null,
-        departmentCode: user.departmentCode || null, departmentDescription: user.departmentDescription || null,
+        ...user,
+        fullName: fullName || 'Username',
+        avatar:   avatar   || null,
+        personData: person || {},
+        employmentCategory:
+          empCatRow?.employmentCategory !== undefined && empCatRow?.employmentCategory !== null
+            ? empCatRow.employmentCategory
+            : user.employmentCategory !== undefined && user.employmentCategory !== null
+              ? user.employmentCategory
+              : null,
+        customCategory:
+          empCatRow?.customCategory ?? empCatRow?.custom_category ??
+          user.customCategory ?? user.custom_category ?? null,
+        departmentCode:        user.departmentCode        || null,
+        departmentDescription: user.departmentDescription || null,
       };
     });
   }, []); // eslint-disable-line
 
+  // ── Internet-proof fetchUsers — retries silently, never shows an error
+  //    on a network failure. Shows only a quiet inline banner.
+  //    isManualRefresh=true skips the skeleton and just spins the header icon.
   const fetchUsers = useCallback(async (isManualRefresh = false, attemptNum = 0) => {
     clearRetryTimers();
-    if (!isManualRefresh && attemptNum === 0) setLoading(true);
+
+    if (!isManualRefresh && attemptNum === 0) {
+      setLoading(true);
+    }
     if (isManualRefresh) setRefreshing(true);
+
     try {
       const merged = await doFetchUsers();
       if (!mountedRef.current) return;
-      setUsers(merged); setFilteredUsers(merged); setLoading(false); setRefreshing(false);
-      setOffline(false); setRetryIn(0); retryAttemptRef.current = 0; setError('');
+
+      setUsers(merged);
+      setFilteredUsers(merged);
+      setLoading(false);
+      setRefreshing(false);
+      setOffline(false);
+      setRetryIn(0);
+      retryAttemptRef.current = 0;
+      setError(''); // clear any previous mutation errors
     } catch (err) {
       if (!mountedRef.current) return;
       console.error('fetchUsers error (attempt', attemptNum, '):', err);
+
       setRefreshing(false);
-      if (users.length === 0) setLoading(true); else setLoading(false);
+
+      // Only show the skeleton (loading=true) if we have no data yet
+      if (users.length === 0) setLoading(true);
+      else setLoading(false); // keep showing stale data
+
+      // Show the quiet offline banner (but not on the very first attempt —
+      // give one silent try before telling the user anything)
       if (attemptNum > 0 || users.length === 0) setOffline(true);
+
       const delaySeconds = RETRY_DELAYS[Math.min(attemptNum, RETRY_DELAYS.length - 1)];
       setRetryIn(delaySeconds);
+
+      // Live countdown
       let remaining = delaySeconds;
       countdownRef.current = setInterval(() => {
         remaining -= 1;
         if (mountedRef.current) setRetryIn(remaining);
         if (remaining <= 0) clearInterval(countdownRef.current);
       }, 1000);
+
+      // Schedule retry
       retryAttemptRef.current = attemptNum + 1;
-      retryTimerRef.current = setTimeout(() => { if (mountedRef.current) fetchUsers(false, attemptNum + 1); }, delaySeconds * 1000);
+      retryTimerRef.current = setTimeout(() => {
+        if (mountedRef.current) fetchUsers(false, attemptNum + 1);
+      }, delaySeconds * 1000);
     }
   }, [doFetchUsers, clearRetryTimers, users.length]); // eslint-disable-line
 
@@ -1212,36 +1328,212 @@ const UsersList = () => {
           </GlassCard>
         </Fade>
 
-        {/* ── Users Table ── */}
-        <Fade in timeout={1100}>
-          <GlassCard>
-            <OfflineBanner visible={offline} retryIn={retryIn} primaryColor={p} />
-            <Box sx={{ p: 3, background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${alpha(p, 0.1)}` }}>
-              <Box>
-                <Typography variant="h5" sx={{ fontWeight: 600, color: p }}>Registered Users</Typography>
-                <Typography variant="body2" sx={{ opacity: 0.8, color: tp }}>
-                  {searchTerm || roleFilter || categoryFilter !== '' || departmentFilter !== ''
-                    ? `Showing ${filteredUsers.length} of ${users.length} users`
-                    : `Total: ${users.length} registered users`}
-                </Typography>
+        {/* ── Skeleton Wireframe (shown while loading, not refreshing) ── */}
+        {loading && !refreshing && (
+          <Fade in timeout={300}>
+            <GlassCard>
+              {/* ── Quiet offline banner lives inside the skeleton ── */}
+              <OfflineBanner visible={offline} retryIn={retryIn} primaryColor={p} />
+
+              {/* skeleton header bar */}
+              <Box
+                sx={{
+                  p: 3,
+                  background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  borderBottom: `1px solid ${alpha(p, 0.1)}`,
+                }}
+              >
+                <Box>
+                  <Skeleton animation="wave" variant="text" width={180} height={32} sx={{ bgcolor: alpha(p, 0.12), borderRadius: 1 }} />
+                  <Skeleton animation="wave" variant="text" width={120} height={20} sx={{ bgcolor: alpha(p, 0.08), borderRadius: 1, mt: 0.5 }} />
+                </Box>
+                <Box display="flex" gap={2}>
+                  {[140, 160, 170].map((w, i) => (
+                    <Skeleton key={i} variant="rounded" width={w} height={42} sx={{ bgcolor: alpha(p, 0.1), borderRadius: 3 }} />
+                  ))}
+                </Box>
               </Box>
-              <Box display="flex" alignItems="center" gap={2} flexWrap="wrap" justifyContent="flex-end">
-                {['staff', 'administrator', 'superadmin'].map((role) => (
-                  <Tooltip key={role} title={`Grant default page access to all ${role} users (based on Access Groups in Page Management)`}>
-                    <ProfessionalButton variant="outlined" startIcon={grantingRole === role ? <CircularProgress size={16} sx={{ color: p }} /> : <LockOpen />} onClick={() => handleGrantRoleAccess(role)} disabled={grantingRole !== null} sx={{ borderColor: p, color: p, '&:hover': { bgcolor: alpha(p, 0.1), borderColor: s }, '&.Mui-disabled': { borderColor: alpha(p, 0.35), color: alpha(p, 0.6) } }}>
-                      {grantingRole === role ? 'Granting...' : `Grant ${role.charAt(0).toUpperCase() + role.slice(1)} Access`}
-                    </ProfessionalButton>
-                  </Tooltip>
+
+              {/* skeleton table */}
+              <Box sx={{ p: 0 }}>
+                {/* thead row */}
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: '56px 110px 1fr 1fr 140px 180px 140px 120px',
+                    gap: 0,
+                    px: 2.5,
+                    py: 2,
+                    bgcolor: alpha(ac, 0.7),
+                    borderBottom: `2px solid ${alpha(p, 0.12)}`,
+                  }}
+                >
+                  {[40, 80, 120, 140, 100, 150, 110, 90].map((w, i) => (
+                    <Box key={i} sx={{ px: 1 }}>
+                      <Skeleton animation="wave" variant="text" width={w} height={18} sx={{ bgcolor: alpha(p, 0.15), borderRadius: 1 }} />
+                    </Box>
+                  ))}
+                </Box>
+
+                {/* tbody rows */}
+                {Array.from({ length: 8 }).map((_, rowIdx) => (
+                  <Box
+                    key={rowIdx}
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: '56px 110px 1fr 1fr 140px 180px 140px 120px',
+                      gap: 0,
+                      px: 2.5,
+                      py: 1.5,
+                      bgcolor: rowIdx % 2 === 0 ? 'transparent' : alpha(ac, 0.25),
+                      borderBottom: `1px solid ${alpha(p, 0.06)}`,
+                      alignItems: 'center',
+                    }}
+                  >
+                    {/* checkbox */}
+                    <Box sx={{ px: 1 }}>
+                      <Skeleton animation="wave" variant="rounded" width={20} height={20} sx={{ bgcolor: alpha(p, 0.1), borderRadius: 0.5 }} />
+                    </Box>
+                    {/* employee # */}
+                    <Box sx={{ px: 1 }}>
+                      <Skeleton animation="wave" variant="text" width={70} height={20} sx={{ bgcolor: alpha(p, 0.1), borderRadius: 1 }} />
+                    </Box>
+                    {/* full name with avatar */}
+                    <Box sx={{ px: 1, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <Skeleton animation="wave" variant="circular" width={44} height={44} sx={{ bgcolor: alpha(p, 0.12), flexShrink: 0 }} />
+                      <Box sx={{ flex: 1 }}>
+                        <Skeleton animation="wave" variant="text" width={`${55 + (rowIdx % 3) * 20}%`} height={18} sx={{ bgcolor: alpha(p, 0.1), borderRadius: 1 }} />
+                        <Skeleton animation="wave" variant="text" width="40%" height={14} sx={{ bgcolor: alpha(p, 0.07), borderRadius: 1, mt: 0.4 }} />
+                      </Box>
+                    </Box>
+                    {/* email */}
+                    <Box sx={{ px: 1 }}>
+                      <Skeleton animation="wave" variant="text" width={`${50 + (rowIdx % 4) * 12}%`} height={18} sx={{ bgcolor: alpha(p, 0.09), borderRadius: 1 }} />
+                    </Box>
+                    {/* role chip */}
+                    <Box sx={{ px: 1 }}>
+                      <Skeleton animation="wave" variant="rounded" width={110} height={34} sx={{ bgcolor: alpha(p, 0.1), borderRadius: 2 }} />
+                    </Box>
+                    {/* employment category chip */}
+                    <Box sx={{ px: 1 }}>
+                      <Skeleton animation="wave" variant="rounded" width={140} height={26} sx={{ bgcolor: alpha(p, 0.09), borderRadius: 3 }} />
+                    </Box>
+                    {/* department */}
+                    <Box sx={{ px: 1 }}>
+                      <Skeleton animation="wave" variant="text" width={90} height={18} sx={{ bgcolor: alpha(p, 0.09), borderRadius: 1 }} />
+                    </Box>
+                    {/* manage button */}
+                    <Box sx={{ px: 1 }}>
+                      <Skeleton animation="wave" variant="rounded" width={90} height={34} sx={{ bgcolor: alpha(p, 0.12), borderRadius: 3 }} />
+                    </Box>
+                  </Box>
                 ))}
-                {isTechnical && (
-                  <Tooltip title="Bulk Edit Employment Category">
-                    <ProfessionalButton variant="outlined" startIcon={<Category />} onClick={openBulkCategoryEdit} disabled={selectedEmployeeNumbers.length === 0} sx={{ borderColor: p, color: p, '&:hover': { bgcolor: alpha(p, 0.1), borderColor: s }, '&.Mui-disabled': { borderColor: alpha(p, 0.35), color: alpha(p, 0.6) } }}>
-                      Bulk Edit Category ({selectedEmployeeNumbers.length})
-                    </ProfessionalButton>
-                  </Tooltip>
-                )}
               </Box>
-            </Box>
+
+              {/* skeleton pagination */}
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 2, p: 2, pr: 3 }}>
+                <Skeleton animation="wave" variant="text" width={120} height={20} sx={{ bgcolor: alpha(p, 0.08), borderRadius: 1 }} />
+                <Skeleton animation="wave" variant="text" width={80} height={20} sx={{ bgcolor: alpha(p, 0.08), borderRadius: 1 }} />
+                <Skeleton animation="wave" variant="rounded" width={72} height={32} sx={{ bgcolor: alpha(p, 0.1), borderRadius: 2 }} />
+              </Box>
+            </GlassCard>
+          </Fade>
+        )}
+
+        {/* ── Users Table ── */}
+        {!loading && (
+          <Fade in timeout={1100}>
+            <GlassCard>
+              {/* Quiet offline banner — shown if connection drops after data loaded */}
+              <OfflineBanner visible={offline} retryIn={retryIn} primaryColor={p} />
+              <Box
+                sx={{
+                  p: 3,
+                  background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  borderBottom: `1px solid ${alpha(p, 0.1)}`,
+                }}
+              >
+                <Box>
+                  <Typography variant="h5" sx={{ fontWeight: 600, color: p }}>
+                    Registered Users
+                  </Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.8, color: tp }}>
+                    {searchTerm ||
+                    roleFilter ||
+                    categoryFilter !== '' ||
+                    departmentFilter !== ''
+                      ? `Showing ${filteredUsers.length} of ${users.length} users`
+                      : `Total: ${users.length} registered users`}
+                  </Typography>
+                </Box>
+                <Box
+                  display="flex"
+                  alignItems="center"
+                  gap={2}
+                  flexWrap="wrap"
+                  justifyContent="flex-end"
+                >
+                  {['staff', 'administrator', 'superadmin'].map((role) => (
+                    <Tooltip
+                      key={role}
+                      title={`Grant default page access to all ${role} users (based on Access Groups in Page Management)`}
+                    >
+                      <ProfessionalButton
+                        variant="outlined"
+                        startIcon={
+                          grantingRole === role ? (
+                            <CircularProgress size={16} sx={{ color: p }} />
+                          ) : (
+                            <LockOpen />
+                          )
+                        }
+                        onClick={() => handleGrantRoleAccess(role)}
+                        disabled={grantingRole !== null}
+                        sx={{
+                          borderColor: p,
+                          color: p,
+                          '&:hover': { bgcolor: alpha(p, 0.1), borderColor: s },
+                          '&.Mui-disabled': {
+                            borderColor: alpha(p, 0.35),
+                            color: alpha(p, 0.6),
+                          },
+                        }}
+                      >
+                        {grantingRole === role
+                          ? 'Granting...'
+                          : `Grant ${role.charAt(0).toUpperCase() + role.slice(1)} Access`}
+                      </ProfessionalButton>
+                    </Tooltip>
+                  ))}
+                  {isTechnical && (
+                    <Tooltip title="Bulk Edit Employment Category">
+                      <ProfessionalButton
+                        variant="outlined"
+                        startIcon={<Category />}
+                        onClick={openBulkCategoryEdit}
+                        disabled={selectedEmployeeNumbers.length === 0}
+                        sx={{
+                          borderColor: p,
+                          color: p,
+                          '&:hover': { bgcolor: alpha(p, 0.1), borderColor: s },
+                          '&.Mui-disabled': {
+                            borderColor: alpha(p, 0.35),
+                            color: alpha(p, 0.6),
+                          },
+                        }}
+                      >
+                        Bulk Edit Category ({selectedEmployeeNumbers.length})
+                      </ProfessionalButton>
+                    </Tooltip>
+                  )}
+                </Box>
+              </Box>
 
             <PremiumTableContainer component={Paper} elevation={0}>
               <Table sx={{ minWidth: 800 }}>
