@@ -74,6 +74,14 @@ const hexToRgb = (hex) => {
 };
 
 // ─────────────────────────────────────────────
+// GRACE PERIOD — 15 minutes in milliseconds
+// Applies to Honorarium, Service Credit, and Overtime TimeIN.
+// If an employee clocks into a special segment within this window after the
+// official start time, they are treated as on-time (no tardiness, full credit).
+// ─────────────────────────────────────────────
+const GRACE_PERIOD_MS = 15 * 60 * 1000;
+
+// ─────────────────────────────────────────────
 // WIREFRAME
 // ─────────────────────────────────────────────
 const SHIMMER_CSS = `
@@ -179,14 +187,20 @@ const ModernTextField = styled(TextField)(() => ({
   "& .MuiInputLabel-root": { fontWeight: 500 },
 }));
 
-const PremiumTableCell = styled(TableCell)(({ isHeader = false, bgColor = null }) => ({
-  fontWeight: isHeader ? 600 : 500,
-  padding: "12px 14px",
-  borderBottom: isHeader ? "2px solid rgba(254,249,225,0.5)" : "1px solid rgba(109,35,35,0.06)",
-  fontSize: "0.83rem",
-  letterSpacing: "0.025em",
+// Institutional table cell — clean, no visual noise
+const PremiumTableCell = styled(TableCell, {
+  shouldForwardProp: (prop) => prop !== "isHeader" && prop !== "bgColor",
+})(({ isHeader = false, bgColor = null }) => ({
+  fontWeight: isHeader ? 600 : 400,
+  padding: "10px 14px",
+  borderBottom: "1px solid rgba(0,0,0,0.07)",
+  borderRight: "none",
+  fontSize: isHeader ? "0.75rem" : "0.82rem",
+  letterSpacing: isHeader ? "0.04em" : "0.02em",
+  textTransform: isHeader ? "uppercase" : "none",
   backgroundColor: bgColor ? bgColor : "transparent",
   whiteSpace: "nowrap",
+  lineHeight: 1.4,
 }));
 
 // ─────────────────────────────────────────────
@@ -199,68 +213,100 @@ const VIEW_TABS = [
   { key: "overtime",      label: "Overtime",       icon: <AccessTime sx={{ fontSize: 16 }} /> },
 ];
 
-// Columns for non-regular tabs (regular tab is rendered manually to support furlough)
+// ─────────────────────────────────────────────
+// COLUMN GROUPS
+// actual   = employee biometric punch  → warm cream bg, maroon text
+// official = scheduled official time   → light maroon-tint bg, dark text
+// calc     = computed rendered time    → soft green bg
+// tard     = computed tardiness        → soft red bg
+// meta     = date / day                → plain
+// ─────────────────────────────────────────────
+
+// dividerBefore = draws a visible left border to separate column groups
 const TAB_COLUMNS = {
   honorarium: [
-    { label: "Date",                              key: "date",                       minWidth: 130, bold: true },
-    { label: "Day",                               key: "day",                        minWidth: 100, bold: true, altBg: true },
-    { label: "Time IN",                           key: "_hnTimeIN",                  minWidth: 140 },
-    { label: "Official Honorarium Time IN",       key: "officialHonorariumTimeIN",   minWidth: 180, altBg: true, bold: true },
-    { label: "Time OUT",                          key: "_hnTimeOUT",                 minWidth: 140 },
-    { label: "Official Honorarium Time OUT",      key: "officialHonorariumTimeOUT",  minWidth: 180, altBg: true, bold: true },
-    { label: "Honorarium Rendered",               key: "_hnRendered",                minWidth: 140, accent: true, bold: true },
-    { label: "Honorarium Tardiness",              key: "_hnTardiness",               minWidth: 140, accentDark: true, bold: true },
+    { label: "Date",              key: "date",                       minWidth: 120, group: "meta" },
+    { label: "Day",               key: "day",                        minWidth: 90,  group: "meta" },
+    { label: "Time IN",           key: "_hnTimeIN",                  minWidth: 140, group: "actual",   dividerBefore: true },
+    { label: "Time OUT",          key: "_hnTimeOUT",                 minWidth: 140, group: "actual" },
+    { label: "Official Time IN",  key: "officialHonorariumTimeIN",   minWidth: 150, group: "official", dividerBefore: true },
+    { label: "Official Time OUT", key: "officialHonorariumTimeOUT",  minWidth: 150, group: "official" },
+    { label: "Rendered",          key: "_hnRendered",                minWidth: 130, group: "calc",     dividerBefore: true },
+    { label: "Tardiness",         key: "_hnTardiness",               minWidth: 130, group: "tard" },
   ],
   serviceCredit: [
-    { label: "Date",                                  key: "date",                          minWidth: 130, bold: true },
-    { label: "Day",                                   key: "day",                           minWidth: 100, bold: true, altBg: true },
-    { label: "Time IN",                               key: "_scTimeIN",                     minWidth: 140 },
-    { label: "Official Service Credit Time IN",       key: "officialServiceCreditTimeIN",   minWidth: 200, altBg: true, bold: true },
-    { label: "Time OUT",                              key: "_scTimeOUT",                    minWidth: 140 },
-    { label: "Official Service Credit Time OUT",      key: "officialServiceCreditTimeOUT",  minWidth: 200, altBg: true, bold: true },
-    { label: "Service Credit Rendered",               key: "_scRendered",                   minWidth: 150, accent: true, bold: true },
-    { label: "Service Credit Tardiness",              key: "_scTardiness",                  minWidth: 150, accentDark: true, bold: true },
+    { label: "Date",              key: "date",                          minWidth: 120, group: "meta" },
+    { label: "Day",               key: "day",                           minWidth: 90,  group: "meta" },
+    { label: "Time IN",           key: "_scTimeIN",                     minWidth: 140, group: "actual",   dividerBefore: true },
+    { label: "Time OUT",          key: "_scTimeOUT",                    minWidth: 140, group: "actual" },
+    { label: "Official Time IN",  key: "officialServiceCreditTimeIN",   minWidth: 150, group: "official", dividerBefore: true },
+    { label: "Official Time OUT", key: "officialServiceCreditTimeOUT",  minWidth: 150, group: "official" },
+    { label: "Rendered",          key: "_scRendered",                   minWidth: 130, group: "calc",     dividerBefore: true },
+    { label: "Tardiness",         key: "_scTardiness",                  minWidth: 130, group: "tard" },
   ],
   overtime: [
-    { label: "Date",                          key: "date",               minWidth: 130, bold: true },
-    { label: "Day",                           key: "day",                minWidth: 100, bold: true, altBg: true },
-    { label: "Time IN",                       key: "_otTimeIN",          minWidth: 140 },
-    { label: "Official Overtime Time IN",     key: "officialOverTimeIN", minWidth: 170, altBg: true, bold: true },
-    { label: "Time OUT",                      key: "_otTimeOUT",         minWidth: 140 },
-    { label: "Official Overtime Time OUT",    key: "officialOverTimeOUT",minWidth: 170, altBg: true, bold: true },
-    { label: "Overtime Rendered",             key: "_otRendered",        minWidth: 140, accent: true, bold: true },
-    { label: "Overtime Tardiness",            key: "_otTardiness",       minWidth: 140, accentDark: true, bold: true },
+    { label: "Date",              key: "date",                minWidth: 120, group: "meta" },
+    { label: "Day",               key: "day",                 minWidth: 90,  group: "meta" },
+    { label: "Time IN",           key: "_otTimeIN",           minWidth: 140, group: "actual",   dividerBefore: true },
+    { label: "Time OUT",          key: "_otTimeOUT",          minWidth: 140, group: "actual" },
+    { label: "Official Time IN",  key: "officialOverTimeIN",  minWidth: 150, group: "official", dividerBefore: true },
+    { label: "Official Time OUT", key: "officialOverTimeOUT", minWidth: 150, group: "official" },
+    { label: "Rendered",          key: "_otRendered",         minWidth: 130, group: "calc",     dividerBefore: true },
+    { label: "Tardiness",         key: "_otTardiness",        minWidth: 130, group: "tard" },
   ],
 };
 
 const getCellValue = (row, colKey, isFurlough = false) => {
-  const NA = "N/A";
+  const NA = "00:00:00";
   const isNA = (v) => !v || v === "00:00:00 AM" || v === "00:00:00 PM" || v === "00:00:00";
+
+  // Helper: returns the dedicated special punch time if it matches the expected
+  // specialType, otherwise falls back to NA. This uses the attendancerecord
+  // columns: specialType (HONORARIUM | SERVICE | OVERTIME), specialTimeIN,
+  // specialTimeOUT — which store the separate biometric punch for special duty.
+  const getSpecialTime = (expectedType, timeField) => {
+    if (row.specialType === expectedType && row[timeField]) return row[timeField];
+    return NA;
+  };
+
   switch (colKey) {
-    case "_hnTimeIN":  return isNA(row.officialHonorariumTimeIN) ? NA : row.timeIN;
-    case "_hnTimeOUT": return isNA(row.officialHonorariumTimeOUT) ? NA : row.timeOUT;
+    // ── Honorarium ───────────────────────────────────────────────────────────
+    case "_hnTimeIN":
+      return isNA(row.officialHonorariumTimeIN) ? NA : getSpecialTime("HONORARIUM", "specialTimeIN");
+    case "_hnTimeOUT":
+      return isNA(row.officialHonorariumTimeOUT) ? NA : getSpecialTime("HONORARIUM", "specialTimeOUT");
     case "_hnRendered":
       if (isFurlough) return !row.formattedFacultyMaxRenderedTimeHN || row.formattedFacultyMaxRenderedTimeHN === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyMaxRenderedTimeHN;
-      return (!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeHN === "NaN:NaN:NaN") ? "00:00:00" : row.formattedFacultyRenderedTimeHN;
+      return isNA(row.officialHonorariumTimeIN) || isNA(row.officialHonorariumTimeOUT) || row.formattedFacultyRenderedTimeHN === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeHN;
     case "_hnTardiness":
       if (isFurlough) return "00:00:00";
-      return (!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyHN === "NaN:NaN:NaN") ? row.formattedFacultyMaxRenderedTimeHN : row.formattedfinalcalcFacultyHN;
-    case "_scTimeIN":  return isNA(row.officialServiceCreditTimeIN) ? NA : row.timeIN;
-    case "_scTimeOUT": return isNA(row.officialServiceCreditTimeOUT) ? NA : row.timeOUT;
+      return isNA(row.officialHonorariumTimeIN) || isNA(row.officialHonorariumTimeOUT) || row.formattedfinalcalcFacultyHN === "NaN:NaN:NaN" ? "00:00:00" : row.formattedfinalcalcFacultyHN;
+
+    // ── Service Credit ───────────────────────────────────────────────────────
+    case "_scTimeIN":
+      return isNA(row.officialServiceCreditTimeIN) ? NA : getSpecialTime("SERVICE", "specialTimeIN");
+    case "_scTimeOUT":
+      return isNA(row.officialServiceCreditTimeOUT) ? NA : getSpecialTime("SERVICE", "specialTimeOUT");
     case "_scRendered":
       if (isFurlough) return !row.formattedFacultyMaxRenderedTimeSC || row.formattedFacultyMaxRenderedTimeSC === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyMaxRenderedTimeSC;
-      return (!row.officialTimeSC || !row.timeOUT || row.formattedFacultyRenderedTimeSC === "NaN:NaN:NaN") ? "00:00:00" : row.formattedFacultyRenderedTimeSC;
+      return isNA(row.officialServiceCreditTimeIN) || isNA(row.officialServiceCreditTimeOUT) || row.formattedFacultyRenderedTimeSC === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeSC;
     case "_scTardiness":
       if (isFurlough) return "00:00:00";
-      return (!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultySC === "NaN:NaN:NaN") ? row.formattedFacultyMaxRenderedTimeSC : row.formattedfinalcalcFacultySC;
-    case "_otTimeIN":  return isNA(row.officialOverTimeIN) ? NA : row.timeIN;
-    case "_otTimeOUT": return isNA(row.officialOverTimeOUT) ? NA : row.timeOUT;
+      return isNA(row.officialServiceCreditTimeIN) || isNA(row.officialServiceCreditTimeOUT) || row.formattedfinalcalcFacultySC === "NaN:NaN:NaN" ? "00:00:00" : row.formattedfinalcalcFacultySC;
+
+    // ── Overtime ─────────────────────────────────────────────────────────────
+    case "_otTimeIN":
+      return isNA(row.officialOverTimeIN) ? NA : getSpecialTime("OVERTIME", "specialTimeIN");
+    case "_otTimeOUT":
+      return isNA(row.officialOverTimeOUT) ? NA : getSpecialTime("OVERTIME", "specialTimeOUT");
     case "_otRendered":
       if (isFurlough) return !row.formattedFacultyMaxRenderedTimeOT || row.formattedFacultyMaxRenderedTimeOT === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyMaxRenderedTimeOT;
-      return (!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeOT === "NaN:NaN:NaN") ? "00:00:00" : row.formattedFacultyRenderedTimeOT;
+      return isNA(row.officialOverTimeIN) || isNA(row.officialOverTimeOUT) || row.formattedFacultyRenderedTimeOT === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTimeOT;
     case "_otTardiness":
       if (isFurlough) return "00:00:00";
-      return (!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyOT === "NaN:NaN:NaN") ? row.formattedFacultyMaxRenderedTimeOT : row.formattedfinalcalcFacultyOT;
+      return isNA(row.officialOverTimeIN) || isNA(row.officialOverTimeOUT) || row.formattedfinalcalcFacultyOT === "NaN:NaN:NaN" ? "00:00:00" : row.formattedfinalcalcFacultyOT;
+
+    // ── Official scheduled times (read directly from officialtime join) ──────
     case "officialHonorariumTimeIN":
     case "officialHonorariumTimeOUT":
     case "officialServiceCreditTimeIN":
@@ -268,27 +314,28 @@ const getCellValue = (row, colKey, isFurlough = false) => {
     case "officialOverTimeIN":
     case "officialOverTimeOUT":
       return isNA(row[colKey]) ? NA : row[colKey];
+
     default:
       return row[colKey] ?? "—";
   }
 };
 
-// Regular tab columns definition (for header rendering)
+// Regular tab columns — no break columns for 30hrs faculty
 const REGULAR_COLS = [
-  { label: "Date",                                minWidth: 130, bold: true },
-  { label: "Day",                                 minWidth: 100, bold: true, altBg: true },
-  { label: "Time IN",                             minWidth: 120 },
-  { label: "Official Time IN",                    minWidth: 140, altBg: true, bold: true },
-  { label: "Time OUT",                            minWidth: 120 },
-  { label: "Official Time OUT",                   minWidth: 140, altBg: true, bold: true },
-  { label: "Official Regular Duty Rendered Time", minWidth: 180, accent: true, bold: true },
-  { label: "Tardiness (Official Regular Duty)",   minWidth: 180, accentDark: true, bold: true },
+  { label: "Date",              minWidth: 120, group: "meta" },
+  { label: "Day",               minWidth: 90,  group: "meta" },
+  { label: "Time IN",           minWidth: 140, group: "actual",   dividerBefore: true },
+  { label: "Time OUT",          minWidth: 140, group: "actual" },
+  { label: "Official Time IN",  minWidth: 150, group: "official", dividerBefore: true },
+  { label: "Official Time OUT", minWidth: 150, group: "official" },
+  { label: "Rendered",          minWidth: 130, group: "calc",     dividerBefore: true },
+  { label: "Tardiness",         minWidth: 130, group: "tard" },
 ];
 
 // ─────────────────────────────────────────────
 // UNIFIED FLOATING BAR (Totals + Save)
 // ─────────────────────────────────────────────
-const FloatingTotalsBar = ({ accentColor, primaryColor, textPrimaryColor, totals, visible, onSave, saving, activeTab }) => {
+const FloatingTotalsBar = ({ accentColor, primaryColor, textPrimaryColor, totals, visible, onSave, saving, activeTab, startDate, endDate }) => {
   const [expanded, setExpanded] = useState(true);
   if (!visible) return null;
 
@@ -319,12 +366,19 @@ const FloatingTotalsBar = ({ accentColor, primaryColor, textPrimaryColor, totals
         display: "flex", alignItems: "center", justifyContent: "space-between",
         cursor: "pointer", userSelect: "none",
       }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
           <WorkHistory sx={{ color: "#fff", fontSize: 15 }} />
           <Typography sx={{ color: "#fff", fontWeight: 700, fontSize: "0.74rem", letterSpacing: "0.6px", textTransform: "uppercase" }}>
             Attendance Summary
           </Typography>
-          <Chip label="All Categories" size="small" sx={{ bgcolor: "rgba(255,255,255,0.22)", color: "#fff", fontWeight: 700, fontSize: "0.67rem", height: 19 }} />
+          {/* Period badge */}
+          {startDate && endDate && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, px: 1, py: 0.2, borderRadius: 1, bgcolor: "rgba(255,255,255,0.18)" }}>
+              <Typography sx={{ color: "#fff", fontWeight: 700, fontSize: "0.67rem", fontFamily: "monospace", letterSpacing: "0.3px" }}>
+                {startDate} – {endDate}
+              </Typography>
+            </Box>
+          )}
         </Box>
         <Box sx={{ color: "#fff", display: "flex", alignItems: "center" }}>
           {expanded ? <ExpandMore fontSize="small" /> : <ExpandLess fontSize="small" />}
@@ -631,8 +685,15 @@ const closeModal = () => setModal((p) => ({ ...p, open: false }));
   }, []);
 
   useEffect(() => {
-    if (attendanceData.length > 0 && resultsRef.current)
-      setTimeout(() => resultsRef.current.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+    if (attendanceData.length === 0) return;
+    const node = resultsRef.current;
+    if (!node) return;
+    const timer = setTimeout(() => {
+      if (resultsRef.current) {
+        resultsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
   }, [attendanceData]);
 
   const isFurloughDate = (date, suspMap, leaveMap, holidayMap) =>
@@ -699,24 +760,71 @@ const closeModal = () => setModal((p) => ({ ...p, open: false }));
         const formattedfinalcalcFaculty = [Math.floor(finalcalcMs/3600000), Math.floor((finalcalcMs%3600000)/60000), Math.floor((finalcalcMs%60000)/1000)].map(x => String(x).padStart(2,"0")).join(":");
 
         // ── Segment helper for HN / SC / OT ──────────────────────────────
+        // Grace period: if the employee's timeIN falls within GRACE_PERIOD_MS
+        // after the official special segment start, treat them as on-time.
+        // This accounts for the transition gap between regular duty timeout
+        // and the next special segment's time-in (e.g. 5:00 PM → 5:01 PM).
         const calcSeg = (tIn, tOut, offIn, offOut) => {
-          const s = new Date(`01/01/2000 ${tIn}`), e = new Date(`01/01/2000 ${tOut}`);
-          const os = new Date(`01/01/2000 ${offIn}`), oe = new Date(`01/01/2000 ${offOut}`);
+          const s   = new Date(`01/01/2000 ${tIn}`);
+          const e   = new Date(`01/01/2000 ${tOut}`);
+          const os  = new Date(`01/01/2000 ${offIn}`);
+          const oe  = new Date(`01/01/2000 ${offOut}`);
           const mid = new Date(`01/01/2000 00:00:00 AM`);
-          const si = e<os||s>oe ? mid : s<os ? os : s;
-          const ei = si===mid ? mid : e<os ? mid : e<oe ? e : oe;
-          const diff = ei-si;
-          const rendered = [Math.floor(diff/3600000),Math.floor((diff%3600000)/60000),Math.floor((diff%60000)/1000)].map(x=>String(x).padStart(2,"0")).join(":");
-          const offDiff = oe-os;
-          const maxRendered = [Math.floor(offDiff/3600000),Math.floor((offDiff%3600000)/60000),Math.floor((offDiff%60000)/1000)].map(x=>String(x).padStart(2,"0")).join(":");
-          const tard = new Date(`01/01/2000 ${maxRendered}`) - new Date(`01/01/2000 ${rendered}`);
-          const tardiness = [Math.floor(tard/3600000),Math.floor((tard%3600000)/60000),Math.floor((tard%60000)/1000)].map(x=>String(x).padStart(2,"0")).join(":");
+
+          const msToHHMMSS = (ms) => {
+            const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+            const h = Math.floor(totalSeconds / 3600);
+            const m = Math.floor((totalSeconds % 3600) / 60);
+            const s = totalSeconds % 60;
+            return [h, m, s].map(x => String(x).padStart(2, "0")).join(":");
+          };
+
+          // Guard: if offIn/offOut are midnight sentinels (not configured), skip
+          if (os.getTime() === mid.getTime() || oe.getTime() === mid.getTime()) {
+            return { rendered: "00:00:00", maxRendered: "00:00:00", tardiness: "00:00:00" };
+          }
+
+          // Guard: if tIn or tOut are missing/invalid, nothing to calculate
+          if (!tIn || !tOut || isNaN(s.getTime()) || isNaN(e.getTime())) {
+            return { rendered: "00:00:00", maxRendered: msToHHMMSS(oe - os), tardiness: msToHHMMSS(oe - os) };
+          }
+
+          // Grace period applied to TimeIN only:
+          // If employee is late but within the grace window, snap to official start.
+          const isWithinGrace = s > os && (s - os) <= GRACE_PERIOD_MS;
+          const effectiveStart = isWithinGrace ? os : s;
+
+          // Clamp the effective window to the intersection of:
+          //   [effectiveStart, e]  (when the employee was actually present)
+          //   [os, oe]            (when the official segment is active)
+          // If there is no overlap at all, rendered = 0.
+          const clampedStart = effectiveStart > os ? effectiveStart : os;  // max(effectiveStart, os)
+          const clampedEnd   = e < oe ? e : oe;                            // min(e, oe)
+
+          const diffMs    = clampedEnd > clampedStart ? clampedEnd - clampedStart : 0;
+          const offDiffMs = oe - os;
+          const tardMs    = Math.max(0, offDiffMs - diffMs);
+
+          const rendered    = msToHHMMSS(diffMs);
+          const maxRendered = msToHHMMSS(offDiffMs);
+          const tardiness   = msToHHMMSS(tardMs);
+
           return { rendered, maxRendered, tardiness };
         };
 
-        const hn = calcSeg(timeIN, timeOUT, officialHonorariumTimeIN,    officialHonorariumTimeOUT);
-        const sc = calcSeg(timeIN, timeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT);
-        const ot = calcSeg(timeIN, timeOUT, officialOverTimeIN,          officialOverTimeOUT);
+        // Use specialTimeIN/specialTimeOUT (dedicated biometric punch for the
+        // special segment) when the specialType matches. Fall back to the
+        // regular timeIN/timeOUT if no dedicated special punch exists.
+        const hnTIn = (row.specialType === "HONORARIUM" && row.specialTimeIN)  ? row.specialTimeIN  : timeIN;
+        const hnTOut= (row.specialType === "HONORARIUM" && row.specialTimeOUT) ? row.specialTimeOUT : timeOUT;
+        const scTIn = (row.specialType === "SERVICE"    && row.specialTimeIN)  ? row.specialTimeIN  : timeIN;
+        const scTOut= (row.specialType === "SERVICE"    && row.specialTimeOUT) ? row.specialTimeOUT : timeOUT;
+        const otTIn = (row.specialType === "OVERTIME"   && row.specialTimeIN)  ? row.specialTimeIN  : timeIN;
+        const otTOut= (row.specialType === "OVERTIME"   && row.specialTimeOUT) ? row.specialTimeOUT : timeOUT;
+
+        const hn = calcSeg(hnTIn, hnTOut, officialHonorariumTimeIN,    officialHonorariumTimeOUT);
+        const sc = calcSeg(scTIn, scTOut, officialServiceCreditTimeIN, officialServiceCreditTimeOUT);
+        const ot = calcSeg(otTIn, otTOut, officialOverTimeIN,          officialOverTimeOUT);
 
         return {
           ...row,
@@ -1053,9 +1161,19 @@ if (dup.data?.data?.length) {
                 <Box>
                   <Typography variant="body2" sx={{ opacity: 0.8, mb: 1, textTransform: "uppercase", letterSpacing: "0.1em", color: accentDark }}>30hrs | Job Order (JO) Attendance Records</Typography>
                   <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: accentColor }}><b>{employeeNumber}</b></Typography>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 2 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1.5, flexWrap: "wrap" }}>
                     <Chip icon={<WorkHistory />} label={`${attendanceData.length} Records`} size="small" sx={{ bgcolor: alpha(accentColor,0.15), color: accentColor, fontWeight: 500 }} />
-                    <Typography variant="body2" sx={{ opacity: 0.8, color: accentDark }}>{startDate} to {endDate}</Typography>
+                    {/* Period badge */}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 0.5, borderRadius: 1.5, bgcolor: alpha(accentColor, 0.1), border: `1px solid ${alpha(accentColor, 0.2)}` }}>
+                      <CalendarToday sx={{ fontSize: 13, color: accentColor, opacity: 0.8 }} />
+                      <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, fontFamily: "monospace", color: accentColor }}>
+                        {startDate}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.75rem", color: alpha(accentColor, 0.5), mx: 0.25 }}>–</Typography>
+                      <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, fontFamily: "monospace", color: accentColor }}>
+                        {endDate}
+                      </Typography>
+                    </Box>
                   </Box>
                 </Box>
                 <Avatar sx={{ bgcolor: alpha(accentColor,0.15), width: 80, height: 80, color: accentColor }}>
@@ -1092,7 +1210,7 @@ if (dup.data?.data?.length) {
 
               {/* Table */}
               <Box sx={{ px: 3, pb: 3 }}>
-                <Box sx={{ position: "relative", borderRadius: 2, border: `1px solid ${alpha(accentColor, 0.1)}`, overflow: "hidden" }}>
+                <Box sx={{ position: "relative", borderRadius: 2, border: `1px solid ${alpha(accentColor, 0.15)}`, overflow: "hidden" }}>
                   <Box
                     ref={tableBodyRef}
                     sx={{
@@ -1103,158 +1221,224 @@ if (dup.data?.data?.length) {
                       "&::-webkit-scrollbar-thumb": { background: "rgba(109,35,35,0.4)", borderRadius: 4 },
                     }}
                   >
-                    {/* ── REGULAR TAB ── */}
-                    {activeTab === "regular" && (
-                      <Table sx={{ minWidth: REGULAR_COLS.reduce((s, c) => s + (c.minWidth || 120), 0) }}>
+                    {/* shared two-row header builder */}
+                    {(() => {
+                      // Group label row — must match exact column order:
+                      // Date, Day | Time IN, Time OUT | Official IN, Official OUT | Rendered | Tardiness
+                      const groupSpans = [
+                        { label: "",                  span: 2, group: "meta"     },
+                        { label: "Employee Device Records",    span: 2, group: "actual",   dividerBefore: true },
+                        { label: "Official Schedule", span: 2, group: "official", dividerBefore: true },
+                        { label: "Rendered",          span: 1, group: "calc",     dividerBefore: true },
+                        { label: "Tardiness",         span: 1, group: "tard" },
+                      ];
+
+                      const headerBg = (group) =>
+                        group === "actual"   ? alpha(accentColor, 0.13) :
+                        group === "official" ? alpha(accentColor, 0.06) :
+                        group === "calc"     ? "rgba(21,128,61,0.10)"   :
+                        group === "tard"     ? "rgba(153,27,27,0.10)"   :
+                        alpha(accentColor, 0.03);
+
+                      const headerBg2 = (group) =>
+                        group === "actual"   ? alpha(accentColor, 0.09) :
+                        group === "official" ? alpha(accentColor, 0.04) :
+                        group === "calc"     ? "rgba(21,128,61,0.07)"   :
+                        group === "tard"     ? "rgba(153,27,27,0.07)"   :
+                        alpha(accentColor, 0.02);
+
+                      const cellBg = (group, isEven) =>
+                        group === "actual"   ? (isEven ? alpha(accentColor, 0.08) : alpha(accentColor, 0.13)) :
+                        group === "calc"     ? (isEven ? "rgba(21,128,61,0.05)"   : "rgba(21,128,61,0.09)")  :
+                        group === "tard"     ? (isEven ? "rgba(153,27,27,0.04)"   : "rgba(153,27,27,0.08)")  :
+                        isEven ? "#ffffff" : "rgba(0,0,0,0.02)";
+
+                      const cellColor = (group) =>
+                        group === "official" ? "#374151" :
+                        group === "calc"     ? "#166534" :
+                        group === "tard"     ? "#991b1b" :
+                        "#111827";
+
+                      // Uniform black-tint hover for all cells — readable over any group color
+                      const hoverBg = "rgba(0,0,0,0.18)";
+
+                      const buildCell = (content, group, isEven, dividerBefore = false) => (
+                        <TableCell sx={{
+                          fontSize: "0.82rem",
+                          borderBottom: `1px solid ${alpha(accentColor, 0.07)}`,
+                          borderLeft: group === "actual"
+                            ? `3px solid ${alpha(accentColor, 0.45)}`
+                            : dividerBefore ? `2px solid ${alpha(accentColor, 0.2)}` : "none",
+                          px: 1.75, py: 0.85, whiteSpace: "nowrap",
+                          fontFamily: "monospace", textAlign: "center",
+                          fontWeight: group === "calc" || group === "tard" ? 700 : group === "actual" ? 700 : 400,
+                          color: cellColor(group),
+                          bgcolor: cellBg(group, isEven),
+                          transition: "background-color 0.15s ease",
+                          "tr:hover &": { bgcolor: `${hoverBg} !important` },
+                        }}>{content}</TableCell>
+                      );
+
+                      const buildTwoRowHead = (cols) => (
                         <TableHead>
                           <TableRow>
-                            {REGULAR_COLS.map(({ label, minWidth, altBg, accent, accentDark: adk }) => {
-                              const bg = accent ? alpha(accentColor, 0.22) : adk ? alpha(accentColor, 0.32) : altBg ? alpha(primaryColor, 0.85) : alpha(primaryColor, 0.92);
-                              return (
-                                <PremiumTableCell key={label} isHeader bgColor={bg} sx={{ color: accentColor, minWidth: minWidth || 120, position: "sticky", top: 0, zIndex: 2 }}>
-                                  {label}
-                                </PremiumTableCell>
-                              );
-                            })}
+                            {groupSpans.map(({ label, span, group, dividerBefore }, gi) => (
+                              <TableCell key={gi} colSpan={span} sx={{
+                                textAlign: "center", fontWeight: 700, fontSize: "0.69rem",
+                                letterSpacing: "0.07em", textTransform: "uppercase",
+                                py: 0.85, px: 1.75, whiteSpace: "nowrap",
+                                position: "sticky", top: 0, zIndex: 3,
+                                borderBottom: `1px solid ${alpha(accentColor, 0.12)}`,
+                                borderLeft: dividerBefore ? `2px solid ${alpha(accentColor, 0.35)}` : "none",
+                                bgcolor: headerBg(group),
+                                color:
+                                  group === "actual"   ? accentColor :
+                                  group === "official" ? alpha(accentColor, 0.7) :
+                                  group === "calc"     ? "#166534" :
+                                  "transparent",
+                              }}>
+                                {label}
+                              </TableCell>
+                            ))}
                           </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {attendanceData.map((row, index) => {
-                            const statusLabel = getStatusLabelForDate(row.date);
-                            const isFurlough  = Boolean(statusLabel);
-                            return (
-                              <TableRow key={index} sx={{ "&:nth-of-type(even)": { bgcolor: alpha(primaryColor,0.3) }, "&:hover": { bgcolor: alpha(accentColor,0.05) }, transition: "all 0.15s ease" }}>
-                                <PremiumTableCell sx={{ fontWeight: "bold", textAlign: "center" }}>
-                                  <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
-                                    <span>{row.date}</span>
-                                    {statusLabel && (
-                                      <Chip size="small" label={statusLabel} sx={{ mt: 0.5, fontWeight: 700, fontSize: "0.70rem", height: 20, ...getStatusStyle(statusLabel) }} />
-                                    )}
-                                  </Box>
-                                </PremiumTableCell>
-                                <PremiumTableCell bgColor={alpha(primaryColor,0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.day}</PremiumTableCell>
-                                <PremiumTableCell>{row.timeIN}</PremiumTableCell>
-                                <PremiumTableCell bgColor={alpha(primaryColor,0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.officialTimeIN}</PremiumTableCell>
-                                <PremiumTableCell>{row.timeOUT}</PremiumTableCell>
-                                <PremiumTableCell bgColor={alpha(primaryColor,0.5)} sx={{ fontWeight: "bold", textAlign: "center" }}>{row.officialTimeOUT}</PremiumTableCell>
-                                <PremiumTableCell bgColor={alpha(accentColor,0.1)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                                  {isFurlough
-                                    ? (!row.formattedFacultyMaxRenderedTime||row.formattedFacultyMaxRenderedTime==="NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyMaxRenderedTime)
-                                    : (!row.officialTimeIN||!row.timeOUT||row.formattedFacultyRenderedTime==="NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTime)}
-                                </PremiumTableCell>
-                                <PremiumTableCell bgColor={alpha(accentColor,0.18)} sx={{ fontWeight: "bold", textAlign: "center" }}>
-                                  {isFurlough ? "00:00:00"
-                                    : (!row.officialTimeIN||!row.timeOUT||row.formattedfinalcalcFaculty==="NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTime : row.formattedfinalcalcFaculty)}
-                                </PremiumTableCell>
-                              </TableRow>
-                            );
-                          })}
-
-                          {/* Totals row */}
-                          <TableRow sx={{ bgcolor: alpha(accentColor, 0.07), borderTop: `2px solid ${alpha(accentColor, 0.2)}` }}>
-                            <PremiumTableCell colSpan={REGULAR_NON_CALC} sx={{ fontWeight: 700, textAlign: "right", color: accentColor, fontSize: "0.8rem", pr: 2 }}>
-                              TOTAL FOR PERIOD
-                            </PremiumTableCell>
-                            <PremiumTableCell bgColor={alpha(accentColor, 0.22)} sx={{ fontWeight: 800, textAlign: "center", fontFamily: "monospace", fontSize: "0.9rem", color: accentColor }}>
-                              {totals.regularRendered || "00:00:00"}
-                            </PremiumTableCell>
-                            <PremiumTableCell bgColor={alpha(accentColor, 0.32)} sx={{ fontWeight: 800, textAlign: "center", fontFamily: "monospace", fontSize: "0.9rem", color: accentColor }}>
-                              {totals.regularTardiness || "00:00:00"}
-                            </PremiumTableCell>
-                          </TableRow>
-
-                          {/* Overall row */}
-                          <TableRow sx={{ bgcolor: alpha(accentColor, 0.12) }}>
-                            <PremiumTableCell colSpan={REGULAR_NON_CALC} sx={{ fontWeight: 700, textAlign: "right", color: accentColor, fontSize: "0.8rem", pr: 2 }}>
-                              OVERALL RENDERED — {startDate} → {endDate}
-                            </PremiumTableCell>
-                            <PremiumTableCell bgColor={alpha(accentColor, 0.22)} sx={{ fontWeight: 900, textAlign: "center", fontFamily: "monospace", fontSize: "1rem", color: accentColor }}>
-                              {totals.regularRendered || "00:00:00"}
-                            </PremiumTableCell>
-                            <PremiumTableCell bgColor={alpha(accentColor, 0.32)} sx={{ fontWeight: 900, textAlign: "center", fontFamily: "monospace", fontSize: "1rem", color: accentColor }}>
-                              {totals.regularTardiness || "00:00:00"}
-                            </PremiumTableCell>
-                          </TableRow>
-                        </TableBody>
-                      </Table>
-                    )}
-
-                    {/* ── HN / SC / OT TABS ── */}
-                    {activeTab !== "regular" && columns && (
-                      <Table sx={{ minWidth: columns.reduce((s, c) => s + (c.minWidth || 120), 0) }}>
-                        <TableHead>
                           <TableRow>
-                            {columns.map(({ label, minWidth, altBg, accent, accentDark: adk }) => {
-                              const bg = accent ? alpha(accentColor, 0.22) : adk ? alpha(accentColor, 0.32) : altBg ? alpha(primaryColor, 0.85) : alpha(primaryColor, 0.92);
-                              return (
-                                <PremiumTableCell key={label} isHeader bgColor={bg} sx={{ color: accentColor, minWidth: minWidth || 120, position: "sticky", top: 0, zIndex: 2 }}>
-                                  {label}
-                                </PremiumTableCell>
-                              );
-                            })}
+                            {cols.map(({ label, minWidth, group, dividerBefore }) => (
+                              <TableCell key={label} sx={{
+                                minWidth: minWidth || 120,
+                                textAlign: "center",
+                                position: "sticky", top: 32, zIndex: 2,
+                                fontSize: "0.72rem", fontWeight: 600,
+                                py: 1, px: 1.75, whiteSpace: "nowrap",
+                                borderBottom: `2px solid ${alpha(accentColor, 0.28)}`,
+                                borderLeft: dividerBefore ? `2px solid ${alpha(accentColor, 0.35)}` : "none",
+                                bgcolor: headerBg2(group),
+                                color: "#111827",
+                              }}>
+                                {label}
+                              </TableCell>
+                            ))}
                           </TableRow>
                         </TableHead>
-                        <TableBody>
-                          {attendanceData.map((row, ri) => {
-                            const isFurlough = Boolean(getStatusLabelForDate(row.date));
-                            return (
-                              <TableRow key={ri} sx={{ "&:nth-of-type(even)": { bgcolor: alpha(primaryColor,0.3) }, "&:hover": { bgcolor: alpha(accentColor,0.05) }, transition: "all 0.15s ease" }}>
-                                {columns.map(({ key, bold, altBg, accent: ac2, accentDark: adk2 }) => {
-                                  const cellBg = ac2 ? alpha(accentColor, 0.1) : adk2 ? alpha(accentColor, 0.18) : altBg ? alpha(primaryColor, 0.45) : null;
-                                  // Date cell: show furlough chip
-                                  if (key === "date") {
-                                    const statusLabel = getStatusLabelForDate(row.date);
-                                    return (
-                                      <PremiumTableCell key={key} bgColor={cellBg} sx={{ fontWeight: bold ? 700 : 500, textAlign: "center" }}>
-                                        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
-                                          <span>{row.date}</span>
-                                          {statusLabel && (
-                                            <Chip size="small" label={statusLabel} sx={{ mt: 0.5, fontWeight: 700, fontSize: "0.70rem", height: 20, ...getStatusStyle(statusLabel) }} />
-                                          )}
-                                        </Box>
-                                      </PremiumTableCell>
-                                    );
-                                  }
+                      );
+
+                      return (
+                        <>
+                          {/* ── REGULAR TAB ── */}
+                          {activeTab === "regular" && (
+                            <Table sx={{ minWidth: REGULAR_COLS.reduce((s, c) => s + (c.minWidth || 120), 0), borderCollapse: "collapse" }}>
+                              {buildTwoRowHead(REGULAR_COLS)}
+                              <TableBody>
+                                {attendanceData.map((row, index) => {
+                                  const statusLabel = getStatusLabelForDate(row.date);
+                                  const isFurlough  = Boolean(statusLabel);
+                                  const isEven = index % 2 === 0;
                                   return (
-                                    <PremiumTableCell key={key} bgColor={cellBg} sx={{ fontWeight: bold ? 700 : 500, textAlign: (bold || ac2 || adk2) ? "center" : "left" }}>
-                                      {getCellValue(row, key, isFurlough)}
-                                    </PremiumTableCell>
+                                    <TableRow key={index}>
+                                      <TableCell sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#111827", bgcolor: isEven ? "#ffffff" : alpha(accentColor, 0.02), borderBottom: `1px solid ${alpha(accentColor, 0.07)}`, px: 1.75, py: 0.85, whiteSpace: "nowrap", textAlign: "center", "tr:hover &": { bgcolor: "rgba(0,0,0,0.18) !important" }, transition: "background-color 0.15s ease" }}>
+                                        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0.3 }}>
+                                          <span>{row.date}</span>
+                                          {statusLabel && <Chip size="small" label={statusLabel} sx={{ fontWeight: 700, fontSize: "0.65rem", height: 18, ...getStatusStyle(statusLabel) }} />}
+                                        </Box>
+                                      </TableCell>
+                                      <TableCell sx={{ fontSize: "0.82rem", color: "#6B7280", bgcolor: isEven ? "#ffffff" : alpha(accentColor, 0.02), borderBottom: `1px solid ${alpha(accentColor, 0.07)}`, px: 1.75, py: 0.85, textAlign: "center", "tr:hover &": { bgcolor: "rgba(0,0,0,0.18) !important" }, transition: "background-color 0.15s ease" }}>
+                                        {row.day}
+                                      </TableCell>
+                                      {/* Employee Device Records group: Time IN → Time OUT */}
+                                      {buildCell(row.timeIN  || "—", "actual",   isEven, true)}
+                                      {buildCell(row.timeOUT || "—", "actual",   isEven)}
+                                      {/* Official Schedule group: Official IN → Official OUT */}
+                                      {buildCell(row.officialTimeIN  || "—", "official", isEven, true)}
+                                      {buildCell(row.officialTimeOUT || "—", "official", isEven)}
+                                      {buildCell(
+                                        isFurlough
+                                          ? (!row.formattedFacultyMaxRenderedTime || row.formattedFacultyMaxRenderedTime === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyMaxRenderedTime)
+                                          : (!row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTime === "NaN:NaN:NaN" ? "00:00:00" : row.formattedFacultyRenderedTime),
+                                        "calc", isEven, true
+                                      )}
+                                      {buildCell(
+                                        isFurlough ? "00:00:00"
+                                          : (!row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFaculty === "NaN:NaN:NaN" ? row.formattedFacultyMaxRenderedTime : row.formattedfinalcalcFaculty),
+                                        "tard", isEven
+                                      )}
+                                    </TableRow>
                                   );
                                 })}
-                              </TableRow>
-                            );
-                          })}
+                                <TableRow sx={{ bgcolor: alpha(accentColor, 0.05), borderTop: `2px solid ${alpha(accentColor, 0.18)}` }}>
+                                  <TableCell colSpan={6} sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: alpha(accentColor, 0.45), textAlign: "right", pr: 2.5, py: 1.5, borderBottom: "none" }}>
+                                    Overall Rendered Time ({startDate} – {endDate})
+                                  </TableCell>
+                                  <TableCell sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.9rem", color: "#166534", textAlign: "center", py: 1.5, borderBottom: "none", borderLeft: `2px solid ${alpha(accentColor, 0.2)}`, bgcolor: "rgba(21,128,61,0.07)" }}>
+                                    {totals.regularRendered || "00:00:00"}
+                                  </TableCell>
+                                  <TableCell sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.9rem", color: "#991b1b", textAlign: "center", py: 1.5, borderBottom: "none", bgcolor: "rgba(153,27,27,0.07)" }}>
+                                    {totals.regularTardiness || "00:00:00"}
+                                  </TableCell>
+                                </TableRow>
+                              </TableBody>
+                            </Table>
+                          )}
 
-                          {/* Totals row */}
-                          <TableRow sx={{ bgcolor: alpha(accentColor, 0.07), borderTop: `2px solid ${alpha(accentColor, 0.2)}` }}>
-                            {columns.map(({ key, accent: ac2, accentDark: adk2 }, ci) => {
-                              if (ci === 0) {
-                                return (
-                                  <PremiumTableCell key={key} colSpan={nonCalcCount} sx={{ fontWeight: 700, textAlign: "right", color: accentColor, fontSize: "0.8rem", pr: 2 }}>
-                                    TOTAL FOR PERIOD
-                                  </PremiumTableCell>
-                                );
-                              }
-                              if (ci < nonCalcCount) return null;
-                              const totalIdx = ci - nonCalcCount;
-                              const bg = ac2 ? alpha(accentColor, 0.22) : adk2 ? alpha(accentColor, 0.32) : null;
-                              return (
-                                <PremiumTableCell key={key} bgColor={bg} sx={{ fontWeight: 800, textAlign: "center", fontFamily: "monospace", fontSize: "0.9rem", color: accentColor }}>
-                                  {tabTotals[totalIdx] || "00:00:00"}
-                                </PremiumTableCell>
-                              );
-                            })}
-                          </TableRow>
-                        </TableBody>
-                      </Table>
-                    )}
+                          {/* ── HN / SC / OT TABS ── */}
+                          {activeTab !== "regular" && columns && (
+                            <Table sx={{ minWidth: columns.reduce((s, c) => s + (c.minWidth || 120), 0), borderCollapse: "collapse" }}>
+                              {buildTwoRowHead(columns)}
+                              <TableBody>
+                                {attendanceData.map((row, ri) => {
+                                  const isFurlough = Boolean(getStatusLabelForDate(row.date));
+                                  const isEven = ri % 2 === 0;
+                                  return (
+                                    <TableRow key={ri}>
+                                      {columns.map(({ key, group, dividerBefore: db }) => {
+                                        if (key === "date") {
+                                          const statusLabel = getStatusLabelForDate(row.date);
+                                          return (
+                                            <TableCell key={key} sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#111827", bgcolor: isEven ? "#ffffff" : alpha(accentColor, 0.02), borderBottom: `1px solid ${alpha(accentColor, 0.07)}`, px: 1.75, py: 0.85, whiteSpace: "nowrap", textAlign: "center", "tr:hover &": { bgcolor: "rgba(0,0,0,0.18) !important" }, transition: "background-color 0.15s ease" }}>
+                                              <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0.3 }}>
+                                                <span>{row.date}</span>
+                                                {statusLabel && <Chip size="small" label={statusLabel} sx={{ fontWeight: 700, fontSize: "0.65rem", height: 18, ...getStatusStyle(statusLabel) }} />}
+                                              </Box>
+                                            </TableCell>
+                                          );
+                                        }
+                                        if (key === "day") {
+                                          return (
+                                            <TableCell key={key} sx={{ fontSize: "0.82rem", color: "#6B7280", bgcolor: isEven ? "#ffffff" : alpha(accentColor, 0.02), borderBottom: `1px solid ${alpha(accentColor, 0.07)}`, px: 1.75, py: 0.85, textAlign: "center", "tr:hover &": { bgcolor: "rgba(0,0,0,0.18) !important" }, transition: "background-color 0.15s ease" }}>
+                                              {row.day}
+                                            </TableCell>
+                                          );
+                                        }
+                                        return (
+                                          <React.Fragment key={key}>
+                                            {buildCell(getCellValue(row, key, isFurlough), group, isEven, db)}
+                                          </React.Fragment>
+                                        );
+                                      })}
+                                    </TableRow>
+                                  );
+                                })}
+                                <TableRow sx={{ bgcolor: alpha(accentColor, 0.05), borderTop: `2px solid ${alpha(accentColor, 0.18)}` }}>
+                                  <TableCell colSpan={6} sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: alpha(accentColor, 0.45), textAlign: "right", pr: 2.5, py: 1.5, borderBottom: "none" }}>
+                                    Overall Rendered Time ({startDate} – {endDate})
+                                  </TableCell>
+                                  <TableCell sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.9rem", color: "#166534", textAlign: "center", py: 1.5, borderBottom: "none", borderLeft: `2px solid ${alpha(accentColor, 0.2)}`, bgcolor: "rgba(21,128,61,0.07)" }}>
+                                    {tabTotals[0] || "00:00:00"}
+                                  </TableCell>
+                                  <TableCell sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.9rem", color: "#991b1b", textAlign: "center", py: 1.5, borderBottom: "none", bgcolor: "rgba(153,27,27,0.07)" }}>
+                                    {tabTotals[1] || "00:00:00"}
+                                  </TableCell>
+                                </TableRow>
+                              </TableBody>
+                            </Table>
+                          )}
+                        </>
+                      );
+                    })()}
                   </Box>
                 </Box>
               </Box>
             </GlassCard>
           </Fade>
         )}
-
         {/* Unified Floating Bar */}
         <FloatingTotalsBar
           accentColor={accentColor}
@@ -1265,6 +1449,8 @@ if (dup.data?.data?.length) {
           onSave={saveOverallAttendance}
           saving={saving}
           activeTab={activeTab}
+          startDate={startDate}
+          endDate={endDate}
         />
 
         {/* No Official Time Modal */}
