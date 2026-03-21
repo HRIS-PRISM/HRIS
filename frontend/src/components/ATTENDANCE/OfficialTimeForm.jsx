@@ -1,4 +1,12 @@
-// (full file contents - all bugs fixed + toggle view + tamper protection + TimePickerField inline)
+// ─── PATCH NOTES ────────────────────────────────────────────────────────────
+// 1. Academic Year auto-format: typing "2025" → blurs/Enter → "2025 - 2026"
+// 2. View Schedule modal footer: removed Close button (left), moved Edit Schedule
+//    button to the RIGHT side (alongside Save Changes / Close).
+// 3. TimePickerField: segment-aware backspace/delete.
+//    Cursor inside HH → only HH resets to "00"; inside MM → only MM; inside SS → only SS.
+//    The rest of the time value is preserved.
+// ────────────────────────────────────────────────────────────────────────────
+
 import API_BASE_URL from "../../apiConfig";
 import React, {
   useState,
@@ -70,6 +78,8 @@ import {
   Delete,
   ClearAll,
   Edit,
+  ArrowBack,
+  ArrowForward,
 } from "@mui/icons-material";
 
 import LoadingOverlay from "../LoadingOverlay";
@@ -80,18 +90,7 @@ import AccessDenied from "../AccessDenied";
 import CircularProgress from "@mui/material/CircularProgress";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TIME PICKER FIELD — inline (no separate file needed)
-// Format: HH:MM:SS AM/PM  (e.g. "08:00:00 AM")
-// Features: auto-colons, AM/PM dropdown, quick-pick popover, per-field clear
-//
-// FIX: useEffect no longer re-syncs digits from `value` when the change came
-//      from the user's own input (avoids the "cursor-fight" that made 00:00
-//      impossible to edit). We track the last value we emitted ourselves in
-//      lastEmittedRef and only accept an external sync when value differs from
-//      that ref — i.e. a true parent-driven reset.
-//
-// FIX: isEmpty now checks digits truthiness correctly so "000000" (midnight)
-//      is NOT treated as empty and shows the clear button.
+// TIME PICKER FIELD — segment-aware backspace/delete
 // ─────────────────────────────────────────────────────────────────────────────
 
 const _parseTimeString = (val) => {
@@ -107,11 +106,13 @@ const _parseTimeString = (val) => {
   return { digits: "", ampm: "AM" };
 };
 
+// Format 6-digit string → "HH:MM:SS"
 const _formatDigits = (d) => {
-  const clean = (d || "").replace(/\D/g, "").slice(0, 6);
-  if (clean.length <= 2) return clean;
-  if (clean.length <= 4) return `${clean.slice(0, 2)}:${clean.slice(2)}`;
-  return `${clean.slice(0, 2)}:${clean.slice(2, 4)}:${clean.slice(4)}`;
+  // Always pad to 6 digits before slicing so every segment is exactly 2 chars.
+  // Without this, a 5-digit string like "10000" produces "10:00:0" instead of "10:00:00".
+  const clean = (d || "").replace(/\D/g, "").slice(0, 6).padEnd(6, "0");
+  if (!clean.replace(/0/g, "").length && (d || "") === "") return ""; // truly empty → show placeholder
+  return `${clean.slice(0, 2)}:${clean.slice(2, 4)}:${clean.slice(4, 6)}`;
 };
 
 const _buildOutput = (digits, ampm) => {
@@ -123,6 +124,16 @@ const _HOURS = Array.from({ length: 12 }, (_, i) =>
   String(i + 1).padStart(2, "0"),
 );
 const _MINUTES = ["00", "15", "30", "45"];
+
+// Determine which segment (HH/MM/SS) a cursor position in "HH:MM:SS" belongs to.
+// Returns 'hh' | 'mm' | 'ss'
+const _segmentAtCursor = (cursorPos) => {
+  // "HH:MM:SS"
+  //  01 23 45 67  (index)
+  if (cursorPos <= 2) return "hh";
+  if (cursorPos <= 5) return "mm";
+  return "ss";
+};
 
 const TimePickerField = ({
   value,
@@ -137,16 +148,9 @@ const TimePickerField = ({
   const [ampm, setAmpm] = useState(parsed.ampm);
   const [anchorEl, setAnchorEl] = useState(null);
   const inputRef = useRef(null);
-
-  // Track the last value we ourselves emitted so the useEffect below does NOT
-  // re-parse and overwrite the user's in-progress edit with the same value we
-  // just sent up. Without this, typing "0" into "00:00:00 AM" immediately
-  // re-synced back to "000000" before the user could continue.
   const lastEmittedRef = useRef(value);
 
   useEffect(() => {
-    // Only re-sync from outside when the parent truly changed the value to
-    // something different from what we last emitted (e.g. a programmatic reset).
     if (value !== lastEmittedRef.current) {
       const p = _parseTimeString(value);
       setDigits(p.digits);
@@ -162,6 +166,45 @@ const TimePickerField = ({
       onChange(out);
     },
     [onChange],
+  );
+
+  // ── Segment-aware keydown ────────────────────────────────────────────────
+  const handleKeyDown = useCallback(
+    (e) => {
+      if (e.key !== "Backspace" && e.key !== "Delete") return;
+
+      const el = inputRef.current;
+      if (!el) return;
+
+      // cursor position in the *displayed* "HH:MM:SS" string
+      const cursorPos = el.selectionStart ?? 0;
+      const segment = _segmentAtCursor(cursorPos);
+
+      // current digits (always 6 chars after padding)
+      const d = (digits || "").replace(/\D/g, "").padEnd(6, "0").slice(0, 6);
+
+      let newDigits;
+      if (segment === "hh") {
+        newDigits = "00" + d.slice(2);
+      } else if (segment === "mm") {
+        newDigits = d.slice(0, 2) + "00" + d.slice(4);
+      } else {
+        newDigits = d.slice(0, 4) + "00";
+      }
+
+      e.preventDefault(); // stop default which would clear whole field
+      setDigits(newDigits);
+      emit(newDigits, ampm);
+
+      // Restore cursor to beginning of the cleared segment after re-render
+      requestAnimationFrame(() => {
+        if (!inputRef.current) return;
+        const positions = { hh: 0, mm: 3, ss: 6 };
+        const pos = positions[segment];
+        inputRef.current.setSelectionRange(pos, pos + 2);
+      });
+    },
+    [digits, ampm, emit],
   );
 
   const handleDigitInput = useCallback(
@@ -201,13 +244,11 @@ const TimePickerField = ({
   );
 
   const displayValue = _formatDigits(digits);
-  // FIX: a string of zeros is valid (midnight), not "empty".
-  // Only treat as empty when digits is genuinely blank AND value is blank.
   const isEmpty = digits === "" && (!value || value === "");
 
   return (
     <Box
-      sx={{ display: "flex", alignItems: "center", gap: 0.5, width: "100%" }}
+      sx={{ display: "flex", alignItems: "center", gap: 0.3, width: "100%" }}
     >
       <TextField
         inputRef={inputRef}
@@ -216,11 +257,12 @@ const TimePickerField = ({
         placeholder="00:00:00"
         value={displayValue}
         onChange={handleDigitInput}
+        onKeyDown={handleKeyDown}
         disabled={disabled}
         inputProps={{ maxLength: 8 }}
         sx={{
           flex: 1,
-          minWidth: 90,
+          minWidth: 75,
           "& .MuiOutlinedInput-root": {
             fontSize: "0.85rem",
             fontFamily: "monospace",
@@ -243,8 +285,8 @@ const TimePickerField = ({
         sx={{
           fontSize: "0.78rem",
           fontWeight: 700,
-          minWidth: 72,
-          width: 72,
+          minWidth: 58,
+          width: 58,
           "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
             borderColor: accentColor,
           },
@@ -323,7 +365,6 @@ const TimePickerField = ({
           },
         }}
       >
-        {/* Header */}
         <Box sx={{ bgcolor: accentColor, px: 2, py: 1, flexShrink: 0 }}>
           <Typography
             sx={{
@@ -337,7 +378,6 @@ const TimePickerField = ({
             Quick Pick
           </Typography>
         </Box>
-        {/* Scrollable body */}
         <Box sx={{ overflowY: "auto", flex: 1 }}>
           {["AM", "PM"].map((ap) => (
             <Box key={ap}>
@@ -410,7 +450,6 @@ const TimePickerField = ({
             </Box>
           ))}
         </Box>
-        {/* Footer */}
         <Box
           sx={{
             px: 2,
@@ -439,6 +478,30 @@ const TimePickerField = ({
       </Popover>
     </Box>
   );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACADEMIC YEAR FIELD — auto-format helper
+// "2025" → "2025 - 2026"   |   "2025-2026" → "2025 - 2026"
+// ─────────────────────────────────────────────────────────────────────────────
+
+const autoFormatAcademicYear = (raw) => {
+  if (!raw) return raw;
+  const trimmed = raw.trim();
+
+  // Already in "YYYY - YYYY" format → leave alone
+  if (/^\d{4}\s*-\s*\d{4}$/.test(trimmed)) {
+    // Normalise spacing
+    return trimmed.replace(/\s*-\s*/, " - ");
+  }
+
+  // Plain 4-digit year → append next year
+  if (/^\d{4}$/.test(trimmed)) {
+    const y = parseInt(trimmed, 10);
+    return `${y} - ${y + 1}`;
+  }
+
+  return raw;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -478,18 +541,8 @@ const formatDateLong = (val) => {
     y = yy;
     day = dd;
     const months = [
-      "January",
-      "February",
-      "March",
-      "April",
-      "May",
-      "June",
-      "July",
-      "August",
-      "September",
-      "October",
-      "November",
-      "December",
+      "January","February","March","April","May","June",
+      "July","August","September","October","November","December",
     ];
     month = months[mm - 1] || "";
   } else {
@@ -498,18 +551,8 @@ const formatDateLong = (val) => {
     y = d.getFullYear();
     day = d.getDate();
     const months = [
-      "January",
-      "February",
-      "March",
-      "April",
-      "May",
-      "June",
-      "July",
-      "August",
-      "September",
-      "October",
-      "November",
-      "December",
+      "January","February","March","April","May","June",
+      "July","August","September","October","November","December",
     ];
     month = months[d.getMonth()] || "";
   }
@@ -572,34 +615,16 @@ const getTimeSegmentsForRow = (row) => {
   }
   const honIn = parseTimeToMinutes(r.officialHonorariumTimeIN);
   const honOut = parseTimeToMinutes(r.officialHonorariumTimeOUT);
-  if (
-    honIn != null &&
-    honOut != null &&
-    honIn < honOut &&
-    !(honIn === 0 && honOut === 12 * 60)
-  ) {
+  if (honIn != null && honOut != null && honIn < honOut && !(honIn === 0 && honOut === 12 * 60))
     segments.push({ start: honIn, end: honOut, label: "Honorarium" });
-  }
   const scIn = parseTimeToMinutes(r.officialServiceCreditTimeIN);
   const scOut = parseTimeToMinutes(r.officialServiceCreditTimeOUT);
-  if (
-    scIn != null &&
-    scOut != null &&
-    scIn < scOut &&
-    !(scIn === 0 && scOut === 12 * 60)
-  ) {
+  if (scIn != null && scOut != null && scIn < scOut && !(scIn === 0 && scOut === 12 * 60))
     segments.push({ start: scIn, end: scOut, label: "Service Credits" });
-  }
   const otIn = parseTimeToMinutes(r.officialOverTimeIN);
   const otOut = parseTimeToMinutes(r.officialOverTimeOUT);
-  if (
-    otIn != null &&
-    otOut != null &&
-    otIn < otOut &&
-    !(otIn === 0 && otOut === 12 * 60)
-  ) {
+  if (otIn != null && otOut != null && otIn < otOut && !(otIn === 0 && otOut === 12 * 60))
     segments.push({ start: otIn, end: otOut, label: "Overtime" });
-  }
   return segments;
 };
 
@@ -634,13 +659,7 @@ const hexToRgb = (hex) => {
 };
 
 const DAYS_ORDER = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-  "Sunday",
+  "Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday",
 ];
 
 const makeDefaultRow = (employeeID, day) => ({
@@ -795,9 +814,7 @@ const TamperWarningBanner = ({ onRestore }) => (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
       <WarningAmber sx={{ color: "#ffd180", fontSize: 22 }} />
       <Box>
-        <Typography
-          sx={{ fontWeight: 800, fontSize: "0.92rem", lineHeight: 1.2 }}
-        >
+        <Typography sx={{ fontWeight: 800, fontSize: "0.92rem", lineHeight: 1.2 }}>
           ⚠ Data Tampering Detected
         </Typography>
         <Typography sx={{ fontSize: "0.78rem", opacity: 0.85, mt: 0.25 }}>
@@ -818,10 +835,7 @@ const TamperWarningBanner = ({ onRestore }) => (
         fontSize: "0.8rem",
         flexShrink: 0,
         ml: 2,
-        "&:hover": {
-          bgcolor: "rgba(255,209,128,0.15)",
-          borderColor: "#ffd180",
-        },
+        "&:hover": { bgcolor: "rgba(255,209,128,0.15)", borderColor: "#ffd180" },
       }}
     >
       Restore from Server
@@ -833,26 +847,11 @@ const TamperWarningBanner = ({ onRestore }) => (
 // VIEW MODE TOGGLE
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ViewToggle = ({
-  value,
-  onChange,
-  accentColor,
-  primaryColor,
-  textPrimaryColor,
-}) => {
+const ViewToggle = ({ value, onChange, accentColor, primaryColor, textPrimaryColor }) => {
   const options = [
-    {
-      key: "single",
-      label: "Single Employee",
-      icon: <Person sx={{ fontSize: 18 }} />,
-    },
-    {
-      key: "allUsers",
-      label: "All Users",
-      icon: <PeopleIcon sx={{ fontSize: 18 }} />,
-    },
+    { key: "single", label: "Single Employee", icon: <Person sx={{ fontSize: 18 }} /> },
+    { key: "allUsers", label: "All Users", icon: <PeopleIcon sx={{ fontSize: 18 }} /> },
   ];
-
   return (
     <Box
       sx={{
@@ -880,14 +879,9 @@ const ViewToggle = ({
               py: 1.2,
               bgcolor: active ? accentColor : "transparent",
               color: active ? primaryColor : textPrimaryColor,
-              borderRight:
-                key === "single"
-                  ? `1px solid ${alpha(accentColor, 0.25)}`
-                  : "none",
+              borderRight: key === "single" ? `1px solid ${alpha(accentColor, 0.25)}` : "none",
               transition: "all 0.2s ease",
-              "&:hover": {
-                bgcolor: active ? accentColor : alpha(accentColor, 0.12),
-              },
+              "&:hover": { bgcolor: active ? accentColor : alpha(accentColor, 0.12) },
             }}
           >
             {label}
@@ -902,12 +896,7 @@ const ViewToggle = ({
 // REUSABLE TIME TABLE ROWS COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ScheduleTimeRows = ({
-  records,
-  onChangeRecord,
-  scheduleView,
-  readOnly = false,
-}) => {
+const ScheduleTimeRows = ({ records, onChangeRecord, scheduleView, readOnly = false }) => {
   const TIME_FIELDS = {
     workDays: [
       { key: "officialTimeIN", label: "Time In" },
@@ -928,35 +917,16 @@ const ScheduleTimeRows = ({
       { key: "officialOverTimeOUT", label: "Overtime Out" },
     ],
   };
-
   const fields = TIME_FIELDS[scheduleView] || TIME_FIELDS.workDays;
-
   return (
     <>
       <TableHead>
         <TableRow sx={{ bgcolor: "#6d2323" }}>
-          <TableCell
-            sx={{
-              color: "#fff",
-              fontWeight: 700,
-              fontSize: "0.8rem",
-              py: 1.25,
-              width: 100,
-            }}
-          >
+          <TableCell sx={{ color: "#fff", fontWeight: 700, fontSize: "0.8rem", py: 1.25, width: 100 }}>
             Day
           </TableCell>
           {fields.map((f) => (
-            <TableCell
-              key={f.key}
-              sx={{
-                color: "#fff",
-                fontWeight: 700,
-                fontSize: "0.8rem",
-                py: 1.25,
-                minWidth: 260,
-              }}
-            >
+            <TableCell key={f.key} sx={{ color: "#fff", fontWeight: 700, fontSize: "0.8rem", py: 1.25, minWidth: 200 }}>
               {f.label}
             </TableCell>
           ))}
@@ -971,26 +941,13 @@ const ScheduleTimeRows = ({
               "&:hover": { bgcolor: "#f5ecec" },
             }}
           >
-            <TableCell
-              sx={{
-                fontWeight: 600,
-                color: "#1a1a1a",
-                fontSize: "0.85rem",
-                py: 0.75,
-              }}
-            >
+            <TableCell sx={{ fontWeight: 600, color: "#1a1a1a", fontSize: "0.85rem", py: 0.75 }}>
               {record.day}
             </TableCell>
             {fields.map((f) => (
-              <TableCell key={f.key} sx={{ py: 0.6, minWidth: 260 }}>
+              <TableCell key={f.key} sx={{ py: 0.6, minWidth: 200 }}>
                 {readOnly ? (
-                  <Typography
-                    sx={{
-                      color: "#1a1a1a",
-                      fontSize: "0.85rem",
-                      fontFamily: "monospace",
-                    }}
-                  >
+                  <Typography sx={{ color: "#1a1a1a", fontSize: "0.85rem", fontFamily: "monospace" }}>
                     {record[f.key] || "—"}
                   </Typography>
                 ) : (
@@ -1033,9 +990,7 @@ const OfficialTimeForm = () => {
     setViewMode(
       typeof val === "function"
         ? (prev) => (val(prev === "allUsers") ? "allUsers" : "single")
-        : val
-          ? "allUsers"
-          : "single",
+        : val ? "allUsers" : "single",
     );
   }, []);
 
@@ -1053,8 +1008,7 @@ const OfficialTimeForm = () => {
   const [successAction, setSuccessAction] = useState("");
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewRecords, setPreviewRecords] = useState([]);
-  const [previewViewScheduleView, setPreviewViewScheduleView] =
-    useState("workDays");
+  const [previewViewScheduleView, setPreviewViewScheduleView] = useState("workDays");
 
   const [checkingOverlap, setCheckingOverlap] = useState(false);
 
@@ -1085,14 +1039,10 @@ const OfficialTimeForm = () => {
   }, []);
 
   useEffect(() => {
-    if (tamperCheckIntervalRef.current)
-      clearInterval(tamperCheckIntervalRef.current);
+    if (tamperCheckIntervalRef.current) clearInterval(tamperCheckIntervalRef.current);
     if (!serverRecordsRef.current.length) return;
     tamperCheckIntervalRef.current = setInterval(() => {
-      setRecords((current) => {
-        runIntegrityCheck(current);
-        return current;
-      });
+      setRecords((current) => { runIntegrityCheck(current); return current; });
     }, 3000);
     return () => clearInterval(tamperCheckIntervalRef.current);
   }, [runIntegrityCheck]);
@@ -1102,12 +1052,8 @@ const OfficialTimeForm = () => {
     if (!trimmedId) return;
     setLoading(true);
     try {
-      const res = await axios.get(
-        `${API_BASE_URL}/officialtimetable/${trimmedId}`,
-        getAuthHeaders(),
-      );
-      const fresh =
-        res.data.length > 0 ? res.data : buildDefaultRecords(trimmedId);
+      const res = await axios.get(`${API_BASE_URL}/officialtimetable/${trimmedId}`, getAuthHeaders());
+      const fresh = res.data.length > 0 ? res.data : buildDefaultRecords(trimmedId);
       stampServerRecords(fresh);
       setRecords(deepClone(fresh));
       setFound(res.data.length > 0);
@@ -1159,12 +1105,9 @@ const OfficialTimeForm = () => {
   const [editViewRecords, setEditViewRecords] = useState([]);
   const [editViewScheduleView, setEditViewScheduleView] = useState("workDays");
   const [editViewSaving, setEditViewSaving] = useState(false);
-
-  // ── NEW: editable end date for the view/edit schedule modal ──────────────
-  // Holds the current (possibly user-modified) end date while editing.
   const [editViewEndDate, setEditViewEndDate] = useState("");
 
-  // ── helpers ──────────────────────────────────────────────────────────────
+  // ── helpers ───────────────────────────────────────────────────────────────
 
   const showToast = useCallback((msg) => {
     setSuccessAction(msg);
@@ -1179,9 +1122,7 @@ const OfficialTimeForm = () => {
 
   const resolveEmployeeName = useCallback(
     (empId) => {
-      const found = allUsers.find(
-        (u) => String(u.employeeNumber) === String(empId),
-      );
+      const found = allUsers.find((u) => String(u.employeeNumber) === String(empId));
       return found?.fullName || "";
     },
     [allUsers],
@@ -1190,10 +1131,7 @@ const OfficialTimeForm = () => {
   const fetchAllUsers = useCallback(async () => {
     setLoadingUsers(true);
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/officialtime/users-status`,
-        getAuthHeaders(),
-      );
+      const response = await axios.get(`${API_BASE_URL}/officialtime/users-status`, getAuthHeaders());
       setAllUsers(response.data || []);
       setAllUsersPage(0);
     } catch (error) {
@@ -1204,45 +1142,31 @@ const OfficialTimeForm = () => {
     }
   }, [showToast]);
 
-  // ── Clear all times in modal for current view tab ────────────────────────
   const handleClearModalTimes = useCallback(() => {
     const fieldsByView = {
-      workDays: [
-        "officialTimeIN",
-        "officialBreaktimeIN",
-        "officialBreaktimeOUT",
-        "officialTimeOUT",
-      ],
-      honorarium: ["officialHonorariumTimeIN", "officialHonorariumTimeOUT"],
-      serviceCredits: [
-        "officialServiceCreditTimeIN",
-        "officialServiceCreditTimeOUT",
-      ],
-      overtime: ["officialOverTimeIN", "officialOverTimeOUT"],
+      workDays: ["officialTimeIN","officialBreaktimeIN","officialBreaktimeOUT","officialTimeOUT"],
+      honorarium: ["officialHonorariumTimeIN","officialHonorariumTimeOUT"],
+      serviceCredits: ["officialServiceCreditTimeIN","officialServiceCreditTimeOUT"],
+      overtime: ["officialOverTimeIN","officialOverTimeOUT"],
     };
     const fields = fieldsByView[scheduleView] || [];
     setModalRecords((prev) =>
       prev.map((row) => {
         const updated = { ...row };
-        fields.forEach((f) => {
-          updated[f] = "";
-        });
+        fields.forEach((f) => { updated[f] = ""; });
         return updated;
       }),
     );
   }, [scheduleView]);
 
-  // ── Reset all times to default ───────────────────────────────────────────
   const handleResetModalToDefault = useCallback(() => {
     const trimmedId = String(employeeID || "").trim();
     setModalRecords(DAYS_ORDER.map((day) => makeDefaultRow(trimmedId, day)));
   }, [employeeID]);
 
-  // ── Edit view schedule ────────────────────────────────────────────────────
   const handleStartEditViewSchedule = useCallback(() => {
     setEditViewRecords(deepClone(viewScheduleRecords));
     setEditViewScheduleView(viewScheduleView);
-    // FIX: initialise the editable end date from the current schedule info
     setEditViewEndDate(normalizeDateStr(viewScheduleInfo?.endDate) || "");
     setIsEditingViewSchedule(true);
   }, [viewScheduleRecords, viewScheduleView, viewScheduleInfo]);
@@ -1256,14 +1180,9 @@ const OfficialTimeForm = () => {
   const handleSaveEditedSchedule = useCallback(async () => {
     if (!viewScheduleInfo) return;
     const trimmedId = String(employeeID || "").trim();
-    if (!trimmedId) {
-      showToast("Employee ID is missing.");
-      return;
-    }
+    if (!trimmedId) { showToast("Employee ID is missing."); return; }
 
-    // Validate the new end date
-    const newEndDate =
-      editViewEndDate || normalizeDateStr(viewScheduleInfo.endDate);
+    const newEndDate = editViewEndDate || normalizeDateStr(viewScheduleInfo.endDate);
     const origStartDate = normalizeDateStr(viewScheduleInfo.startDate);
     if (newEndDate && origStartDate && newEndDate < origStartDate) {
       showToast("End date cannot be before start date.");
@@ -1288,7 +1207,6 @@ const OfficialTimeForm = () => {
         `${API_BASE_URL}/officialtimetable/${trimmedId}`,
         {
           startDate: viewScheduleInfo.startDate,
-          // FIX: send the (possibly updated) endDate
           endDate: newEndDate || viewScheduleInfo.endDate,
           records: editViewRecords,
         },
@@ -1299,18 +1217,13 @@ const OfficialTimeForm = () => {
       setEditViewRecords([]);
       setEditViewEndDate("");
 
-      // Refresh the view records
-      const res = await axios.get(
-        `${API_BASE_URL}/officialtimetable/${trimmedId}`,
-        getAuthHeaders(),
-      );
+      const res = await axios.get(`${API_BASE_URL}/officialtimetable/${trimmedId}`, getAuthHeaders());
       const allRows = res.data || [];
       stampServerRecords(allRows);
       setRecords(deepClone(allRows));
       setFound(allRows.length > 0);
 
       const normStart = normalizeDateStr(viewScheduleInfo.startDate);
-      // Use the new end date when filtering refreshed rows
       const normEnd = normalizeDateStr(newEndDate || viewScheduleInfo.endDate);
       const updatedRows = allRows.filter(
         (r) =>
@@ -1318,7 +1231,6 @@ const OfficialTimeForm = () => {
           normalizeDateStr(r.endDate) === normEnd,
       );
       setViewScheduleRecords(updatedRows);
-      // Update the schedule info panel to reflect the new end date
       setViewScheduleInfo((prev) =>
         prev ? { ...prev, endDate: newEndDate || prev.endDate } : prev,
       );
@@ -1336,36 +1248,20 @@ const OfficialTimeForm = () => {
       setEditViewSaving(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    viewScheduleInfo,
-    employeeID,
-    editViewRecords,
-    editViewEndDate,
-    showToast,
-    stampServerRecords,
-  ]);
+  }, [viewScheduleInfo, employeeID, editViewRecords, editViewEndDate, showToast, stampServerRecords]);
 
   // ── search ────────────────────────────────────────────────────────────────
 
   const handleSearch = useCallback(async () => {
     const trimmedId = String(employeeID || "").trim();
-    if (!trimmedId) {
-      showToast("Please enter an Employee ID.");
-      return;
-    }
-
+    if (!trimmedId) { showToast("Please enter an Employee ID."); return; }
     setHasSearched(true);
     setLoading(true);
     setRecords([]);
     setFound(false);
-
     try {
-      const res = await axios.get(
-        `${API_BASE_URL}/officialtimetable/${trimmedId}`,
-        getAuthHeaders(),
-      );
-      const data =
-        res.data.length > 0 ? res.data : buildDefaultRecords(trimmedId);
+      const res = await axios.get(`${API_BASE_URL}/officialtimetable/${trimmedId}`, getAuthHeaders());
+      const data = res.data.length > 0 ? res.data : buildDefaultRecords(trimmedId);
       stampServerRecords(data);
       setRecords(deepClone(data));
       setFound(res.data.length > 0);
@@ -1384,13 +1280,9 @@ const OfficialTimeForm = () => {
       setRecords((prev) => {
         const updated = [...prev];
         updated[index] = { ...updated[index], [field]: value };
-
         if (!isBulkSchedule) {
-          if (autoSaveTimeoutRef.current)
-            clearTimeout(autoSaveTimeoutRef.current);
-          autoSaveTimeoutRef.current = setTimeout(() => {
-            autoSaveRecords(updated);
-          }, 1500);
+          if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+          autoSaveTimeoutRef.current = setTimeout(() => { autoSaveRecords(updated); }, 1500);
         }
         return updated;
       });
@@ -1421,8 +1313,7 @@ const OfficialTimeForm = () => {
       saveInFlightRef.current = true;
       try {
         const academicYearForBackend =
-          [draftAcademicYear, draftSemester].filter(Boolean).join(" ").trim() ||
-          null;
+          [draftAcademicYear, draftSemester].filter(Boolean).join(" ").trim() || null;
         await axios.post(
           `${API_BASE_URL}/officialtimetable`,
           {
@@ -1446,99 +1337,67 @@ const OfficialTimeForm = () => {
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [
-      employeeID,
-      draftAcademicYear,
-      draftSemester,
-      draftStartDate,
-      draftEndDate,
-      draftStatus,
-      stampServerRecords,
-    ],
+    [employeeID, draftAcademicYear, draftSemester, draftStartDate, draftEndDate, draftStatus, stampServerRecords],
   );
 
   // ── create schedule modal ─────────────────────────────────────────────────
 
   const openCreateScheduleModal = useCallback(async () => {
     const trimmedId = String(employeeID || "").trim();
-    if (!trimmedId) {
-      showToast("Please enter Employee Number.");
-      return;
-    }
+    if (!trimmedId) { showToast("Please enter Employee Number."); return; }
 
     setIsBulkSchedule(false);
     setBulkTargetEmployees([]);
     setBulkScheduleBlocks([]);
     setScheduleView("workDays");
 
-    if (hasSearched && records.length === 0) {
-      setModalRecords(buildDefaultRecords(trimmedId));
-      setShowScheduleModal(true);
-      return;
-    }
-
-    if (!draftAcademicYear || !draftSemester) {
-      showToast("Please fill Academic Year and Semester first.");
-      return;
-    }
-    if (!draftStartDate || !draftEndDate) {
-      showToast("Please fill Start Date and End Date first.");
-      return;
-    }
-    if (new Date(draftStartDate) > new Date(draftEndDate)) {
-      showToast("Start date must be on or before End date.");
-      return;
-    }
-
+if (hasSearched && records.length === 0) {
+  // Still require period fields before opening modal
+  if (!draftAcademicYear || !draftSemester) {
+    showToast("Please fill Academic Year and Semester first.");
+    return;
+  }
+  if (!draftStartDate || !draftEndDate) {
+    showToast("Please fill Start Date and End Date first.");
+    return;
+  }
+  if (new Date(draftStartDate) > new Date(draftEndDate)) {
+    showToast("Start date must be on or before End date.");
+    return;
+  }
+  setModalRecords(buildDefaultRecords(trimmedId));
+  setShowScheduleModal(true);
+  return;
+}
     let existingRecords = [];
     try {
-      const res = await axios.get(
-        `${API_BASE_URL}/officialtimetable/${trimmedId}`,
-        getAuthHeaders(),
-      );
+      const res = await axios.get(`${API_BASE_URL}/officialtimetable/${trimmedId}`, getAuthHeaders());
       existingRecords = res.data || [];
-    } catch {
-      existingRecords = [];
-    }
+    } catch { existingRecords = []; }
 
     const byKey = new Map();
     for (const r of existingRecords) {
       const key = `${normalizeDateStr(r.startDate)}|${normalizeDateStr(r.endDate)}`;
-      if (!byKey.has(key))
-        byKey.set(key, { startDate: r.startDate, endDate: r.endDate });
+      if (!byKey.has(key)) byKey.set(key, { startDate: r.startDate, endDate: r.endDate });
     }
     const draftStart = new Date(draftStartDate).getTime();
     const draftEnd = new Date(draftEndDate).getTime();
     const hasConflict = Array.from(byKey.values()).some((existing) => {
-      const exStart = existing.startDate
-        ? new Date(existing.startDate).getTime()
-        : 0;
+      const exStart = existing.startDate ? new Date(existing.startDate).getTime() : 0;
       const exEnd = existing.endDate ? new Date(existing.endDate).getTime() : 0;
       return exStart < draftEnd && exEnd > draftStart;
     });
-    if (hasConflict) {
-      setShowConflictModal(true);
-      return;
-    }
+    if (hasConflict) { setShowConflictModal(true); return; }
 
     const sevenRows = DAYS_ORDER.map((day) => {
       const r = existingRecords.find((x) => x.day === day);
-      return r
-        ? { ...r, employeeID: trimmedId }
-        : makeDefaultRow(trimmedId, day);
+      return r ? { ...r, employeeID: trimmedId } : makeDefaultRow(trimmedId, day);
     });
     setModalRecords(sevenRows);
     setShowScheduleModal(true);
   }, [
-    employeeID,
-    hasSearched,
-    records,
-    draftAcademicYear,
-    draftSemester,
-    draftStartDate,
-    draftEndDate,
-    buildDefaultRecords,
-    showToast,
+    employeeID, hasSearched, records, draftAcademicYear, draftSemester,
+    draftStartDate, draftEndDate, buildDefaultRecords, showToast,
   ]);
 
   // ── modal record change ───────────────────────────────────────────────────
@@ -1555,7 +1414,6 @@ const OfficialTimeForm = () => {
 
   const handleSubmitFromModal = useCallback(async () => {
     const trimmedId = String(employeeID || "").trim();
-
     if (!isBulkSchedule) {
       if (!trimmedId || !draftStartDate || !draftEndDate) {
         showToast("Employee Number, Start date and End date are required.");
@@ -1595,15 +1453,7 @@ const OfficialTimeForm = () => {
 
     await executeSave(sevenRows, trimmedId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    employeeID,
-    isBulkSchedule,
-    draftStartDate,
-    draftEndDate,
-    modalRecords,
-    bulkTargetEmployees,
-    showToast,
-  ]);
+  }, [employeeID, isBulkSchedule, draftStartDate, draftEndDate, modalRecords, bulkTargetEmployees, showToast]);
 
   const executeSave = useCallback(
     async (sevenRows, trimmedId) => {
@@ -1612,7 +1462,6 @@ const OfficialTimeForm = () => {
         clearTimeout(autoSaveTimeoutRef.current);
         autoSaveTimeoutRef.current = null;
       }
-
       setSaving(true);
       try {
         if (isBulkSchedule) {
@@ -1626,19 +1475,12 @@ const OfficialTimeForm = () => {
             payload,
             { ...getAuthHeaders(), timeout: 30000 },
           );
-          const totalUsersInserted = Math.round(
-            (res.data.totalInserted || 0) / 7,
-          );
-          showToast(
-            `Bulk schedules processed. Inserted ${totalUsersInserted} users.`,
-          );
+          const totalUsersInserted = Math.round((res.data.totalInserted || 0) / 7);
+          showToast(`Bulk schedules processed. Inserted ${totalUsersInserted} users.`);
           await fetchAllUsers();
         } else {
           const academicYearForBackend =
-            [draftAcademicYear, draftSemester]
-              .filter(Boolean)
-              .join(" ")
-              .trim() || null;
+            [draftAcademicYear, draftSemester].filter(Boolean).join(" ").trim() || null;
           await axios.post(
             `${API_BASE_URL}/officialtimetable`,
             {
@@ -1682,63 +1524,36 @@ const OfficialTimeForm = () => {
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
     [
-      isBulkSchedule,
-      bulkTargetEmployees,
-      bulkScheduleBlocks,
-      draftAcademicYear,
-      draftSemester,
-      draftStartDate,
-      draftEndDate,
-      draftStatus,
-      fetchAllUsers,
-      handleSearch,
-      showToast,
-      stampServerRecords,
+      isBulkSchedule, bulkTargetEmployees, bulkScheduleBlocks,
+      draftAcademicYear, draftSemester, draftStartDate, draftEndDate, draftStatus,
+      fetchAllUsers, handleSearch, showToast, stampServerRecords,
     ],
   );
 
   // ── upload ────────────────────────────────────────────────────────────────
 
   const handleUpload = useCallback(async () => {
-    if (!file) {
-      showToast("Please select a file!");
-      return;
-    }
+    if (!file) { showToast("Please select a file!"); return; }
     if (uploading) return;
-
     const formData = new FormData();
     formData.append("file", file);
     setUploading(true);
-
     try {
       await axios.post(
         `${API_BASE_URL}/upload-excel-faculty-official-time/validate`,
         formData,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-          },
-        },
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` } },
       );
-
       const response = await axios.post(
         `${API_BASE_URL}/upload-excel-faculty-official-time`,
         formData,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-          },
-        },
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` } },
       );
-
       if (response.data.records && response.data.records.length > 0) {
         setPreviewRecords(response.data.records);
         setPreviewViewScheduleView("workDays");
         setShowPreviewModal(true);
-
-        const uploadedEmpId = String(
-          response.data.records[0]?.employeeID || "",
-        ).trim();
+        const uploadedEmpId = String(response.data.records[0]?.employeeID || "").trim();
         if (uploadedEmpId) {
           setEmployeeID(uploadedEmpId);
           setHasSearched(true);
@@ -1757,25 +1572,18 @@ const OfficialTimeForm = () => {
               setRecords(deepClone(defaults));
               setFound(false);
             }
-          } catch (e) {
-            console.error("Error refreshing schedules after upload:", e);
-          }
+          } catch (e) { console.error("Error refreshing schedules after upload:", e); }
         }
       }
-
-      showToast(
-        `${response.data.message} (Inserted: ${response.data.inserted}, Updated: ${response.data.updated})`,
-      );
+      showToast(`${response.data.message} (Inserted: ${response.data.inserted}, Updated: ${response.data.updated})`);
       setFile(null);
     } catch (error) {
       console.error("Upload error:", error);
       const message =
         error.response?.data?.message ||
         error.response?.data?.error ||
-        (error.response?.status === 400 &&
-          "Check file format: use .xlsx, include employeeID, day, effective_from, effective_until.") ||
-        (error.response?.status === 409 &&
-          "Date range overlaps an existing schedule.") ||
+        (error.response?.status === 400 && "Check file format: use .xlsx, include employeeID, day, effective_from, effective_until.") ||
+        (error.response?.status === 409 && "Date range overlaps an existing schedule.") ||
         error.message ||
         "Upload failed!";
       setWarningOverlap(error.response?.data?.overlap || null);
@@ -1789,10 +1597,7 @@ const OfficialTimeForm = () => {
   // ── all users panel ───────────────────────────────────────────────────────
 
   const handleSetDefaultForSelected = useCallback(async () => {
-    if (selectedUsers.size === 0) {
-      showToast("Please select at least one user.");
-      return;
-    }
+    if (selectedUsers.size === 0) { showToast("Please select at least one user."); return; }
     setSettingDefault(true);
     try {
       const response = await axios.post(
@@ -1800,13 +1605,9 @@ const OfficialTimeForm = () => {
         { employeeNumbers: Array.from(selectedUsers) },
         getAuthHeaders(),
       );
-      const insertedUsers =
-        response.data.insertedUsers ??
-        Math.floor((response.data.inserted || 0) / 7);
+      const insertedUsers = response.data.insertedUsers ?? Math.floor((response.data.inserted || 0) / 7);
       const skipped = response.data.skipped || 0;
-      showToast(
-        `Default official time set for ${insertedUsers} users.${skipped ? ` (Skipped: ${skipped})` : ""}`,
-      );
+      showToast(`Default official time set for ${insertedUsers} users.${skipped ? ` (Skipped: ${skipped})` : ""}`);
       await fetchAllUsers();
       setSelectedUsers(new Set());
     } catch (error) {
@@ -1818,13 +1619,8 @@ const OfficialTimeForm = () => {
   }, [selectedUsers, fetchAllUsers, showToast]);
 
   const handleSetDefaultForAll = useCallback(async () => {
-    const usersWithoutDefault = allUsers
-      .filter((u) => !u.hasDefaultOfficialTime)
-      .map((u) => u.employeeNumber);
-    if (usersWithoutDefault.length === 0) {
-      showToast("All users already have default official time.");
-      return;
-    }
+    const usersWithoutDefault = allUsers.filter((u) => !u.hasDefaultOfficialTime).map((u) => u.employeeNumber);
+    if (usersWithoutDefault.length === 0) { showToast("All users already have default official time."); return; }
     setSettingDefault(true);
     try {
       const response = await axios.post(
@@ -1832,13 +1628,9 @@ const OfficialTimeForm = () => {
         { employeeNumbers: usersWithoutDefault },
         getAuthHeaders(),
       );
-      const insertedUsers =
-        response.data.insertedUsers ??
-        Math.floor((response.data.inserted || 0) / 7);
+      const insertedUsers = response.data.insertedUsers ?? Math.floor((response.data.inserted || 0) / 7);
       const skipped = response.data.skipped || 0;
-      showToast(
-        `Default official time set for ${insertedUsers} users.${skipped ? ` (Skipped: ${skipped})` : ""}`,
-      );
+      showToast(`Default official time set for ${insertedUsers} users.${skipped ? ` (Skipped: ${skipped})` : ""}`);
       await fetchAllUsers();
     } catch (error) {
       console.error("Error setting default official time:", error);
@@ -1858,8 +1650,7 @@ const OfficialTimeForm = () => {
   }, []);
 
   const handleSelectAll = useCallback((checked, filtered) => {
-    if (checked)
-      setSelectedUsers(new Set(filtered.map((u) => u.employeeNumber)));
+    if (checked) setSelectedUsers(new Set(filtered.map((u) => u.employeeNumber)));
     else setSelectedUsers(new Set());
   }, []);
 
@@ -1873,11 +1664,7 @@ const OfficialTimeForm = () => {
     });
   }, [allUsers, searchQuery]);
 
-  const filteredAllUsers = useMemo(
-    () => getFilteredUsers(),
-    [getFilteredUsers],
-  );
-
+  const filteredAllUsers = useMemo(() => getFilteredUsers(), [getFilteredUsers]);
   const paginatedAllUsers = useMemo(() => {
     const start = allUsersPage * allUsersRowsPerPage;
     return filteredAllUsers.slice(start, start + allUsersRowsPerPage);
@@ -1886,85 +1673,51 @@ const OfficialTimeForm = () => {
   // ── bulk blocks modal ─────────────────────────────────────────────────────
 
   const openBulkBlocksModalForSelected = useCallback(() => {
-    if (selectedUsers.size === 0) {
-      showToast("Please select at least one user.");
-      return;
-    }
-    setBulkScheduleBlocks([
-      {
-        id: `${Date.now()}-${Math.random()}`,
-        academicYear: "",
-        semester: "",
-        startDate: "",
-        endDate: "",
-      },
-    ]);
+    if (selectedUsers.size === 0) { showToast("Please select at least one user."); return; }
+    setBulkScheduleBlocks([{ id: `${Date.now()}-${Math.random()}`, academicYear: "", semester: "", startDate: "", endDate: "" }]);
     setBulkTargetEmployees(Array.from(selectedUsers));
     setShowBulkBlocksModal(true);
   }, [selectedUsers, showToast]);
 
   const openBulkBlocksModalForAllMissing = useCallback(() => {
-    const usersWithoutDefault = allUsers
-      .filter((u) => !u.hasDefaultOfficialTime)
-      .map((u) => u.employeeNumber);
-    if (usersWithoutDefault.length === 0) {
-      showToast("All users already have default official time.");
-      return;
-    }
-    setBulkScheduleBlocks([
-      {
-        id: `${Date.now()}-${Math.random()}`,
-        academicYear: "",
-        semester: "",
-        startDate: "",
-        endDate: "",
-      },
-    ]);
+    const usersWithoutDefault = allUsers.filter((u) => !u.hasDefaultOfficialTime).map((u) => u.employeeNumber);
+    if (usersWithoutDefault.length === 0) { showToast("All users already have default official time."); return; }
+    setBulkScheduleBlocks([{ id: `${Date.now()}-${Math.random()}`, academicYear: "", semester: "", startDate: "", endDate: "" }]);
     setBulkTargetEmployees(usersWithoutDefault);
     setShowBulkBlocksModal(true);
   }, [allUsers, showToast]);
 
-  const handleConfirmBulkBlocks = useCallback(() => {
-    const cleaned = (bulkScheduleBlocks || []).map((b) => ({
-      ...b,
-      academicYear: String(b.academicYear || "").trim(),
-      semester: String(b.semester || "").trim(),
-      startDate: String(b.startDate || "").trim(),
-      endDate: String(b.endDate || "").trim(),
-    }));
+const handleConfirmBulkBlocks = useCallback(() => {
+  const block = bulkScheduleBlocks[0];
+  if (!block) return;
 
-    const allFilled =
-      cleaned.length > 0 &&
-      cleaned.every(
-        (b) => b.academicYear && b.semester && b.startDate && b.endDate,
-      );
-    if (!allFilled) {
-      showToast(
-        "Please complete Academic Year, Semester, Start Date, and End Date for all blocks before proceeding.",
-      );
-      return;
-    }
+  const cleaned = {
+    ...block,
+    academicYear: String(block.academicYear || "").trim(),
+    semester: String(block.semester || "").trim(),
+    startDate: String(block.startDate || "").trim(),
+    endDate: String(block.endDate || "").trim(),
+  };
 
-    setBulkScheduleBlocks(cleaned);
-    setIsBulkSchedule(true);
+  if (!cleaned.academicYear || !cleaned.semester || !cleaned.startDate || !cleaned.endDate) {
+    showToast("Please complete all fields before proceeding.");
+    return;
+  }
 
-    const firstBlock = cleaned[0];
-    if (firstBlock) {
-      setDraftAcademicYear(firstBlock.academicYear || "");
-      setDraftSemester(firstBlock.semester || "");
-      setDraftStartDate(firstBlock.startDate || "");
-      setDraftEndDate(firstBlock.endDate || "");
-    }
+  setBulkScheduleBlocks([cleaned]);
+  setIsBulkSchedule(true);
+  setDraftAcademicYear(cleaned.academicYear);
+  setDraftSemester(cleaned.semester);
+  setDraftStartDate(cleaned.startDate);
+  setDraftEndDate(cleaned.endDate);
 
-    const empId = String(bulkTargetEmployees[0] || "");
-    setEmployeeID(empId);
-
-    setModalRecords(DAYS_ORDER.map((day) => makeDefaultRow(empId, day)));
-    setScheduleView("workDays");
-    setShowBulkBlocksModal(false);
-    setShowScheduleModal(true);
-  }, [bulkScheduleBlocks, bulkTargetEmployees, showToast]);
-
+  const empId = String(bulkTargetEmployees[0] || "");
+  setEmployeeID(empId);
+  setModalRecords(DAYS_ORDER.map((day) => makeDefaultRow(empId, day)));
+  setScheduleView("workDays");
+  setShowBulkBlocksModal(false);
+  setShowScheduleModal(true);
+}, [bulkScheduleBlocks, bulkTargetEmployees, showToast]);
   // ── employee ID change ────────────────────────────────────────────────────
 
   const handleEmployeeIDChange = useCallback(
@@ -1992,26 +1745,19 @@ const OfficialTimeForm = () => {
   // ── effects ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (showAllUsers) {
-      fetchAllUsers();
-      setSelectedUsers(new Set());
-    }
+    if (showAllUsers) { fetchAllUsers(); setSelectedUsers(new Set()); }
     setAllUsersPage(0);
   }, [showAllUsers, fetchAllUsers]);
 
   useEffect(() => {
     return () => {
       if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
-      if (tamperCheckIntervalRef.current)
-        clearInterval(tamperCheckIntervalRef.current);
+      if (tamperCheckIntervalRef.current) clearInterval(tamperCheckIntervalRef.current);
     };
   }, []);
 
   useEffect(() => {
-    if (autoSaveTimeoutRef.current) {
-      clearTimeout(autoSaveTimeoutRef.current);
-      autoSaveTimeoutRef.current = null;
-    }
+    if (autoSaveTimeoutRef.current) { clearTimeout(autoSaveTimeoutRef.current); autoSaveTimeoutRef.current = null; }
   }, [employeeID]);
 
   // ── derived values ────────────────────────────────────────────────────────
@@ -2031,17 +1777,9 @@ const OfficialTimeForm = () => {
   if (accessLoading) {
     return (
       <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box
-          sx={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-          }}
-        >
+        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
           <CircularProgress sx={{ color: "#6d2323", mb: 2 }} />
-          <Typography variant="h6" sx={{ color: "#6d2323" }}>
-            Loading access information...
-          </Typography>
+          <Typography variant="h6" sx={{ color: "#6d2323" }}>Loading access information...</Typography>
         </Box>
       </Container>
     );
@@ -2061,20 +1799,15 @@ const OfficialTimeForm = () => {
 
   return (
     <>
-      {tamperDetected && (
-        <TamperWarningBanner onRestore={handleRestoreFromServer} />
-      )}
+      {tamperDetected && <TamperWarningBanner onRestore={handleRestoreFromServer} />}
 
       <LoadingOverlay
         open={loading || checkingOverlap || saving || uploading}
         message={
-          checkingOverlap
-            ? "Checking schedule for conflicts..."
-            : uploading
-              ? "Uploading..."
-              : saving
-                ? "Saving..."
-                : "Loading..."
+          checkingOverlap ? "Checking schedule for conflicts..."
+            : uploading ? "Uploading..."
+            : saving ? "Saving..."
+            : "Loading..."
         }
       />
 
@@ -2094,6 +1827,7 @@ const OfficialTimeForm = () => {
         }}
       >
         <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
+
           {/* ── Header ── */}
           <Fade in timeout={500}>
             <Box sx={{ mb: 4 }}>
@@ -2113,112 +1847,24 @@ const OfficialTimeForm = () => {
                     overflow: "hidden",
                   }}
                 >
-                  <Box
-                    sx={{
-                      position: "absolute",
-                      top: -50,
-                      right: -50,
-                      width: 200,
-                      height: 200,
-                      background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, transparent 70%)`,
-                    }}
-                  />
-                  <Box
-                    sx={{
-                      position: "absolute",
-                      bottom: -30,
-                      left: "30%",
-                      width: 150,
-                      height: 150,
-                      background: `radial-gradient(circle, ${alpha(accentColor, 0.08)} 0%, transparent 70%)`,
-                    }}
-                  />
-                  <Box
-                    display="flex"
-                    alignItems="center"
-                    justifyContent="space-between"
-                    position="relative"
-                    zIndex={1}
-                  >
+                  <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, transparent 70%)` }} />
+                  <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, background: `radial-gradient(circle, ${alpha(accentColor, 0.08)} 0%, transparent 70%)` }} />
+                  <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
                     <Box display="flex" alignItems="center">
-                      <Avatar
-                        sx={{
-                          bgcolor: alpha(accentColor, 0.15),
-                          mr: 4,
-                          width: 64,
-                          height: 64,
-                          boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`,
-                        }}
-                      >
-                        <Schedule
-                          sx={{ color: textPrimaryColor, fontSize: 32 }}
-                        />
+                      <Avatar sx={{ bgcolor: alpha(accentColor, 0.15), mr: 4, width: 64, height: 64, boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}` }}>
+                        <Schedule sx={{ color: textPrimaryColor, fontSize: 32 }} />
                       </Avatar>
                       <Box>
-                        <Typography
-                          variant="h4"
-                          component="h1"
-                          sx={{
-                            fontWeight: 700,
-                            mb: 1,
-                            lineHeight: 1.2,
-                            color: textPrimaryColor,
-                          }}
-                        >
+                        <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}>
                           Official Time Schedule
                         </Typography>
-                        <Typography
-                          variant="body1"
-                          sx={{
-                            opacity: 0.8,
-                            fontWeight: 400,
-                            color: textPrimaryColor,
-                          }}
-                        >
-                          Manage and update official time schedules for
-                          employees
+                        <Typography variant="body1" sx={{ opacity: 0.8, fontWeight: 400, color: textPrimaryColor }}>
+                          Manage and update official time schedules for employees
                         </Typography>
                       </Box>
                     </Box>
-
                     <Box display="flex" alignItems="center" gap={2}>
-                      <Chip
-                        label="System Generated"
-                        size="small"
-                        sx={{
-                          bgcolor: alpha(accentColor, 0.15),
-                          color: textPrimaryColor,
-                          fontWeight: 500,
-                        }}
-                      />
-                      <ViewToggle
-                        value={viewMode}
-                        onChange={setViewMode}
-                        accentColor={accentColor}
-                        primaryColor={primaryColor}
-                        textPrimaryColor={textPrimaryColor}
-                      />
-                      <Tooltip title="Refresh Data">
-                        <span>
-                          <IconButton
-                            onClick={handleSearch}
-                            disabled={!String(employeeID || "").trim()}
-                            sx={{
-                              bgcolor: alpha(accentColor, 0.1),
-                              "&:hover": { bgcolor: alpha(accentColor, 0.2) },
-                              color: textPrimaryColor,
-                              width: 48,
-                              height: 48,
-                              "&:disabled": {
-                                bgcolor: alpha(accentColor, 0.05),
-                                color: alpha(accentColor, 0.3),
-                              },
-                            }}
-                          >
-                            <SearchIcon />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
+                      <ViewToggle value={viewMode} onChange={setViewMode} accentColor={accentColor} primaryColor={primaryColor} textPrimaryColor={textPrimaryColor} />
                     </Box>
                   </Box>
                 </Box>
@@ -2237,454 +1883,573 @@ const OfficialTimeForm = () => {
                   border: `1px solid ${alpha(accentColor, 0.1)}`,
                 }}
               >
-                <CardContent sx={{ p: 4 }}>
-                  <Box>
-                    <Grid container spacing={4} sx={{ mb: 3 }}>
-                      <Grid item xs={12} md={3}>
-                        <ModernTextField
-                          fullWidth
-                          label="Employee Number"
-                          value={employeeID}
-                          onChange={(e) =>
-                            handleEmployeeIDChange(e.target.value)
-                          }
-                          onKeyDown={(e) => {
-                            if (
-                              !/[0-9]/.test(e.key) &&
-                              ![
-                                "Backspace",
-                                "Delete",
-                                "ArrowLeft",
-                                "ArrowRight",
-                                "Tab",
-                              ].includes(e.key)
-                            )
-                              e.preventDefault();
-                          }}
-                          InputProps={{
-                            startAdornment: (
-                              <InputAdornment position="start">
-                                <Person sx={{ color: textPrimaryColor }} />
-                              </InputAdornment>
-                            ),
-                          }}
-                        />
-                      </Grid>
-                      <Grid item xs={12} sm={6} md={2}>
-                        <ModernTextField
-                          fullWidth
-                          label="Academic Year"
-                          placeholder="e.g. 2025-2026"
-                          value={draftAcademicYear}
-                          onChange={(e) => setDraftAcademicYear(e.target.value)}
-                        />
-                      </Grid>
-                      <Grid item xs={12} sm={6} md={2}>
-                        <Autocomplete
-                          freeSolo
-                          options={[
-                            "1st Semester",
-                            "2nd Semester",
-                            "Summer",
-                            "Vacation",
-                            "Christmas break",
-                            "Midyear",
-                            "Enrollment period",
-                          ]}
-                          value={draftSemester || null}
-                          onInputChange={(_, value) =>
-                            setDraftSemester(value ?? "")
-                          }
-                          onChange={(_, value) =>
-                            setDraftSemester(
-                              typeof value === "string" ? value : "",
-                            )
-                          }
-                          renderInput={(params) => (
-                            <ModernTextField
-                              {...params}
-                              label="Semester"
-                              placeholder="e.g. 1st Semester, Vacation"
-                            />
-                          )}
-                        />
-                      </Grid>
-                      <Grid item xs={12} sm={6} md={2}>
-                        <ModernTextField
-                          fullWidth
-                          label="Start Date"
-                          type="date"
-                          InputLabelProps={{ shrink: true }}
-                          value={draftStartDate}
-                          onChange={(e) => setDraftStartDate(e.target.value)}
-                        />
-                      </Grid>
-                      <Grid item xs={12} sm={6} md={2}>
-                        <ModernTextField
-                          fullWidth
-                          label="End Date"
-                          type="date"
-                          InputLabelProps={{ shrink: true }}
-                          value={draftEndDate}
-                          onChange={(e) => setDraftEndDate(e.target.value)}
-                        />
-                      </Grid>
+                <CardContent sx={{ p: 0 }}>
 
-                      <Grid
-                        item
-                        xs={12}
+                  {/* ── Section 1: Employee & Schedule Period ── */}
+<Box sx={{ p: 3 }}>
+  <Typography
+    sx={{
+      fontSize: "0.68rem",
+      fontWeight: 700,
+      color: alpha(textPrimaryColor, 0.5),
+      textTransform: "uppercase",
+      letterSpacing: "0.6px",
+      mb: 1.5,
+      display: "flex",
+      alignItems: "center",
+      gap: 0.75,
+    }}
+  >
+    <Box
+      component="span"
+      sx={{
+        width: 6,
+        height: 6,
+        borderRadius: "50%",
+        bgcolor: accentColor,
+        display: "inline-block",
+        flexShrink: 0,
+      }}
+    />
+    Step 1 — Employee &amp; schedule period
+  </Typography>
+
+  {/* 🔥 FIELDS + ACTIONS IN ONE ROW */}
+  <Grid container spacing={1.5} alignItems="center">
+    
+    {/* LEFT SIDE — FIELDS */}
+    <Grid item xs={12} md={9}>
+      <Grid container spacing={1.5}>
+        
+        <Grid item xs={12} sm={6} md={3}>
+          <ModernTextField
+            fullWidth
+            label="Employee Number"
+            value={employeeID}
+            onChange={(e) => handleEmployeeIDChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (
+                !/[0-9]/.test(e.key) &&
+                !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)
+              )
+                e.preventDefault();
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Person sx={{ color: textPrimaryColor, fontSize: 18 }} />
+                </InputAdornment>
+              ),
+            }}
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={3}>
+          <ModernTextField
+            fullWidth
+            label="Academic Year"
+            placeholder="e.g. 2025"
+            value={draftAcademicYear}
+            onChange={(e) => setDraftAcademicYear(e.target.value)}
+            onBlur={(e) => {
+              const formatted = autoFormatAcademicYear(e.target.value);
+              if (formatted !== e.target.value) setDraftAcademicYear(formatted);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const formatted = autoFormatAcademicYear(e.target.value);
+                setDraftAcademicYear(formatted);
+                e.target.blur();
+              }
+            }}
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={3}>
+          <Autocomplete
+            freeSolo
+            options={[
+              "1st Semester",
+              "2nd Semester",
+              "Summer",
+              "Vacation",
+              "Christmas break",
+              "Midyear",
+              "Enrollment period",
+            ]}
+            value={draftSemester || null}
+            onInputChange={(_, value) => setDraftSemester(value ?? "")}
+            onChange={(_, value) =>
+              setDraftSemester(typeof value === "string" ? value : "")
+            }
+            renderInput={(params) => (
+              <ModernTextField
+                {...params}
+                label="Semester"
+                placeholder="e.g. 1st Semester"
+              />
+            )}
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={1.5}>
+          <ModernTextField
+            fullWidth
+            label="Start Date"
+            type="date"
+            InputLabelProps={{ shrink: true }}
+            value={draftStartDate}
+            onChange={(e) => setDraftStartDate(e.target.value)}
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={1.5}>
+          <ModernTextField
+            fullWidth
+            label="End Date"
+            type="date"
+            InputLabelProps={{ shrink: true }}
+            value={draftEndDate}
+            onChange={(e) => setDraftEndDate(e.target.value)}
+          />
+        </Grid>
+
+      </Grid>
+    </Grid>
+
+    {/* RIGHT SIDE — ACTION BUTTONS */}
+<Grid item xs={12} md={3}>
+  <Box
+    sx={{
+      display: "flex",
+      alignItems: "center",
+      gap: 1,
+      height: "100%",
+      width: "100%",
+    }}
+  >
+    {/* Search button (fixed size) */}
+    <ProfessionalButton
+      variant="outlined"
+      onClick={handleSearch}
+      startIcon={<SearchIcon />}
+      disabled={!String(employeeID || "").trim()}
+      sx={{
+        borderColor: accentColor,
+        color: accentColor,
+        borderRadius: "8px",
+        minWidth: "110px",
+        whiteSpace: "nowrap",
+        "&:hover": {
+          bgcolor: alpha(accentColor, 0.08),
+          borderColor: accentColor,
+        },
+      }}
+    >
+      Search
+    </ProfessionalButton>
+
+    {/* 🔥 Create button (fills remaining space) */}
+    <ProfessionalButton
+      fullWidth
+      variant="contained"
+      onClick={openCreateScheduleModal}
+      disabled={
+        !String(employeeID || "").trim() ||
+        ((!hasSearched || records.length > 0) &&
+          (!draftAcademicYear ||
+            !draftSemester ||
+            !draftStartDate ||
+            !draftEndDate))
+      }
+      startIcon={<Schedule />}
+      sx={{
+        flex: 1, // 🔥 THIS MAKES IT EXPAND
+        bgcolor: accentColor,
+        color: primaryColor,
+        borderRadius: "20px",
+        px: 2,
+        fontWeight: 600,
+        boxShadow: `0 2px 10px ${alpha(accentColor, 0.35)}`,
+        "&:hover": {
+          bgcolor: accentDark,
+          boxShadow: `0 4px 14px ${alpha(accentColor, 0.45)}`,
+        },
+      }}
+    >
+      Create Schedule
+    </ProfessionalButton>
+  </Box>
+</Grid>
+  </Grid>
+</Box>
+
+                  <Divider sx={{ borderColor: alpha(accentColor, 0.1) }} />
+
+                  {/* ── Section 2: Excel Upload (optional) ── */}
+                  <Box sx={{ p: 3 }}>
+                    <Typography
+                      sx={{
+                        fontSize: "0.68rem",
+                        fontWeight: 700,
+                        color: alpha(textPrimaryColor, 0.5),
+                        textTransform: "uppercase",
+                        letterSpacing: "0.6px",
+                        mb: 1.5,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.75,
+                      }}
+                    >
+                      <Box
+                        component="span"
                         sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          flexWrap: "wrap",
-                          gap: 2,
+                          width: 6,
+                          height: 6,
+                          borderRadius: "50%",
+                          bgcolor: accentColor,
+                          display: "inline-block",
+                          flexShrink: 0,
+                        }}
+                      />
+                      Step 2 — Excel upload
+                      <Box
+                        component="span"
+                        sx={{
+                          fontSize: "0.68rem",
+                          fontWeight: 400,
+                          color: alpha(textPrimaryColor, 0.35),
+                          textTransform: "none",
+                          letterSpacing: 0,
+                          ml: 0.5,
                         }}
                       >
-                        <Box
-                          display="flex"
-                          gap={2}
-                          alignItems="center"
-                          flexWrap="wrap"
-                        >
-                          <input
-                            type="file"
-                            accept=".xlsx,.xls"
-                            id="upload-button"
-                            style={{ display: "none" }}
-                            onChange={(e) => setFile(e.target.files[0])}
-                          />
-                          <label htmlFor="upload-button">
-                            <ProfessionalButton
-                              variant="outlined"
-                              component="span"
-                              startIcon={<CloudUploadIcon />}
-                              sx={{
-                                borderColor: accentColor,
-                                color: textPrimaryColor,
-                                "&:hover": {
-                                  backgroundColor: alpha(accentColor, 0.1),
-                                },
-                              }}
-                            >
-                              Choose File
-                            </ProfessionalButton>
-                          </label>
-                          <ProfessionalButton
-                            variant="contained"
-                            onClick={handleUpload}
-                            disabled={!file || uploading}
-                            startIcon={<CloudUploadIcon />}
-                            sx={{ bgcolor: accentColor, color: primaryColor }}
-                          >
-                            {uploading ? "Uploading..." : "Upload"}
-                          </ProfessionalButton>
-                          {file && (
-                            <Typography
-                              variant="body2"
-                              sx={{ color: alpha(textPrimaryColor, 0.8) }}
-                            >
-                              {file.name}
-                            </Typography>
-                          )}
-                        </Box>
-                        <Box
-                          display="flex"
-                          gap={2}
-                          alignItems="center"
-                          flexWrap="wrap"
-                        >
-                          {lastSaved && !autoSaving && (
-                            <Typography
-                              variant="caption"
-                              sx={{ color: alpha(textPrimaryColor, 0.6) }}
-                            >
-                              Last saved: {lastSaved.toLocaleTimeString()}
-                            </Typography>
-                          )}
-                          {autoSaving && (
-                            <Typography
-                              variant="caption"
-                              sx={{ color: alpha(textPrimaryColor, 0.6) }}
-                            >
-                              Auto-saving...
-                            </Typography>
-                          )}
-                          <ProfessionalButton
-                            variant="contained"
-                            onClick={handleSearch}
-                            startIcon={<SearchIcon />}
-                            disabled={!String(employeeID || "").trim()}
-                            sx={{ bgcolor: accentColor, color: primaryColor }}
-                          >
-                            Search
-                          </ProfessionalButton>
-                          <ProfessionalButton
-                            variant="contained"
-                            onClick={openCreateScheduleModal}
-                            disabled={
-                              !String(employeeID || "").trim() ||
-                              ((!hasSearched || records.length > 0) &&
-                                (!draftAcademicYear ||
-                                  !draftSemester ||
-                                  !draftStartDate ||
-                                  !draftEndDate))
-                            }
-                            startIcon={<Schedule />}
-                            sx={{
-                              bgcolor: accentDark,
-                              color: primaryColor,
-                              "&:hover": { bgcolor: accentColor },
-                              "&:disabled": { opacity: 0.7 },
-                            }}
-                          >
-                            Create new Schedule
-                          </ProfessionalButton>
-                        </Box>
-                      </Grid>
-                    </Grid>
-
-                    <Divider
-                      sx={{ my: 2, borderColor: alpha(accentColor, 0.1) }}
-                    />
-                    <Typography
-                      variant="body2"
-                      sx={{ color: alpha(textPrimaryColor, 0.7) }}
-                    >
-                      Fill Employee Number, Academic Year (e.g. 2025-2026),
-                      Semester, Start Date, and End Date first, then click
-                      Create new Schedule. Or search and upload Excel.
+                        (optional)
+                      </Box>
                     </Typography>
 
-                    {/* ── Existing schedules ── */}
-                    {hasSearched && (
-                      <Box
-                        sx={{
-                          mt: 3,
-                          pt: 2,
-                          borderTop: `1px solid ${alpha(accentColor, 0.15)}`,
-                        }}
-                      >
-                        <Box
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls"
+                        id="upload-button"
+                        style={{ display: "none" }}
+                        onChange={(e) => setFile(e.target.files[0])}
+                      />
+                      <label htmlFor="upload-button">
+                        <ProfessionalButton
+                          variant="outlined"
+                          component="span"
+                          startIcon={<CloudUploadIcon />}
                           sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 1,
-                            mb: 1.5,
+                            borderColor: accentColor,
+                            color: textPrimaryColor,
+                            "&:hover": { backgroundColor: alpha(accentColor, 0.1) },
                           }}
                         >
-                          {records.length > 0 ? (
-                            <CheckCircle
-                              sx={{ color: "#2e7d32", fontSize: 22 }}
-                            />
-                          ) : (
-                            <EventBusy
-                              sx={{
-                                color: alpha(textPrimaryColor, 0.6),
-                                fontSize: 22,
-                              }}
-                            />
-                          )}
-                          <Typography
-                            variant="subtitle2"
-                            sx={{ color: "#2e7d32", fontWeight: 600 }}
-                          >
-                            Existing schedules
-                          </Typography>
-                        </Box>
-                        {(() => {
+                          Choose file
+                        </ProfessionalButton>
+                      </label>
+
+                      {file && (
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            color: alpha(textPrimaryColor, 0.7),
+                            bgcolor: alpha(accentColor, 0.06),
+                            border: `0.5px solid ${alpha(accentColor, 0.2)}`,
+                            borderRadius: 1.5,
+                            px: 1.25,
+                            py: 0.5,
+                            fontSize: "0.8rem",
+                          }}
+                        >
+                          {file.name}
+                        </Typography>
+                      )}
+
+                      <ProfessionalButton
+                        variant="contained"
+                        onClick={handleUpload}
+                        disabled={!file || uploading}
+                        startIcon={<CloudUploadIcon />}
+                        sx={{ bgcolor: accentColor, color: primaryColor }}
+                      >
+                        {uploading ? "Uploading…" : "Upload"}
+                      </ProfessionalButton>
+
+                      <Typography
+                        variant="caption"
+                        sx={{ color: alpha(textPrimaryColor, 0.4), fontSize: "0.72rem" }}
+                      >
+                        Accepts .xlsx / .xls — must include employeeID, day, effective_from, effective_until
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  <Divider sx={{ borderColor: alpha(accentColor, 0.1) }} />
+
+                  {/* ── Section 3: Existing Schedules ── */}
+                  {hasSearched && (
+                    <Box sx={{ p: 3 }}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+                        {records.length > 0 ? (
+                          <CheckCircle sx={{ color: "#2e7d32", fontSize: 16 }} />
+                        ) : (
+                          <EventBusy sx={{ color: alpha(textPrimaryColor, 0.4), fontSize: 16 }} />
+                        )}
+                        <Typography
+                          sx={{
+                            fontSize: "0.68rem",
+                            fontWeight: 700,
+                            color: records.length > 0 ? "#2e7d32" : alpha(textPrimaryColor, 0.5),
+                            textTransform: "uppercase",
+                            letterSpacing: "0.6px",
+                          }}
+                        >
+                          Existing schedules
+                        </Typography>
+                        {records.length > 0 && (() => {
                           const byKey = new Map();
                           for (const r of records || []) {
                             const key = `${r.academicYear ?? ""}|${normalizeDateStr(r.startDate)}|${normalizeDateStr(r.endDate)}`;
-                            if (!byKey.has(key))
-                              byKey.set(key, {
-                                academicYear: r.academicYear,
-                                startDate: r.startDate,
-                                endDate: r.endDate,
-                                status: r.status,
-                              });
+                            if (!byKey.has(key)) byKey.set(key, true);
                           }
-                          const validSchedules = Array.from(byKey.values())
-                            .filter(
-                              (v) =>
-                                normalizeDateStr(v.startDate) ||
-                                normalizeDateStr(v.endDate),
-                            )
-                            .sort((a, b) => {
-                              const aActive =
-                                String(a.status || "active").toLowerCase() ===
-                                "active";
-                              const bActive =
-                                String(b.status || "active").toLowerCase() ===
-                                "active";
-                              return (bActive ? 1 : 0) - (aActive ? 1 : 0);
-                            });
-                          if (
-                            records.length === 0 ||
-                            validSchedules.length === 0
-                          ) {
-                            return (
-                              <Box
-                                sx={{
-                                  py: 2,
-                                  px: 2,
-                                  bgcolor: alpha(primaryColor, 0.06),
-                                  borderRadius: 1.5,
-                                  border: `1px dashed ${alpha(accentColor, 0.3)}`,
-                                }}
-                              >
-                                <Typography
-                                  variant="body2"
-                                  sx={{
-                                    color: textPrimaryColor,
-                                    fontWeight: 500,
-                                    textAlign: "center",
-                                  }}
-                                >
-                                  No existing record for this employee.
-                                </Typography>
-                                <Typography
-                                  variant="body2"
-                                  sx={{
-                                    color: alpha(textPrimaryColor, 0.8),
-                                    textAlign: "center",
-                                    mt: 0.5,
-                                    fontSize: "0.85rem",
-                                  }}
-                                >
-                                  Create a schedule using the button above.
-                                </Typography>
-                              </Box>
-                            );
-                          }
+                          const count = byKey.size;
                           return (
-                            <Box display="flex" flexDirection="column" gap={1}>
-                              {validSchedules.map((v, idx) => {
-                                const isActive =
-                                  String(v.status || "active").toLowerCase() ===
-                                  "active";
-                                const openView = () => {
-                                  const normStart = normalizeDateStr(
-                                    v.startDate,
-                                  );
-                                  const normEnd = normalizeDateStr(v.endDate);
-                                  const rows = (records || []).filter(
-                                    (r) =>
-                                      normalizeDateStr(r.startDate) ===
-                                        normStart &&
-                                      normalizeDateStr(r.endDate) === normEnd,
-                                  );
-                                  setViewScheduleInfo({
-                                    academicYear: v.academicYear,
-                                    startDate: v.startDate,
-                                    endDate: v.endDate,
-                                    status: v.status,
-                                  });
-                                  setViewScheduleRecords(rows);
-                                  setViewScheduleView("workDays");
-                                  setViewScheduleEmployeeName(
-                                    resolveEmployeeName(employeeID),
-                                  );
-                                  setShowViewScheduleModal(true);
-                                };
-                                return (
-                                  <Box
-                                    key={idx}
-                                    sx={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "space-between",
-                                      gap: 2,
-                                      width: "100%",
-                                      py: 0.5,
-                                      borderBottom:
-                                        idx < validSchedules.length - 1
-                                          ? `1px solid ${alpha(accentColor, 0.12)}`
-                                          : "none",
-                                    }}
-                                  >
-                                    <Box
-                                      sx={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: 1,
-                                        minWidth: 0,
-                                        flex: 1,
-                                      }}
-                                    >
-                                      <Schedule
-                                        sx={{
-                                          color: accentColor,
-                                          fontSize: 18,
-                                          flexShrink: 0,
-                                        }}
-                                      />
-                                      <Typography
-                                        variant="body2"
-                                        sx={{
-                                          color: textPrimaryColor,
-                                          fontWeight: 500,
-                                        }}
-                                      >
-                                        {v.academicYear || "—"} |{" "}
-                                        {formatDateLong(v.startDate) ||
-                                          formatDateOnly(v.startDate)}{" "}
-                                        –{" "}
-                                        {formatDateLong(v.endDate) ||
-                                          formatDateOnly(v.endDate)}
-                                      </Typography>
-                                    </Box>
-                                    <Box
-                                      sx={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: 1,
-                                        flexShrink: 0,
-                                      }}
-                                    >
-                                      <Typography
-                                        variant="caption"
-                                        sx={{
-                                          px: 1,
-                                          py: 0.35,
-                                          borderRadius: 1,
-                                          fontWeight: 600,
-                                          bgcolor: "#fff",
-                                          color: isActive
-                                            ? "#2e7d32"
-                                            : "#ed6c02",
-                                          border: "1px solid",
-                                          borderColor: isActive
-                                            ? "#2e7d32"
-                                            : "#ed6c02",
-                                        }}
-                                      >
-                                        {isActive ? "Active" : "Inactive"}
-                                      </Typography>
-                                      <Tooltip title="View official time">
-                                        <IconButton
-                                          size="small"
-                                          onClick={openView}
-                                          sx={{
-                                            color: accentColor,
-                                            "&:hover": {
-                                              bgcolor: alpha(accentColor, 0.1),
-                                            },
-                                          }}
-                                        >
-                                          <Visibility fontSize="small" />
-                                        </IconButton>
-                                      </Tooltip>
-                                    </Box>
-                                  </Box>
-                                );
-                              })}
+                            <Box
+                              component="span"
+                              sx={{
+                                fontSize: "0.68rem",
+                                fontWeight: 600,
+                                bgcolor: "rgba(46,125,50,0.1)",
+                                color: "#2e7d32",
+                                border: "0.5px solid rgba(46,125,50,0.3)",
+                                borderRadius: "9px",
+                                px: 0.9,
+                                py: 0.2,
+                              }}
+                            >
+                              {count}
                             </Box>
                           );
                         })()}
                       </Box>
-                    )}
-                  </Box>
+
+                      {(() => {
+                        const byKey = new Map();
+                        for (const r of records || []) {
+                          const key = `${r.academicYear ?? ""}|${normalizeDateStr(r.startDate)}|${normalizeDateStr(r.endDate)}`;
+                          if (!byKey.has(key))
+                            byKey.set(key, {
+                              academicYear: r.academicYear,
+                              startDate: r.startDate,
+                              endDate: r.endDate,
+                              status: r.status,
+                            });
+                        }
+                        const validSchedules = Array.from(byKey.values())
+                          .filter((v) => normalizeDateStr(v.startDate) || normalizeDateStr(v.endDate))
+                          .sort((a, b) => {
+                            const aActive = String(a.status || "active").toLowerCase() === "active";
+                            const bActive = String(b.status || "active").toLowerCase() === "active";
+                            return (bActive ? 1 : 0) - (aActive ? 1 : 0);
+                          });
+
+                        if (records.length === 0 || validSchedules.length === 0) {
+                          return (
+                            <Box
+                              sx={{
+                                py: 2.5,
+                                px: 2,
+                                bgcolor: alpha(accentColor, 0.04),
+                                borderRadius: 1.5,
+                                border: `1px dashed ${alpha(accentColor, 0.25)}`,
+                                textAlign: "center",
+                              }}
+                            >
+                              <Typography variant="body2" sx={{ color: textPrimaryColor, fontWeight: 500 }}>
+                                No existing record for this employee.
+                              </Typography>
+                              <Typography
+                                variant="body2"
+                                sx={{ color: alpha(textPrimaryColor, 0.6), mt: 0.5, fontSize: "0.82rem" }}
+                              >
+                                Use "Create new schedule" above to get started.
+                              </Typography>
+                            </Box>
+                          );
+                        }
+
+                        return (
+                          <Box
+                            sx={{
+                              border: `0.5px solid ${alpha(accentColor, 0.18)}`,
+                              borderRadius: 1.5,
+                              overflow: "hidden",
+                              bgcolor: alpha(accentColor, 0.03),
+                            }}
+                          >
+                            {validSchedules.map((v, idx) => {
+                              const isActive =
+                                String(v.status || "active").toLowerCase() === "active";
+                              const openView = () => {
+                                const normStart = normalizeDateStr(v.startDate);
+                                const normEnd = normalizeDateStr(v.endDate);
+                                const rows = (records || []).filter(
+                                  (r) =>
+                                    normalizeDateStr(r.startDate) === normStart &&
+                                    normalizeDateStr(r.endDate) === normEnd,
+                                );
+                                setViewScheduleInfo({
+                                  academicYear: v.academicYear,
+                                  startDate: v.startDate,
+                                  endDate: v.endDate,
+                                  status: v.status,
+                                });
+                                setViewScheduleRecords(rows);
+                                setViewScheduleView("workDays");
+                                setViewScheduleEmployeeName(resolveEmployeeName(employeeID));
+                                setShowViewScheduleModal(true);
+                              };
+                              return (
+                                <Box
+                                  key={idx}
+                                  sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 1.5,
+                                    px: 2,
+                                    py: 1.25,
+                                    borderBottom:
+                                      idx < validSchedules.length - 1
+                                        ? `0.5px solid ${alpha(accentColor, 0.12)}`
+                                        : "none",
+                                    "&:hover": { bgcolor: alpha(accentColor, 0.04) },
+                                    transition: "background 0.15s",
+                                  }}
+                                >
+                                  {/* Icon */}
+                                  <Box
+                                    sx={{
+                                      width: 30,
+                                      height: 30,
+                                      borderRadius: 1.5,
+                                      bgcolor: isActive
+                                        ? alpha(accentColor, 0.1)
+                                        : alpha(accentColor, 0.04),
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    <Schedule
+                                      sx={{
+                                        fontSize: 15,
+                                        color: isActive
+                                          ? accentColor
+                                          : alpha(textPrimaryColor, 0.35),
+                                      }}
+                                    />
+                                  </Box>
+
+                                  {/* Info */}
+                                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Typography
+                                      sx={{
+                                        fontSize: "0.85rem",
+                                        fontWeight: 600,
+                                        color: textPrimaryColor,
+                                        lineHeight: 1.3,
+                                      }}
+                                    >
+                                      {v.academicYear || "—"}
+                                    </Typography>
+                                    <Typography
+                                      sx={{
+                                        fontSize: "0.75rem",
+                                        color: alpha(textPrimaryColor, 0.6),
+                                        mt: 0.2,
+                                      }}
+                                    >
+                                      {formatDateLong(v.startDate) || formatDateOnly(v.startDate)} –{" "}
+                                      {formatDateLong(v.endDate) || formatDateOnly(v.endDate)}
+                                    </Typography>
+                                  </Box>
+
+                                  {/* Badge */}
+                                  <Box
+                                    component="span"
+                                    sx={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 0.5,
+                                      px: 1,
+                                      py: 0.3,
+                                      borderRadius: "9px",
+                                      fontSize: "0.72rem",
+                                      fontWeight: 600,
+                                      border: "0.5px solid",
+                                      ...(isActive
+                                        ? {
+                                            bgcolor: "rgba(46,125,50,0.08)",
+                                            color: "#2e7d32",
+                                            borderColor: "rgba(46,125,50,0.3)",
+                                          }
+                                        : {
+                                            bgcolor: "rgba(237,108,2,0.08)",
+                                            color: "#b45309",
+                                            borderColor: "rgba(237,108,2,0.3)",
+                                          }),
+                                    }}
+                                  >
+                                    {isActive && (
+                                      <Box
+                                        component="span"
+                                        sx={{
+                                          width: 5,
+                                          height: 5,
+                                          borderRadius: "50%",
+                                          bgcolor: "#2e7d32",
+                                          display: "inline-block",
+                                        }}
+                                      />
+                                    )}
+                                    {isActive ? "Active" : "Inactive"}
+                                  </Box>
+
+                                  {/* View button */}
+                                  <Tooltip title="View schedule">
+                                    <IconButton
+                                      size="small"
+                                      onClick={openView}
+                                      sx={{
+                                        width: 28,
+                                        height: 28,
+                                        border: `0.5px solid ${alpha(accentColor, 0.2)}`,
+                                        borderRadius: 1.5,
+                                        color: alpha(textPrimaryColor, 0.5),
+                                        bgcolor: "transparent",
+                                        "&:hover": {
+                                          borderColor: accentColor,
+                                          color: accentColor,
+                                          bgcolor: alpha(accentColor, 0.06),
+                                        },
+                                      }}
+                                    >
+                                      <Visibility sx={{ fontSize: 14 }} />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Box>
+                              );
+                            })}
+                          </Box>
+                        );
+                      })()}
+                    </Box>
+                  )}
+
                 </CardContent>
               </GlassCard>
             </Fade>
@@ -2712,96 +2477,33 @@ const OfficialTimeForm = () => {
                   }}
                 >
                   <Box>
-                    <Typography
-                      variant="h5"
-                      sx={{ fontWeight: 600, mb: 0.5, color: textPrimaryColor }}
-                    >
-                      All Users — Official Time Status
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      sx={{ opacity: 0.8, color: textPrimaryColor }}
-                    >
-                      View and manage official time schedules for all users
-                    </Typography>
+                    <Typography variant="h5" sx={{ fontWeight: 600, mb: 0.5, color: textPrimaryColor }}>All Users — Official Time Status</Typography>
+                    <Typography variant="body2" sx={{ opacity: 0.8, color: textPrimaryColor }}>View and manage official time schedules for all users</Typography>
                   </Box>
-                  <Avatar
-                    sx={{
-                      bgcolor: alpha(accentColor, 0.15),
-                      width: 64,
-                      height: 64,
-                    }}
-                  >
-                    <PeopleIcon
-                      sx={{ fontSize: 32, color: textPrimaryColor }}
-                    />
+                  <Avatar sx={{ bgcolor: alpha(accentColor, 0.15), width: 64, height: 64 }}>
+                    <PeopleIcon sx={{ fontSize: 32, color: textPrimaryColor }} />
                   </Avatar>
                 </Box>
 
                 <CardContent sx={{ p: 4 }}>
-                  <Box
-                    sx={{
-                      mb: 3,
-                      display: "flex",
-                      gap: 2,
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                    }}
-                  >
+                  <Box sx={{ mb: 3, display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
                     <ModernTextField
                       fullWidth
                       placeholder="Search by name or employee number..."
                       value={searchQuery}
-                      onChange={(e) => {
-                        setSearchQuery(e.target.value);
-                        setAllUsersPage(0);
-                      }}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <SearchIcon sx={{ color: textPrimaryColor }} />
-                          </InputAdornment>
-                        ),
-                      }}
+                      onChange={(e) => { setSearchQuery(e.target.value); setAllUsersPage(0); }}
+                      InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon sx={{ color: textPrimaryColor }} /></InputAdornment>) }}
                     />
-                    <ProfessionalButton
-                      variant="contained"
-                      onClick={openBulkBlocksModalForSelected}
-                      disabled={selectedUsers.size === 0 || settingDefault}
-                      startIcon={<CheckCircleIcon />}
-                      sx={{
-                        bgcolor: accentColor,
-                        color: primaryColor,
-                        minWidth: 220,
-                        flexShrink: 0,
-                      }}
-                    >
+                    <ProfessionalButton variant="contained" onClick={openBulkBlocksModalForSelected} disabled={selectedUsers.size === 0 || settingDefault} startIcon={<CheckCircleIcon />} sx={{ bgcolor: accentColor, color: primaryColor, minWidth: 220, flexShrink: 0 }}>
                       Bulk Create (Selected: {selectedUsers.size})
                     </ProfessionalButton>
-                    <ProfessionalButton
-                      variant="outlined"
-                      onClick={openBulkBlocksModalForAllMissing}
-                      disabled={
-                        settingDefault ||
-                        allUsers.filter((u) => !u.hasDefaultOfficialTime)
-                          .length === 0
-                      }
-                      sx={{
-                        borderColor: accentColor,
-                        color: textPrimaryColor,
-                        minWidth: 220,
-                        flexShrink: 0,
-                        "&:hover": { backgroundColor: alpha(accentColor, 0.1) },
-                      }}
-                    >
+                    <ProfessionalButton variant="outlined" onClick={openBulkBlocksModalForAllMissing} disabled={settingDefault || allUsers.filter((u) => !u.hasDefaultOfficialTime).length === 0} sx={{ borderColor: accentColor, color: textPrimaryColor, minWidth: 220, flexShrink: 0, "&:hover": { backgroundColor: alpha(accentColor, 0.1) } }}>
                       Bulk Create (All Missing)
                     </ProfessionalButton>
                   </Box>
 
                   {loadingUsers ? (
-                    <Box
-                      sx={{ display: "flex", justifyContent: "center", py: 4 }}
-                    >
+                    <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
                       <CircularProgress sx={{ color: accentColor }} />
                     </Box>
                   ) : (
@@ -2810,184 +2512,62 @@ const OfficialTimeForm = () => {
                         <Table stickyHeader>
                           <TableHead>
                             <TableRow>
-                              <PremiumTableCell
-                                sx={{ bgcolor: alpha(primaryColor, 0.9) }}
-                              >
-                                <Tooltip
-                                  title={`Select all ${paginatedAllUsers.length} rows on this page`}
-                                >
+                              <PremiumTableCell sx={{ bgcolor: alpha(primaryColor, 0.9) }}>
+                                <Tooltip title={`Select all ${paginatedAllUsers.length} rows on this page`}>
                                   <Checkbox
-                                    checked={
-                                      paginatedAllUsers.length > 0 &&
-                                      paginatedAllUsers.every((u) =>
-                                        selectedUsers.has(u.employeeNumber),
-                                      )
-                                    }
-                                    indeterminate={
-                                      paginatedAllUsers.some((u) =>
-                                        selectedUsers.has(u.employeeNumber),
-                                      ) &&
-                                      !paginatedAllUsers.every((u) =>
-                                        selectedUsers.has(u.employeeNumber),
-                                      )
-                                    }
-                                    onChange={(e) =>
-                                      handleSelectAll(
-                                        e.target.checked,
-                                        paginatedAllUsers,
-                                      )
-                                    }
-                                    sx={{
-                                      color: "#fff",
-                                      "&.Mui-checked": { color: "#fff" },
-                                      "&.MuiCheckbox-indeterminate": {
-                                        color: "#fff",
-                                      },
-                                    }}
+                                    checked={paginatedAllUsers.length > 0 && paginatedAllUsers.every((u) => selectedUsers.has(u.employeeNumber))}
+                                    indeterminate={paginatedAllUsers.some((u) => selectedUsers.has(u.employeeNumber)) && !paginatedAllUsers.every((u) => selectedUsers.has(u.employeeNumber))}
+                                    onChange={(e) => handleSelectAll(e.target.checked, paginatedAllUsers)}
+                                    sx={{ color: "#fff", "&.Mui-checked": { color: "#fff" }, "&.MuiCheckbox-indeterminate": { color: "#fff" } }}
                                   />
                                 </Tooltip>
                               </PremiumTableCell>
-                              {[
-                                "Employee Number",
-                                "Name",
-                                "Department",
-                                "Academic Year",
-                                "Status",
-                                "Start Date",
-                                "End Date",
-                              ].map((h) => (
-                                <PremiumTableCell
-                                  key={h}
-                                  isHeader
-                                  sx={{
-                                    color: accentColor,
-                                    bgcolor: alpha(primaryColor, 0.9),
-                                  }}
-                                >
-                                  {h}
-                                </PremiumTableCell>
+                              {["Employee Number","Name","Department","Academic Year","Status","Start Date","End Date"].map((h) => (
+                                <PremiumTableCell key={h} isHeader sx={{ color: accentColor, bgcolor: alpha(primaryColor, 0.9) }}>{h}</PremiumTableCell>
                               ))}
                             </TableRow>
                           </TableHead>
                           <TableBody>
                             {paginatedAllUsers.map((user) => (
-                              <TableRow
-                                key={user.employeeNumber}
-                                sx={{
-                                  "&:nth-of-type(even)": {
-                                    bgcolor: alpha(primaryColor, 0.3),
-                                  },
-                                  "&:hover": {
-                                    bgcolor: alpha(accentColor, 0.05),
-                                  },
-                                  transition: "all 0.2s ease",
-                                }}
-                              >
-                                <PremiumTableCell>
-                                  <Checkbox
-                                    checked={selectedUsers.has(
-                                      user.employeeNumber,
-                                    )}
-                                    onChange={() =>
-                                      handleUserSelect(user.employeeNumber)
-                                    }
-                                    sx={{ color: accentColor }}
-                                  />
-                                </PremiumTableCell>
-                                <PremiumTableCell>
-                                  {user.employeeNumber}
-                                </PremiumTableCell>
-                                <PremiumTableCell>
-                                  {user.fullName || "N/A"}
-                                </PremiumTableCell>
-                                <PremiumTableCell>
-                                  {user.department || "—"}
-                                </PremiumTableCell>
-                                <PremiumTableCell>
-                                  {user.academicYear || "—"}
-                                </PremiumTableCell>
+                              <TableRow key={user.employeeNumber} sx={{ "&:nth-of-type(even)": { bgcolor: alpha(primaryColor, 0.3) }, "&:hover": { bgcolor: alpha(accentColor, 0.05) }, transition: "all 0.2s ease" }}>
+                                <PremiumTableCell><Checkbox checked={selectedUsers.has(user.employeeNumber)} onChange={() => handleUserSelect(user.employeeNumber)} sx={{ color: accentColor }} /></PremiumTableCell>
+                                <PremiumTableCell>{user.employeeNumber}</PremiumTableCell>
+                                <PremiumTableCell>{user.fullName || "N/A"}</PremiumTableCell>
+                                <PremiumTableCell>{user.department || "—"}</PremiumTableCell>
+                                <PremiumTableCell>{user.academicYear || "—"}</PremiumTableCell>
                                 <PremiumTableCell>
                                   {user.hasDefaultOfficialTime ? (
-                                    <Chip
-                                      icon={<CheckCircleIcon />}
-                                      label="Has Schedule"
-                                      size="small"
-                                      sx={{
-                                        bgcolor: alpha("#4caf50", 0.1),
-                                        color: "#2e7d32",
-                                        border: "1px solid #c8e6c9",
-                                      }}
-                                    />
+                                    <Chip icon={<CheckCircleIcon />} label="Has Schedule" size="small" sx={{ bgcolor: alpha("#4caf50", 0.1), color: "#2e7d32", border: "1px solid #c8e6c9" }} />
                                   ) : (
-                                    <Chip
-                                      icon={<CancelIcon />}
-                                      label="No Schedule"
-                                      size="small"
-                                      sx={{
-                                        bgcolor: alpha("#f44336", 0.1),
-                                        color: "#c62828",
-                                        border: "1px solid #ffcdd2",
-                                      }}
-                                    />
+                                    <Chip icon={<CancelIcon />} label="No Schedule" size="small" sx={{ bgcolor: alpha("#f44336", 0.1), color: "#c62828", border: "1px solid #ffcdd2" }} />
                                   )}
                                 </PremiumTableCell>
-                                <PremiumTableCell>
-                                  {user.startDate
-                                    ? formatDateOnly(user.startDate)
-                                    : "—"}
-                                </PremiumTableCell>
-                                <PremiumTableCell>
-                                  {user.endDate
-                                    ? formatDateOnly(user.endDate)
-                                    : "—"}
-                                </PremiumTableCell>
+                                <PremiumTableCell>{user.startDate ? formatDateOnly(user.startDate) : "—"}</PremiumTableCell>
+                                <PremiumTableCell>{user.endDate ? formatDateOnly(user.endDate) : "—"}</PremiumTableCell>
                               </TableRow>
                             ))}
                             {filteredAllUsers.length === 0 && (
                               <TableRow>
-                                <PremiumTableCell
-                                  colSpan={8}
-                                  align="center"
-                                  sx={{ py: 4 }}
-                                >
-                                  <Typography sx={{ color: accentColor }}>
-                                    {searchQuery
-                                      ? "No users found matching your search."
-                                      : "No users found."}
-                                  </Typography>
+                                <PremiumTableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                                  <Typography sx={{ color: accentColor }}>{searchQuery ? "No users found matching your search." : "No users found."}</Typography>
                                 </PremiumTableCell>
                               </TableRow>
                             )}
                           </TableBody>
                         </Table>
                       </PremiumTableContainer>
-                      <Box
-                        sx={{
-                          borderTop: `1px solid ${alpha(primaryColor, 0.2)}`,
-                        }}
-                      >
+                      <Box sx={{ borderTop: `1px solid ${alpha(primaryColor, 0.2)}` }}>
                         <TablePagination
                           component="div"
                           count={filteredAllUsers.length}
                           page={allUsersPage}
-                          onPageChange={(_, newPage) =>
-                            setAllUsersPage(newPage)
-                          }
+                          onPageChange={(_, newPage) => setAllUsersPage(newPage)}
                           rowsPerPage={allUsersRowsPerPage}
-                          onRowsPerPageChange={(e) => {
-                            setAllUsersRowsPerPage(
-                              parseInt(e.target.value, 10),
-                            );
-                            setAllUsersPage(0);
-                          }}
+                          onRowsPerPageChange={(e) => { setAllUsersRowsPerPage(parseInt(e.target.value, 10)); setAllUsersPage(0); }}
                           rowsPerPageOptions={[10, 20, 30, 50]}
                           labelRowsPerPage="Rows per page:"
-                          labelDisplayedRows={({ from, to, count }) =>
-                            `${from}–${to} of ${count}`
-                          }
-                          sx={{
-                            "& .MuiTablePagination-toolbar": { minHeight: 56 },
-                          }}
+                          labelDisplayedRows={({ from, to, count }) => `${from}–${to} of ${count}`}
+                          sx={{ "& .MuiTablePagination-toolbar": { minHeight: 56 } }}
                         />
                       </Box>
                     </>
@@ -3002,546 +2582,454 @@ const OfficialTimeForm = () => {
           ───────────────────────────────────────────────────────────── */}
 
           {/* ════ Create / Bulk Schedule ════ */}
-          <Dialog
-            open={showScheduleModal}
-            onClose={() => {
-              if (saving) return;
-              setShowScheduleModal(false);
-              setIsBulkSchedule(false);
-              setBulkTargetEmployees([]);
-              setBulkScheduleBlocks([]);
+<Dialog
+  open={showScheduleModal}
+  onClose={() => {
+    if (saving) return;
+    setShowScheduleModal(false);
+    setIsBulkSchedule(false);
+    setBulkTargetEmployees([]);
+    setBulkScheduleBlocks([]);
+  }}
+  maxWidth="xl"
+  fullWidth
+  PaperProps={{
+    sx: {
+      borderRadius: 2,
+      overflow: "hidden",
+      width: isBulkSchedule ? "90vw" : "75vw",
+      maxWidth: isBulkSchedule ? "90vw" : "75vw",
+    },
+  }}
+>
+  {/* Header */}
+  <Box sx={{ bgcolor: "#6d2323", px: 3, py: 2, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minWidth: 0 }}>
+      <Schedule sx={{ color: "#fff", fontSize: 20, flexShrink: 0 }} />
+      <Box sx={{ minWidth: 0 }}>
+        <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem", lineHeight: 1.25 }}>
+          {isBulkSchedule ? "Create Bulk Schedule — Step 2 of 2" : "Create New Schedule"}
+        </Typography>
+        <Typography sx={{ color: "rgba(255,255,255,0.8)", fontSize: "0.78rem", mt: 0.25, lineHeight: 1.3 }}>
+          {isBulkSchedule
+            ? `Setting time schedule for ${bulkTargetEmployees.length} employee${bulkTargetEmployees.length !== 1 ? "s" : ""}`
+            : (() => {
+                const id = String(employeeID || "").trim();
+                const name = resolveEmployeeName(id);
+                return id ? (name ? `${id} — ${name}` : `Employee No. ${id}`) : "No employee selected";
+              })()}
+        </Typography>
+      </Box>
+    </Box>
+    <IconButton
+      size="small"
+      onClick={() => {
+        if (saving) return;
+        setShowScheduleModal(false);
+        setIsBulkSchedule(false);
+        setBulkTargetEmployees([]);
+        setBulkScheduleBlocks([]);
+      }}
+      disabled={saving}
+      sx={{ color: "#fff", ml: 1, flexShrink: 0, "&:hover": { bgcolor: "rgba(255,255,255,0.15)" } }}
+      aria-label="Close"
+    >
+      <Close fontSize="small" />
+    </IconButton>
+  </Box>
+ 
+  {/* Stepper — bulk only */}
+  {isBulkSchedule && (
+    <Box sx={{ bgcolor: "#f7f0f0", borderBottom: "1px solid #e2cece", px: 3, py: 2 }}>
+      <Box sx={{ display: "flex", alignItems: "center" }}>
+        {/* Step 1 — done */}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1 }}>
+          <Box
+            sx={{
+              width: 26, height: 26, borderRadius: "50%", bgcolor: "#a08080",
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
             }}
-            maxWidth="xl"
-            fullWidth
-            PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
           >
-            <Box
-              sx={{
-                bgcolor: "#6d2323",
-                px: 3,
-                py: 2,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
+            <CheckCircle sx={{ color: "#fff", fontSize: 14 }} />
+          </Box>
+          <Box>
+            <Typography sx={{ fontSize: "0.65rem", color: "#a08080", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              Done
+            </Typography>
+            <Typography sx={{ fontSize: "0.82rem", color: "#a08080" }}>
+              Define schedule period
+            </Typography>
+          </Box>
+        </Box>
+        {/* Progress line — fully filled */}
+        <Box sx={{ flex: 1, height: 2, mx: 1.5, borderRadius: 1, bgcolor: "#6d2323" }} />
+        {/* Step 2 — active */}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1 }}>
+          <Box
+            sx={{
+              width: 26, height: 26, borderRadius: "50%", bgcolor: "#6d2323",
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            }}
+          >
+            <Typography sx={{ color: "#fff", fontSize: "0.75rem", fontWeight: 700 }}>2</Typography>
+          </Box>
+          <Box>
+            <Typography sx={{ fontSize: "0.65rem", color: "#6d2323", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              Current
+            </Typography>
+            <Typography sx={{ fontSize: "0.82rem", color: "#1a1a1a", fontWeight: 600 }}>
+              Set time schedule
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+  )}
+ 
+  {/* Two-column body for bulk, single column otherwise */}
+  <Box sx={{ display: "grid", gridTemplateColumns: isBulkSchedule ? "220px 1fr" : "1fr" }}>
+ 
+    {/* Left sidebar — employee list (bulk only) */}
+    {isBulkSchedule && (
+      <Box
+        sx={{
+          borderRight: "0.5px solid #ede0e0",
+          px: 1.75,
+          py: 2,
+          bgcolor: "#faf9f8",
+          overflowY: "auto",
+          maxHeight: 560,
+          "&::-webkit-scrollbar": { width: "4px" },
+          "&::-webkit-scrollbar-track": { background: "#f0e8e8", borderRadius: "4px" },
+          "&::-webkit-scrollbar-thumb": { background: "#d0b8b8", borderRadius: "4px" },
+        }}
+      >
+        <Typography
+          sx={{
+            fontSize: "0.68rem", fontWeight: 700, color: "#888",
+            textTransform: "uppercase", letterSpacing: "0.5px", mb: 1.25,
+          }}
+        >
+          Employees ({bulkTargetEmployees.length})
+        </Typography>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
+          {bulkTargetEmployees.map((empId) => {
+            const u = allUsers.find((u) => String(u.employeeNumber) === String(empId));
+            const initials = (u?.fullName || String(empId))
+              .split(" ")
+              .map((w) => w[0])
+              .slice(0, 2)
+              .join("")
+              .toUpperCase();
+            return (
               <Box
+                key={empId}
                 sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1.5,
+                  display: "flex", alignItems: "center", gap: 1,
+                  px: 1, py: 0.75,
+                  bgcolor: "#fff",
+                  border: "0.5px solid #e8d8d8",
+                  borderRadius: "4px",
                   minWidth: 0,
                 }}
               >
-                <Schedule sx={{ color: "#fff", fontSize: 20, flexShrink: 0 }} />
+                <Box
+                  sx={{
+                    width: 24, height: 24, borderRadius: "50%", bgcolor: "#ede0e0",
+                    display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                  }}
+                >
+                  <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: "#6d2323" }}>
+                    {initials}
+                  </Typography>
+                </Box>
                 <Box sx={{ minWidth: 0 }}>
                   <Typography
                     sx={{
-                      fontWeight: 700,
-                      color: "#fff",
-                      fontSize: "1rem",
-                      lineHeight: 1.25,
+                      fontSize: "0.75rem", fontWeight: 600, color: "#1a1a1a",
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                     }}
                   >
-                    {isBulkSchedule
-                      ? "Create Bulk Schedule — Step 2 of 2"
-                      : "Create New Schedule"}
+                    {u?.fullName || empId}
                   </Typography>
-                  <Typography
-                    sx={{
-                      color: "rgba(255,255,255,0.8)",
-                      fontSize: "0.78rem",
-                      mt: 0.25,
-                      lineHeight: 1.3,
-                    }}
-                  >
-                    {isBulkSchedule
-                      ? `Setting time schedule for ${bulkTargetEmployees.length} employee${bulkTargetEmployees.length !== 1 ? "s" : ""}`
-                      : (() => {
-                          const id = String(employeeID || "").trim();
-                          const name = resolveEmployeeName(id);
-                          return id
-                            ? name
-                              ? `${id} — ${name}`
-                              : `Employee No. ${id}`
-                            : "No employee selected";
-                        })()}
+                  <Typography sx={{ fontSize: "0.68rem", color: "#999", lineHeight: 1.2 }}>
+                    {empId}
                   </Typography>
                 </Box>
               </Box>
-              <IconButton
-                size="small"
-                onClick={() => {
-                  if (saving) return;
-                  setShowScheduleModal(false);
-                  setIsBulkSchedule(false);
-                  setBulkTargetEmployees([]);
-                  setBulkScheduleBlocks([]);
-                }}
-                disabled={saving}
-                sx={{
-                  color: "#fff",
-                  ml: 1,
-                  flexShrink: 0,
-                  "&:hover": { bgcolor: "rgba(255,255,255,0.15)" },
-                }}
-                aria-label="Close"
-              >
-                <Close fontSize="small" />
-              </IconButton>
-            </Box>
-
-            {isBulkSchedule && (
-              <Box
-                sx={{
-                  bgcolor: "#f7f0f0",
-                  borderBottom: "1px solid #e2cece",
-                  px: 3,
-                  py: 1.5,
-                }}
-              >
-                <Typography
-                  sx={{
-                    fontSize: "0.75rem",
-                    fontWeight: 700,
-                    color: "#6d2323",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.4px",
-                    mb: 0.75,
-                  }}
-                >
-                  Employees receiving this schedule
+            );
+          })}
+        </Box>
+      </Box>
+    )}
+ 
+    {/* Right — main content */}
+    <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 0, minWidth: 0, overflow: "hidden" }}>
+ 
+      {/* Schedule period — neutral read-only (bulk only) */}
+      {isBulkSchedule && (
+        <Box sx={{ border: "0.5px solid #e0e0e0", borderRadius: "4px", overflow: "hidden", mb: 2.5 }}>
+          <Box
+            sx={{
+              bgcolor: "#f5f5f5", borderBottom: "0.5px solid #e0e0e0",
+              px: 2, py: 1,
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+            }}
+          >
+            <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+              Schedule period
+            </Typography>
+            <Typography sx={{ fontSize: "0.68rem", color: "#999", fontStyle: "italic" }}>
+              Read only — set in previous step
+            </Typography>
+          </Box>
+          <Box
+            sx={{
+              px: 2, py: 1.25,
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 1.5,
+            }}
+          >
+            {[
+              { label: "Academic year", value: draftAcademicYear },
+              { label: "Semester", value: draftSemester },
+              { label: "Start date", value: formatDateLong(draftStartDate) || formatDateOnly(draftStartDate) },
+              { label: "End date", value: formatDateLong(draftEndDate) || formatDateOnly(draftEndDate) },
+            ].map(({ label, value }) => (
+              <Box key={label}>
+                <Typography sx={{ fontSize: "0.62rem", color: "#999", textTransform: "uppercase", letterSpacing: "0.4px", mb: 0.25 }}>
+                  {label}
                 </Typography>
-                <Box
-                  sx={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: 0.75,
-                    maxHeight: 68,
-                    overflowY: "auto",
-                  }}
-                >
-                  {bulkTargetEmployees.map((id, i) => {
-                    const u = allUsers.find(
-                      (u) => String(u.employeeNumber) === String(id),
-                    );
-                    return (
-                      <Chip
-                        key={i}
-                        label={u ? `${id} — ${u.fullName}` : String(id)}
-                        size="small"
-                        sx={{
-                          bgcolor: "#fff",
-                          color: "#1a1a1a",
-                          border: "1px solid #d0b8b8",
-                          fontSize: "0.77rem",
-                          height: 24,
-                        }}
-                      />
-                    );
-                  })}
-                </Box>
-              </Box>
-            )}
-
-            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 0 }}>
-              <Box
-                sx={{
-                  bgcolor: "#f7f0f0",
-                  border: "1px solid #e2cece",
-                  borderRadius: 1.5,
-                  p: 2,
-                  mb: 2.5,
-                }}
-              >
-                <Typography
-                  sx={{
-                    fontSize: "0.72rem",
-                    fontWeight: 700,
-                    color: "#6d2323",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.4px",
-                    mb: 1.5,
-                  }}
-                >
-                  Schedule Period{" "}
-                  {isBulkSchedule && "(set in previous step — read only)"}
+                <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#1a1a1a" }}>
+                  {value || "—"}
                 </Typography>
-                <Grid container spacing={1.5}>
-                  {[
-                    {
-                      label: "Academic Year",
-                      value: draftAcademicYear,
-                      setter: setDraftAcademicYear,
-                      placeholder: "e.g. 2025-2026",
-                    },
-                    {
-                      label: "Semester",
-                      value: draftSemester,
-                      setter: setDraftSemester,
-                      placeholder: "e.g. 1st Semester",
-                    },
-                  ].map(({ label, value, setter, placeholder }) => (
-                    <Grid item xs={6} sm={3} key={label}>
-                      <TextField
-                        fullWidth
-                        size="small"
-                        label={label}
-                        placeholder={placeholder}
-                        value={value || ""}
-                        onChange={(e) =>
-                          !isBulkSchedule && setter(e.target.value || "")
-                        }
-                        InputProps={{ readOnly: isBulkSchedule }}
-                        sx={{
-                          bgcolor: "#fff",
-                          "& .MuiOutlinedInput-root.Mui-focused fieldset": {
-                            borderColor: "#6d2323",
-                          },
-                          "& label.Mui-focused": { color: "#6d2323" },
-                        }}
-                      />
-                    </Grid>
-                  ))}
-                  {[
-                    {
-                      label: "Start Date",
-                      value: draftStartDate,
-                      setter: setDraftStartDate,
-                    },
-                    {
-                      label: "End Date",
-                      value: draftEndDate,
-                      setter: setDraftEndDate,
-                    },
-                  ].map(({ label, value, setter }) => (
-                    <Grid item xs={6} sm={3} key={label}>
-                      <TextField
-                        fullWidth
-                        size="small"
-                        label={label}
-                        type="date"
-                        InputLabelProps={{ shrink: true }}
-                        value={value || ""}
-                        onChange={(e) =>
-                          !isBulkSchedule && setter(e.target.value || "")
-                        }
-                        InputProps={{ readOnly: isBulkSchedule }}
-                        sx={{
-                          bgcolor: "#fff",
-                          "& .MuiOutlinedInput-root.Mui-focused fieldset": {
-                            borderColor: "#6d2323",
-                          },
-                          "& label.Mui-focused": { color: "#6d2323" },
-                        }}
-                      />
-                    </Grid>
-                  ))}
-                </Grid>
               </Box>
-
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  mb: 2,
-                  gap: 1,
-                  flexWrap: "wrap",
-                }}
-              >
-                <Box
-                  sx={{
-                    display: "flex",
-                    border: "1px solid #d0b8b8",
-                    borderRadius: 1,
-                    overflow: "hidden",
-                    flex: 1,
-                    minWidth: 300,
+            ))}
+          </Box>
+        </Box>
+      )}
+ 
+      {/* Schedule period — non-bulk editable fields */}
+      {!isBulkSchedule && (
+        <Box sx={{ bgcolor: "#f7f0f0", border: "1px solid #e2cece", borderRadius: 1.5, p: 2, mb: 2.5 }}>
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#6d2323", textTransform: "uppercase", letterSpacing: "0.4px", mb: 1.5 }}>
+            Schedule Period
+          </Typography>
+          <Grid container spacing={1.5}>
+            {[
+              { label: "Academic Year", value: draftAcademicYear, setter: setDraftAcademicYear, placeholder: "e.g. 2025-2026" },
+              { label: "Semester", value: draftSemester, setter: setDraftSemester, placeholder: "e.g. 1st Semester" },
+            ].map(({ label, value, setter, placeholder }) => (
+              <Grid item xs={6} sm={3} key={label}>
+                <TextField
+                  fullWidth size="small" label={label} placeholder={placeholder} value={value || ""}
+                  onChange={(e) => setter(e.target.value || "")}
+                  onBlur={(e) => {
+                    if (label === "Academic Year") {
+                      const formatted = autoFormatAcademicYear(e.target.value);
+                      if (formatted !== e.target.value) setter(formatted);
+                    }
                   }}
-                >
-                  {[
-                    { key: "workDays", label: "Work Days" },
-                    { key: "honorarium", label: "Honorarium" },
-                    { key: "serviceCredits", label: "Service Credits" },
-                    { key: "overtime", label: "Overtime" },
-                  ].map(({ key, label }, i, arr) => (
-                    <Button
-                      key={key}
-                      onClick={() => setScheduleView(key)}
-                      disableElevation
-                      fullWidth
-                      sx={{
-                        borderRadius: 0,
-                        textTransform: "none",
-                        fontWeight: scheduleView === key ? 700 : 400,
-                        fontSize: "0.82rem",
-                        py: 0.9,
-                        bgcolor: scheduleView === key ? "#6d2323" : "#fff",
-                        color: scheduleView === key ? "#fff" : "#444",
-                        borderRight:
-                          i < arr.length - 1 ? "1px solid #d0b8b8" : "none",
-                        "&:hover": {
-                          bgcolor: scheduleView === key ? "#5a1c1c" : "#f7f0f0",
-                        },
-                      }}
-                    >
-                      {label}
-                    </Button>
-                  ))}
-                </Box>
-                <Box sx={{ display: "flex", gap: 1, flexShrink: 0 }}>
-                  <Tooltip
-                    title={`Clear all times on the "${scheduleView}" tab`}
-                  >
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={handleClearModalTimes}
-                      startIcon={<ClearAll fontSize="small" />}
-                      sx={{
-                        borderColor: "#d0b8b8",
-                        color: "#6d2323",
-                        fontWeight: 600,
-                        textTransform: "none",
-                        fontSize: "0.78rem",
-                        px: 1.5,
-                        py: 0.7,
-                        "&:hover": {
-                          bgcolor: "#f7f0f0",
-                          borderColor: "#6d2323",
-                        },
-                      }}
-                    >
-                      Clear Tab
-                    </Button>
-                  </Tooltip>
-                  <Tooltip title="Reset all times back to default (8:00 AM – 5:00 PM)">
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={handleResetModalToDefault}
-                      sx={{
-                        borderColor: "#d0b8b8",
-                        color: "#555",
-                        fontWeight: 600,
-                        textTransform: "none",
-                        fontSize: "0.78rem",
-                        px: 1.5,
-                        py: 0.7,
-                        "&:hover": { bgcolor: "#f5f5f5", borderColor: "#555" },
-                      }}
-                    >
-                      Reset to Default
-                    </Button>
-                  </Tooltip>
-                </Box>
-              </Box>
-
-              <TableContainer
-                sx={{
-                  border: "1px solid #e0e0e0",
-                  borderRadius: 1.5,
-                  overflow: "hidden",
-                  mb: 3,
-                }}
-              >
-                <Table size="small">
-                  <ScheduleTimeRows
-                    records={modalRecords}
-                    onChangeRecord={handleModalRecordChange}
-                    scheduleView={scheduleView}
-                    readOnly={false}
-                  />
-                </Table>
-              </TableContainer>
-            </Box>
-
-            <Box
+                  sx={{
+                    bgcolor: "#fff",
+                    "& .MuiOutlinedInput-root.Mui-focused fieldset": { borderColor: "#6d2323" },
+                    "& label.Mui-focused": { color: "#6d2323" },
+                  }}
+                />
+              </Grid>
+            ))}
+            {[
+              { label: "Start Date", value: draftStartDate, setter: setDraftStartDate },
+              { label: "End Date", value: draftEndDate, setter: setDraftEndDate },
+            ].map(({ label, value, setter }) => (
+              <Grid item xs={6} sm={3} key={label}>
+                <TextField
+                  fullWidth size="small" label={label} type="date"
+                  InputLabelProps={{ shrink: true }} value={value || ""}
+                  onChange={(e) => setter(e.target.value || "")}
+                  sx={{
+                    bgcolor: "#fff",
+                    "& .MuiOutlinedInput-root.Mui-focused fieldset": { borderColor: "#6d2323" },
+                    "& label.Mui-focused": { color: "#6d2323" },
+                  }}
+                />
+              </Grid>
+            ))}
+          </Grid>
+        </Box>
+      )}
+ 
+      {/* Tab bar + clear/reset buttons */}
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, gap: 1, flexWrap: "wrap" }}>
+        <Box sx={{ display: "flex", border: "1px solid #d0b8b8", borderRadius: 1, overflow: "hidden", flex: 1, minWidth: 280 }}>
+          {[
+            { key: "workDays", label: "Work Days" },
+            { key: "honorarium", label: "Honorarium" },
+            { key: "serviceCredits", label: "Service Credits" },
+            { key: "overtime", label: "Overtime" },
+          ].map(({ key, label }, i, arr) => (
+            <Button
+              key={key}
+              onClick={() => setScheduleView(key)}
+              disableElevation
+              fullWidth
               sx={{
-                borderTop: "1px solid #e0e0e0",
-                bgcolor: "#fafafa",
-                px: 3,
-                py: 2,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
+                borderRadius: 0,
+                textTransform: "none",
+                fontWeight: scheduleView === key ? 700 : 400,
+                fontSize: "0.82rem",
+                py: 0.9,
+                bgcolor: scheduleView === key ? "#6d2323" : "#fff",
+                color: scheduleView === key ? "#fff" : "#444",
+                borderRight: i < arr.length - 1 ? "1px solid #d0b8b8" : "none",
+                "&:hover": { bgcolor: scheduleView === key ? "#5a1c1c" : "#f7f0f0" },
               }}
             >
-              <Box>
-                {isBulkSchedule && (
-                  <Button
-                    variant="outlined"
-                    onClick={() => {
-                      setShowScheduleModal(false);
-                      setShowBulkBlocksModal(true);
-                    }}
-                    sx={{
-                      borderColor: "#6d2323",
-                      color: "#6d2323",
-                      fontWeight: 600,
-                      textTransform: "none",
-                      "&:hover": { bgcolor: "#f7f0f0" },
-                    }}
-                  >
-                    ← Back to Block Setup
-                  </Button>
-                )}
-              </Box>
-              <Box sx={{ display: "flex", gap: 1.5 }}>
-                <Button
-                  variant="outlined"
-                  onClick={() => {
-                    if (saving) return;
-                    setShowScheduleModal(false);
-                    setIsBulkSchedule(false);
-                    setBulkTargetEmployees([]);
-                    setBulkScheduleBlocks([]);
-                  }}
-                  disabled={saving}
-                  sx={{
-                    borderColor: "#ccc",
-                    color: "#444",
-                    fontWeight: 600,
-                    textTransform: "none",
-                    minWidth: 90,
-                    "&:hover": { bgcolor: "#f5f5f5" },
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="contained"
-                  disableElevation
-                  onClick={handleSubmitFromModal}
-                  disabled={saving}
-                  startIcon={
-                    saving ? (
-                      <CircularProgress size={15} sx={{ color: "#fff" }} />
-                    ) : (
-                      <SaveIcon />
-                    )
-                  }
-                  sx={{
-                    bgcolor: "#6d2323",
-                    color: "#fff",
-                    fontWeight: 700,
-                    textTransform: "none",
-                    minWidth: 140,
-                    "&:hover": { bgcolor: "#5a1c1c" },
-                    "&.Mui-disabled": { bgcolor: "#c0a0a0", color: "#fff" },
-                  }}
-                >
-                  {saving ? "Saving…" : "Save Schedule"}
-                </Button>
-              </Box>
-            </Box>
-          </Dialog>
+              {label}
+            </Button>
+          ))}
+        </Box>
+        <Box sx={{ display: "flex", gap: 1, flexShrink: 0 }}>
+          <Tooltip title={`Clear all times on the "${scheduleView}" tab`}>
+            <Button
+              size="small" variant="outlined" onClick={handleClearModalTimes}
+              startIcon={<ClearAll fontSize="small" />}
+              sx={{
+                borderColor: "#d0b8b8", color: "#6d2323", fontWeight: 600,
+                textTransform: "none", fontSize: "0.78rem", px: 1.5, py: 0.7,
+                "&:hover": { bgcolor: "#f7f0f0", borderColor: "#6d2323" },
+              }}
+            >
+              Clear Tab
+            </Button>
+          </Tooltip>
+          <Tooltip title="Reset all times back to default (8:00 AM – 5:00 PM)">
+            <Button
+              size="small" variant="outlined" onClick={handleResetModalToDefault}
+              sx={{
+                borderColor: "#d0b8b8", color: "#555", fontWeight: 600,
+                textTransform: "none", fontSize: "0.78rem", px: 1.5, py: 0.7,
+                "&:hover": { bgcolor: "#f5f5f5", borderColor: "#555" },
+              }}
+            >
+              Reset to Default
+            </Button>
+          </Tooltip>
+        </Box>
+      </Box>
+ 
+      {/* Time table */}
+      <TableContainer
+        sx={{
+          border: "1px solid #e0e0e0",
+          borderRadius: 1.5,
+          overflow: "auto",
+          mb: 3,
+          "&::-webkit-scrollbar": { height: "6px" },
+          "&::-webkit-scrollbar-track": { background: "#f7f0f0", borderRadius: "4px" },
+          "&::-webkit-scrollbar-thumb": { background: "#d0b8b8", borderRadius: "4px" },
+        }}
+      >
+        <Table size="small" sx={{ minWidth: isBulkSchedule ? 600 : "auto" }}>
+          <ScheduleTimeRows
+            records={modalRecords}
+            onChangeRecord={handleModalRecordChange}
+            scheduleView={scheduleView}
+            readOnly={false}
+          />
+        </Table>
+      </TableContainer>
+ 
+    </Box>
+  </Box>
+ 
+  {/* Footer */}
+  <Box
+    sx={{
+      borderTop: "1px solid #e0e0e0", bgcolor: "#fafafa",
+      px: 3, py: 2,
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+    }}
+  >
+   <Box>
+  {isBulkSchedule && (
+    <Button
+      variant="outlined"
+      onClick={() => { setShowScheduleModal(false); setShowBulkBlocksModal(true); }}
+      startIcon={<ArrowBack fontSize="small" />}
+      sx={{
+        borderColor: "#6d2323", color: "#6d2323", fontWeight: 600,
+        textTransform: "none", "&:hover": { bgcolor: "#f7f0f0" },
+      }}
+    >
+      Back to Period Setup
+    </Button>
+  )}
+</Box>
+    <Box sx={{ display: "flex", gap: 1.5 }}>
+      <Button
+        variant="outlined"
+        onClick={() => {
+          if (saving) return;
+          setShowScheduleModal(false);
+          setIsBulkSchedule(false);
+          setBulkTargetEmployees([]);
+          setBulkScheduleBlocks([]);
+        }}
+        disabled={saving}
+        sx={{
+          borderColor: "#ccc", color: "#444", fontWeight: 600,
+          textTransform: "none", minWidth: 90, "&:hover": { bgcolor: "#f5f5f5" },
+        }}
+      >
+        Cancel
+      </Button>
+      <Button
+        variant="contained"
+        disableElevation
+        onClick={handleSubmitFromModal}
+        disabled={saving}
+        startIcon={saving ? <CircularProgress size={15} sx={{ color: "#fff" }} /> : <SaveIcon />}
+        sx={{
+          bgcolor: "#6d2323", color: "#fff", fontWeight: 700,
+          textTransform: "none", minWidth: 140,
+          "&:hover": { bgcolor: "#5a1c1c" },
+          "&.Mui-disabled": { bgcolor: "#c0a0a0", color: "#fff" },
+        }}
+      >
+        {saving ? "Saving…" : "Save Schedule"}
+      </Button>
+    </Box>
+  </Box>
+</Dialog>
 
           {/* Bulk Confirmation */}
-          <Dialog
-            open={showBulkConfirmModal}
-            onClose={() => {
-              setShowBulkConfirmModal(false);
-              setPendingBulkSubmit(false);
-            }}
-            maxWidth="xs"
-            fullWidth
-            PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
-          >
-            <Box
-              sx={{
-                bgcolor: "#6d2323",
-                px: 3,
-                py: 2,
-                display: "flex",
-                alignItems: "center",
-                gap: 1.5,
-              }}
-            >
+          <Dialog open={showBulkConfirmModal} onClose={() => { setShowBulkConfirmModal(false); setPendingBulkSubmit(false); }} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}>
+            <Box sx={{ bgcolor: "#6d2323", px: 3, py: 2, display: "flex", alignItems: "center", gap: 1.5 }}>
               <WarningAmber sx={{ color: "#ffd180", fontSize: 20 }} />
-              <Typography
-                sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}
-              >
-                Confirm Bulk Schedule
-              </Typography>
+              <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}>Confirm Bulk Schedule</Typography>
             </Box>
             <Box sx={{ bgcolor: "#fff", px: 3, pt: 3, pb: 2 }}>
-              <Typography
-                sx={{ color: "#1a1a1a", lineHeight: 1.7, fontSize: "0.93rem" }}
-              >
+              <Typography sx={{ color: "#1a1a1a", lineHeight: 1.7, fontSize: "0.93rem" }}>
                 You are about to create schedules for{" "}
-                <Box
-                  component="span"
-                  sx={{ fontWeight: 700, color: "#6d2323" }}
-                >
-                  {bulkTargetEmployees.length} employee
-                  {bulkTargetEmployees.length !== 1 ? "s" : ""}
-                </Box>{" "}
+                <Box component="span" sx={{ fontWeight: 700, color: "#6d2323" }}>{bulkTargetEmployees.length} employee{bulkTargetEmployees.length !== 1 ? "s" : ""}</Box>{" "}
                 across{" "}
-                <Box
-                  component="span"
-                  sx={{ fontWeight: 700, color: "#6d2323" }}
-                >
-                  {bulkScheduleBlocks.length} block
-                  {bulkScheduleBlocks.length !== 1 ? "s" : ""}
-                </Box>
-                .
+                <Box component="span" sx={{ fontWeight: 700, color: "#6d2323" }}>{bulkScheduleBlocks.length} block{bulkScheduleBlocks.length !== 1 ? "s" : ""}</Box>.
               </Typography>
-              <Box
-                sx={{
-                  mt: 2,
-                  p: 1.5,
-                  bgcolor: "#fff9f0",
-                  border: "1px solid #f5d89a",
-                  borderRadius: 1.5,
-                }}
-              >
-                <Typography
-                  sx={{
-                    color: "#7a5000",
-                    fontSize: "0.82rem",
-                    lineHeight: 1.55,
-                  }}
-                >
-                  ⚠ Existing active schedules for these employees will be set to
-                  inactive. This cannot be undone.
+              <Box sx={{ mt: 2, p: 1.5, bgcolor: "#fff9f0", border: "1px solid #f5d89a", borderRadius: 1.5 }}>
+                <Typography sx={{ color: "#7a5000", fontSize: "0.82rem", lineHeight: 1.55 }}>
+                  ⚠ Existing active schedules for these employees will be set to inactive. This cannot be undone.
                 </Typography>
               </Box>
-              <Typography sx={{ color: "#555", mt: 2, fontSize: "0.88rem" }}>
-                Are you sure you want to proceed?
-              </Typography>
+              <Typography sx={{ color: "#555", mt: 2, fontSize: "0.88rem" }}>Are you sure you want to proceed?</Typography>
             </Box>
-            <Box
-              sx={{
-                borderTop: "1px solid #e0e0e0",
-                bgcolor: "#fafafa",
-                px: 3,
-                py: 2,
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: 1.5,
-              }}
-            >
-              <Button
-                variant="outlined"
-                onClick={() => {
-                  setShowBulkConfirmModal(false);
-                  setPendingBulkSubmit(false);
-                }}
-                sx={{
-                  borderColor: "#ccc",
-                  color: "#444",
-                  fontWeight: 600,
-                  textTransform: "none",
-                  "&:hover": { bgcolor: "#f5f5f5" },
-                }}
-              >
+            <Box sx={{ borderTop: "1px solid #e0e0e0", bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end", gap: 1.5 }}>
+              <Button variant="outlined" onClick={() => { setShowBulkConfirmModal(false); setPendingBulkSubmit(false); }}
+                sx={{ borderColor: "#ccc", color: "#444", fontWeight: 600, textTransform: "none", "&:hover": { bgcolor: "#f5f5f5" } }}>
                 Cancel
               </Button>
-              <Button
-                variant="contained"
-                disableElevation
+              <Button variant="contained" disableElevation
                 onClick={async () => {
                   setShowBulkConfirmModal(false);
                   setPendingBulkSubmit(false);
@@ -3552,654 +3040,421 @@ const OfficialTimeForm = () => {
                   });
                   await executeSave(sevenRows, trimmedId);
                 }}
-                sx={{
-                  bgcolor: "#6d2323",
-                  color: "#fff",
-                  fontWeight: 700,
-                  textTransform: "none",
-                  minWidth: 120,
-                  "&:hover": { bgcolor: "#5a1c1c" },
-                }}
-              >
+                sx={{ bgcolor: "#6d2323", color: "#fff", fontWeight: 700, textTransform: "none", minWidth: 120, "&:hover": { bgcolor: "#5a1c1c" } }}>
                 Yes, Proceed
               </Button>
             </Box>
           </Dialog>
 
           {/* Schedule Date Conflict */}
-          <Dialog
-            open={showConflictModal}
-            onClose={() => setShowConflictModal(false)}
-            maxWidth="xs"
-            fullWidth
-            PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
-          >
-            <Box
-              sx={{
-                bgcolor: "#6d2323",
-                px: 3,
-                py: 2,
-                display: "flex",
-                alignItems: "center",
-                gap: 1.5,
-              }}
-            >
+          <Dialog open={showConflictModal} onClose={() => setShowConflictModal(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}>
+            <Box sx={{ bgcolor: "#6d2323", px: 3, py: 2, display: "flex", alignItems: "center", gap: 1.5 }}>
               <WarningAmber sx={{ color: "#ffd180", fontSize: 20 }} />
-              <Typography
-                sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}
-              >
-                Schedule Conflict
-              </Typography>
+              <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}>Schedule Conflict</Typography>
             </Box>
             <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 2 }}>
-              <Typography
-                sx={{ color: "#1a1a1a", lineHeight: 1.7, fontSize: "0.93rem" }}
-              >
-                A schedule already exists for this employee during the selected
-                dates:
+              <Typography sx={{ color: "#1a1a1a", lineHeight: 1.7, fontSize: "0.93rem" }}>
+                A schedule already exists for this employee during the selected dates:
               </Typography>
-              <Box
-                sx={{
-                  mt: 1.5,
-                  mb: 2,
-                  px: 2,
-                  py: 1.25,
-                  bgcolor: "#f7f0f0",
-                  border: "1px solid #d0b8b8",
-                  borderRadius: 1.5,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1,
-                }}
-              >
-                <Schedule
-                  sx={{ color: "#6d2323", fontSize: 16, flexShrink: 0 }}
-                />
-                <Typography
-                  sx={{ fontWeight: 700, color: "#6d2323", fontSize: "0.9rem" }}
-                >
-                  {formatDateLong(draftStartDate) ||
-                    formatDateOnly(draftStartDate)}
-                  {" — "}
-                  {formatDateLong(draftEndDate) || formatDateOnly(draftEndDate)}
+              <Box sx={{ mt: 1.5, mb: 2, px: 2, py: 1.25, bgcolor: "#f7f0f0", border: "1px solid #d0b8b8", borderRadius: 1.5, display: "flex", alignItems: "center", gap: 1 }}>
+                <Schedule sx={{ color: "#6d2323", fontSize: 16, flexShrink: 0 }} />
+                <Typography sx={{ fontWeight: 700, color: "#6d2323", fontSize: "0.9rem" }}>
+                  {formatDateLong(draftStartDate) || formatDateOnly(draftStartDate)}{" — "}{formatDateLong(draftEndDate) || formatDateOnly(draftEndDate)}
                 </Typography>
               </Box>
-              <Typography
-                sx={{ color: "#555", fontSize: "0.88rem", lineHeight: 1.6 }}
-              >
-                Please choose a different date range that does not overlap with
-                an existing schedule.
+              <Typography sx={{ color: "#555", fontSize: "0.88rem", lineHeight: 1.6 }}>
+                Please choose a different date range that does not overlap with an existing schedule.
               </Typography>
             </Box>
-            <Box
-              sx={{
-                borderTop: "1px solid #e0e0e0",
-                bgcolor: "#fafafa",
-                px: 3,
-                py: 2,
-                display: "flex",
-                justifyContent: "flex-end",
-              }}
-            >
-              <Button
-                variant="contained"
-                disableElevation
-                onClick={() => setShowConflictModal(false)}
-                sx={{
-                  bgcolor: "#6d2323",
-                  color: "#fff",
-                  fontWeight: 700,
-                  textTransform: "none",
-                  minWidth: 80,
-                  "&:hover": { bgcolor: "#5a1c1c" },
-                }}
-              >
+            <Box sx={{ borderTop: "1px solid #e0e0e0", bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end" }}>
+              <Button variant="contained" disableElevation onClick={() => setShowConflictModal(false)}
+                sx={{ bgcolor: "#6d2323", color: "#fff", fontWeight: 700, textTransform: "none", minWidth: 80, "&:hover": { bgcolor: "#5a1c1c" } }}>
                 Got It
               </Button>
             </Box>
           </Dialog>
 
-          {/* Bulk Schedule Blocks */}
-          <Dialog
-            open={showBulkBlocksModal}
-            onClose={() => setShowBulkBlocksModal(false)}
-            maxWidth="md"
-            fullWidth
-            PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
+{/* Bulk Schedule Blocks — redesigned */}
+<Dialog
+  open={showBulkBlocksModal}
+  onClose={() => setShowBulkBlocksModal(false)}
+  maxWidth={false}
+  PaperProps={{
+    sx: {
+      borderRadius: 2,
+      overflow: "hidden",
+      width: 720,
+      maxWidth: 720,
+    },
+  }}
+>
+  {/* Header */}
+  <Box sx={{ bgcolor: "#6d2323", px: 3, py: 2, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+      <PeopleIcon sx={{ color: "#fff", fontSize: 20, flexShrink: 0 }} />
+      <Box>
+        <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem", lineHeight: 1.25 }}>
+          Create Bulk Schedule — Step 1 of 2
+        </Typography>
+        <Typography sx={{ color: "rgba(255,255,255,0.75)", fontSize: "0.78rem", mt: 0.25 }}>
+          Define schedule period for {bulkTargetEmployees.length} selected employee{bulkTargetEmployees.length !== 1 ? "s" : ""}
+        </Typography>
+      </Box>
+    </Box>
+    <IconButton
+      size="small"
+      onClick={() => setShowBulkBlocksModal(false)}
+      sx={{ color: "#fff", "&:hover": { bgcolor: "rgba(255,255,255,0.15)" } }}
+      aria-label="Close"
+    >
+      <Close fontSize="small" />
+    </IconButton>
+  </Box>
+
+  {/* Stepper */}
+  <Box sx={{ bgcolor: "#f7f0f0", borderBottom: "1px solid #e2cece", px: 3, py: 2 }}>
+    <Box sx={{ display: "flex", alignItems: "center" }}>
+      {/* Step 1 — active */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1 }}>
+        <Box
+          sx={{
+            width: 28, height: 28, borderRadius: "50%", bgcolor: "#6d2323",
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}
+        >
+          <Typography sx={{ color: "#fff", fontSize: "0.75rem", fontWeight: 700 }}>1</Typography>
+        </Box>
+        <Box>
+          <Typography sx={{ fontSize: "0.65rem", color: "#6d2323", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+            Current
+          </Typography>
+          <Typography sx={{ fontSize: "0.82rem", color: "#1a1a1a", fontWeight: 600 }}>
+            Define schedule period
+          </Typography>
+        </Box>
+      </Box>
+
+      {/* Progress line */}
+      <Box
+        sx={{
+          flex: 1, height: 2, mx: 1.5, borderRadius: 1,
+          background: "linear-gradient(90deg, #6d2323 0%, #e0c8c8 100%)",
+        }}
+      />
+
+      {/* Step 2 — pending */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1 }}>
+        <Box
+          sx={{
+            width: 28, height: 28, borderRadius: "50%", bgcolor: "#fff",
+            border: "1.5px solid #d0b8b8",
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}
+        >
+          <Typography sx={{ color: "#a08080", fontSize: "0.75rem", fontWeight: 700 }}>2</Typography>
+        </Box>
+        <Box>
+          <Typography sx={{ fontSize: "0.65rem", color: "#a08080", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+            Next
+          </Typography>
+          <Typography sx={{ fontSize: "0.82rem", color: "#a08080" }}>
+            Set time schedule
+          </Typography>
+        </Box>
+      </Box>
+    </Box>
+  </Box>
+
+  {/* Body */}
+  <Box sx={{ px: 3, pt: 2.5, pb: 0, bgcolor: "#fff" }}>
+
+    {/* Selected employees — 2 per row */}
+    <Typography
+      sx={{
+        fontSize: "0.68rem", fontWeight: 700, color: "#6d2323",
+        textTransform: "uppercase", letterSpacing: "0.5px", mb: 1,
+      }}
+    >
+      Selected employees ({bulkTargetEmployees.length})
+    </Typography>
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 0.75,
+        mb: 2.5,
+        maxHeight: 200,
+        overflowY: bulkTargetEmployees.length > 6 ? "auto" : "visible",
+        pr: bulkTargetEmployees.length > 6 ? 0.5 : 0,
+        "&::-webkit-scrollbar": { width: "5px" },
+        "&::-webkit-scrollbar-track": { background: "#f7f0f0", borderRadius: "4px" },
+        "&::-webkit-scrollbar-thumb": { background: "#d0b8b8", borderRadius: "4px" },
+      }}
+    >
+      {bulkTargetEmployees.map((empId) => {
+        const u = allUsers.find((u) => String(u.employeeNumber) === String(empId));
+        const initials = (u?.fullName || String(empId))
+          .split(" ")
+          .map((w) => w[0])
+          .slice(0, 2)
+          .join("")
+          .toUpperCase();
+        return (
+          <Box
+            key={empId}
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              px: 1.25,
+              py: 0.85,
+              bgcolor: "#faf5f5",
+              border: "0.5px solid #e8d8d8",
+              borderRadius: "4px",
+              minWidth: 0,
+            }}
           >
             <Box
               sx={{
-                bgcolor: "#6d2323",
-                px: 3,
-                py: 2,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
+                width: 28, height: 28, borderRadius: "50%", bgcolor: "#f0e4e4",
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
               }}
             >
-              <Box
+              <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: "#6d2323" }}>
+                {initials}
+              </Typography>
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography
                 sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1.5,
-                  minWidth: 0,
+                  fontSize: "0.78rem", fontWeight: 600, color: "#1a1a1a",
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                 }}
               >
-                <PeopleIcon
-                  sx={{ color: "#fff", fontSize: 20, flexShrink: 0 }}
+                {empId}{u?.fullName ? ` — ${u.fullName}` : ""}
+              </Typography>
+              {u?.department && (
+                <Typography sx={{ fontSize: "0.7rem", color: "#888", lineHeight: 1.2 }}>
+                  {u.department}
+                </Typography>
+              )}
+            </Box>
+          </Box>
+        );
+      })}
+    </Box>
+
+    <Divider sx={{ mb: 2.5, borderColor: "#ede0e0" }} />
+
+    {/* Schedule period form */}
+    <Typography
+      sx={{
+        fontSize: "0.68rem", fontWeight: 700, color: "#6d2323",
+        textTransform: "uppercase", letterSpacing: "0.5px", mb: 1,
+      }}
+    >
+      Schedule period
+    </Typography>
+    <Box sx={{ border: "0.5px solid #e0d0d0", borderRadius: "4px", overflow: "hidden", mb: 3 }}>
+      <Box sx={{ bgcolor: "#f7f0f0", px: 2, py: 1.25, borderBottom: "0.5px solid #e0d0d0" }}>
+        <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: "#1a1a1a" }}>
+          Period details
+        </Typography>
+      </Box>
+      <Box sx={{ p: 2 }}>
+        <Grid container spacing={1.5}>
+          <Grid item xs={6}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Academic year"
+              placeholder="e.g. 2025 - 2026"
+              value={bulkScheduleBlocks[0]?.academicYear || ""}
+              onChange={(e) =>
+                setBulkScheduleBlocks((prev) =>
+                  prev.map((b, i) => i === 0 ? { ...b, academicYear: e.target.value } : b)
+                )
+              }
+              onBlur={(e) => {
+                const formatted = autoFormatAcademicYear(e.target.value);
+                if (formatted !== e.target.value)
+                  setBulkScheduleBlocks((prev) =>
+                    prev.map((b, i) => i === 0 ? { ...b, academicYear: formatted } : b)
+                  );
+              }}
+              sx={{
+                "& .MuiOutlinedInput-root.Mui-focused fieldset": { borderColor: "#6d2323" },
+                "& label.Mui-focused": { color: "#6d2323" },
+              }}
+            />
+          </Grid>
+          <Grid item xs={6}>
+            <Autocomplete
+              freeSolo
+              options={["1st Semester", "2nd Semester", "Summer", "Vacation", "Christmas break", "Midyear", "Enrollment period"]}
+              value={bulkScheduleBlocks[0]?.semester || ""}
+              onInputChange={(_, value) =>
+                setBulkScheduleBlocks((prev) =>
+                  prev.map((b, i) => i === 0 ? { ...b, semester: value ?? "" } : b)
+                )
+              }
+              onChange={(_, value) =>
+                setBulkScheduleBlocks((prev) =>
+                  prev.map((b, i) => i === 0 ? { ...b, semester: typeof value === "string" ? value : "" } : b)
+                )
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  size="small"
+                  label="Semester"
+                  placeholder="e.g. 1st Semester"
+                  sx={{
+                    "& .MuiOutlinedInput-root.Mui-focused fieldset": { borderColor: "#6d2323" },
+                    "& label.Mui-focused": { color: "#6d2323" },
+                  }}
                 />
-                <Box>
-                  <Typography
-                    sx={{
-                      fontWeight: 700,
-                      color: "#fff",
-                      fontSize: "1rem",
-                      lineHeight: 1.25,
-                    }}
-                  >
-                    Create Bulk Schedule — Step 1 of 2
-                  </Typography>
-                  <Typography
-                    sx={{
-                      color: "rgba(255,255,255,0.8)",
-                      fontSize: "0.78rem",
-                      mt: 0.25,
-                    }}
-                  >
-                    Define date blocks for {bulkTargetEmployees.length} selected
-                    employee{bulkTargetEmployees.length !== 1 ? "s" : ""}
-                  </Typography>
-                </Box>
-              </Box>
-              <IconButton
-                size="small"
-                onClick={() => setShowBulkBlocksModal(false)}
-                sx={{
-                  color: "#fff",
-                  ml: 1,
-                  flexShrink: 0,
-                  "&:hover": { bgcolor: "rgba(255,255,255,0.15)" },
-                }}
-                aria-label="Close"
-              >
-                <Close fontSize="small" />
-              </IconButton>
-            </Box>
-
-            <Box
+              )}
+            />
+          </Grid>
+          <Grid item xs={6}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Start date"
+              type="date"
+              InputLabelProps={{ shrink: true }}
+              value={bulkScheduleBlocks[0]?.startDate || ""}
+              onChange={(e) =>
+                setBulkScheduleBlocks((prev) =>
+                  prev.map((b, i) => i === 0 ? { ...b, startDate: e.target.value } : b)
+                )
+              }
               sx={{
-                bgcolor: "#f7f0f0",
-                borderBottom: "1px solid #e2cece",
-                px: 3,
-                py: 1.5,
+                "& .MuiOutlinedInput-root.Mui-focused fieldset": { borderColor: "#6d2323" },
+                "& label.Mui-focused": { color: "#6d2323" },
               }}
-            >
-              <Typography
-                sx={{
-                  fontSize: "0.72rem",
-                  fontWeight: 700,
-                  color: "#6d2323",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.4px",
-                  mb: 0.75,
-                }}
-              >
-                Selected employees ({bulkTargetEmployees.length})
-              </Typography>
-              <Box
-                sx={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 0.75,
-                  maxHeight: 64,
-                  overflowY: "auto",
-                }}
-              >
-                {bulkTargetEmployees.map((empId, idx) => {
-                  const u = allUsers.find(
-                    (u) => String(u.employeeNumber) === String(empId),
-                  );
-                  return (
-                    <Chip
-                      key={idx}
-                      label={u ? `${empId} — ${u.fullName}` : String(empId)}
-                      size="small"
-                      sx={{
-                        bgcolor: "#fff",
-                        color: "#1a1a1a",
-                        border: "1px solid #d0b8b8",
-                        fontSize: "0.77rem",
-                        height: 24,
-                      }}
-                    />
-                  );
-                })}
-              </Box>
-            </Box>
-
-            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 1 }}>
-              <Typography
-                sx={{
-                  color: "#555",
-                  fontSize: "0.85rem",
-                  mb: 2.5,
-                  lineHeight: 1.65,
-                }}
-              >
-                Define one or more schedule blocks. Each block has its own
-                academic year, semester, and date range. In the next step, you
-                will set the daily time schedule that applies to all blocks and
-                all selected employees.
-              </Typography>
-
-              <Box
-                sx={{ display: "flex", flexDirection: "column", gap: 2, mb: 2 }}
-              >
-                {bulkScheduleBlocks.map((block, idx) => (
-                  <Box
-                    key={block.id}
-                    sx={{
-                      border: "1px solid #e0e0e0",
-                      borderRadius: 1.5,
-                      overflow: "hidden",
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        bgcolor: "#f5f5f5",
-                        px: 2,
-                        py: 1.25,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        borderBottom: "1px solid #e0e0e0",
-                      }}
-                    >
-                      <Typography
-                        sx={{
-                          fontWeight: 700,
-                          color: "#1a1a1a",
-                          fontSize: "0.85rem",
-                        }}
-                      >
-                        Block {idx + 1}
-                      </Typography>
-                      <Tooltip
-                        title={
-                          bulkScheduleBlocks.length === 1
-                            ? "At least one block is required"
-                            : "Remove block"
-                        }
-                      >
-                        <span>
-                          <IconButton
-                            size="small"
-                            onClick={() =>
-                              setBulkScheduleBlocks((prev) =>
-                                prev.filter((b) => b.id !== block.id),
-                              )
-                            }
-                            disabled={bulkScheduleBlocks.length === 1}
-                            sx={{
-                              color: "#6d2323",
-                              "&.Mui-disabled": { color: "#ccc" },
-                              "&:hover": { bgcolor: "#f7f0f0" },
-                            }}
-                            aria-label="Remove block"
-                          >
-                            <Delete fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    </Box>
-                    <Box sx={{ p: 2 }}>
-                      <Grid container spacing={1.5}>
-                        {[
-                          {
-                            label: "Academic Year",
-                            placeholder: "e.g. 2025-2026",
-                            key: "academicYear",
-                          },
-                          {
-                            label: "Semester",
-                            placeholder: "e.g. 1st Semester",
-                            key: "semester",
-                          },
-                        ].map(({ label, placeholder, key }) => (
-                          <Grid item xs={12} sm={6} md={3} key={key}>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              label={label}
-                              placeholder={placeholder}
-                              value={block[key]}
-                              onChange={(e) =>
-                                setBulkScheduleBlocks((prev) =>
-                                  prev.map((b) =>
-                                    b.id === block.id
-                                      ? { ...b, [key]: e.target.value }
-                                      : b,
-                                  ),
-                                )
-                              }
-                              sx={{
-                                "& .MuiOutlinedInput-root.Mui-focused fieldset":
-                                  { borderColor: "#6d2323" },
-                                "& label.Mui-focused": { color: "#6d2323" },
-                              }}
-                            />
-                          </Grid>
-                        ))}
-                        {[
-                          { label: "Start Date", key: "startDate" },
-                          { label: "End Date", key: "endDate" },
-                        ].map(({ label, key }) => (
-                          <Grid item xs={12} sm={6} md={3} key={key}>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              label={label}
-                              type="date"
-                              InputLabelProps={{ shrink: true }}
-                              value={block[key]}
-                              onChange={(e) =>
-                                setBulkScheduleBlocks((prev) =>
-                                  prev.map((b) =>
-                                    b.id === block.id
-                                      ? { ...b, [key]: e.target.value }
-                                      : b,
-                                  ),
-                                )
-                              }
-                              sx={{
-                                "& .MuiOutlinedInput-root.Mui-focused fieldset":
-                                  { borderColor: "#6d2323" },
-                                "& label.Mui-focused": { color: "#6d2323" },
-                              }}
-                            />
-                          </Grid>
-                        ))}
-                      </Grid>
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-
-              <Button
-                variant="outlined"
-                startIcon={<Add />}
-                onClick={() =>
-                  setBulkScheduleBlocks((prev) => [
-                    ...prev,
-                    {
-                      id: `${Date.now()}-${Math.random()}`,
-                      academicYear: "",
-                      semester: "",
-                      startDate: "",
-                      endDate: "",
-                    },
-                  ])
-                }
-                sx={{
-                  borderColor: "#6d2323",
-                  color: "#6d2323",
-                  fontWeight: 600,
-                  textTransform: "none",
-                  borderStyle: "dashed",
-                  mb: 3,
-                  "&:hover": { bgcolor: "#f7f0f0" },
-                }}
-              >
-                + Add Another Block
-              </Button>
-            </Box>
-
-            <Box
+            />
+          </Grid>
+          <Grid item xs={6}>
+            <TextField
+              fullWidth
+              size="small"
+              label="End date"
+              type="date"
+              InputLabelProps={{ shrink: true }}
+              value={bulkScheduleBlocks[0]?.endDate || ""}
+              onChange={(e) =>
+                setBulkScheduleBlocks((prev) =>
+                  prev.map((b, i) => i === 0 ? { ...b, endDate: e.target.value } : b)
+                )
+              }
               sx={{
-                borderTop: "1px solid #e0e0e0",
-                bgcolor: "#fafafa",
-                px: 3,
-                py: 2,
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: 1.5,
+                "& .MuiOutlinedInput-root.Mui-focused fieldset": { borderColor: "#6d2323" },
+                "& label.Mui-focused": { color: "#6d2323" },
               }}
-            >
-              <Button
-                variant="outlined"
-                onClick={() => setShowBulkBlocksModal(false)}
-                sx={{
-                  borderColor: "#ccc",
-                  color: "#444",
-                  fontWeight: 600,
-                  textTransform: "none",
-                  "&:hover": { bgcolor: "#f5f5f5" },
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="contained"
-                disableElevation
-                onClick={handleConfirmBulkBlocks}
-                disabled={
-                  !bulkScheduleBlocks.length ||
-                  bulkScheduleBlocks.some(
-                    (b) =>
-                      !b.academicYear ||
-                      !b.semester ||
-                      !b.startDate ||
-                      !b.endDate,
-                  ) ||
-                  !bulkTargetEmployees.length
-                }
-                sx={{
-                  bgcolor: "#6d2323",
-                  color: "#fff",
-                  fontWeight: 700,
-                  textTransform: "none",
-                  minWidth: 180,
-                  "&:hover": { bgcolor: "#5a1c1c" },
-                  "&.Mui-disabled": { bgcolor: "#d0b8b8", color: "#fff" },
-                }}
-              >
-                Next: Set Time Schedule →
-              </Button>
-            </Box>
-          </Dialog>
+            />
+          </Grid>
+        </Grid>
+      </Box>
+    </Box>
+  </Box>
+
+  {/* Footer */}
+  <Box
+    sx={{
+      borderTop: "1px solid #e0e0e0",
+      bgcolor: "#fafafa",
+      px: 3,
+      py: 2,
+      display: "flex",
+      justifyContent: "flex-end",
+      gap: 1.5,
+    }}
+  >
+    <Button
+      variant="outlined"
+      onClick={() => setShowBulkBlocksModal(false)}
+      sx={{
+        borderColor: "#ccc", color: "#444", fontWeight: 600,
+        textTransform: "none", "&:hover": { bgcolor: "#f5f5f5" },
+      }}
+    >
+      Cancel
+    </Button>
+    <Button
+  variant="contained"
+  disableElevation
+  onClick={handleConfirmBulkBlocks}
+  disabled={
+    !bulkScheduleBlocks[0]?.academicYear ||
+    !bulkScheduleBlocks[0]?.semester ||
+    !bulkScheduleBlocks[0]?.startDate ||
+    !bulkScheduleBlocks[0]?.endDate ||
+    !bulkTargetEmployees.length
+  }
+  endIcon={<ArrowForward fontSize="small" />}
+  sx={{
+    bgcolor: "#6d2323", color: "#fff", fontWeight: 700, textTransform: "none",
+    minWidth: 200, "&:hover": { bgcolor: "#5a1c1c" },
+    "&.Mui-disabled": { bgcolor: "#d0b8b8", color: "#fff" },
+  }}
+>
+  Next: Set Time Schedule
+</Button>
+  </Box>
+</Dialog>
 
           {/* Warning / Error */}
-          <Dialog
-            open={showWarningModal}
-            onClose={() => {
-              setShowWarningModal(false);
-              setWarningOverlap(null);
-            }}
-            maxWidth="sm"
-            fullWidth
-            PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
-          >
-            <Box
-              sx={{
-                bgcolor: "#6d2323",
-                px: 3,
-                py: 2,
-                display: "flex",
-                alignItems: "center",
-                gap: 1.5,
-              }}
-            >
+          <Dialog open={showWarningModal} onClose={() => { setShowWarningModal(false); setWarningOverlap(null); }} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}>
+            <Box sx={{ bgcolor: "#6d2323", px: 3, py: 2, display: "flex", alignItems: "center", gap: 1.5 }}>
               <WarningAmber sx={{ color: "#ffd180", fontSize: 20 }} />
-              <Typography
-                sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}
-              >
-                {warningOverlap
-                  ? "Time Schedule Conflict Detected"
-                  : "Cannot Save"}
+              <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}>
+                {warningOverlap ? "Time Schedule Conflict Detected" : "Cannot Save"}
               </Typography>
             </Box>
             <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 2 }}>
               {warningOverlap ? (
                 <Box>
-                  <Typography
-                    sx={{
-                      color: "#1a1a1a",
-                      fontSize: "0.93rem",
-                      mb: 2,
-                      lineHeight: 1.65,
-                    }}
-                  >
+                  <Typography sx={{ color: "#1a1a1a", fontSize: "0.93rem", mb: 2, lineHeight: 1.65 }}>
                     Two time blocks overlap on{" "}
-                    <Box
-                      component="span"
-                      sx={{ fontWeight: 700, color: "#6d2323" }}
-                    >
-                      {warningOverlap.day}
-                    </Box>
-                    {warningOverlap.employeeID &&
-                      warningOverlap.employeeID !== "multiple" && (
-                        <>
-                          {" "}
-                          for employee{" "}
-                          <Box
-                            component="span"
-                            sx={{ fontWeight: 700, color: "#6d2323" }}
-                          >
-                            {warningOverlap.employeeID}
-                          </Box>
-                        </>
-                      )}
-                    :
+                    <Box component="span" sx={{ fontWeight: 700, color: "#6d2323" }}>{warningOverlap.day}</Box>
+                    {warningOverlap.employeeID && warningOverlap.employeeID !== "multiple" && (
+                      <> for employee <Box component="span" sx={{ fontWeight: 700, color: "#6d2323" }}>{warningOverlap.employeeID}</Box></>
+                    )}:
                   </Typography>
-                  <Box
-                    sx={{
-                      border: "1px solid #e0e0e0",
-                      borderRadius: 1.5,
-                      overflow: "hidden",
-                      mb: 2,
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        bgcolor: "#f7f0f0",
-                        px: 2,
-                        py: 1.5,
-                        display: "flex",
-                        flexWrap: "wrap",
-                        alignItems: "center",
-                        gap: 1,
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          px: 1.5,
-                          py: 0.5,
-                          borderRadius: 1,
-                          bgcolor: "#6d2323",
-                          color: "#fff",
-                          fontWeight: 700,
-                          fontSize: "0.8rem",
-                        }}
-                      >
-                        {warningOverlap.segmentA?.label || "Block A"}
-                      </Box>
-                      <Typography
-                        sx={{
-                          color: "#444",
-                          fontWeight: 600,
-                          fontSize: "0.85rem",
-                        }}
-                      >
-                        overlaps with
-                      </Typography>
-                      <Box
-                        sx={{
-                          px: 1.5,
-                          py: 0.5,
-                          borderRadius: 1,
-                          bgcolor: "#1a1a1a",
-                          color: "#fff",
-                          fontWeight: 700,
-                          fontSize: "0.8rem",
-                        }}
-                      >
-                        {warningOverlap.segmentB?.label || "Block B"}
-                      </Box>
+                  <Box sx={{ border: "1px solid #e0e0e0", borderRadius: 1.5, overflow: "hidden", mb: 2 }}>
+                    <Box sx={{ bgcolor: "#f7f0f0", px: 2, py: 1.5, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1 }}>
+                      <Box sx={{ px: 1.5, py: 0.5, borderRadius: 1, bgcolor: "#6d2323", color: "#fff", fontWeight: 700, fontSize: "0.8rem" }}>{warningOverlap.segmentA?.label || "Block A"}</Box>
+                      <Typography sx={{ color: "#444", fontWeight: 600, fontSize: "0.85rem" }}>overlaps with</Typography>
+                      <Box sx={{ px: 1.5, py: 0.5, borderRadius: 1, bgcolor: "#1a1a1a", color: "#fff", fontWeight: 700, fontSize: "0.8rem" }}>{warningOverlap.segmentB?.label || "Block B"}</Box>
                     </Box>
-                    <Box
-                      sx={{
-                        px: 2,
-                        py: 1.25,
-                        bgcolor: "#fff",
-                        borderTop: "1px solid #f0e0e0",
-                      }}
-                    >
+                    <Box sx={{ px: 2, py: 1.25, bgcolor: "#fff", borderTop: "1px solid #f0e0e0" }}>
                       <Typography sx={{ fontSize: "0.85rem", color: "#444" }}>
-                        Overlapping period:{" "}
-                        <Box
-                          component="span"
-                          sx={{ fontWeight: 700, color: "#6d2323" }}
-                        >
-                          {warningOverlap.overlap?.periodText || "—"}
-                        </Box>
+                        Overlapping period: <Box component="span" sx={{ fontWeight: 700, color: "#6d2323" }}>{warningOverlap.overlap?.periodText || "—"}</Box>
                       </Typography>
                     </Box>
                   </Box>
-                  <Typography
-                    sx={{ color: "#555", fontSize: "0.88rem", lineHeight: 1.6 }}
-                  >
-                    Please go back and adjust the time entries so that Work
-                    Days, Honorarium, Service Credits, and Overtime do not
-                    overlap.
+                  <Typography sx={{ color: "#555", fontSize: "0.88rem", lineHeight: 1.6 }}>
+                    Please go back and adjust the time entries so that Work Days, Honorarium, Service Credits, and Overtime do not overlap.
                   </Typography>
                 </Box>
               ) : (
-                <Typography
-                  sx={{
-                    color: "#1a1a1a",
-                    lineHeight: 1.7,
-                    fontSize: "0.93rem",
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {warningMessage}
-                </Typography>
+                <Typography sx={{ color: "#1a1a1a", lineHeight: 1.7, fontSize: "0.93rem", whiteSpace: "pre-wrap" }}>{warningMessage}</Typography>
               )}
             </Box>
-            <Box
-              sx={{
-                borderTop: "1px solid #e0e0e0",
-                bgcolor: "#fafafa",
-                px: 3,
-                py: 2,
-                display: "flex",
-                justifyContent: "flex-end",
-              }}
-            >
-              <Button
-                variant="contained"
-                disableElevation
-                onClick={() => {
-                  setShowWarningModal(false);
-                  setWarningOverlap(null);
-                }}
-                sx={{
-                  bgcolor: "#6d2323",
-                  color: "#fff",
-                  fontWeight: 700,
-                  textTransform: "none",
-                  minWidth: 90,
-                  "&:hover": { bgcolor: "#5a1c1c" },
-                }}
-              >
+            <Box sx={{ borderTop: "1px solid #e0e0e0", bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end" }}>
+              <Button variant="contained" disableElevation onClick={() => { setShowWarningModal(false); setWarningOverlap(null); }}
+                sx={{ bgcolor: "#6d2323", color: "#fff", fontWeight: 700, textTransform: "none", minWidth: 90, "&:hover": { bgcolor: "#5a1c1c" } }}>
                 OK, Go Back
               </Button>
             </Box>
           </Dialog>
 
           {/* ════ View Schedule (read-only / editable for Active) ════
-              FIX: Added editable End Date field when isEditingViewSchedule=true
-                   and the schedule status is active.
+              CHANGES:
+              - Footer left side: REMOVED Close button (was "Close" for non-editing)
+              - Footer right side: Edit Schedule button now lives here (alongside Save/Cancel)
           */}
           <Dialog
             open={showViewScheduleModal}
@@ -4209,64 +3464,26 @@ const OfficialTimeForm = () => {
               setEditViewRecords([]);
               setEditViewEndDate("");
             }}
-            maxWidth="lg"
+            maxWidth="xl"
             fullWidth
             PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
           >
-            <Box
-              sx={{
-                bgcolor: "#6d2323",
-                px: 3,
-                py: 2,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1.5,
-                  minWidth: 0,
-                }}
-              >
+            <Box sx={{ bgcolor: "#6d2323", px: 3, py: 2, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minWidth: 0 }}>
                 {isEditingViewSchedule ? (
                   <Edit sx={{ color: "#fff", fontSize: 20, flexShrink: 0 }} />
                 ) : (
-                  <Visibility
-                    sx={{ color: "#fff", fontSize: 20, flexShrink: 0 }}
-                  />
+                  <Visibility sx={{ color: "#fff", fontSize: 20, flexShrink: 0 }} />
                 )}
                 <Box sx={{ minWidth: 0 }}>
-                  <Typography
-                    sx={{
-                      fontWeight: 700,
-                      color: "#fff",
-                      fontSize: "1rem",
-                      lineHeight: 1.25,
-                    }}
-                  >
-                    {isEditingViewSchedule
-                      ? "Edit Official Time Schedule"
-                      : "View Official Time Schedule"}
+                  <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem", lineHeight: 1.25 }}>
+                    {isEditingViewSchedule ? "Edit Official Time Schedule" : "View Official Time Schedule"}
                   </Typography>
-                  <Typography
-                    sx={{
-                      color: "rgba(255,255,255,0.8)",
-                      fontSize: "0.78rem",
-                      mt: 0.25,
-                    }}
-                  >
+                  <Typography sx={{ color: "rgba(255,255,255,0.8)", fontSize: "0.78rem", mt: 0.25 }}>
                     {(() => {
                       const id = String(employeeID || "").trim();
-                      const name =
-                        viewScheduleEmployeeName || resolveEmployeeName(id);
-                      return id
-                        ? name
-                          ? `${id} — ${name}`
-                          : `Employee No. ${id}`
-                        : "Employee schedule";
+                      const name = viewScheduleEmployeeName || resolveEmployeeName(id);
+                      return id ? (name ? `${id} — ${name}` : `Employee No. ${id}`) : "Employee schedule";
                     })()}
                   </Typography>
                 </Box>
@@ -4279,12 +3496,7 @@ const OfficialTimeForm = () => {
                   setEditViewRecords([]);
                   setEditViewEndDate("");
                 }}
-                sx={{
-                  color: "#fff",
-                  ml: 1,
-                  flexShrink: 0,
-                  "&:hover": { bgcolor: "rgba(255,255,255,0.15)" },
-                }}
+                sx={{ color: "#fff", ml: 1, flexShrink: 0, "&:hover": { bgcolor: "rgba(255,255,255,0.15)" } }}
                 aria-label="Close"
               >
                 <Close fontSize="small" />
@@ -4294,174 +3506,45 @@ const OfficialTimeForm = () => {
             <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 0 }}>
               {viewScheduleInfo && (
                 <>
-                  {/* ── Schedule info header ── */}
-                  <Box
-                    sx={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: 3,
-                      mb: 2.5,
-                      p: 2,
-                      bgcolor: "#f7f0f0",
-                      border: "1px solid #e2cece",
-                      borderRadius: 1.5,
-                      alignItems: "flex-end",
-                    }}
-                  >
-                    {/* Academic Year — read-only */}
+                  {/* Schedule info header */}
+                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 3, mb: 2.5, p: 2, bgcolor: "#f7f0f0", border: "1px solid #e2cece", borderRadius: 1.5, alignItems: "flex-end" }}>
                     <Box>
-                      <Typography
-                        sx={{
-                          fontSize: "0.7rem",
-                          fontWeight: 700,
-                          color: "#6d2323",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.4px",
-                        }}
-                      >
-                        Academic Year
-                      </Typography>
-                      <Typography
-                        sx={{
-                          fontWeight: 600,
-                          color: "#1a1a1a",
-                          fontSize: "0.88rem",
-                          mt: 0.25,
-                        }}
-                      >
-                        {viewScheduleInfo.academicYear || "—"}
+                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#6d2323", textTransform: "uppercase", letterSpacing: "0.4px" }}>Academic Year</Typography>
+                      <Typography sx={{ fontWeight: 600, color: "#1a1a1a", fontSize: "0.88rem", mt: 0.25 }}>{viewScheduleInfo.academicYear || "—"}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#6d2323", textTransform: "uppercase", letterSpacing: "0.4px" }}>Start Date</Typography>
+                      <Typography sx={{ fontWeight: 600, color: "#1a1a1a", fontSize: "0.88rem", mt: 0.25 }}>
+                        {formatDateLong(viewScheduleInfo.startDate) || formatDateOnly(viewScheduleInfo.startDate)}
                       </Typography>
                     </Box>
-
-                    {/* Start Date — always read-only */}
                     <Box>
-                      <Typography
-                        sx={{
-                          fontSize: "0.7rem",
-                          fontWeight: 700,
-                          color: "#6d2323",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.4px",
-                        }}
-                      >
-                        Start Date
-                      </Typography>
-                      <Typography
-                        sx={{
-                          fontWeight: 600,
-                          color: "#1a1a1a",
-                          fontSize: "0.88rem",
-                          mt: 0.25,
-                        }}
-                      >
-                        {formatDateLong(viewScheduleInfo.startDate) ||
-                          formatDateOnly(viewScheduleInfo.startDate)}
-                      </Typography>
-                    </Box>
-
-                    {/* ── End Date — editable when editing an active schedule ── */}
-                    <Box>
-                      <Typography
-                        sx={{
-                          fontSize: "0.7rem",
-                          fontWeight: 700,
-                          color: "#6d2323",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.4px",
-                          mb: 0.5,
-                        }}
-                      >
+                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#6d2323", textTransform: "uppercase", letterSpacing: "0.4px", mb: 0.5 }}>
                         End Date
                         {isEditingViewSchedule && (
-                          <Box
-                            component="span"
-                            sx={{
-                              ml: 0.75,
-                              fontSize: "0.65rem",
-                              color: "#2e7d32",
-                              fontWeight: 600,
-                              textTransform: "none",
-                              letterSpacing: 0,
-                            }}
-                          >
-                            (editable)
-                          </Box>
+                          <Box component="span" sx={{ ml: 0.75, fontSize: "0.65rem", color: "#2e7d32", fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>(editable)</Box>
                         )}
                       </Typography>
                       {isEditingViewSchedule ? (
                         <TextField
-                          size="small"
-                          type="date"
-                          InputLabelProps={{ shrink: true }}
-                          value={editViewEndDate}
+                          size="small" type="date" InputLabelProps={{ shrink: true }} value={editViewEndDate}
                           onChange={(e) => setEditViewEndDate(e.target.value)}
-                          inputProps={{
-                            min:
-                              normalizeDateStr(viewScheduleInfo.startDate) ||
-                              undefined,
-                          }}
-                          sx={{
-                            bgcolor: "#fff",
-                            minWidth: 160,
-                            "& .MuiOutlinedInput-root": {
-                              fontSize: "0.85rem",
-                              "&.Mui-focused fieldset": {
-                                borderColor: "#6d2323",
-                              },
-                            },
-                            "& .MuiOutlinedInput-notchedOutline": {
-                              borderColor: "#6d2323",
-                            },
-                          }}
+                          inputProps={{ min: normalizeDateStr(viewScheduleInfo.startDate) || undefined }}
+                          sx={{ bgcolor: "#fff", minWidth: 160, "& .MuiOutlinedInput-root": { fontSize: "0.85rem", "&.Mui-focused fieldset": { borderColor: "#6d2323" } }, "& .MuiOutlinedInput-notchedOutline": { borderColor: "#6d2323" } }}
                         />
                       ) : (
-                        <Typography
-                          sx={{
-                            fontWeight: 600,
-                            color: "#1a1a1a",
-                            fontSize: "0.88rem",
-                          }}
-                        >
-                          {formatDateLong(viewScheduleInfo.endDate) ||
-                            formatDateOnly(viewScheduleInfo.endDate)}
+                        <Typography sx={{ fontWeight: 600, color: "#1a1a1a", fontSize: "0.88rem" }}>
+                          {formatDateLong(viewScheduleInfo.endDate) || formatDateOnly(viewScheduleInfo.endDate)}
                         </Typography>
                       )}
                     </Box>
-
-                    {/* Status */}
                     <Box>
-                      <Typography
-                        sx={{
-                          fontSize: "0.7rem",
-                          fontWeight: 700,
-                          color: "#6d2323",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.4px",
-                        }}
-                      >
-                        Status
-                      </Typography>
+                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#6d2323", textTransform: "uppercase", letterSpacing: "0.4px" }}>Status</Typography>
                       <Box sx={{ mt: 0.5 }}>
                         {(() => {
-                          const isActive =
-                            String(
-                              viewScheduleInfo.status || "active",
-                            ).toLowerCase() === "active";
+                          const isActive = String(viewScheduleInfo.status || "active").toLowerCase() === "active";
                           return (
-                            <Box
-                              component="span"
-                              sx={{
-                                px: 1.25,
-                                py: 0.3,
-                                borderRadius: 1,
-                                fontSize: "0.78rem",
-                                fontWeight: 700,
-                                bgcolor: isActive ? "#e8f5e9" : "#fff9f0",
-                                color: isActive ? "#2e7d32" : "#7a5000",
-                                border: "1px solid",
-                                borderColor: isActive ? "#c8e6c9" : "#f5d89a",
-                              }}
-                            >
+                            <Box component="span" sx={{ px: 1.25, py: 0.3, borderRadius: 1, fontSize: "0.78rem", fontWeight: 700, bgcolor: isActive ? "#e8f5e9" : "#fff9f0", color: isActive ? "#2e7d32" : "#7a5000", border: "1px solid", borderColor: isActive ? "#c8e6c9" : "#f5d89a" }}>
                               {isActive ? "Active" : "Inactive"}
                             </Box>
                           );
@@ -4471,49 +3554,25 @@ const OfficialTimeForm = () => {
                   </Box>
 
                   {/* Tab bar */}
-                  <Box
-                    sx={{
-                      display: "flex",
-                      border: "1px solid #d0b8b8",
-                      borderRadius: 1,
-                      overflow: "hidden",
-                      mb: 2,
-                    }}
-                  >
+                  <Box sx={{ display: "flex", border: "1px solid #d0b8b8", borderRadius: 1, overflow: "hidden", mb: 2 }}>
                     {[
                       { key: "workDays", label: "Work Days" },
                       { key: "honorarium", label: "Honorarium" },
                       { key: "serviceCredits", label: "Service Credits" },
                       { key: "overtime", label: "Overtime" },
                     ].map(({ key, label }, i, arr) => {
-                      const activeKey = isEditingViewSchedule
-                        ? editViewScheduleView
-                        : viewScheduleView;
-                      const setActiveKey = isEditingViewSchedule
-                        ? setEditViewScheduleView
-                        : setViewScheduleView;
+                      const activeKey = isEditingViewSchedule ? editViewScheduleView : viewScheduleView;
+                      const setActiveKey = isEditingViewSchedule ? setEditViewScheduleView : setViewScheduleView;
                       return (
-                        <Button
-                          key={key}
-                          onClick={() => setActiveKey(key)}
-                          disableElevation
-                          fullWidth
+                        <Button key={key} onClick={() => setActiveKey(key)} disableElevation fullWidth
                           sx={{
-                            borderRadius: 0,
-                            textTransform: "none",
-                            fontWeight: activeKey === key ? 700 : 400,
-                            fontSize: "0.82rem",
-                            py: 0.9,
+                            borderRadius: 0, textTransform: "none",
+                            fontWeight: activeKey === key ? 700 : 400, fontSize: "0.82rem", py: 0.9,
                             bgcolor: activeKey === key ? "#6d2323" : "#fff",
                             color: activeKey === key ? "#fff" : "#444",
-                            borderRight:
-                              i < arr.length - 1 ? "1px solid #d0b8b8" : "none",
-                            "&:hover": {
-                              bgcolor:
-                                activeKey === key ? "#5a1c1c" : "#f7f0f0",
-                            },
-                          }}
-                        >
+                            borderRight: i < arr.length - 1 ? "1px solid #d0b8b8" : "none",
+                            "&:hover": { bgcolor: activeKey === key ? "#5a1c1c" : "#f7f0f0" },
+                          }}>
                           {label}
                         </Button>
                       );
@@ -4521,45 +3580,22 @@ const OfficialTimeForm = () => {
                   </Box>
 
                   {/* Time table */}
-                  <TableContainer
-                    sx={{
-                      border: "1px solid #e0e0e0",
-                      borderRadius: 1.5,
-                      overflow: "hidden",
-                      mb: 3,
-                    }}
-                  >
+                  <TableContainer sx={{ border: "1px solid #e0e0e0", borderRadius: 1.5, overflow: "hidden", mb: 3 }}>
                     <Table size="small">
                       {isEditingViewSchedule ? (
                         <ScheduleTimeRows
-                          records={[...editViewRecords].sort(
-                            (a, b) =>
-                              DAYS_ORDER.indexOf(a.day || "") -
-                              DAYS_ORDER.indexOf(b.day || ""),
-                          )}
+                          records={[...editViewRecords].sort((a, b) => DAYS_ORDER.indexOf(a.day || "") - DAYS_ORDER.indexOf(b.day || ""))}
                           onChangeRecord={(index, field, value) => {
-                            const sorted = [...editViewRecords].sort(
-                              (a, b) =>
-                                DAYS_ORDER.indexOf(a.day || "") -
-                                DAYS_ORDER.indexOf(b.day || ""),
-                            );
+                            const sorted = [...editViewRecords].sort((a, b) => DAYS_ORDER.indexOf(a.day || "") - DAYS_ORDER.indexOf(b.day || ""));
                             const day = sorted[index]?.day;
-                            setEditViewRecords((prev) =>
-                              prev.map((r) =>
-                                r.day === day ? { ...r, [field]: value } : r,
-                              ),
-                            );
+                            setEditViewRecords((prev) => prev.map((r) => r.day === day ? { ...r, [field]: value } : r));
                           }}
                           scheduleView={editViewScheduleView}
                           readOnly={false}
                         />
                       ) : (
                         <ScheduleTimeRows
-                          records={[...viewScheduleRecords].sort(
-                            (a, b) =>
-                              DAYS_ORDER.indexOf(a.day || "") -
-                              DAYS_ORDER.indexOf(b.day || ""),
-                          )}
+                          records={[...viewScheduleRecords].sort((a, b) => DAYS_ORDER.indexOf(a.day || "") - DAYS_ORDER.indexOf(b.day || ""))}
                           onChangeRecord={() => {}}
                           scheduleView={viewScheduleView}
                           readOnly
@@ -4571,175 +3607,59 @@ const OfficialTimeForm = () => {
               )}
             </Box>
 
-            <Box
-              sx={{
-                borderTop: "1px solid #e0e0e0",
-                bgcolor: "#fafafa",
-                px: 3,
-                py: 2,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <Box>
-                {!isEditingViewSchedule &&
-                  viewScheduleInfo &&
-                  String(viewScheduleInfo.status || "active").toLowerCase() ===
-                    "active" && (
-                    <Button
-                      variant="outlined"
-                      startIcon={<Edit />}
-                      onClick={handleStartEditViewSchedule}
-                      sx={{
-                        fontWeight: 700,
-                        textTransform: "none",
-                        borderColor: "#6d2323",
-                        color: "#6d2323",
-                        "&:hover": {
-                          bgcolor: "#f7f0f0",
-                          borderColor: "#5a1c1c",
-                        },
-                      }}
-                    >
+            {/* ── Footer — Edit Schedule button is now on the RIGHT ── */}
+            <Box sx={{ borderTop: "1px solid #e0e0e0", bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 1.5 }}>
+              {isEditingViewSchedule ? (
+                <>
+                  <Button variant="outlined" onClick={handleCancelEditViewSchedule} disabled={editViewSaving}
+                    sx={{ fontWeight: 700, textTransform: "none", borderColor: "#666", color: "#444", "&:hover": { bgcolor: "#f5f5f5" } }}>
+                    Cancel
+                  </Button>
+                  <Button variant="contained" disableElevation
+                    startIcon={editViewSaving ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <SaveIcon />}
+                    onClick={handleSaveEditedSchedule} disabled={editViewSaving}
+                    sx={{ bgcolor: "#6d2323", color: "#fff", fontWeight: 700, textTransform: "none", minWidth: 130, "&:hover": { bgcolor: "#5a1c1c" } }}>
+                    {editViewSaving ? "Saving…" : "Save Changes"}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="outlined" onClick={() => setShowViewScheduleModal(false)}
+                    sx={{ fontWeight: 700, textTransform: "none", borderColor: "#ccc", color: "#444", "&:hover": { bgcolor: "#f5f5f5" } }}>
+                    Close
+                  </Button>
+                  {/* Edit Schedule only shows for Active schedules */}
+                  {viewScheduleInfo &&
+                    String(viewScheduleInfo.status || "active").toLowerCase() === "active" && (
+                    <Button variant="contained" disableElevation startIcon={<Edit />} onClick={handleStartEditViewSchedule}
+                      sx={{ fontWeight: 700, textTransform: "none", bgcolor: "#6d2323", color: "#fff", "&:hover": { bgcolor: "#5a1c1c" } }}>
                       Edit Schedule
                     </Button>
                   )}
-              </Box>
-              <Box sx={{ display: "flex", gap: 1 }}>
-                {isEditingViewSchedule ? (
-                  <>
-                    <Button
-                      variant="outlined"
-                      onClick={handleCancelEditViewSchedule}
-                      disabled={editViewSaving}
-                      sx={{
-                        fontWeight: 700,
-                        textTransform: "none",
-                        borderColor: "#666",
-                        color: "#444",
-                        "&:hover": { bgcolor: "#f5f5f5" },
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="contained"
-                      disableElevation
-                      startIcon={
-                        editViewSaving ? (
-                          <CircularProgress size={16} sx={{ color: "#fff" }} />
-                        ) : (
-                          <SaveIcon />
-                        )
-                      }
-                      onClick={handleSaveEditedSchedule}
-                      disabled={editViewSaving}
-                      sx={{
-                        bgcolor: "#6d2323",
-                        color: "#fff",
-                        fontWeight: 700,
-                        textTransform: "none",
-                        minWidth: 130,
-                        "&:hover": { bgcolor: "#5a1c1c" },
-                      }}
-                    >
-                      {editViewSaving ? "Saving…" : "Save Changes"}
-                    </Button>
-                  </>
-                ) : (
-                  <Button
-                    variant="contained"
-                    disableElevation
-                    onClick={() => setShowViewScheduleModal(false)}
-                    sx={{
-                      bgcolor: "#6d2323",
-                      color: "#fff",
-                      fontWeight: 700,
-                      textTransform: "none",
-                      minWidth: 80,
-                      "&:hover": { bgcolor: "#5a1c1c" },
-                    }}
-                  >
-                    Close
-                  </Button>
-                )}
-              </Box>
+                </>
+              )}
             </Box>
           </Dialog>
 
           {/* Upload Preview */}
-          <Dialog
-            open={showPreviewModal}
-            onClose={() => setShowPreviewModal(false)}
-            maxWidth="lg"
-            fullWidth
-            PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}
-          >
-            <Box
-              sx={{
-                bgcolor: "#6d2323",
-                px: 3,
-                py: 2,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1.5,
-                  minWidth: 0,
-                }}
-              >
-                <Visibility
-                  sx={{ color: "#fff", fontSize: 20, flexShrink: 0 }}
-                />
+          <Dialog open={showPreviewModal} onClose={() => setShowPreviewModal(false)} maxWidth="xl" fullWidth PaperProps={{ sx: { borderRadius: 2, overflow: "hidden" } }}>
+            <Box sx={{ bgcolor: "#6d2323", px: 3, py: 2, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minWidth: 0 }}>
+                <Visibility sx={{ color: "#fff", fontSize: 20, flexShrink: 0 }} />
                 <Box sx={{ minWidth: 0 }}>
-                  <Typography
-                    sx={{
-                      fontWeight: 700,
-                      color: "#fff",
-                      fontSize: "1rem",
-                      lineHeight: 1.25,
-                    }}
-                  >
-                    Upload Preview
-                  </Typography>
-                  <Typography
-                    sx={{
-                      color: "rgba(255,255,255,0.8)",
-                      fontSize: "0.78rem",
-                      mt: 0.25,
-                    }}
-                  >
+                  <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem", lineHeight: 1.25 }}>Upload Preview</Typography>
+                  <Typography sx={{ color: "rgba(255,255,255,0.8)", fontSize: "0.78rem", mt: 0.25 }}>
                     {previewRecords.length > 0 && previewRecords[0].employeeID
                       ? (() => {
                           const id = String(previewRecords[0].employeeID);
-                          const u = allUsers.find(
-                            (u) => String(u.employeeNumber) === id,
-                          );
-                          return u
-                            ? `${id} — ${u.fullName}`
-                            : `Employee No. ${id}`;
+                          const u = allUsers.find((u) => String(u.employeeNumber) === id);
+                          return u ? `${id} — ${u.fullName}` : `Employee No. ${id}`;
                         })()
                       : "Uploaded schedule data"}
                   </Typography>
                 </Box>
               </Box>
-              <IconButton
-                size="small"
-                onClick={() => setShowPreviewModal(false)}
-                sx={{
-                  color: "#fff",
-                  ml: 1,
-                  flexShrink: 0,
-                  "&:hover": { bgcolor: "rgba(255,255,255,0.15)" },
-                }}
-                aria-label="Close"
-              >
+              <IconButton size="small" onClick={() => setShowPreviewModal(false)} sx={{ color: "#fff", ml: 1, flexShrink: 0, "&:hover": { bgcolor: "rgba(255,255,255,0.15)" } }} aria-label="Close">
                 <Close fontSize="small" />
               </IconButton>
             </Box>
@@ -4747,155 +3667,50 @@ const OfficialTimeForm = () => {
             <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 0 }}>
               {previewScheduleInfo && (
                 <>
-                  <Box
-                    sx={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: 3,
-                      mb: 2.5,
-                      p: 2,
-                      bgcolor: "#f7f0f0",
-                      border: "1px solid #e2cece",
-                      borderRadius: 1.5,
-                    }}
-                  >
+                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 3, mb: 2.5, p: 2, bgcolor: "#f7f0f0", border: "1px solid #e2cece", borderRadius: 1.5 }}>
                     {[
-                      {
-                        label: "Academic Year",
-                        value: previewScheduleInfo.academicYear || "—",
-                      },
-                      {
-                        label: "Start Date",
-                        value:
-                          formatDateLong(previewScheduleInfo.startDate) ||
-                          formatDateOnly(previewScheduleInfo.startDate),
-                      },
-                      {
-                        label: "End Date",
-                        value:
-                          formatDateLong(previewScheduleInfo.endDate) ||
-                          formatDateOnly(previewScheduleInfo.endDate),
-                      },
+                      { label: "Academic Year", value: previewScheduleInfo.academicYear || "—" },
+                      { label: "Start Date", value: formatDateLong(previewScheduleInfo.startDate) || formatDateOnly(previewScheduleInfo.startDate) },
+                      { label: "End Date", value: formatDateLong(previewScheduleInfo.endDate) || formatDateOnly(previewScheduleInfo.endDate) },
                     ].map(({ label, value }) => (
                       <Box key={label}>
-                        <Typography
-                          sx={{
-                            fontSize: "0.7rem",
-                            fontWeight: 700,
-                            color: "#6d2323",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.4px",
-                          }}
-                        >
-                          {label}
-                        </Typography>
-                        <Typography
-                          sx={{
-                            fontWeight: 600,
-                            color: "#1a1a1a",
-                            fontSize: "0.88rem",
-                            mt: 0.25,
-                          }}
-                        >
-                          {value}
-                        </Typography>
+                        <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#6d2323", textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</Typography>
+                        <Typography sx={{ fontWeight: 600, color: "#1a1a1a", fontSize: "0.88rem", mt: 0.25 }}>{value}</Typography>
                       </Box>
                     ))}
                     <Box>
-                      <Typography
-                        sx={{
-                          fontSize: "0.7rem",
-                          fontWeight: 700,
-                          color: "#6d2323",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.4px",
-                        }}
-                      >
-                        Status
-                      </Typography>
+                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#6d2323", textTransform: "uppercase", letterSpacing: "0.4px" }}>Status</Typography>
                       <Box sx={{ mt: 0.5 }}>
-                        <Box
-                          component="span"
-                          sx={{
-                            px: 1.25,
-                            py: 0.3,
-                            borderRadius: 1,
-                            fontSize: "0.78rem",
-                            fontWeight: 700,
-                            bgcolor: "#e8f5e9",
-                            color: "#2e7d32",
-                            border: "1px solid #c8e6c9",
-                          }}
-                        >
-                          Active
-                        </Box>
+                        <Box component="span" sx={{ px: 1.25, py: 0.3, borderRadius: 1, fontSize: "0.78rem", fontWeight: 700, bgcolor: "#e8f5e9", color: "#2e7d32", border: "1px solid #c8e6c9" }}>Active</Box>
                       </Box>
                     </Box>
                   </Box>
 
-                  <Box
-                    sx={{
-                      display: "flex",
-                      border: "1px solid #d0b8b8",
-                      borderRadius: 1,
-                      overflow: "hidden",
-                      mb: 2,
-                    }}
-                  >
+                  <Box sx={{ display: "flex", border: "1px solid #d0b8b8", borderRadius: 1, overflow: "hidden", mb: 2 }}>
                     {[
                       { key: "workDays", label: "Work Days" },
                       { key: "honorarium", label: "Honorarium" },
                       { key: "serviceCredits", label: "Service Credits" },
                       { key: "overtime", label: "Overtime" },
                     ].map(({ key, label }, i, arr) => (
-                      <Button
-                        key={key}
-                        onClick={() => setPreviewViewScheduleView(key)}
-                        disableElevation
-                        fullWidth
+                      <Button key={key} onClick={() => setPreviewViewScheduleView(key)} disableElevation fullWidth
                         sx={{
-                          borderRadius: 0,
-                          textTransform: "none",
-                          fontWeight:
-                            previewViewScheduleView === key ? 700 : 400,
-                          fontSize: "0.82rem",
-                          py: 0.9,
-                          bgcolor:
-                            previewViewScheduleView === key
-                              ? "#6d2323"
-                              : "#fff",
-                          color:
-                            previewViewScheduleView === key ? "#fff" : "#444",
-                          borderRight:
-                            i < arr.length - 1 ? "1px solid #d0b8b8" : "none",
-                          "&:hover": {
-                            bgcolor:
-                              previewViewScheduleView === key
-                                ? "#5a1c1c"
-                                : "#f7f0f0",
-                          },
-                        }}
-                      >
+                          borderRadius: 0, textTransform: "none",
+                          fontWeight: previewViewScheduleView === key ? 700 : 400, fontSize: "0.82rem", py: 0.9,
+                          bgcolor: previewViewScheduleView === key ? "#6d2323" : "#fff",
+                          color: previewViewScheduleView === key ? "#fff" : "#444",
+                          borderRight: i < arr.length - 1 ? "1px solid #d0b8b8" : "none",
+                          "&:hover": { bgcolor: previewViewScheduleView === key ? "#5a1c1c" : "#f7f0f0" },
+                        }}>
                         {label}
                       </Button>
                     ))}
                   </Box>
 
-                  <TableContainer
-                    sx={{
-                      border: "1px solid #e0e0e0",
-                      borderRadius: 1.5,
-                      overflow: "hidden",
-                      mb: 3,
-                    }}
-                  >
+                  <TableContainer sx={{ border: "1px solid #e0e0e0", borderRadius: 1.5, overflow: "hidden", mb: 3 }}>
                     <Table size="small">
                       <ScheduleTimeRows
-                        records={[...previewRecords].sort(
-                          (a, b) =>
-                            DAYS_ORDER.indexOf(a.day || "") -
-                            DAYS_ORDER.indexOf(b.day || ""),
-                        )}
+                        records={[...previewRecords].sort((a, b) => DAYS_ORDER.indexOf(a.day || "") - DAYS_ORDER.indexOf(b.day || ""))}
                         onChangeRecord={() => {}}
                         scheduleView={previewViewScheduleView}
                         readOnly
@@ -4905,29 +3720,9 @@ const OfficialTimeForm = () => {
                 </>
               )}
             </Box>
-            <Box
-              sx={{
-                borderTop: "1px solid #e0e0e0",
-                bgcolor: "#fafafa",
-                px: 3,
-                py: 2,
-                display: "flex",
-                justifyContent: "flex-end",
-              }}
-            >
-              <Button
-                variant="contained"
-                disableElevation
-                onClick={() => setShowPreviewModal(false)}
-                sx={{
-                  bgcolor: "#6d2323",
-                  color: "#fff",
-                  fontWeight: 700,
-                  textTransform: "none",
-                  minWidth: 80,
-                  "&:hover": { bgcolor: "#5a1c1c" },
-                }}
-              >
+            <Box sx={{ borderTop: "1px solid #e0e0e0", bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end" }}>
+              <Button variant="contained" disableElevation onClick={() => setShowPreviewModal(false)}
+                sx={{ bgcolor: "#6d2323", color: "#fff", fontWeight: 700, textTransform: "none", minWidth: 80, "&:hover": { bgcolor: "#5a1c1c" } }}>
                 Close
               </Button>
             </Box>

@@ -1443,7 +1443,8 @@ router.post(
     }
     if (!blocks || !Array.isArray(blocks) || blocks.length === 0) {
       return res.status(400).json({
-        message: 'blocks is required and must contain at least one schedule block.',
+        message:
+          'blocks is required and must contain at least one schedule block.',
       });
     }
     if (!records || !Array.isArray(records) || records.length === 0) {
@@ -1720,7 +1721,7 @@ router.put(
               breaktime = ?
              WHERE employeeID = ? AND startDate = ? AND endDate = ? AND day = ?`,
             [
-              endDate,                              // new endDate
+              endDate, // new endDate
               r.officialTimeIN ?? null,
               r.officialBreaktimeIN ?? null,
               r.officialBreaktimeOUT ?? null,
@@ -1734,7 +1735,7 @@ router.put(
               r.breaktime ?? null,
               employeeID,
               startDate,
-              lookupEndDate,                        // lookup by old endDate
+              lookupEndDate, // lookup by old endDate
               r.day ?? null,
             ],
             (err, result) => {
