@@ -1,6 +1,6 @@
 import API_BASE_URL from '../../apiConfig';
 import { jwtDecode } from 'jwt-decode';
-import React, { useRef, forwardRef, useState, useEffect } from 'react';
+import React, { useRef, forwardRef, useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   Container,
@@ -32,6 +32,7 @@ import {
   LinearProgress,
   Stack,
   Badge,
+  Snackbar,
 } from '@mui/material';
 import WorkIcon from '@mui/icons-material/Work';
 import Refresh from '@mui/icons-material/Refresh';
@@ -58,6 +59,17 @@ const hexToRgb = (hex) => {
   return result
     ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
     : '109, 35, 35';
+};
+
+const generateHash = (data) => {
+  const str = JSON.stringify(data);
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(16).toUpperCase();
 };
 
 // ── Styled Components ──────────────────────────────────────────────────────
@@ -251,6 +263,19 @@ const Payslip = forwardRef(({ employee }, ref) => {
   const [personID, setPersonID] = useState('');
   const [pageLoading, setPageLoading] = useState(true);
 
+  // ── Anti-tamper state ──────────────────────────────────────────────────────
+  const [originalPayroll, setOriginalPayroll] = useState([]);
+  const [payrollHash, setPayrollHash] = useState('');
+  const [fetchedAt, setFetchedAt] = useState(null);
+  const [integrityStatus, setIntegrityStatus] = useState('none');
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+
+  // ── Anti-tamper refs ───────────────────────────────────────────────────────
+  const observerRef = useRef(null);
+  const restoreTimerRef = useRef(null);
+  const originalPayrollRef = useRef([]);
+  const isRestoringRef = useRef(false);
+
   const monthsShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const years = Array.from({ length: 2060 - 1990 + 1 }, (_, i) => 1990 + i);
 
@@ -289,8 +314,25 @@ const Payslip = forwardRef(({ employee }, ref) => {
         `${API_BASE_URL}/PayrollReleasedRoute/released-payroll-detailed`,
         getAuthHeaders(),
       );
-      setAllPayroll(Array.isArray(res.data) ? res.data : []);
-      // Don't reset displayEmployee here — let the auto-select effect handle it
+      const data = Array.isArray(res.data) ? res.data : [];
+      setAllPayroll(data);
+      
+      // ── Capture integrity data ─────────────────────────────────
+      if (data.length > 0) {
+        const immutable = Object.freeze(JSON.parse(JSON.stringify(data)));
+        setOriginalPayroll(immutable);
+        originalPayrollRef.current = immutable;
+        const hash = generateHash(data);
+        setPayrollHash(hash);
+        setFetchedAt(new Date().toISOString());
+        setIntegrityStatus('ok');
+      } else {
+        setOriginalPayroll([]);
+        originalPayrollRef.current = [];
+        setPayrollHash('');
+        setFetchedAt(null);
+        setIntegrityStatus('none');
+      }
     } catch (err) {
       console.error('Error fetching payroll:', err);
       setError('Failed to fetch payroll data. Please try again.');
@@ -410,8 +452,31 @@ const Payslip = forwardRef(({ employee }, ref) => {
     return !isNaN(result) && result !== 0 ? `₱${result.toLocaleString()}` : '—';
   };
 
+  // ── Integrity verification ─────────────────────────────────────────────────
+  const verifyIntegrity = () => {
+    if (!fetchedAt || originalPayroll.length === 0) {
+      setSnackbar({ open: true, message: 'No payroll data loaded. Please search first.', severity: 'warning' });
+      return false;
+    }
+    const ageMs = Date.now() - new Date(fetchedAt).getTime();
+    if (ageMs > 30 * 60 * 1000) {
+      setIntegrityStatus('warn');
+      setSnackbar({ open: true, message: 'Payroll data is older than 30 minutes. Please refresh to get fresh data.', severity: 'warning' });
+      return false;
+    }
+    const currentHash = generateHash(allPayroll);
+    if (currentHash !== payrollHash) {
+      setIntegrityStatus('warn');
+      setSnackbar({ open: true, message: 'Data integrity check failed. The records may have been modified. Please reload.', severity: 'error' });
+      return false;
+    }
+    setIntegrityStatus('ok');
+    return true;
+  };
+
   const downloadPDF = async () => {
     if (!displayEmployee) return;
+    if (!verifyIntegrity()) return;
     setSending(true);
 
     const currentStart = new Date(displayEmployee.startDate);
@@ -844,6 +909,22 @@ const Payslip = forwardRef(({ employee }, ref) => {
             </Box>
           )}
         </Dialog>
+
+        {/* ── Integrity Status Snackbar ────────────────────────────────────────── */}
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={5000}
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        >
+          <Alert
+            onClose={() => setSnackbar({ ...snackbar, open: false })}
+            severity={snackbar.severity}
+            sx={{ width: '100%' }}
+          >
+            {snackbar.message}
+          </Alert>
+        </Snackbar>
 
       </Box>
     </Box>

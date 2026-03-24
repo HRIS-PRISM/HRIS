@@ -15,8 +15,10 @@ import {
   Card,
   Chip,
   Container,
+  Dialog,
   Fade,
   IconButton,
+  LinearProgress,
   Paper,
   styled,
   TextField,
@@ -272,8 +274,6 @@ const DTRWireframeLoading = ({
                   </Box>
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <S w={145} h={26} r={13} accent={ac} />
-                  <S w={115} h={26} r={13} accent={ac} />
                   <Placeholder w={48} h={48} r="50%" color={alpha(ac, 0.11)} />
                 </Box>
               </Box>
@@ -380,6 +380,10 @@ const DailyTimeRecord = () => {
   const originalRecordsRef  = useRef([]);
   const isRestoringRef      = useRef(false);
   const formatTimeRef       = useRef(null);
+
+  // ── Loading states for print/download ──────────────────────────────────────
+  const [singlePrintLoading, setSinglePrintLoading] = useState(false);
+  const [singlePrintStatus, setSinglePrintStatus] = useState('');
 
   // ── Year selector ──────────────────────────────────────────────────────────
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -641,37 +645,11 @@ const DailyTimeRecord = () => {
     } catch (e) { /* noop */ }
   };
 
-  const addWatermark = (pdf) => {
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const pageWidth  = pdf.internal.pageSize.getWidth();
-    const meta = `Emp: ${personID} | Hash: ${recordsHash} | Generated: ${new Date(fetchedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })} | ${employeeName}`;
-    pdf.setFontSize(5.5); pdf.setTextColor(160, 160, 160);
-    pdf.text(meta, pageWidth / 2, pageHeight - 0.12, { align: 'center' });
-    pdf.setTextColor(0, 0, 0);
-  };
-
   const printPage = async () => {
     if (!dtrRef.current) return;
     if (!verifyIntegrity()) return;
-    restoreDOMFromOriginal();
-    await new Promise((r) => setTimeout(r, 80));
-    try {
-      const pdf  = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
-      const orig = ensureCaptureStyles(dtrRef.current);
-      await new Promise((r) => setTimeout(r, 100));
-      const canvas = await html2canvas(dtrRef.current, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
-      restoreCaptureStyles(dtrRef.current, orig);
-      const imgData = canvas.toDataURL('image/png');
-      const dtrWidth = 8, dtrHeight = 9.5;
-      const pw = pdf.internal.pageSize.getWidth(); const ph = pdf.internal.pageSize.getHeight();
-      pdf.addImage(imgData, 'PNG', (pw - dtrWidth) / 2, (ph - dtrHeight) / 2, dtrWidth, dtrHeight);
-      addWatermark(pdf); pdf.autoPrint(); window.open(pdf.output('bloburl'), '_blank');
-    } catch (err) { console.error('Error generating print view:', err); }
-  };
-
-  const downloadPDF = async () => {
-    if (!dtrRef.current) return;
-    if (!verifyIntegrity()) return;
+    setSinglePrintLoading(true);
+    setSinglePrintStatus('Preparing DTR for printing...');
     restoreDOMFromOriginal();
     await new Promise((r) => setTimeout(r, 80));
     try {
@@ -684,9 +662,38 @@ const DailyTimeRecord = () => {
       const dtrWidth = 8, dtrHeight = 10;
       const pw = pdf.internal.pageSize.getWidth(); const ph = pdf.internal.pageSize.getHeight();
       pdf.addImage(imgData, 'PNG', (pw - dtrWidth) / 2, (ph - dtrHeight) / 2, dtrWidth, dtrHeight);
-      addWatermark(pdf); pdf.save(`DTR-${employeeName}-${formatMonth(startDate)}.pdf`);
-      setSnackbar({ open: true, message: 'DTR downloaded successfully. Integrity verified.', severity: 'success' });
+      pdf.autoPrint(); window.open(pdf.output('bloburl'), '_blank');
+    } catch (err) { console.error('Error generating print view:', err); }
+    finally {
+      setSinglePrintLoading(false);
+      setSinglePrintStatus('');
+    }
+  };
+
+  const downloadPDF = async () => {
+    if (!dtrRef.current) return;
+    if (!verifyIntegrity()) return;
+    setSinglePrintLoading(true);
+    setSinglePrintStatus('Preparing DTR for download...');
+    restoreDOMFromOriginal();
+    await new Promise((r) => setTimeout(r, 80));
+    try {
+      const pdf  = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
+      const orig = ensureCaptureStyles(dtrRef.current);
+      await new Promise((r) => setTimeout(r, 100));
+      const canvas = await html2canvas(dtrRef.current, { scale: 3, useCORS: true, backgroundColor: '#ffffff', logging: false });
+      restoreCaptureStyles(dtrRef.current, orig);
+      const imgData = canvas.toDataURL('image/png');
+      const dtrWidth = 8, dtrHeight = 10;
+      const pw = pdf.internal.pageSize.getWidth(); const ph = pdf.internal.pageSize.getHeight();
+      pdf.addImage(imgData, 'PNG', (pw - dtrWidth) / 2, (ph - dtrHeight) / 2, dtrWidth, dtrHeight);
+      pdf.save(`DTR-${employeeName}-${formatMonth(startDate)}.pdf`);
+      setSnackbar({ open: true, message: 'DTR downloaded successfully.', severity: 'success' });
     } catch (err) { console.error('Error generating PDF:', err); }
+    finally {
+      setSinglePrintLoading(false);
+      setSinglePrintStatus('');
+    }
   };
 
   // ── Month click ────────────────────────────────────────────────────────────
@@ -729,17 +736,6 @@ const DailyTimeRecord = () => {
     if (susp) return { label: 'SUSPENSION', bgColor: 'rgba(211,47,47,0.2)', borderColor: '#d32f2f' };
     const hol = holidays.find((h) => isDateInRange(date, h.date_start || h.date, h.date_end || h.date));
     if (hol) return { label: 'HOLIDAY', bgColor: 'rgba(237,108,2,0.25)', borderColor: '#ed6c02' };
-    return null;
-  };
-
-  // ── Integrity badge ────────────────────────────────────────────────────────
-  const IntegrityBadge = () => {
-    if (integrityStatus === 'none') return null;
-    if (integrityStatus === 'ok') return (
-      <Tooltip title={`Data integrity verified | Hash: ${recordsHash} | Fetched: ${fetchedAt ? new Date(fetchedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'N/A'}`}>
-        <Chip icon={<VerifiedIcon sx={{ fontSize: '16px !important' }} />} label="Integrity Verified" size="small" sx={{ bgcolor: 'rgba(46,125,50,0.15)', color: '#2e7d32', fontWeight: 600, fontSize: '11px', border: '1px solid rgba(46,125,50,0.4)', cursor: 'pointer' }} />
-      </Tooltip>
-    );
     return null;
   };
 
@@ -888,7 +884,8 @@ const DailyTimeRecord = () => {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <Fade in timeout={500}>
-      <Container maxWidth="xl" sx={{ py: 4, mt: -5 }}>
+      <Box>
+        <Container maxWidth="xl" sx={{ py: 4, mt: -5 }}>
         <style>{`
           html { overflow-y: scroll; }
           .dtr-responsive-header,.dtr-responsive-cell,.dtr-time-cell{width:auto!important;max-width:none!important;}
@@ -939,8 +936,6 @@ const DailyTimeRecord = () => {
                       </Box>
                     </Box>
                     <Box display="flex" alignItems="center" gap={2}>
-                      <IntegrityBadge />
-                      <Chip label="Faculty Records" size="small" sx={{ bgcolor: alpha(accentColor,0.15), color: textPrimaryColor, fontWeight: 500, '& .MuiChip-label': { px: 1 } }} />
                       <Tooltip title="Refresh Data">
                         <IconButton onClick={() => window.location.reload()} sx={{ bgcolor: alpha(accentColor,0.1), '&:hover':{ bgcolor: alpha(accentColor,0.2) }, color: textPrimaryColor, width: 48, height: 48 }}>
                           <AccessTime sx={{ fontSize: 24 }} />
@@ -1041,18 +1036,78 @@ const DailyTimeRecord = () => {
                 ))}
               </Box>
             } arrow componentsProps={{ tooltip: { sx: { bgcolor: 'white', color: '#333', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', border: '1px solid #e0e0e0', borderRadius: '10px', p: 1.5 } }, arrow: { sx: { color: 'white' } } }}>
-              <IconButton sx={{ backgroundColor: '#ffffff', color: '#6D2323', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', transition: 'all 0.2s ease', fontSize: '18px', fontWeight: 700, '&:hover': { backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}>?</IconButton>
+              <IconButton sx={{ backgroundColor: '#ffffff', color: '#6D2323', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', transition: 'all 0.2s ease', fontSize: '18px', fontWeight: 700, '&:hover': { backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}>?</IconButton>
             </Tooltip>
             <Tooltip title="Print DTR" placement="top">
-              <IconButton onClick={printPage} sx={{ backgroundColor: '#ffffff', color: '#6D2323', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', transition: 'all 0.2s ease', '&:hover':{ backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}><PrintIcon /></IconButton>
+              <IconButton onClick={printPage} sx={{ backgroundColor: '#ffffff', color: '#6D2323', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', transition: 'all 0.2s ease', '&:hover':{ backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}><PrintIcon /></IconButton>
             </Tooltip>
             <Tooltip title="Download PDF" placement="top">
-              <IconButton onClick={downloadPDF} sx={{ backgroundColor: '#ffffff', color: '#A31D1D', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', transition: 'all 0.2s ease', '&:hover':{ backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}><PictureAsPdfIcon /></IconButton>
+              <IconButton onClick={downloadPDF} sx={{ backgroundColor: '#ffffff', color: '#A31D1D', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', transition: 'all 0.2s ease', '&:hover':{ backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}><PictureAsPdfIcon /></IconButton>
             </Tooltip>
           </Box>
 
         </Box>
       </Container>
+
+        {/* Loading Modal for Print/Download */}
+        {singlePrintLoading && (
+          <Dialog
+            open={singlePrintLoading || !!singlePrintStatus}
+            maxWidth="xs"
+            fullWidth
+            PaperProps={{
+              sx: {
+                borderRadius: 4,
+                backgroundColor: '#ffffff',
+                boxShadow: '0 10px 50px rgba(0,0,0,0.12)',
+                overflow: 'hidden',
+              },
+            }}
+          >
+            <Box
+              sx={{
+                p: 4,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                textAlign: 'center',
+                gap: 2,
+              }}
+            >
+              <MCircularProgress
+                size={52}
+                thickness={4}
+                sx={{ color: accentColor }}
+              />
+              <Typography
+                variant="h6"
+                sx={{ fontWeight: 700, color: '#111', lineHeight: 1.3 }}
+              >
+                {singlePrintStatus || 'Preparing DTR...'}
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{ color: '#777', maxWidth: 280, lineHeight: 1.6 }}
+              >
+                Your DTR is being captured and compiled. Please wait.
+              </Typography>
+              <Box sx={{ width: '100%', mt: 1 }}>
+                <LinearProgress
+                  sx={{
+                    height: 5,
+                    borderRadius: 3,
+                    backgroundColor: alpha(accentColor, 0.12),
+                    '& .MuiLinearProgress-bar': {
+                      borderRadius: 3,
+                      backgroundColor: accentColor,
+                    },
+                  }}
+                />
+              </Box>
+            </Box>
+          </Dialog>
+        )}
+      </Box>
     </Fade>
   );
 };

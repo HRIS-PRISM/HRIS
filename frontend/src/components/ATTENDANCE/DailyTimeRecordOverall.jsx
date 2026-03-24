@@ -1,8 +1,8 @@
-import API_BASE_URL from "../../apiConfig";
-import React, { useEffect, useRef, useState } from "react";
-import axios from "axios";
-import { useSocket } from "../../contexts/SocketContext";
-import { jwtDecode } from "jwt-decode";
+import API_BASE_URL from '../../apiConfig';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import axios from 'axios';
+import { useSocket } from '../../contexts/SocketContext';
+import { jwtDecode } from 'jwt-decode';
 import {
   AccessTime,
   CalendarToday,
@@ -11,10 +11,12 @@ import {
   ArrowForward,
   Close,
   Circle,
-} from "@mui/icons-material";
-import PrintIcon from "@mui/icons-material/Print";
+} from '@mui/icons-material';
+import PrintIcon from '@mui/icons-material/Print';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { Stack, Divider } from '@mui/material';
 import {
+  Alert,
   Avatar,
   Box,
   Button,
@@ -33,6 +35,7 @@ import {
   MenuItem,
   Paper,
   Select,
+  Snackbar,
   styled,
   Table,
   TableBody,
@@ -43,16 +46,16 @@ import {
   Tooltip,
   Typography,
   CircularProgress as MCircularProgress,
-} from "@mui/material";
+} from '@mui/material';
 import { LinearProgress } from '@mui/material';
-import earistLogo from "../../assets/earistLogo.png";
-import hrisLogo from "../../assets/hrisLogo.png";
-import { useSystemSettings } from "../../hooks/useSystemSettings";
-import { alpha } from "@mui/material/styles";
-import { jsPDF } from "jspdf";
-import html2canvas from "html2canvas";
-import usePageAccess from "../../hooks/usePageAccess";
-import AccessDenied from "../AccessDenied";
+import earistLogo from '../../assets/earistLogo.png';
+import hrisLogo from '../../assets/hrisLogo.png';
+import { useSystemSettings } from '../../hooks/useSystemSettings';
+import { alpha } from '@mui/material/styles';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
+import usePageAccess from '../../hooks/usePageAccess';
+import AccessDenied from '../AccessDenied';
 
 // Helper function to convert hex to rgb
 const hexToRgb = (hex) => {
@@ -62,68 +65,92 @@ const hexToRgb = (hex) => {
         result[3],
         16,
       )}`
-    : "109, 35, 35";
+    : '109, 35, 35';
+};
+
+const generateHash = (data) => {
+  const str = JSON.stringify(data);
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(16).toUpperCase();
 };
 
 // --- FIXED STYLED COMPONENTS (Removed Transforms to stop movement) ---
 
 const GlassCard = styled(Card)(({ theme }) => ({
   borderRadius: 20,
-  backdropFilter: "blur(10px)",
-  overflow: "hidden",
-  transition: "box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+  backdropFilter: 'blur(10px)',
+  overflow: 'hidden',
+  transition: 'box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
 }));
 
 const ProfessionalButton = styled(Button)(
-  ({ theme, variant, color = "primary" }) => ({
+  ({ theme, variant, color = 'primary' }) => ({
     borderRadius: 12,
     fontWeight: 600,
-    padding: "12px 24px",
-    transition: "box-shadow 0.2s ease-in-out, background-color 0.2s",
-    textTransform: "none",
-    fontSize: "0.95rem",
-    letterSpacing: "0.025em",
+    padding: '12px 24px',
+    transition: 'box-shadow 0.2s ease-in-out, background-color 0.2s',
+    textTransform: 'none',
+    fontSize: '0.95rem',
+    letterSpacing: '0.025em',
     boxShadow:
-      variant === "contained" ? "0 4px 14px rgba(254, 249, 225, 0.25)" : "none",
-    "&:hover": {
+      variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
+    '&:hover': {
       boxShadow:
-        variant === "contained"
-          ? "0 6px 20px rgba(254, 249, 225, 0.35)"
-          : "none",
+        variant === 'contained'
+          ? '0 6px 20px rgba(254, 249, 225, 0.35)'
+          : 'none',
     },
-    "&:active": {
-      boxShadow: "none",
+    '&:active': {
+      boxShadow: 'none',
     },
   }),
 );
 
 const ModernTextField = styled(TextField)(({ theme }) => ({
-  "& .MuiOutlinedInput-root": {
+  '& .MuiOutlinedInput-root': {
     borderRadius: 12,
     transition:
-      "box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s",
-    backgroundColor: "rgba(255, 255, 255, 0.8)",
-    "&:hover": {
-      backgroundColor: "rgba(255, 255, 255, 0.95)",
+      'box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s',
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    '&:hover': {
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
     },
-    "&.Mui-focused": {
-      boxShadow: "0 4px 20px rgba(254, 249, 225, 0.25)",
-      backgroundColor: "rgba(255, 255, 255, 1)",
+    '&.Mui-focused': {
+      boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
+      backgroundColor: 'rgba(255, 255, 255, 1)',
     },
   },
-  "& .MuiInputLabel-root": {
+  '& .MuiInputLabel-root': {
     fontWeight: 500,
   },
 }));
 
+// Shared colgroup matching DailyTimeRecord.jsx exactly
+const DTRColGroup = () => (
+  <colgroup>
+    <col style={{ width: '8%' }} />
+    <col style={{ width: '16%' }} />
+    <col style={{ width: '16%' }} />
+    <col style={{ width: '16%' }} />
+    <col style={{ width: '16%' }} />
+    <col style={{ width: '14%' }} />
+    <col style={{ width: '14%' }} />
+  </colgroup>
+);
+
 const DailyTimeRecordFaculty = () => {
   const { socket, connected } = useSocket();
   const { settings } = useSystemSettings();
-  const [personID, setPersonID] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [personID, setPersonID] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [records, setRecords] = useState([]);
-  const [employeeName, setEmployeeName] = useState("");
+  const [employeeName, setEmployeeName] = useState('');
   const [officialTimes, setOfficialTimes] = useState({});
   const dtrRef = React.useRef(null);
 
@@ -134,9 +161,23 @@ const DailyTimeRecordFaculty = () => {
   const [allUsersDTR, setAllUsersDTR] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState(new Set());
   // Replace surnameFilter with a free-text search query
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState('');
   const [loadingAllUsers, setLoadingAllUsers] = useState(false);
   const bulkDTRRefs = React.useRef({});
+
+  // ── Anti-tamper state ──────────────────────────────────────────────────────
+  const [originalRecords, setOriginalRecords] = useState([]);
+  const [recordsHash, setRecordsHash] = useState('');
+  const [fetchedAt, setFetchedAt] = useState(null);
+  const [integrityStatus, setIntegrityStatus] = useState('none');
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+
+  // ── Anti-tamper refs ───────────────────────────────────────────────────────
+  const observerRef = useRef(null);
+  const restoreTimerRef = useRef(null);
+  const originalRecordsRef = useRef([]);
+  const isRestoringRef = useRef(false);
+  const formatTimeRef = useRef(null);
 
   // Year / month selector (added like AttendanceDevice)
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -155,26 +196,26 @@ const DailyTimeRecordFaculty = () => {
 
   // Hide visible popup preview during printing
   const [printingAll, setPrintingAll] = useState(false);
-  const [printingStatus, setPrintingStatus] = useState("");
+  const [printingStatus, setPrintingStatus] = useState('');
 
   // View mode state: 'single' or 'multiple'
-  const [viewMode, setViewMode] = useState("multiple");
+  const [viewMode, setViewMode] = useState('single');
 
   // Record filter: 'all' | 'has' | 'no'
-  const [recordFilter, setRecordFilter] = useState("all");
+  const [recordFilter, setRecordFilter] = useState('all');
 
   // DTR Type state: 'regular' | 'honorarium' | 'service-credit' | 'overtime'
-  const [dtrType, setDtrType] = useState("regular");
+  const [dtrType, setDtrType] = useState('regular');
 
   // Print tracking states
-  const [printStatusFilter, setPrintStatusFilter] = useState("all"); // 'all' | 'printed' | 'unprinted'
+  const [printStatusFilter, setPrintStatusFilter] = useState('all'); // 'all' | 'printed' | 'unprinted'
   const [printStatusMap, setPrintStatusMap] = useState(new Map()); // Map<employeeNumber, printInfo>
 
   // Modal states for alerts and confirmations
   const [alertModal, setAlertModal] = useState({
     open: false,
-    title: "",
-    message: "",
+    title: '',
+    message: '',
   });
   const [confirmModal, setConfirmModal] = useState({ open: false, user: null });
 
@@ -184,7 +225,7 @@ const DailyTimeRecordFaculty = () => {
   };
 
   const closeAlert = () => {
-    setAlertModal({ open: false, title: "", message: "" });
+    setAlertModal({ open: false, title: '', message: '' });
   };
 
   const showReprintConfirm = (user) => {
@@ -196,35 +237,39 @@ const DailyTimeRecordFaculty = () => {
   };
 
   // Get colors from system settings
-  const primaryColor = settings.accentColor || "#FEF9E1";
-  const secondaryColor = settings.backgroundColor || "#FFF8E7";
-  const accentColor = settings.primaryColor || "#6d2323";
-  const accentDark = settings.secondaryColor || "#8B3333";
-  const textPrimaryColor = settings.textPrimaryColor || "#6d2323";
-  const textSecondaryColor = settings.textSecondaryColor || "#FEF9E1";
-  const hoverColor = settings.hoverColor || "#6D2323";
+  const primaryColor = settings.accentColor || '#FEF9E1';
+  const secondaryColor = settings.backgroundColor || '#FFF8E7';
+  const accentColor = settings.primaryColor || '#6d2323';
+  const accentDark = settings.secondaryColor || '#8B3333';
+  const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
+  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
+  const hoverColor = settings.hoverColor || '#6D2323';
 
   // Department and Employment Category filters
-  const [departmentFilter, setDepartmentFilter] = useState("");
-  const [employmentCategoryFilter, setEmploymentCategoryFilter] = useState("");
-  const [registrationStatusFilter, setRegistrationStatusFilter] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [employmentCategoryFilter, setEmploymentCategoryFilter] = useState('');
+  const [registrationStatusFilter, setRegistrationStatusFilter] = useState('');
   const [departments, setDepartments] = useState([]);
   const [employmentCategories, setEmploymentCategories] = useState([]);
   const [approvedLeaves, setApprovedLeaves] = useState([]);
+
+  // Add this state near your other single-user states
+  const [singlePrintLoading, setSinglePrintLoading] = useState(false);
+  const [singlePrintStatus, setSinglePrintStatus] = useState('');
 
   // ACCESS: page access control
   const {
     hasAccess,
     loading: accessLoading,
     error: accessError,
-  } = usePageAccess("daily-time-record-faculty");
+  } = usePageAccess('daily-time-record-faculty');
 
   const getAuthHeaders = () => {
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem('token');
     return {
       headers: {
         Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
     };
   };
@@ -232,7 +277,7 @@ const DailyTimeRecordFaculty = () => {
   // Employee Number field is empty by default for searching any employee
 
   // Use a single constant width (in) for DTR rendering/capture so all variants match
-  const DTR_WIDTH_IN = "8.7in"; // match main DailyTimeRecord table width
+  const DTR_WIDTH_IN = '8.7in'; // match main DailyTimeRecord table width
 
   /**
    * Formats a user's name to "SURNAME, Firstname M." (clean)
@@ -243,32 +288,123 @@ const DailyTimeRecordFaculty = () => {
       user.lastName ||
       user.surname ||
       user.familyName ||
-      ""
+      ''
     ).trim();
-    const first = (user.firstName || user.givenName || "").trim();
-    const middleRaw = (user.middleName || user.middleInitial || "").trim();
+    const first = (user.firstName || user.givenName || '').trim();
+    const middleRaw = (user.middleName || user.middleInitial || '').trim();
 
     const capitalize = (s) =>
-      s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : "";
+      s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : '';
 
-    let middle = "";
+    let middle = '';
     if (middleRaw) {
       // Use only initial if middle name is longer
       const initial = middleRaw.charAt(0).toUpperCase();
       middle = `${initial}.`;
     }
 
-    const lastPart = last ? last.toUpperCase() : "";
-    const firstPart = first ? capitalize(first) : "";
-    const full = `${lastPart}${lastPart && firstPart ? ", " : ""}${firstPart}${
-      middle ? " " + middle : ""
+    const lastPart = last ? last.toUpperCase() : '';
+    const firstPart = first ? capitalize(first) : '';
+    const full = `${lastPart}${lastPart && firstPart ? ', ' : ''}${firstPart}${
+      middle ? ' ' + middle : ''
     }`.trim();
 
     // Fallback to any available fullName or employee displayName
     if (!full) {
-      return user.fullName || user.displayName || "Unknown";
+      return user.fullName || user.displayName || 'Unknown';
     }
     return full;
+  };
+
+  // ── DOM restore logic ──────────────────────────────────────────────────────
+  const restoreDOMFromOriginal = useCallback(() => {
+    if (!dtrRef.current) return;
+    const original = originalRecordsRef.current;
+    if (!original || original.length === 0) return;
+    isRestoringRef.current = true;
+    const fmt = formatTimeRef.current || ((s) => s || '');
+    const tbodies = dtrRef.current.querySelectorAll('tbody');
+    tbodies.forEach((tbody) => {
+      const rows = tbody.querySelectorAll('tr');
+      rows.forEach((row) => {
+        const dayCell = row.querySelector('td:first-child');
+        if (!dayCell) return;
+        const dayText = dayCell.textContent.trim();
+        if (!/^\d{2}$/.test(dayText)) return;
+        const record = original.find((r) => {
+          const d = (r.date || '').split('T')[0].split('-')[2];
+          return d === dayText;
+        });
+        const cells = row.querySelectorAll('td');
+        if (cells.length < 5) return;
+        const timeValues = [
+          fmt(record?.timeIN     || ''),
+          fmt(record?.breaktimeIN  || ''),
+          fmt(record?.breaktimeOUT || ''),
+          fmt(record?.timeOUT    || ''),
+        ];
+        [1, 2, 3, 4].forEach((cellIdx, spanIdx) => {
+          const span = cells[cellIdx]?.querySelector('span');
+          if (span && span.textContent.trim() !== timeValues[spanIdx]) {
+            span.textContent = timeValues[spanIdx];
+          }
+        });
+      });
+    });
+    setTimeout(() => { isRestoringRef.current = false; }, 50);
+  }, []);
+
+  const startObserver = useCallback(() => {
+    if (!dtrRef.current) return;
+    if (observerRef.current) observerRef.current.disconnect();
+    observerRef.current = new MutationObserver((mutations) => {
+      if (isRestoringRef.current) return;
+      const isTimeTamper = mutations.some((m) => {
+        if (m.type === 'characterData') { const span = m.target.parentElement; return span && span.tagName === 'SPAN'; }
+        if (m.type === 'childList') return m.target.tagName === 'TD' || m.target.tagName === 'SPAN';
+        return false;
+      });
+      if (!isTimeTamper) return;
+      if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
+      restoreTimerRef.current = setTimeout(() => { restoreDOMFromOriginal(); }, 300);
+    });
+    observerRef.current.observe(dtrRef.current, { subtree: true, childList: true, characterData: true });
+  }, [restoreDOMFromOriginal]);
+
+  const stopObserver = useCallback(() => {
+    if (observerRef.current) { observerRef.current.disconnect(); observerRef.current = null; }
+    if (restoreTimerRef.current) { clearTimeout(restoreTimerRef.current); restoreTimerRef.current = null; }
+  }, []);
+
+  useEffect(() => {
+    if (originalRecords.length > 0 && dtrRef.current) {
+      const t = setTimeout(() => startObserver(), 100);
+      return () => { clearTimeout(t); stopObserver(); };
+    } else { stopObserver(); }
+  }, [originalRecords, startObserver, stopObserver]);
+
+  useEffect(() => () => stopObserver(), [stopObserver]);
+
+  // ── Integrity verification ─────────────────────────────────────────────────
+  const verifyIntegrity = () => {
+    if (!fetchedAt || originalRecords.length === 0) {
+      setSnackbar({ open: true, message: 'No DTR data loaded. Please search first.', severity: 'warning' });
+      return false;
+    }
+    const ageMs = Date.now() - new Date(fetchedAt).getTime();
+    if (ageMs > 30 * 60 * 1000) {
+      setIntegrityStatus('warn');
+      setSnackbar({ open: true, message: 'DTR data is older than 30 minutes. Please search again to get fresh data.', severity: 'warning' });
+      return false;
+    }
+    const currentHash = generateHash(records);
+    if (currentHash !== recordsHash) {
+      setIntegrityStatus('warn');
+      setSnackbar({ open: true, message: 'Data integrity check failed. The records may have been modified. Please reload.', severity: 'error' });
+      return false;
+    }
+    setIntegrityStatus('ok');
+    return true;
   };
 
   /**
@@ -295,7 +431,7 @@ const DailyTimeRecordFaculty = () => {
 
       setOfficialTimes(officialTimesMap);
     } catch (error) {
-      console.error("Error fetching official times:", error);
+      console.error('Error fetching official times:', error);
       setOfficialTimes({});
     }
   };
@@ -304,13 +440,13 @@ const DailyTimeRecordFaculty = () => {
     try {
       const response = await axios.get(
         `${API_BASE_URL}/leaveRoute/leave_request`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       // Filter only HR Approved (status === 2) for this employee
       const hrApproved = response.data.filter(
         (req) =>
           String(req.status) === '2' &&
-          String(req.employeeNumber) === String(empID)
+          String(req.employeeNumber) === String(empID),
       );
       setApprovedLeaves(hrApproved);
     } catch (err) {
@@ -352,7 +488,7 @@ const DailyTimeRecordFaculty = () => {
 
         setEmploymentCategories(uniqueCategories);
       } catch (error) {
-        console.error("Error fetching filter options:", error);
+        console.error('Error fetching filter options:', error);
       }
     };
 
@@ -372,7 +508,7 @@ const DailyTimeRecordFaculty = () => {
           Array.isArray(suspensionsRes.data) ? suspensionsRes.data : [],
         );
       } catch (err) {
-        console.error("Error fetching holidays/suspensions:", err);
+        console.error('Error fetching holidays/suspensions:', err);
         setHolidays([]);
         setSuspensions([]);
       }
@@ -394,70 +530,89 @@ const DailyTimeRecordFaculty = () => {
       );
 
       const data = response.data;
-      console.log("📊 Fetched raw data:", data.length, "records");
-      console.log("🔍 DTR Type:", dtrType);
-      console.log("📝 Sample record:", data[0]);
+      console.log('📊 Fetched raw data:', data.length, 'records');
+      console.log('🔍 DTR Type:', dtrType);
+      console.log('📝 Sample record:', data[0]);
 
       // Debug: Check for overtime records
-      const overtimeRecords = data.filter((r) => r.specialType === "OVERTIME");
-      console.log("🔍 TOTAL OVERTIME RECORDS IN DATA:", overtimeRecords.length);
+      const overtimeRecords = data.filter((r) => r.specialType === 'OVERTIME');
+      console.log('🔍 TOTAL OVERTIME RECORDS IN DATA:', overtimeRecords.length);
       if (overtimeRecords.length > 0) {
-        console.log("🔍 First overtime record:", overtimeRecords[0]);
+        console.log('🔍 First overtime record:', overtimeRecords[0]);
       }
 
       // Filter records based on selected DTR type
       let filteredRecords = data;
-      if (dtrType === "regular") {
+      if (dtrType === 'regular') {
         // Show records that have regular times (timeIN or timeOUT)
         filteredRecords = data.filter(
           (record) => record.timeIN || record.timeOUT,
         );
         console.log(
-          "✅ Regular filter: ",
+          '✅ Regular filter: ',
           filteredRecords.length,
-          "records with timeIN/timeOUT",
+          'records with timeIN/timeOUT',
         );
-      } else if (dtrType === "service-credit") {
+      } else if (dtrType === 'service-credit') {
         // Show only records with SERVICE special times
         filteredRecords = data.filter(
           (record) =>
-            record.specialType === "SERVICE" &&
+            record.specialType === 'SERVICE' &&
             (record.specialTimeIN || record.specialTimeOUT),
         );
         console.log(
-          "✅ Service Credit filter:",
+          '✅ Service Credit filter:',
           filteredRecords.length,
-          "records with SERVICE type",
+          'records with SERVICE type',
         );
-      } else if (dtrType === "honorarium") {
+      } else if (dtrType === 'honorarium') {
         // Show only records with HONORARIUM special times
         filteredRecords = data.filter(
           (record) =>
-            record.specialType === "HONORARIUM" &&
+            record.specialType === 'HONORARIUM' &&
             (record.specialTimeIN || record.specialTimeOUT),
         );
         console.log(
-          "✅ Honorarium filter:",
+          '✅ Honorarium filter:',
           filteredRecords.length,
-          "records with HONORARIUM type",
+          'records with HONORARIUM type',
         );
-      } else if (dtrType === "overtime") {
+      } else if (dtrType === 'overtime') {
         // Show only records with OVERTIME special times
         filteredRecords = data.filter(
           (record) =>
-            record.specialType === "OVERTIME" &&
+            record.specialType === 'OVERTIME' &&
             (record.specialTimeIN || record.specialTimeOUT),
         );
         console.log(
-          "✅ Overtime filter:",
+          '✅ Overtime filter:',
           filteredRecords.length,
-          "records with OVERTIME type",
+          'records with OVERTIME type',
         );
       }
 
       // Set records based on filtering
       setRecords(filteredRecords);
-      console.log("💾 Set records state:", filteredRecords.length);
+      console.log('💾 Set records state:', filteredRecords.length);
+
+      // ── Integrity capture ──────────────────────────────────────────────────
+      if (filteredRecords.length > 0) {
+        stopObserver();
+        const immutable = Object.freeze(JSON.parse(JSON.stringify(filteredRecords)));
+        setOriginalRecords(immutable);
+        originalRecordsRef.current = immutable;
+        const hash = generateHash(filteredRecords);
+        setRecordsHash(hash);
+        setFetchedAt(new Date().toISOString());
+        setIntegrityStatus('ok');
+      } else {
+        stopObserver();
+        setOriginalRecords([]);
+        originalRecordsRef.current = [];
+        setRecordsHash('');
+        setFetchedAt(null);
+        setIntegrityStatus('none');
+      }
 
       // Set employee name if we have any data returned from API
       if (data.length > 0) {
@@ -465,24 +620,24 @@ const DailyTimeRecordFaculty = () => {
         setEmployeeName(formatFullName({ firstName, lastName, middleName }));
         await fetchOfficialTimes(personID);
       } else {
-        setEmployeeName("No records found");
+        setEmployeeName('No records found');
         setOfficialTimes({});
       }
     } catch (err) {
-      console.error("❌ Error fetching records:", err);
+      console.error('❌ Error fetching records:', err);
     }
   };
 
   // Automatically refetch records when personID, date range, DTR type, or view mode changes
   useEffect(() => {
-    if (viewMode === "single" && personID && startDate && endDate) {
+    if (viewMode === 'single' && personID && startDate && endDate) {
       fetchRecords();
     }
   }, [personID, startDate, endDate, dtrType, viewMode]);
 
   // Automatically refetch all users data when DTR type changes (for multiple view)
   useEffect(() => {
-    if (viewMode === "multiple" && allUsersDTR.length > 0) {
+    if (viewMode === 'multiple' && allUsersDTR.length > 0) {
       fetchAllUsersDTR();
     }
   }, [dtrType]);
@@ -503,15 +658,13 @@ const DailyTimeRecordFaculty = () => {
       const action = payload?.action;
 
       // Special-case: DTR print status changes should NOT trigger heavy DTR re-fetches.
-      // Backend emits: notifyAttendanceChanged('dtr-printed', { employeeNumbers, printedBy, ... })
-      if (action === "dtr-printed") {
+      if (action === 'dtr-printed') {
         const printedEmployees = Array.isArray(payload?.employeeNumbers)
           ? payload.employeeNumbers
           : [];
 
-        // If we're in single-user mode, ignore if the current user isn't part of the print event.
         if (
-          viewMode === "single" &&
+          viewMode === 'single' &&
           personID &&
           printedEmployees.length > 0 &&
           !printedEmployees.includes(personID)
@@ -519,16 +672,15 @@ const DailyTimeRecordFaculty = () => {
           return;
         }
 
-        // Update UI print status map without forcing a full reload.
         if (printedEmployees.length > 0) {
           setPrintStatusMap((prev) => {
             const next = new Map(prev);
             const printedAt =
-              typeof payload?.printed_at === "string"
+              typeof payload?.printed_at === 'string'
                 ? payload.printed_at
                 : new Date().toISOString();
             const printedBy =
-              payload?.printedBy || payload?.printed_by || "system";
+              payload?.printedBy || payload?.printed_by || 'system';
 
             printedEmployees.forEach((emp) => {
               next.set(emp, { printed_at: printedAt, printed_by: printedBy });
@@ -544,10 +696,9 @@ const DailyTimeRecordFaculty = () => {
         : payload?.personID
           ? [payload.personID]
           : [];
-      const isBulkChange = action === "bulk-auto-sync";
+      const isBulkChange = action === 'bulk-auto-sync';
 
-      if (viewMode === "single") {
-        // If we can't determine scope and it's not an explicitly-bulk change, don't refresh.
+      if (viewMode === 'single') {
         if (changedPersonIDs.length === 0 && !isBulkChange) return;
 
         if (
@@ -566,8 +717,7 @@ const DailyTimeRecordFaculty = () => {
 
       // viewMode === 'multiple'
       if (!startDate || !endDate) return;
-      if (allUsersDTR.length === 0) return; // avoid heavy refresh unless list is already loaded
-      // If we can't determine scope and it's not an explicitly-bulk change, don't refresh.
+      if (allUsersDTR.length === 0) return;
       if (changedPersonIDs.length === 0 && !isBulkChange) return;
 
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -576,10 +726,10 @@ const DailyTimeRecordFaculty = () => {
       }, 300);
     };
 
-    socket.on("attendanceChanged", handleAttendanceChanged);
+    socket.on('attendanceChanged', handleAttendanceChanged);
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      socket.off("attendanceChanged", handleAttendanceChanged);
+      socket.off('attendanceChanged', handleAttendanceChanged);
     };
   }, [
     socket,
@@ -592,18 +742,16 @@ const DailyTimeRecordFaculty = () => {
   ]);
 
   // Fetch all users and their DTR data - Optimized for large datasets
-  // Note: Only loads users who actually have records in attendancerecord table
   const fetchAllUsersDTR = async () => {
     if (!startDate || !endDate) {
-      showAlert("Date Required", "Please select start date and end date first");
+      showAlert('Date Required', 'Please select start date and end date first');
       return;
     }
 
     setLoadingAllUsers(true);
-    setPrintingStatus("Loading Daily Time Records…");
+    setPrintingStatus('Loading Daily Time Records…');
 
     try {
-      // Fetch all attendance records for the date range (only users with records)
       const response = await axios.post(
         `${API_BASE_URL}/attendance/api/view-attendance-all-users`,
         {
@@ -616,35 +764,33 @@ const DailyTimeRecordFaculty = () => {
       const allRecords = response.data || [];
 
       console.log(
-        "📊 Fetched attendance records:",
+        '📊 Fetched attendance records:',
         allRecords.length,
-        "total records",
+        'total records',
       );
-      console.log("🔍 DTR Type for All Users:", dtrType);
+      console.log('🔍 DTR Type for All Users:', dtrType);
 
-      // Debug: Check for overtime records
       const overtimeRecords = allRecords.filter(
-        (r) => r.specialType === "OVERTIME",
+        (r) => r.specialType === 'OVERTIME',
       );
       console.log(
-        "🔍 TOTAL OVERTIME RECORDS IN ALL USERS DATA:",
+        '🔍 TOTAL OVERTIME RECORDS IN ALL USERS DATA:',
         overtimeRecords.length,
       );
       if (overtimeRecords.length > 0) {
         console.log(
-          "🔍 First overtime record in all users:",
+          '🔍 First overtime record in all users:',
           overtimeRecords[0],
         );
       }
 
-      // Check if any records exist
       if (allRecords.length === 0) {
         setAllUsersDTR([]);
         setLoadingAllUsers(false);
-        setPrintingStatus("");
+        setPrintingStatus('');
         showAlert(
-          "No Records Found",
-          "No attendance records found in the database for the selected date range. Records must be saved from the attendance device before viewing DTR.",
+          'No Records Found',
+          'No attendance records found in the database for the selected date range. Records must be saved from the attendance device before viewing DTR.',
         );
         return;
       }
@@ -655,7 +801,7 @@ const DailyTimeRecordFaculty = () => {
       allRecords.forEach((record) => {
         const employeeNumber = record.personID || record.agencyEmployeeNum;
         const registrationStatus =
-          record.registrationStatus || "Not Registered";
+          record.registrationStatus || 'Not Registered';
         const displayName =
           record.firstName && record.lastName
             ? formatFullName({
@@ -668,11 +814,11 @@ const DailyTimeRecordFaculty = () => {
         if (!userRecordsMap.has(employeeNumber)) {
           userRecordsMap.set(employeeNumber, {
             employeeNumber,
-            firstName: record.firstName || "",
-            lastName: record.lastName || "",
-            middleName: record.middleName || "",
+            firstName: record.firstName || '',
+            lastName: record.lastName || '',
+            middleName: record.middleName || '',
             fullName: displayName,
-            devicePersonName: record.devicePersonName || "",
+            devicePersonName: record.devicePersonName || '',
             registrationStatus: registrationStatus,
             records: [],
             rawUser: {
@@ -681,7 +827,8 @@ const DailyTimeRecordFaculty = () => {
               lastName: record.lastName,
               middleName: record.middleName,
               department: record.department,
-              employmentCategory: record.employmentCategory,
+              departmentCode: record.departmentCode,
+              employmentCategory: undefined,
               registrationStatus: registrationStatus,
             },
           });
@@ -690,31 +837,67 @@ const DailyTimeRecordFaculty = () => {
         userRecordsMap.get(employeeNumber).records.push(record);
       });
 
-      // Convert map to array and apply DTR type filtering
-      const allUserData = Array.from(userRecordsMap.values()).map((user) => {
-        // Filter records based on selected DTR type
+      const allUserData = Array.from(userRecordsMap.values());
+
+      // Fetch employment categories and merge into each user
+      try {
+        setPrintingStatus('Loading employment categories...');
+        const catResponse = await axios.get(
+          `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
+          getAuthHeaders(),
+        );
+
+        const catMap = new Map();
+        if (Array.isArray(catResponse.data)) {
+          catResponse.data.forEach((cat) => {
+            catMap.set(String(cat.employeeNumber), cat.employmentCategory);
+          });
+        }
+
+        allUserData.forEach((user) => {
+          const empCat = catMap.get(String(user.employeeNumber));
+          if (empCat !== undefined) {
+            user.rawUser.employmentCategory = empCat;
+            user.employmentCategory = empCat;
+          }
+        });
+
+        console.log(
+          '✅ Employment categories merged for',
+          catMap.size,
+          'employees',
+        );
+      } catch (catErr) {
+        console.error(
+          'Error fetching employment categories for merge:',
+          catErr,
+        );
+      }
+
+      // Apply DTR type filtering per user
+      const allUserDataFiltered = allUserData.map((user) => {
         let filteredRecords = user.records;
 
-        if (dtrType === "regular") {
+        if (dtrType === 'regular') {
           filteredRecords = user.records.filter(
             (record) => record.timeIN || record.timeOUT,
           );
-        } else if (dtrType === "service-credit") {
+        } else if (dtrType === 'service-credit') {
           filteredRecords = user.records.filter(
             (record) =>
-              record.specialType === "SERVICE" &&
+              record.specialType === 'SERVICE' &&
               (record.specialTimeIN || record.specialTimeOUT),
           );
-        } else if (dtrType === "honorarium") {
+        } else if (dtrType === 'honorarium') {
           filteredRecords = user.records.filter(
             (record) =>
-              record.specialType === "HONORARIUM" &&
+              record.specialType === 'HONORARIUM' &&
               (record.specialTimeIN || record.specialTimeOUT),
           );
-        } else if (dtrType === "overtime") {
+        } else if (dtrType === 'overtime') {
           filteredRecords = user.records.filter(
             (record) =>
-              record.specialType === "OVERTIME" &&
+              record.specialType === 'OVERTIME' &&
               (record.specialTimeIN || record.specialTimeOUT),
           );
         }
@@ -727,30 +910,32 @@ const DailyTimeRecordFaculty = () => {
       });
 
       // Sort by last name
-      allUserData.sort((a, b) => {
-        const lastNameA = (a.lastName || "").toUpperCase();
-        const lastNameB = (b.lastName || "").toUpperCase();
+      allUserDataFiltered.sort((a, b) => {
+        const lastNameA = (a.lastName || '').toUpperCase();
+        const lastNameB = (b.lastName || '').toUpperCase();
         if (!lastNameA && !lastNameB)
           return a.fullName.localeCompare(b.fullName);
         return lastNameA.localeCompare(lastNameB);
       });
 
       console.log(
-        "✅ Grouped into",
-        allUserData.length,
-        "users with attendance records",
+        '✅ Grouped into',
+        allUserDataFiltered.length,
+        'users with attendance records',
       );
 
-      setAllUsersDTR(allUserData);
+      setAllUsersDTR(allUserDataFiltered);
 
       // Fetch print status for all loaded users
       try {
         const year = new Date(startDate).getFullYear();
         const month = new Date(startDate).getMonth() + 1;
-        const employeeNumbers = allUserData.map((user) => user.employeeNumber);
+        const employeeNumbers = allUserDataFiltered.map(
+          (user) => user.employeeNumber,
+        );
 
         if (employeeNumbers.length > 0) {
-          setPrintingStatus("Loading print status...");
+          setPrintingStatus('Loading print status...');
           const printStatusResponse = await axios.post(
             `${API_BASE_URL}/attendance/api/dtr-print-status`,
             { employeeNumbers, year, month },
@@ -768,22 +953,20 @@ const DailyTimeRecordFaculty = () => {
           setPrintStatusMap(newPrintStatusMap);
         }
       } catch (error) {
-        console.error("Error fetching print status:", error);
-        // Don't fail the entire operation if print status fetch fails
+        console.error('Error fetching print status:', error);
       }
 
-      // Reset pagination and selection when new dataset loads
       setSelectedUsers(new Set());
       setCurrentPage(1);
-      setPrintingStatus("");
+      setPrintingStatus('');
     } catch (error) {
-      console.error("❌ Error fetching attendance records:", error);
+      console.error('❌ Error fetching attendance records:', error);
       showAlert(
-        "Fetch Error",
+        'Fetch Error',
         error.response?.data?.error ||
-          "Error fetching attendance records. Please ensure records have been saved from the attendance device.",
+          'Error fetching attendance records. Please ensure records have been saved from the attendance device.',
       );
-      setPrintingStatus("");
+      setPrintingStatus('');
       setAllUsersDTR([]);
     } finally {
       setLoadingAllUsers(false);
@@ -792,9 +975,8 @@ const DailyTimeRecordFaculty = () => {
 
   // Selection helpers
   const handleUserSelect = (employeeNumber) => {
-    // Prevent selection if already printed - use action button instead
     if (printStatusMap.has(employeeNumber)) {
-      return; // Already printed records cannot be bulk selected
+      return;
     }
 
     setSelectedUsers((prevSelected) => {
@@ -811,7 +993,6 @@ const DailyTimeRecordFaculty = () => {
   const handleSelectAll = (checked) => {
     if (checked) {
       const filtered = getFilteredUsers();
-      // Only select users that are not already printed
       const selectableUsers = filtered.filter(
         (user) => !printStatusMap.has(user.employeeNumber),
       );
@@ -822,7 +1003,7 @@ const DailyTimeRecordFaculty = () => {
 
       if (selectableUsers.length > 50) {
         showAlert(
-          "Selection Limited",
+          'Selection Limited',
           `Only the first 50 users were selected (out of ${selectableUsers.length} selectable users). Bulk printing is limited to 50 users per batch for better performance.`,
         );
       }
@@ -835,30 +1016,26 @@ const DailyTimeRecordFaculty = () => {
   const getFilteredUsers = () => {
     let filtered = allUsersDTR.slice();
 
-    // Apply record filter first
-    if (recordFilter === "has") {
+    if (recordFilter === 'has') {
       filtered = filtered.filter((u) => u.records && u.records.length > 0);
-    } else if (recordFilter === "no") {
+    } else if (recordFilter === 'no') {
       filtered = filtered.filter((u) => !u.records || u.records.length === 0);
     }
 
-    // Apply print status filter
-    if (printStatusFilter === "printed") {
+    if (printStatusFilter === 'printed') {
       filtered = filtered.filter((u) => printStatusMap.has(u.employeeNumber));
-    } else if (printStatusFilter === "unprinted") {
+    } else if (printStatusFilter === 'unprinted') {
       filtered = filtered.filter((u) => !printStatusMap.has(u.employeeNumber));
     }
 
-    // **NEW: Apply department filter**
     if (departmentFilter) {
       filtered = filtered.filter((u) => {
-        const userDept = u.rawUser?.departmentCode || u.departmentCode || "";
+        const userDept = u.rawUser?.departmentCode || u.departmentCode || '';
         return userDept === departmentFilter;
       });
     }
 
-    // **NEW: Apply employment category filter**
-    if (employmentCategoryFilter !== "") {
+    if (employmentCategoryFilter !== '') {
       filtered = filtered.filter((u) => {
         const userCategory =
           u.rawUser?.employmentCategory ?? u.employmentCategory ?? null;
@@ -869,51 +1046,43 @@ const DailyTimeRecordFaculty = () => {
       });
     }
 
-    // Apply registration status filter
     if (registrationStatusFilter) {
       filtered = filtered.filter((u) => {
-        const status = u.registrationStatus || "Not Registered";
+        const status = u.registrationStatus || 'Not Registered';
         return status === registrationStatusFilter;
       });
     }
 
-    // **NEW: Filter based on DTR type - only show users with relevant official time data**
-    if (dtrType !== "regular") {
+    if (dtrType !== 'regular') {
       filtered = filtered.filter((u) => {
-        // Check if user has records with the relevant official time fields set
         if (!u.records || u.records.length === 0) return false;
 
-        // Helper function to check if a time value is valid (not null, not empty, not default placeholder)
         const isValidTime = (timeValue) => {
           if (!timeValue) return false;
           const trimmed = String(timeValue).trim();
-          if (trimmed === "") return false;
-          // Exclude common placeholder patterns
-          if (trimmed === "00:00:00 AM" || trimmed === "00:00:00 PM")
+          if (trimmed === '') return false;
+          if (trimmed === '00:00:00 AM' || trimmed === '00:00:00 PM')
             return false;
-          if (trimmed === "12:00:00 AM") return false; // midnight placeholder
+          if (trimmed === '12:00:00 AM') return false;
           return true;
         };
 
         return u.records.some((record) => {
-          if (dtrType === "honorarium") {
-            // Check if BOTH honorarium special times are valid (actual punched times)
+          if (dtrType === 'honorarium') {
             const hasHonorarium =
-              record.specialType === "HONORARIUM" &&
+              record.specialType === 'HONORARIUM' &&
               isValidTime(record.specialTimeIN) &&
               isValidTime(record.specialTimeOUT);
             return hasHonorarium;
-          } else if (dtrType === "service-credit") {
-            // Check if BOTH service credit special times are valid (actual punched times)
+          } else if (dtrType === 'service-credit') {
             const hasService =
-              record.specialType === "SERVICE" &&
+              record.specialType === 'SERVICE' &&
               isValidTime(record.specialTimeIN) &&
               isValidTime(record.specialTimeOUT);
             return hasService;
-          } else if (dtrType === "overtime") {
-            // Check if BOTH overtime special times are valid (actual punched times)
+          } else if (dtrType === 'overtime') {
             return (
-              record.specialType === "OVERTIME" &&
+              record.specialType === 'OVERTIME' &&
               isValidTime(record.specialTimeIN) &&
               isValidTime(record.specialTimeOUT)
             );
@@ -923,21 +1092,20 @@ const DailyTimeRecordFaculty = () => {
       });
     }
 
-    // Apply search filter
-    if (!searchQuery || searchQuery.trim() === "") return filtered;
+    if (!searchQuery || searchQuery.trim() === '') return filtered;
     const q = searchQuery.trim().toLowerCase();
     return filtered.filter((user) => {
       const full = (
-        user.fullName || `${user.firstName || ""} ${user.lastName || ""}`
+        user.fullName || `${user.firstName || ''} ${user.lastName || ''}`
       ).toLowerCase();
-      const last = (user.lastName || "").toLowerCase();
-      const emp = (user.employeeNumber || "").toLowerCase();
+      const last = (user.lastName || '').toLowerCase();
+      const emp = (user.employeeNumber || '').toLowerCase();
       return full.includes(q) || last.includes(q) || emp.includes(q);
     });
   };
 
   // Pagination / scroller states for the records table
-  const [rowsPerPage, setRowsPerPage] = useState(10); // user wants 10s, 20s, etc.
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
 
   const filteredUsers = getFilteredUsers();
@@ -950,24 +1118,24 @@ const DailyTimeRecordFaculty = () => {
   // Helper to get employment category label
   const getCategoryLabel = (categoryId) => {
     const labels = {
-      0: "JO Graduate",
-      1: "JO UnderGrad",
-      2: "Regular Non-Teaching",
-      3: "Regular Teaching (30Hrs)",
-      4: "Regular Designated (40Hrs)",
-      5: "Other",
+      0: 'JO Graduate',
+      1: 'JO UnderGrad',
+      2: 'Regular Non-Teaching',
+      3: 'Regular Teaching (30Hrs)',
+      4: 'Regular Designated (40Hrs)',
+      5: 'Other',
     };
-    return labels[categoryId] || "Unknown";
+    return labels[categoryId] || 'Unknown';
   };
 
   // Get registration status counts
   const getRegistrationStatusCounts = () => {
     const counts = {
       Registered: 0,
-      "Not Registered": 0,
+      'Not Registered': 0,
     };
     allUsersDTR.forEach((u) => {
-      const status = u.registrationStatus || "Not Registered";
+      const status = u.registrationStatus || 'Not Registered';
       if (counts[status] !== undefined) {
         counts[status]++;
       }
@@ -981,19 +1149,19 @@ const DailyTimeRecordFaculty = () => {
   const getCategoryColor = (catId) => {
     switch (parseInt(catId)) {
       case 0:
-        return "#F57C00"; // JO Graduate
+        return '#F57C00';
       case 1:
-        return "#E64A19"; // JO UnderGrad
+        return '#E64A19';
       case 2:
-        return "#2E7D32"; // Regular Non-Teaching
+        return '#2E7D32';
       case 3:
-        return "#1565C0"; // Regular Teaching (30Hrs)
+        return '#1565C0';
       case 4:
-        return "#7B1FA2"; // Regular Designated (40Hrs)
+        return '#7B1FA2';
       case 5:
-        return "#00796B"; // Other (Custom)
+        return '#00796B';
       default:
-        return "#757575";
+        return '#757575';
     }
   };
 
@@ -1005,16 +1173,14 @@ const DailyTimeRecordFaculty = () => {
 
   // Auto-select helper for "first N" behavior
   const handleAutoSelectFirstN = (n) => {
-    const filtered = getFilteredUsers(); // always use current filters
+    const filtered = getFilteredUsers();
     if (!filtered || filtered.length === 0) {
       setSelectedUsers(new Set());
       return;
     }
-    // Limit to 50 max
-    const count = n === "all" ? Math.min(50, filtered.length) : Number(n) || 0;
+    const count = n === 'all' ? Math.min(50, filtered.length) : Number(n) || 0;
     const toSelect = filtered.slice(0, count).map((u) => u.employeeNumber);
     setSelectedUsers(new Set(toSelect));
-    // Optionally set the previewUsers to the same selection immediately
     const toPreview = filtered.slice(0, count);
     setPreviewUsers(toPreview);
     setCurrentPreviewIndex(0);
@@ -1025,12 +1191,12 @@ const DailyTimeRecordFaculty = () => {
     const filtered = getFilteredUsers();
     const toPrint = filtered.filter((u) => selectedUsers.has(u.employeeNumber));
     if (toPrint.length === 0) {
-      showAlert("No Selection", "Please select at least one user to print");
+      showAlert('No Selection', 'Please select at least one user to print');
       return;
     }
     if (toPrint.length > 50) {
       showAlert(
-        "Too Many Selected",
+        'Too Many Selected',
         `You have selected ${toPrint.length} users. Please limit to 50 users per print batch for better performance. You can print in multiple batches.`,
       );
       return;
@@ -1047,10 +1213,7 @@ const DailyTimeRecordFaculty = () => {
 
   // Individual print for already-printed records (called after confirmation)
   const handleIndividualPrintConfirmed = async (user) => {
-    // Close confirmation modal
     closeConfirm();
-
-    // Store current modal state
     const wasModalOpen = previewModalOpen;
 
     try {
@@ -1059,35 +1222,29 @@ const DailyTimeRecordFaculty = () => {
         `Preparing DTR for ${user.firstName} ${user.lastName}...`,
       );
 
-      // Set up the preview users and open modal (but hide it with printingAll)
       setPreviewUsers([user]);
       setCurrentPreviewIndex(0);
       setPreviewModalOpen(true);
 
-      // Wait for React to render the modal and DTR element
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
       const ref = bulkDTRRefs.current[user.employeeNumber];
       if (!ref) {
         throw new Error(
-          "DTR element not found. The record may not be loaded yet. Please try again.",
+          'DTR element not found. The record may not be loaded yet. Please try again.',
         );
       }
 
-      // Ensure capture-friendly styles
       const orig = ensureCaptureStyles(ref);
-
-      // Wait for styles to apply
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const capturedCanvas = await html2canvas(ref, {
         scale: 2,
         useCORS: true,
-        backgroundColor: "#ffffff",
+        backgroundColor: '#ffffff',
         logging: false,
       });
 
-      // Restore original styles
       restoreCaptureStyles(ref, orig);
 
       if (
@@ -1095,19 +1252,19 @@ const DailyTimeRecordFaculty = () => {
         capturedCanvas.width === 0 ||
         capturedCanvas.height === 0
       ) {
-        throw new Error("Failed to capture DTR. Please try again.");
+        throw new Error('Failed to capture DTR. Please try again.');
       }
 
-      const imgData = capturedCanvas.toDataURL("image/png");
+      const imgData = capturedCanvas.toDataURL('image/png');
 
-      if (!imgData || imgData === "data:,") {
-        throw new Error("Failed to generate image data. Please try again.");
+      if (!imgData || imgData === 'data:,') {
+        throw new Error('Failed to generate image data. Please try again.');
       }
 
       const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "in",
-        format: "a4",
+        orientation: 'portrait',
+        unit: 'in',
+        format: 'a4',
       });
 
       const dtrWidth = 8;
@@ -1117,10 +1274,9 @@ const DailyTimeRecordFaculty = () => {
       const xOffset = (pageWidth - dtrWidth) / 2;
       const yOffset = (pageHeight - dtrHeight) / 2;
 
-      pdf.addImage(imgData, "PNG", xOffset, yOffset, dtrWidth, dtrHeight);
+      pdf.addImage(imgData, 'PNG', xOffset, yOffset, dtrWidth, dtrHeight);
       pdf.autoPrint();
 
-      // Mark as printed
       const year = new Date(startDate).getFullYear();
       const month = new Date(startDate).getMonth() + 1;
 
@@ -1136,24 +1292,21 @@ const DailyTimeRecordFaculty = () => {
         getAuthHeaders(),
       );
 
-      // Update local state
       const newMap = new Map(printStatusMap);
       newMap.set(user.employeeNumber, {
         printed_at: new Date().toISOString(),
-        printed_by: "current_user",
+        printed_by: 'current_user',
       });
       setPrintStatusMap(newMap);
 
-      // Open print dialog
-      const blobUrl = pdf.output("bloburl");
-      window.open(blobUrl, "_blank");
+      const blobUrl = pdf.output('bloburl');
+      window.open(blobUrl, '_blank');
     } catch (error) {
-      console.error("Error printing individual DTR:", error);
-      showAlert("Print Error", `Error printing DTR: ${error.message}`);
+      console.error('Error printing individual DTR:', error);
+      showAlert('Print Error', `Error printing DTR: ${error.message}`);
     } finally {
-      setPrintingStatus("");
+      setPrintingStatus('');
       setPrintingAll(false);
-      // Close modal only if it wasn't open before
       if (!wasModalOpen) {
         setPreviewModalOpen(false);
       }
@@ -1161,7 +1314,6 @@ const DailyTimeRecordFaculty = () => {
   };
 
   // --- Single user print & download ---
-  // Capture helpers (match DailyTimeRecord.jsx)
   const ensureCaptureStyles = (el) => {
     if (!el) return {};
     const orig = {
@@ -1174,28 +1326,28 @@ const DailyTimeRecordFaculty = () => {
       zIndex: el.style.zIndex,
       opacity: el.style.opacity,
     };
-    el.style.backgroundColor = "#ffffff";
+    el.style.backgroundColor = '#ffffff';
     el.style.width = DTR_WIDTH_IN;
-    el.style.visibility = "visible";
-    el.style.display = "block";
-    el.style.position = "fixed";
-    el.style.left = "-9999px";
-    el.style.zIndex = "10000";
-    el.style.opacity = "1";
+    el.style.visibility = 'visible';
+    el.style.display = 'block';
+    el.style.position = 'fixed';
+    el.style.left = '-9999px';
+    el.style.zIndex = '10000';
+    el.style.opacity = '1';
     return orig;
   };
 
   const restoreCaptureStyles = (el, orig) => {
     if (!el || !orig) return;
     try {
-      el.style.backgroundColor = orig.backgroundColor || "";
-      el.style.width = orig.width || "";
-      el.style.visibility = orig.visibility || "";
-      el.style.display = orig.display || "";
-      el.style.position = orig.position || "";
-      el.style.left = orig.left || "";
-      el.style.zIndex = orig.zIndex || "";
-      el.style.opacity = orig.opacity || "";
+      el.style.backgroundColor = orig.backgroundColor || '';
+      el.style.width = orig.width || '';
+      el.style.visibility = orig.visibility || '';
+      el.style.display = orig.display || '';
+      el.style.position = orig.position || '';
+      el.style.left = orig.left || '';
+      el.style.zIndex = orig.zIndex || '';
+      el.style.opacity = orig.opacity || '';
     } catch (e) {
       /* noop */
     }
@@ -1203,18 +1355,23 @@ const DailyTimeRecordFaculty = () => {
 
   const printPage = async () => {
     if (!dtrRef.current) return;
+    if (!verifyIntegrity()) return;
+    restoreDOMFromOriginal();
+    await new Promise((r) => setTimeout(r, 80));
+
+    setSinglePrintLoading(true);
+    setSinglePrintStatus('Preparing DTR for printing...');
 
     try {
       const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "in",
-        format: "a4",
+        orientation: 'portrait',
+        unit: 'in',
+        format: 'a4',
       });
 
-      // Ensure capture-friendly styles
       const orig = ensureCaptureStyles(dtrRef.current);
 
-      // Wait for styles to apply
+      setSinglePrintStatus('Capturing DTR layout...');
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const canvas = await html2canvas(dtrRef.current, {
@@ -1225,7 +1382,7 @@ const DailyTimeRecordFaculty = () => {
 
       restoreCaptureStyles(dtrRef.current, orig);
 
-      const imgData = canvas.toDataURL("image/png");
+      const imgData = canvas.toDataURL('image/png');
 
       const dtrWidth = 8;
       const dtrHeight = 9.5;
@@ -1234,28 +1391,39 @@ const DailyTimeRecordFaculty = () => {
       const xOffset = (pageWidth - dtrWidth) / 2;
       const yOffset = (pageHeight - dtrHeight) / 2;
 
-      pdf.addImage(imgData, "PNG", xOffset, yOffset, dtrWidth, dtrHeight);
+      pdf.addImage(imgData, 'PNG', xOffset, yOffset, dtrWidth, dtrHeight);
+
+      setSinglePrintStatus('Opening print dialog...');
       pdf.autoPrint();
-      const blobUrl = pdf.output("bloburl");
-      window.open(blobUrl, "_blank");
+      const blobUrl = pdf.output('bloburl');
+      window.open(blobUrl, '_blank');
     } catch (error) {
-      console.error("Error generating print view:", error);
+      console.error('Error generating print view:', error);
+    } finally {
+      setSinglePrintLoading(false);
+      setSinglePrintStatus('');
     }
   };
 
   const downloadPDF = async () => {
     if (!dtrRef.current) return;
+    if (!verifyIntegrity()) return;
+    restoreDOMFromOriginal();
+    await new Promise((r) => setTimeout(r, 80));
+
+    setSinglePrintLoading(true);
+    setSinglePrintStatus('Preparing DTR for download...');
 
     try {
       const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "in",
-        format: "a4",
+        orientation: 'portrait',
+        unit: 'in',
+        format: 'a4',
       });
 
       const orig = ensureCaptureStyles(dtrRef.current);
 
-      // Wait for styles to apply
+      setSinglePrintStatus('Capturing DTR layout...');
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const canvas = await html2canvas(dtrRef.current, {
@@ -1266,7 +1434,7 @@ const DailyTimeRecordFaculty = () => {
 
       restoreCaptureStyles(dtrRef.current, orig);
 
-      const imgData = canvas.toDataURL("image/png");
+      const imgData = canvas.toDataURL('image/png');
 
       const dtrWidth = 8;
       const dtrHeight = 10;
@@ -1275,45 +1443,55 @@ const DailyTimeRecordFaculty = () => {
       const xOffset = (pageWidth - dtrWidth) / 2;
       const yOffset = (pageHeight - dtrHeight) / 2;
 
-      pdf.addImage(imgData, "PNG", xOffset, yOffset, dtrWidth, dtrHeight);
+      pdf.addImage(imgData, 'PNG', xOffset, yOffset, dtrWidth, dtrHeight);
+
+      setSinglePrintStatus('Saving PDF...');
       pdf.save(`DTR-${employeeName}-${formatMonth(startDate)}.pdf`);
     } catch (error) {
-      console.error("Error generating PDF:", error);
+      console.error('Error generating PDF:', error);
+    } finally {
+      setSinglePrintLoading(false);
+      setSinglePrintStatus('');
     }
   };
 
   const formatDate = (dateString) => {
-    if (!dateString) return "";
+    if (!dateString) return '';
     const date = new Date(dateString);
-    const options = { year: "numeric", month: "long", day: "numeric" };
+    const options = { year: 'numeric', month: 'long', day: 'numeric' };
     return date.toLocaleDateString(undefined, options);
   };
 
   const formatMonth = (dateString) => {
-    if (!dateString) return "";
+    if (!dateString) return '';
     const date = new Date(dateString);
-    const options = { month: "long" };
+    const options = { month: 'long' };
     return date.toLocaleDateString(undefined, options).toUpperCase();
   };
 
   const formatTime = (timeString) => {
-    if (!timeString) return "";
-    return timeString.replace(/\s+/g, " ").trim();
+    if (!timeString) return '';
+    return timeString.replace(/\s+/g, ' ').trim();
   };
 
+  // ── Update formatTimeRef when formatTime changes ────────────────────────────
+  useEffect(() => {
+    formatTimeRef.current = formatTime;
+  }, [formatTime]);
+
   const months = [
-    "JAN",
-    "FEB",
-    "MAR",
-    "APR",
-    "MAY",
-    "JUN",
-    "JUL",
-    "AUG",
-    "SEP",
-    "OCT",
-    "NOV",
-    "DEC",
+    'JAN',
+    'FEB',
+    'MAR',
+    'APR',
+    'MAY',
+    'JUN',
+    'JUL',
+    'AUG',
+    'SEP',
+    'OCT',
+    'NOV',
+    'DEC',
   ];
 
   const handleMonthClick = (monthIndex) => {
@@ -1325,14 +1503,14 @@ const DailyTimeRecordFaculty = () => {
   };
 
   const formatStartDate = (dateString) => {
-    if (!dateString) return "";
+    if (!dateString) return '';
     const date = new Date(dateString);
-    const options = { month: "long", day: "numeric" };
-    return date.toLocaleDateString("en-US", options);
+    const options = { month: 'long', day: 'numeric' };
+    return date.toLocaleDateString('en-US', options);
   };
 
   const formatEndDate = (dateString) => {
-    if (!dateString) return "";
+    if (!dateString) return '';
     const date = new Date(dateString);
     const day = date.getDate();
     const year = date.getFullYear();
@@ -1342,7 +1520,7 @@ const DailyTimeRecordFaculty = () => {
   const formattedStartDate = formatStartDate(startDate);
   const formattedEndDate = formatEndDate(endDate);
 
-  // Helper function to check if a date falls within a date range (holiday/suspension highlight)
+  // Helper function to check if a date falls within a date range
   const isDateInRange = (date, startDate, endDate) => {
     if (!date) return false;
     const checkDate = new Date(date);
@@ -1366,35 +1544,31 @@ const DailyTimeRecordFaculty = () => {
 
   const isApprovedLeaveDate = (dateString) => {
     if (!dateString || approvedLeaves.length === 0) return false;
-
-    const checkDate = dateString.split('T')[0]; // normalize to YYYY-MM-DD
-
+    const checkDate = dateString.split('T')[0];
     return approvedLeaves.some((req) => {
       const dates = Array.isArray(req.leave_date)
         ? req.leave_date
-        : String(req.leave_date).split(',').map((d) => d.trim());
-
+        : String(req.leave_date)
+            .split(',')
+            .map((d) => d.trim());
       return dates.some((d) => d.split('T')[0] === checkDate);
     });
   };
 
-  // Returns styling info if a date is within a suspension/holiday range
   const getDateIndicator = (dateString) => {
     if (!dateString) return null;
-
-    const date = String(dateString).split("T")[0]; // YYYY-MM-DD
+    const date = String(dateString).split('T')[0];
 
     if (isApprovedLeaveDate(date)) {
       return {
         type: 'leave',
         label: 'ON LEAVE',
-        bgColor: 'rgba(46, 125, 50, 0.2)',  // green tint
+        bgColor: 'rgba(46, 125, 50, 0.2)',
         textColor: '#000000',
         borderColor: '#2e7d32',
       };
     }
 
-    // Suspensions first (higher priority)
     const suspension = suspensions.find((s) => {
       const start = s.date_start || s.date;
       const end = s.date_end || s.date;
@@ -1403,15 +1577,14 @@ const DailyTimeRecordFaculty = () => {
 
     if (suspension) {
       return {
-        type: "suspension",
-        label: "SUSPENSION",
-        bgColor: "rgba(211, 47, 47, 0.2)", // red tint
-        textColor: "#000000",
-        borderColor: "#d32f2f",
+        type: 'suspension',
+        label: 'SUSPENSION',
+        bgColor: 'rgba(211, 47, 47, 0.2)',
+        textColor: '#000000',
+        borderColor: '#d32f2f',
       };
     }
 
-    // Holidays (highlight based on original date range regardless of current status)
     const holiday = holidays.find((h) => {
       const start = h.date_start || h.date;
       const end = h.date_end || h.date;
@@ -1420,11 +1593,11 @@ const DailyTimeRecordFaculty = () => {
 
     if (holiday) {
       return {
-        type: "holiday",
-        label: "HOLIDAY",
-        bgColor: "rgba(237, 108, 2, 0.25)", // orange tint
-        textColor: "#000000",
-        borderColor: "#ed6c02",
+        type: 'holiday',
+        label: 'HOLIDAY',
+        bgColor: 'rgba(237, 108, 2, 0.25)',
+        textColor: '#000000',
+        borderColor: '#ed6c02',
       };
     }
 
@@ -1446,9 +1619,9 @@ const DailyTimeRecordFaculty = () => {
         {before}
         <span
           style={{
-            backgroundColor: "#ffeb3b", // yellow highlight for search/filter matches
-            color: "#000",
-            padding: "0 3px",
+            backgroundColor: '#ffeb3b',
+            color: '#000',
+            padding: '0 3px',
             borderRadius: 2,
           }}
         >
@@ -1465,13 +1638,13 @@ const DailyTimeRecordFaculty = () => {
       <Container maxWidth="md" sx={{ py: 8 }}>
         <Box
           sx={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
           }}
         >
-          <MCircularProgress sx={{ color: "#6d2323", mb: 2 }} />
-          <Typography variant="h6" sx={{ color: "#6d2323" }}>
+          <MCircularProgress sx={{ color: '#6d2323', mb: 2 }} />
+          <Typography variant="h6" sx={{ color: '#6d2323' }}>
             Loading access information...
           </Typography>
         </Box>
@@ -1492,38 +1665,38 @@ const DailyTimeRecordFaculty = () => {
 
   // Helper: visible modal DTR (keeps current layout)...
   const renderDTRForModal = (user) => {
-    const dataFontSize = "10px";
-    const rowHeight = "16px";
+    const dataFontSize = '10px';
+    const rowHeight = '16px';
 
     const renderHeader = (type = dtrType) => (
-      <thead style={{ textAlign: "center" }}>
+      <thead style={{ textAlign: 'center' }}>
         <tr>
           <td
-            colSpan="9"
+            colSpan="7"
             style={{
-              position: "relative",
-              padding: "25px 10px 0px 10px",
-              textAlign: "center",
+              position: 'relative',
+              padding: '25px 10px 0px 10px',
+              textAlign: 'center',
             }}
           >
             <div
               style={{
-                fontWeight: "bold",
-                fontSize: "11px",
+                fontWeight: 'bold',
+                fontSize: '11px',
                 fontFamily: 'Arial, "Times New Roman", serif',
-                color: "black",
-                marginBottom: "2px",
+                color: 'black',
+                marginBottom: '2px',
               }}
             >
               Republic of the Philippines
             </div>
             <div
               style={{
-                position: "relative",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                marginTop: "3px",
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: '3px',
               }}
             >
               <img
@@ -1532,18 +1705,18 @@ const DailyTimeRecordFaculty = () => {
                 width="50"
                 height="50"
                 style={{
-                  position: "absolute",
-                  left: "10px",
+                  position: 'absolute',
+                  left: '10px',
                 }}
               />
               <p
                 style={{
-                  margin: "0",
-                  fontSize: "11.5px",
-                  fontWeight: "bold",
-                  textAlign: "center",
+                  margin: '0',
+                  fontSize: '11.5px',
+                  fontWeight: 'bold',
+                  textAlign: 'center',
                   fontFamily: 'Arial, "Times New Roman", serif',
-                  lineHeight: "1.2",
+                  lineHeight: '1.2',
                 }}
               >
                 EULOGIO "AMANG" RODRIGUEZ <br /> INSTITUTE OF SCIENCE &
@@ -1554,15 +1727,15 @@ const DailyTimeRecordFaculty = () => {
         </tr>
         <tr>
           <td
-            colSpan="9"
-            style={{ textAlign: "center", padding: "0px 5px 2px 5px" }}
+            colSpan="7"
+            style={{ textAlign: 'center', padding: '0px 5px 2px 5px' }}
           >
             <p
               style={{
-                fontSize: "11px",
-                fontWeight: "bold",
-                margin: "0",
-                fontFamily: "Arial, serif",
+                fontSize: '11px',
+                fontWeight: 'bold',
+                margin: '0',
+                fontFamily: 'Arial, serif',
               }}
             >
               Nagtahan, Sampaloc Manila
@@ -1570,13 +1743,13 @@ const DailyTimeRecordFaculty = () => {
           </td>
         </tr>
         <tr>
-          <td colSpan="9" style={{ textAlign: "center", padding: "2px 5px" }}>
+          <td colSpan="7" style={{ textAlign: 'center', padding: '2px 5px' }}>
             <p
               style={{
-                fontSize: "8px",
-                fontWeight: "bold",
-                margin: "0",
-                fontFamily: "Arial, serif",
+                fontSize: '8px',
+                fontWeight: 'bold',
+                margin: '0',
+                fontFamily: 'Arial, serif',
               }}
             >
               Civil Service Form No. 48
@@ -1585,31 +1758,31 @@ const DailyTimeRecordFaculty = () => {
         </tr>
         <tr>
           <td
-            colSpan="9"
+            colSpan="7"
             style={{
-              textAlign: "center",
-              padding: "2px 5px",
-              lineHeight: "1.2",
+              textAlign: 'center',
+              padding: '2px 5px',
+              lineHeight: '1.2',
             }}
           >
-            {type === "service-credit" ? (
-              <div style={{ textAlign: "center" }}>
+            {type === 'service-credit' ? (
+              <div style={{ textAlign: 'center' }}>
                 <h4
                   style={{
-                    fontFamily: "Times New Roman, serif",
-                    margin: "2px 0",
-                    fontWeight: "bold",
-                    fontSize: "16px",
+                    fontFamily: 'Times New Roman, serif',
+                    margin: '2px 0',
+                    fontWeight: 'bold',
+                    fontSize: '16px',
                   }}
                 >
                   DAILY TIME RECORD
                 </h4>
                 <div
                   style={{
-                    fontFamily: "Times New Roman, serif",
-                    fontSize: "16px",
-                    marginTop: "-2px",
-                    fontWeight: "bold",
+                    fontFamily: 'Times New Roman, serif',
+                    fontSize: '16px',
+                    marginTop: '-2px',
+                    fontWeight: 'bold',
                   }}
                 >
                   SERVICE CREDITS
@@ -1618,80 +1791,75 @@ const DailyTimeRecordFaculty = () => {
             ) : (
               <h4
                 style={{
-                  fontFamily: "Times New Roman, serif",
-                  textAlign: "center",
-                  margin: "2px 0",
-                  fontWeight: "bold",
-                  fontSize: "16px",
+                  fontFamily: 'Times New Roman, serif',
+                  textAlign: 'center',
+                  margin: '2px 0',
+                  fontWeight: 'bold',
+                  fontSize: '16px',
                 }}
               >
-                {type === "honorarium"
-                  ? "DAILY TIME RECORD - HONORARIUM"
-                  : type === "overtime"
-                    ? "DAILY TIME RECORD - OVERTIME"
-                    : "DAILY TIME RECORD"}
+                {type === 'honorarium'
+                  ? 'DAILY TIME RECORD - HONORARIUM'
+                  : type === 'overtime'
+                    ? 'DAILY TIME RECORD - OVERTIME'
+                    : 'DAILY TIME RECORD'}
               </h4>
             )}
           </td>
         </tr>
         <tr>
           <td
-            colSpan="9"
+            colSpan="7"
             style={{
-              paddingTop: "10px",
-              paddingBottom: "5px",
-              lineHeight: "1.1",
-              verticalAlign: "top",
-              textAlign: "center",
+              paddingTop: '10px',
+              paddingBottom: '5px',
+              lineHeight: '1.1',
+              verticalAlign: 'top',
+              textAlign: 'center',
             }}
           >
             <div
               style={{
-                margin: "0 auto",
-                fontFamily: "Arial, serif",
-                width: "100%",
-                maxWidth: "400px",
-                position: "relative",
+                margin: '0 auto',
+                fontFamily: 'Arial, serif',
+                width: '100%',
+                maxWidth: '400px',
+                position: 'relative',
               }}
             >
               <div
                 style={{
-                  borderBottom: "2px solid black",
-                  width: "100%",
-                  margin: "2px 0 3px 0",
+                  borderBottom: '2px solid black',
+                  width: '100%',
+                  margin: '2px 0 3px 0',
                 }}
               />
-              {/* Employee Name */}
               <div
                 style={{
-                  fontSize: "12px",
-                  fontWeight: "bold",
-                  textTransform: "uppercase",
-                  whiteSpace: "nowrap",
-                  textAlign: "center",
-                  fontFamily: "Times New Roman",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                  textTransform: 'uppercase',
+                  whiteSpace: 'nowrap',
+                  textAlign: 'center',
+                  fontFamily: 'Times New Roman',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
                 }}
               >
                 {user.fullName}
               </div>
-
-              {/* Underline */}
               <div
                 style={{
-                  borderBottom: "2px solid black",
-                  width: "100%",
-                  margin: "2px 0 3px 0",
+                  borderBottom: '2px solid black',
+                  width: '100%',
+                  margin: '2px 0 3px 0',
                 }}
               />
-
-              {/* Label */}
               <div
                 style={{
-                  fontSize: "9px",
-                  textAlign: "center",
-                  fontFamily: "Times New Roman",
+                  fontSize: '9px',
+                  textAlign: 'center',
+                  fontFamily: 'Times New Roman',
                 }}
               >
                 NAME
@@ -1702,28 +1870,26 @@ const DailyTimeRecordFaculty = () => {
 
         <tr>
           <td
-            colSpan="9"
-            style={{ padding: "2px 5px", lineHeight: "1.1", textAlign: "left" }}
+            colSpan="7"
+            style={{ padding: '2px 5px', lineHeight: '1.1', textAlign: 'left' }}
           >
             <div
               style={{
-                display: "flex",
-                alignItems: "flex-end",
-                paddingLeft: "5px",
-                fontFamily: "Times New Roman, serif",
-                fontSize: "10px",
+                display: 'flex',
+                alignItems: 'flex-end',
+                paddingLeft: '5px',
+                fontFamily: 'Times New Roman, serif',
+                fontSize: '10px',
               }}
             >
-              <span style={{ marginRight: "6px" }}>Covered Dates:</span>
-
-              <div style={{ minWidth: "220px", flexGrow: 1 }}>
-                {/* Value */}
+              <span style={{ marginRight: '6px' }}>Covered Dates:</span>
+              <div style={{ minWidth: '220px', flexGrow: 1 }}>
                 <div
                   style={{
-                    fontWeight: "bold",
-                    textAlign: "left",
-                    fontSize: "10px",
-                    fontFamily: "Times New Roman, serif",
+                    fontWeight: 'bold',
+                    textAlign: 'left',
+                    fontSize: '10px',
+                    fontFamily: 'Times New Roman, serif',
                   }}
                 >
                   {formattedStartDate} - {formattedEndDate}
@@ -1735,98 +1901,94 @@ const DailyTimeRecordFaculty = () => {
 
         <tr>
           <td
-            colSpan="9"
+            colSpan="7"
             style={{
-              padding: "2px 5px",
-              lineHeight: "1.2",
-              textAlign: "left",
+              padding: '2px 5px',
+              lineHeight: '1.2',
+              textAlign: 'left',
             }}
           >
             <p
               style={{
-                fontSize: "11px",
-                margin: "0",
-                paddingLeft: "5px",
-                fontFamily: "Times New Roman, serif",
+                fontSize: '11px',
+                margin: '0',
+                paddingLeft: '5px',
+                fontFamily: 'Times New Roman, serif',
               }}
             >
-              For the month of: <b>{startDate ? formatMonth(startDate) : ""}</b>
+              For the month of: <b>{startDate ? formatMonth(startDate) : ''}</b>
             </p>
           </td>
         </tr>
         <tr>
           <td
-            colSpan="9"
+            colSpan="7"
             style={{
-              padding: "8px 5px 2px 5px",
-              textAlign: "left",
-              fontSize: "10px",
-              fontFamily: "Arial, serif",
-              lineHeight: "1.2",
+              padding: '8px 5px 2px 5px',
+              textAlign: 'left',
+              fontSize: '10px',
+              fontFamily: 'Arial, serif',
+              lineHeight: '1.2',
             }}
           >
             Official hours for arrival (regular day) and departure
           </td>
         </tr>
 
-        {/* Replace absolute-positioned "Regular Days" with a fixed-height table row
-            to prevent shifting when data loads. */}
         <tr>
-          <td colSpan="9" style={{ padding: "2px 5px" }}>
+          <td colSpan="7" style={{ padding: '2px 5px' }}>
             <div
               style={{
-                display: "flex",
-                alignItems: "flex-end",
-                paddingLeft: "5%",
-                height: "14px",
-                marginBottom: "0px",
-                fontFamily: "Arial, serif",
-                fontSize: "10px",
+                display: 'flex',
+                alignItems: 'flex-end',
+                paddingLeft: '5%',
+                height: '14px',
+                marginBottom: '0px',
+                fontFamily: 'Arial, serif',
+                fontSize: '10px',
               }}
             >
-              <span style={{ marginRight: "5px" }}>Regular Days:</span>
+              <span style={{ marginRight: '5px' }}>Regular Days:</span>
               <span
                 style={{
-                  display: "inline-block",
-                  borderBottom: "1.5px solid black",
+                  display: 'inline-block',
+                  borderBottom: '1.5px solid black',
                   flexGrow: 1,
-                  minWidth: "300px",
-                  marginBottom: "2px",
+                  minWidth: '300px',
+                  marginBottom: '2px',
                 }}
               ></span>
             </div>
           </td>
         </tr>
 
-        {/* Spacer rows to preserve original visual spacing */}
         {Array.from({ length: 2 }, (_, i) => (
           <tr key={`empty2-${i}`}>
-            <td colSpan="9"></td>
+            <td colSpan="7"></td>
           </tr>
         ))}
 
-        {/* "Saturdays" label as a stable table row instead of absolute */}
         <tr>
-          <td colSpan="9" style={{ padding: "2px 5px" }}>
+          <td colSpan="7" style={{ padding: '2px 5px' }}>
             <div
               style={{
-                display: "flex",
-                alignItems: "flex-end",
-                paddingLeft: "5%",
-                height: "20px", // fixed height
-                fontFamily: "Arial, serif",
-                fontSize: "10px",
-                whiteSpace: "nowrap",
+                display: 'flex',
+                alignItems: 'flex-end',
+                paddingLeft: '5%',
+                height: '20px',
+                fontFamily: 'Arial, serif',
+                fontSize: '10px',
+                whiteSpace: 'nowrap',
               }}
             >
-              <span style={{ marginRight: "5px" }}>Saturdays:</span>
+              <span style={{ marginRight: '5px' }}>Saturdays:</span>
               <span
                 style={{
-                  display: "inline-block",
-                  borderBottom: "1.5px solid black",
+                  display: 'inline-block',
+                  borderBottom: '1.5px solid black',
                   flexGrow: 1,
-                  minWidth: "318px",
-                  marginBottom: "2px",
+                  minWidth: '318px',
+                  marginBottom: '2px',
                 }}
               ></span>
             </div>
@@ -1835,26 +1997,25 @@ const DailyTimeRecordFaculty = () => {
 
         {Array.from({ length: 2 }, (_, i) => (
           <tr key={`empty3-${i}`}>
-            <td colSpan="9"></td>
+            <td colSpan="7"></td>
           </tr>
         ))}
         <tr>
           <th
             rowSpan="2"
             style={{
-              border: "1px solid black",
-              fontFamily: "Arial, serif",
+              border: '1px solid black',
+              fontFamily: 'Arial, serif',
               fontSize: dataFontSize,
             }}
           >
             DAY
           </th>
-          {/* Use Regular layout for ALL DTR types */}
           <th
             colSpan="2"
             style={{
-              border: "1px solid black",
-              fontFamily: "Arial, serif",
+              border: '1px solid black',
+              fontFamily: 'Arial, serif',
               fontSize: dataFontSize,
             }}
           >
@@ -1863,8 +2024,8 @@ const DailyTimeRecordFaculty = () => {
           <th
             colSpan="2"
             style={{
-              border: "1px solid black",
-              fontFamily: "Arial, serif",
+              border: '1px solid black',
+              fontFamily: 'Arial, serif',
               fontSize: dataFontSize,
             }}
           >
@@ -1872,8 +2033,8 @@ const DailyTimeRecordFaculty = () => {
           </th>
           <th
             style={{
-              border: "1px solid black",
-              fontFamily: "Arial, serif",
+              border: '1px solid black',
+              fontFamily: 'Arial, serif',
               fontSize: dataFontSize,
             }}
           >
@@ -1881,72 +2042,71 @@ const DailyTimeRecordFaculty = () => {
           </th>
           <th
             style={{
-              border: "1px solid black",
-              fontFamily: "Arial, serif",
+              border: '1px solid black',
+              fontFamily: 'Arial, serif',
               fontSize: dataFontSize,
             }}
           >
             Undertime
           </th>
         </tr>
-        <tr style={{ textAlign: "center" }}>
-          {/* Use Regular sub-headers for ALL DTR types */}
+        <tr style={{ textAlign: 'center' }}>
           <td
             style={{
-              border: "1px solid black",
-              fontSize: "9px",
-              fontFamily: "Arial, serif",
+              border: '1px solid black',
+              fontSize: '9px',
+              fontFamily: 'Arial, serif',
             }}
           >
             Arrival
           </td>
           <td
             style={{
-              border: "1px solid black",
-              fontSize: "9px",
-              fontFamily: "Arial, serif",
-              width: "fit-content",
-              whiteSpace: "nowrap",
+              border: '1px solid black',
+              fontSize: '9px',
+              fontFamily: 'Arial, serif',
+              width: 'fit-content',
+              whiteSpace: 'nowrap',
             }}
           >
             Departure
           </td>
           <td
             style={{
-              border: "1px solid black",
-              fontSize: "9px",
-              fontFamily: "Arial, serif",
-              width: "fit-content",
-              whiteSpace: "nowrap",
+              border: '1px solid black',
+              fontSize: '9px',
+              fontFamily: 'Arial, serif',
+              width: 'fit-content',
+              whiteSpace: 'nowrap',
             }}
           >
             Arrival
           </td>
           <td
             style={{
-              border: "1px solid black",
-              fontSize: "9px",
-              fontFamily: "Arial, serif",
-              width: "fit-content",
-              whiteSpace: "nowrap",
+              border: '1px solid black',
+              fontSize: '9px',
+              fontFamily: 'Arial, serif',
+              width: 'fit-content',
+              whiteSpace: 'nowrap',
             }}
           >
             Departure
           </td>
           <td
             style={{
-              border: "1px solid black",
-              fontSize: "9px",
-              fontFamily: "Arial, serif",
+              border: '1px solid black',
+              fontSize: '9px',
+              fontFamily: 'Arial, serif',
             }}
           >
             Min
           </td>
           <td
             style={{
-              border: "1px solid black",
-              fontSize: "9px",
-              fontFamily: "Arial, serif",
+              border: '1px solid black',
+              fontSize: '9px',
+              fontFamily: 'Arial, serif',
             }}
           >
             Min
@@ -1956,97 +2116,83 @@ const DailyTimeRecordFaculty = () => {
     );
 
     const cellStyle = {
-      border: "1px solid black",
-      textAlign: "center",
-      padding: "0 1px",
-      fontFamily: "Arial, serif",
-      fontSize: "10px",
+      border: '1px solid black',
+      textAlign: 'center',
+      padding: '0 1px',
+      fontFamily: 'Arial, serif',
+      fontSize: '10px',
       height: rowHeight,
-      whiteSpace: "nowrap",
+      whiteSpace: 'nowrap',
     };
 
-    // Helper function to calculate rendered time based on DTR type
-    // Note: The backend/Attendance Modules calculate the rendered times and store them in the record.
-    // For regular type: uses existing 'minutes' field
-    // For other types: splits total minutes into hours and remaining minutes for display
     const getRenderedTimeData = (record, type) => {
-      if (!record) return { hours: "", minutes: "" };
-
-      // For regular type, use existing minutes field
-      if (type === "regular") {
-        return { hours: "", minutes: record.minutes || "" };
+      if (!record) return { hours: '', minutes: '' };
+      if (type === 'regular') {
+        return { hours: '', minutes: record.minutes || '' };
       }
-
-      // For other types (honorarium, service-credit, overtime),
-      // the backend already calculates rendered times. We display them as hours and minutes.
-      // The 'minutes' field contains total rendered minutes calculated by Attendance Modules.
       const minutes = record.minutes || 0;
       const hours = Math.floor(minutes / 60);
       const remainingMinutes = minutes % 60;
-
       return {
-        hours: hours > 0 ? String(hours) : "",
-        minutes: remainingMinutes > 0 ? String(remainingMinutes) : "",
+        hours: hours > 0 ? String(hours) : '',
+        minutes: remainingMinutes > 0 ? String(remainingMinutes) : '',
       };
     };
 
-    // Helper function to get time fields based on DTR type
     const getTimeFields = (record, type) => {
       if (!record)
         return {
-          timeIN: "",
-          timeOUT: "",
+          timeIN: '',
+          timeOUT: '',
         };
 
       switch (type) {
-        case "honorarium":
-        case "service-credit":
-        case "overtime":
-          // Show special attendance times (specialTimeIN/specialTimeOUT from database)
+        case 'honorarium':
+        case 'service-credit':
+        case 'overtime':
           return {
-            timeIN: record.specialTimeIN || "",
-            timeOUT: record.specialTimeOUT || "",
+            timeIN: record.specialTimeIN || '',
+            timeOUT: record.specialTimeOUT || '',
           };
-        default: // regular
+        default:
           return {
-            timeIN: record.timeIN || "",
-            breaktimeIN: record.breaktimeIN || "",
-            breaktimeOUT: record.breaktimeOUT || "",
-            timeOUT: record.timeOUT || "",
+            timeIN: record.timeIN || '',
+            breaktimeIN: record.breaktimeIN || '',
+            breaktimeOUT: record.breaktimeOUT || '',
+            timeOUT: record.timeOUT || '',
           };
       }
     };
-    
 
     return (
       <div className="table-container">
-        <div className="table-wrapper" style={{ position: "relative" }}>
+        <div className="table-wrapper" style={{ position: 'relative' }}>
           {/* Watermark */}
           <img
             src={hrisLogo}
             alt="Watermark"
             style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
               opacity: 0.07,
-              width: "80%",
-              maxWidth: "600px",
-              pointerEvents: "none",
-              userSelect: "none",
+              width: '80%',
+              maxWidth: '600px',
+              pointerEvents: 'none',
+              userSelect: 'none',
               zIndex: 0,
             }}
           />
           <div
             style={{
-              display: "flex",
-              gap: "2%",
-              width: "8.7in",
-              minWidth: "8.5in",
-              margin: "0 auto",
-              backgroundColor: "white",
-              position: "relative",
+              display: 'flex',
+              gap: '2%',
+              width: '8.7in',
+              minWidth: '8.5in',
+              margin: '0 auto',
+              backgroundColor: 'white',
+              position: 'relative',
               zIndex: 1,
             }}
             className="table-side-by-side"
@@ -2054,59 +2200,61 @@ const DailyTimeRecordFaculty = () => {
             {/* ================= TABLE 1 ================= */}
             <table
               style={{
-                position: "relative",
-                border: "1px solid black",
-                borderCollapse: "collapse",
-                width: "49%",
-                tableLayout: "fixed",
+                position: 'relative',
+                border: '1px solid black',
+                borderCollapse: 'collapse',
+                width: '49%',
+                tableLayout: 'fixed',
               }}
               className="print-visble"
             >
+              <DTRColGroup />
               {renderHeader()}
               <tbody>
                 {Array.from({ length: 31 }, (_, i) => {
-                  const day = (i + 1).toString().padStart(2, "0");
+                  const day = (i + 1).toString().padStart(2, '0');
                   const record = user.records.find((r) =>
                     r.date.endsWith(`-${day}`),
                   );
 
-                  // Construct full date: use record.date if available, otherwise build from startDate or selectedYear/selectedMonth
                   let fullDate = null;
                   if (record?.date) {
                     fullDate = record.date;
                   } else if (startDate) {
-                    const [year, month] = startDate.split("-");
+                    const [year, month] = startDate.split('-');
                     fullDate = `${year}-${month}-${day}`;
                   } else if (selectedMonth !== null) {
-                    const monthNum = String(selectedMonth + 1).padStart(2, "0");
+                    const monthNum = String(selectedMonth + 1).padStart(2, '0');
                     fullDate = `${selectedYear}-${monthNum}-${day}`;
                   }
 
                   const indicator = getDateIndicator(fullDate);
-
                   const timeFields = getTimeFields(record, dtrType);
                   const renderedTime = getRenderedTimeData(record, dtrType);
 
                   return (
                     <tr key={i}>
-                      {/* DAY cell - shows day number + indicator label */}
                       <td
                         style={{
                           ...cellStyle,
-                          backgroundColor: indicator ? indicator.bgColor : "transparent",
-                          position: "relative",
+                          backgroundColor: indicator
+                            ? indicator.bgColor
+                            : 'transparent',
+                          position: 'relative',
                         }}
                       >
-                        <div style={{ fontWeight: "bold", fontSize: "10px" }}>{day}</div>
+                        <div style={{ fontWeight: 'bold', fontSize: '10px' }}>
+                          {day}
+                        </div>
                         {indicator && (
                           <div
                             style={{
-                              fontSize: "6px",
-                              fontWeight: "bold",
+                              fontSize: '6px',
+                              fontWeight: 'bold',
                               color: indicator.textColor,
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
                               opacity: 0.8,
                               lineHeight: 1,
                             }}
@@ -2116,67 +2264,129 @@ const DailyTimeRecordFaculty = () => {
                         )}
                       </td>
 
-                      {dtrType === "regular" ? (
+                      {dtrType === 'regular' ? (
                         <>
-                          {/* AM Arrival */}
-                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                          <td
+                            style={{
+                              ...cellStyle,
+                              backgroundColor: indicator
+                                ? indicator.bgColor
+                                : 'transparent',
+                            }}
+                          >
                             <span>{formatTime(timeFields.timeIN)}</span>
                           </td>
-
-                          {/* AM Departure */}
-                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                          <td
+                            style={{
+                              ...cellStyle,
+                              backgroundColor: indicator
+                                ? indicator.bgColor
+                                : 'transparent',
+                            }}
+                          >
                             <span>{formatTime(timeFields.breaktimeIN)}</span>
                           </td>
-
-                          {/* PM Arrival */}
-                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                          <td
+                            style={{
+                              ...cellStyle,
+                              backgroundColor: indicator
+                                ? indicator.bgColor
+                                : 'transparent',
+                            }}
+                          >
                             <span>{formatTime(timeFields.breaktimeOUT)}</span>
                           </td>
-
-                          {/* PM Departure */}
-                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                          <td
+                            style={{
+                              ...cellStyle,
+                              backgroundColor: indicator
+                                ? indicator.bgColor
+                                : 'transparent',
+                            }}
+                          >
                             <span>{formatTime(timeFields.timeOUT)}</span>
                           </td>
-
-                          {/* Late Min */}
-                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
-                            <span>{record?.minutes || ""}</span>
+                          <td
+                            style={{
+                              ...cellStyle,
+                              backgroundColor: indicator
+                                ? indicator.bgColor
+                                : 'transparent',
+                            }}
+                          >
+                            <span>{record?.minutes || ''}</span>
                           </td>
-
-                          {/* Undertime Min */}
-                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
-                            <span>{record?.minutes || ""}</span>
+                          <td
+                            style={{
+                              ...cellStyle,
+                              backgroundColor: indicator
+                                ? indicator.bgColor
+                                : 'transparent',
+                            }}
+                          >
+                            <span>{record?.minutes || ''}</span>
                           </td>
                         </>
                       ) : (
                         <>
-                          {/* AM Arrival */}
-                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                          <td
+                            style={{
+                              ...cellStyle,
+                              backgroundColor: indicator
+                                ? indicator.bgColor
+                                : 'transparent',
+                            }}
+                          >
                             <span>{formatTime(timeFields.timeIN)}</span>
                           </td>
-
-                          {/* AM Departure - empty for non-regular */}
-                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                          <td
+                            style={{
+                              ...cellStyle,
+                              backgroundColor: indicator
+                                ? indicator.bgColor
+                                : 'transparent',
+                            }}
+                          >
                             <span></span>
                           </td>
-
-                          {/* PM Arrival - empty for non-regular */}
-                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                          <td
+                            style={{
+                              ...cellStyle,
+                              backgroundColor: indicator
+                                ? indicator.bgColor
+                                : 'transparent',
+                            }}
+                          >
                             <span></span>
                           </td>
-
-                          {/* PM Departure */}
-                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                          <td
+                            style={{
+                              ...cellStyle,
+                              backgroundColor: indicator
+                                ? indicator.bgColor
+                                : 'transparent',
+                            }}
+                          >
                             <span>{formatTime(timeFields.timeOUT)}</span>
                           </td>
-
-                          {/* Late Min - empty */}
-                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                          <td
+                            style={{
+                              ...cellStyle,
+                              backgroundColor: indicator
+                                ? indicator.bgColor
+                                : 'transparent',
+                            }}
+                          >
                             <span></span>
                           </td>
-
-                          {/* Undertime Min - empty */}
-                          <td style={{ ...cellStyle, backgroundColor: indicator ? indicator.bgColor : "transparent" }}>
+                          <td
+                            style={{
+                              ...cellStyle,
+                              backgroundColor: indicator
+                                ? indicator.bgColor
+                                : 'transparent',
+                            }}
+                          >
                             <span></span>
                           </td>
                         </>
@@ -2185,20 +2395,17 @@ const DailyTimeRecordFaculty = () => {
                   );
                 })}
                 <tr>
-                  <td colSpan="7" style={{ padding: "10px 5px" }}>
+                  <td colSpan="7" style={{ padding: '10px 5px' }}>
                     <hr
-                      style={{
-                        borderTop: "2px solid black",
-                        width: "100%",
-                      }}
+                      style={{ borderTop: '2px solid black', width: '100%' }}
                     />
                     <p
                       style={{
-                        textAlign: "justify",
-                        fontSize: "9px",
-                        lineHeight: "1.4",
-                        fontFamily: "Times New Roman, serif",
-                        margin: "5px 0",
+                        textAlign: 'justify',
+                        fontSize: '9px',
+                        lineHeight: '1.4',
+                        fontFamily: 'Times New Roman, serif',
+                        margin: '5px 0',
                       }}
                     >
                       I CERTIFY on my honor that the above is a true and correct
@@ -2212,49 +2419,44 @@ const DailyTimeRecordFaculty = () => {
                     </p>
                     <div
                       style={{
-                        width: "50%",
-                        marginLeft: "auto",
-                        textAlign: "center",
-                        marginTop: "40px",
+                        width: '50%',
+                        marginLeft: 'auto',
+                        textAlign: 'center',
+                        marginTop: '40px',
                       }}
                     >
-                      <hr
-                        style={{
-                          borderTop: "2px solid black",
-                          margin: 0,
-                        }}
-                      />
+                      <hr style={{ borderTop: '2px solid black', margin: 0 }} />
                       <p
                         style={{
-                          fontSize: "9px",
-                          fontFamily: "Arial, serif",
-                          margin: "5px 0 0 0",
+                          fontSize: '9px',
+                          fontFamily: 'Arial, serif',
+                          margin: '5px 0 0 0',
                         }}
                       >
                         Signature
                       </p>
                     </div>
-                    <div style={{ width: "100%", marginTop: "15px" }}>
+                    <div style={{ width: '100%', marginTop: '15px' }}>
                       <hr
                         style={{
-                          borderTop: "1px solid black",
-                          width: "100%",
+                          borderTop: '1px solid black',
+                          width: '100%',
                           margin: 0,
                         }}
                       />
                       <hr
                         style={{
-                          borderTop: "1.5px solid black",
-                          width: "100%",
-                          margin: "2px 0 0 0",
+                          borderTop: '1.5px solid black',
+                          width: '100%',
+                          margin: '2px 0 0 0',
                         }}
                       />
                       <p
                         style={{
-                          paddingLeft: "30px",
-                          fontSize: "9px",
-                          fontFamily: "Arial, serif",
-                          margin: "5px 0 0 0",
+                          paddingLeft: '30px',
+                          fontSize: '9px',
+                          fontFamily: 'Arial, serif',
+                          margin: '5px 0 0 0',
                         }}
                       >
                         Verified as to prescribed office hours.
@@ -2262,32 +2464,27 @@ const DailyTimeRecordFaculty = () => {
                     </div>
                     <div
                       style={{
-                        width: "80%",
-                        marginLeft: "auto",
-                        marginTop: "15px",
-                        textAlign: "center",
+                        width: '80%',
+                        marginLeft: 'auto',
+                        marginTop: '15px',
+                        textAlign: 'center',
                       }}
                     >
-                      <hr
-                        style={{
-                          borderTop: "2px solid black",
-                          margin: 0,
-                        }}
-                      />
+                      <hr style={{ borderTop: '2px solid black', margin: 0 }} />
                       <p
                         style={{
-                          fontSize: "9px",
-                          fontFamily: "Times New Roman, serif",
-                          margin: "2px 0 0 0",
+                          fontSize: '9px',
+                          fontFamily: 'Times New Roman, serif',
+                          margin: '2px 0 0 0',
                         }}
                       >
                         In-Charge
                       </p>
                       <p
                         style={{
-                          fontSize: "9px",
-                          fontFamily: "Arial, serif",
-                          margin: "0",
+                          fontSize: '9px',
+                          fontFamily: 'Arial, serif',
+                          margin: '0',
                         }}
                       >
                         (Signature Over Printed Name)
@@ -2301,36 +2498,35 @@ const DailyTimeRecordFaculty = () => {
             {/* ================= TABLE 2 ================= */}
             <table
               style={{
-                position: "relative",
-                border: "1px solid black",
-                borderCollapse: "collapse",
-                width: "49%",
-                tableLayout: "fixed",
+                position: 'relative',
+                border: '1px solid black',
+                borderCollapse: 'collapse',
+                width: '49%',
+                tableLayout: 'fixed',
               }}
               className="print-visble"
             >
+              <DTRColGroup />
               {renderHeader()}
               <tbody>
                 {Array.from({ length: 31 }, (_, i) => {
-                  const day = (i + 1).toString().padStart(2, "0");
+                  const day = (i + 1).toString().padStart(2, '0');
                   const record = user.records.find((r) =>
                     r.date.endsWith(`-${day}`),
                   );
 
-                  // Construct full date: use record.date if available, otherwise build from startDate or selectedYear/selectedMonth
                   let fullDate = null;
                   if (record?.date) {
                     fullDate = record.date;
                   } else if (startDate) {
-                    const [year, month] = startDate.split("-");
+                    const [year, month] = startDate.split('-');
                     fullDate = `${year}-${month}-${day}`;
                   } else if (selectedMonth !== null) {
-                    const monthNum = String(selectedMonth + 1).padStart(2, "0");
+                    const monthNum = String(selectedMonth + 1).padStart(2, '0');
                     fullDate = `${selectedYear}-${monthNum}-${day}`;
                   }
 
                   const indicator = getDateIndicator(fullDate);
-
                   const timeFields = getTimeFields(record, dtrType);
                   const renderedTime = getRenderedTimeData(record, dtrType);
 
@@ -2341,27 +2537,27 @@ const DailyTimeRecordFaculty = () => {
                           ...cellStyle,
                           backgroundColor: indicator
                             ? indicator.bgColor
-                            : "transparent",
+                            : 'transparent',
                         }}
                       >
                         {day}
                       </td>
-                      {dtrType === "regular" ? (
+                      {dtrType === 'regular' ? (
                         <>
                           <td
                             style={{
                               ...cellStyle,
                               backgroundColor: indicator
                                 ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
+                                : 'transparent',
+                              position: 'relative',
                             }}
                           >
                             {indicator && (
                               <>
                                 <div
                                   style={{
-                                    position: "absolute",
+                                    position: 'absolute',
                                     top: 0,
                                     left: 0,
                                     right: 0,
@@ -2373,15 +2569,15 @@ const DailyTimeRecordFaculty = () => {
                                 />
                                 <div
                                   style={{
-                                    position: "absolute",
-                                    top: "50%",
-                                    left: "50%",
-                                    transform: "translate(-50%, -50%)",
-                                    fontSize: "7px",
-                                    fontWeight: "bold",
+                                    position: 'absolute',
+                                    top: '50%',
+                                    left: '50%',
+                                    transform: 'translate(-50%, -50%)',
+                                    fontSize: '7px',
+                                    fontWeight: 'bold',
                                     color: indicator.textColor,
-                                    whiteSpace: "nowrap",
-                                    pointerEvents: "none",
+                                    whiteSpace: 'nowrap',
+                                    pointerEvents: 'none',
                                     zIndex: 1,
                                     opacity: 0.5,
                                   }}
@@ -2390,7 +2586,7 @@ const DailyTimeRecordFaculty = () => {
                                 </div>
                               </>
                             )}
-                            <span style={{ position: "relative", zIndex: 2 }}>
+                            <span style={{ position: 'relative', zIndex: 2 }}>
                               {formatTime(timeFields.timeIN)}
                             </span>
                           </td>
@@ -2399,14 +2595,14 @@ const DailyTimeRecordFaculty = () => {
                               ...cellStyle,
                               backgroundColor: indicator
                                 ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
+                                : 'transparent',
+                              position: 'relative',
                             }}
                           >
                             {indicator && (
                               <div
                                 style={{
-                                  position: "absolute",
+                                  position: 'absolute',
                                   top: 0,
                                   left: 0,
                                   right: 0,
@@ -2417,7 +2613,7 @@ const DailyTimeRecordFaculty = () => {
                                 }}
                               />
                             )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
+                            <span style={{ position: 'relative', zIndex: 1 }}>
                               {formatTime(timeFields.breaktimeIN)}
                             </span>
                           </td>
@@ -2426,14 +2622,14 @@ const DailyTimeRecordFaculty = () => {
                               ...cellStyle,
                               backgroundColor: indicator
                                 ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
+                                : 'transparent',
+                              position: 'relative',
                             }}
                           >
                             {indicator && (
                               <div
                                 style={{
-                                  position: "absolute",
+                                  position: 'absolute',
                                   top: 0,
                                   left: 0,
                                   right: 0,
@@ -2444,7 +2640,7 @@ const DailyTimeRecordFaculty = () => {
                                 }}
                               />
                             )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
+                            <span style={{ position: 'relative', zIndex: 1 }}>
                               {formatTime(timeFields.breaktimeOUT)}
                             </span>
                           </td>
@@ -2453,15 +2649,15 @@ const DailyTimeRecordFaculty = () => {
                               ...cellStyle,
                               backgroundColor: indicator
                                 ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
+                                : 'transparent',
+                              position: 'relative',
                             }}
                           >
                             {indicator && (
                               <>
                                 <div
                                   style={{
-                                    position: "absolute",
+                                    position: 'absolute',
                                     top: 0,
                                     left: 0,
                                     right: 0,
@@ -2473,15 +2669,15 @@ const DailyTimeRecordFaculty = () => {
                                 />
                                 <div
                                   style={{
-                                    position: "absolute",
-                                    top: "50%",
-                                    left: "50%",
-                                    transform: "translate(-50%, -50%)",
-                                    fontSize: "7px",
-                                    fontWeight: "bold",
+                                    position: 'absolute',
+                                    top: '50%',
+                                    left: '50%',
+                                    transform: 'translate(-50%, -50%)',
+                                    fontSize: '7px',
+                                    fontWeight: 'bold',
                                     color: indicator.textColor,
-                                    whiteSpace: "nowrap",
-                                    pointerEvents: "none",
+                                    whiteSpace: 'nowrap',
+                                    pointerEvents: 'none',
                                     zIndex: 1,
                                     opacity: 0.5,
                                   }}
@@ -2490,7 +2686,7 @@ const DailyTimeRecordFaculty = () => {
                                 </div>
                               </>
                             )}
-                            <span style={{ position: "relative", zIndex: 2 }}>
+                            <span style={{ position: 'relative', zIndex: 2 }}>
                               {formatTime(timeFields.timeOUT)}
                             </span>
                           </td>
@@ -2499,14 +2695,14 @@ const DailyTimeRecordFaculty = () => {
                               ...cellStyle,
                               backgroundColor: indicator
                                 ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
+                                : 'transparent',
+                              position: 'relative',
                             }}
                           >
                             {indicator && (
                               <div
                                 style={{
-                                  position: "absolute",
+                                  position: 'absolute',
                                   top: 0,
                                   left: 0,
                                   right: 0,
@@ -2517,8 +2713,8 @@ const DailyTimeRecordFaculty = () => {
                                 }}
                               />
                             )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
-                              {record?.minutes || ""}
+                            <span style={{ position: 'relative', zIndex: 1 }}>
+                              {record?.minutes || ''}
                             </span>
                           </td>
                           <td
@@ -2526,15 +2722,15 @@ const DailyTimeRecordFaculty = () => {
                               ...cellStyle,
                               backgroundColor: indicator
                                 ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
+                                : 'transparent',
+                              position: 'relative',
                             }}
                           >
                             {indicator && (
                               <>
                                 <div
                                   style={{
-                                    position: "absolute",
+                                    position: 'absolute',
                                     top: 0,
                                     left: 0,
                                     right: 0,
@@ -2546,20 +2742,20 @@ const DailyTimeRecordFaculty = () => {
                                 />
                                 <div
                                   style={{
-                                    position: "absolute",
+                                    position: 'absolute',
                                     top: 0,
                                     left: 0,
                                     right: 0,
                                     bottom: 0,
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    fontSize: "7px",
-                                    fontWeight: "bold",
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: '7px',
+                                    fontWeight: 'bold',
                                     color: indicator.textColor,
                                     backgroundColor: indicator.bgColor,
                                     zIndex: 1,
-                                    pointerEvents: "none",
+                                    pointerEvents: 'none',
                                     opacity: 0.9,
                                   }}
                                 >
@@ -2567,27 +2763,26 @@ const DailyTimeRecordFaculty = () => {
                                 </div>
                               </>
                             )}
-                            <span style={{ position: "relative", zIndex: 2 }}>
-                              {record?.minutes || ""}
+                            <span style={{ position: 'relative', zIndex: 2 }}>
+                              {record?.minutes || ''}
                             </span>
                           </td>
                         </>
                       ) : (
                         <>
-                          {/* For Honorarium, Service Credit, and Overtime - use same layout as Regular */}
                           <td
                             style={{
                               ...cellStyle,
                               backgroundColor: indicator
                                 ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
+                                : 'transparent',
+                              position: 'relative',
                             }}
                           >
                             {indicator && (
                               <div
                                 style={{
-                                  position: "absolute",
+                                  position: 'absolute',
                                   top: 0,
                                   left: 0,
                                   right: 0,
@@ -2598,7 +2793,7 @@ const DailyTimeRecordFaculty = () => {
                                 }}
                               />
                             )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
+                            <span style={{ position: 'relative', zIndex: 1 }}>
                               {formatTime(timeFields.timeIN)}
                             </span>
                           </td>
@@ -2607,14 +2802,14 @@ const DailyTimeRecordFaculty = () => {
                               ...cellStyle,
                               backgroundColor: indicator
                                 ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
+                                : 'transparent',
+                              position: 'relative',
                             }}
                           >
                             {indicator && (
                               <div
                                 style={{
-                                  position: "absolute",
+                                  position: 'absolute',
                                   top: 0,
                                   left: 0,
                                   right: 0,
@@ -2625,23 +2820,23 @@ const DailyTimeRecordFaculty = () => {
                                 }}
                               />
                             )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
-                              {/* Empty for non-regular types (no break time) */}
-                            </span>
+                            <span
+                              style={{ position: 'relative', zIndex: 1 }}
+                            ></span>
                           </td>
                           <td
                             style={{
                               ...cellStyle,
                               backgroundColor: indicator
                                 ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
+                                : 'transparent',
+                              position: 'relative',
                             }}
                           >
                             {indicator && (
                               <div
                                 style={{
-                                  position: "absolute",
+                                  position: 'absolute',
                                   top: 0,
                                   left: 0,
                                   right: 0,
@@ -2652,23 +2847,23 @@ const DailyTimeRecordFaculty = () => {
                                 }}
                               />
                             )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
-                              {/* Empty for non-regular types (no break time) */}
-                            </span>
+                            <span
+                              style={{ position: 'relative', zIndex: 1 }}
+                            ></span>
                           </td>
                           <td
                             style={{
                               ...cellStyle,
                               backgroundColor: indicator
                                 ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
+                                : 'transparent',
+                              position: 'relative',
                             }}
                           >
                             {indicator && (
                               <div
                                 style={{
-                                  position: "absolute",
+                                  position: 'absolute',
                                   top: 0,
                                   left: 0,
                                   right: 0,
@@ -2679,7 +2874,7 @@ const DailyTimeRecordFaculty = () => {
                                 }}
                               />
                             )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
+                            <span style={{ position: 'relative', zIndex: 1 }}>
                               {formatTime(timeFields.timeOUT)}
                             </span>
                           </td>
@@ -2688,14 +2883,14 @@ const DailyTimeRecordFaculty = () => {
                               ...cellStyle,
                               backgroundColor: indicator
                                 ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
+                                : 'transparent',
+                              position: 'relative',
                             }}
                           >
                             {indicator && (
                               <div
                                 style={{
-                                  position: "absolute",
+                                  position: 'absolute',
                                   top: 0,
                                   left: 0,
                                   right: 0,
@@ -2706,24 +2901,24 @@ const DailyTimeRecordFaculty = () => {
                                 }}
                               />
                             )}
-                            <span style={{ position: "relative", zIndex: 1 }}>
-                              {/* Empty or show late minutes if calculated */}
-                            </span>
+                            <span
+                              style={{ position: 'relative', zIndex: 1 }}
+                            ></span>
                           </td>
                           <td
                             style={{
                               ...cellStyle,
                               backgroundColor: indicator
                                 ? indicator.bgColor
-                                : "transparent",
-                              position: "relative",
+                                : 'transparent',
+                              position: 'relative',
                             }}
                           >
                             {indicator && (
                               <>
                                 <div
                                   style={{
-                                    position: "absolute",
+                                    position: 'absolute',
                                     top: 0,
                                     left: 0,
                                     right: 0,
@@ -2735,20 +2930,20 @@ const DailyTimeRecordFaculty = () => {
                                 />
                                 <div
                                   style={{
-                                    position: "absolute",
+                                    position: 'absolute',
                                     top: 0,
                                     left: 0,
                                     right: 0,
                                     bottom: 0,
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    fontSize: "7px",
-                                    fontWeight: "bold",
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: '7px',
+                                    fontWeight: 'bold',
                                     color: indicator.textColor,
                                     backgroundColor: indicator.bgColor,
                                     zIndex: 1,
-                                    pointerEvents: "none",
+                                    pointerEvents: 'none',
                                     opacity: 0.9,
                                   }}
                                 >
@@ -2756,9 +2951,9 @@ const DailyTimeRecordFaculty = () => {
                                 </div>
                               </>
                             )}
-                            <span style={{ position: "relative", zIndex: 2 }}>
-                              {/* Empty or show undertime minutes if calculated */}
-                            </span>
+                            <span
+                              style={{ position: 'relative', zIndex: 2 }}
+                            ></span>
                           </td>
                         </>
                       )}
@@ -2766,20 +2961,17 @@ const DailyTimeRecordFaculty = () => {
                   );
                 })}
                 <tr>
-                  <td colSpan="7" style={{ padding: "10px 5px" }}>
+                  <td colSpan="7" style={{ padding: '10px 5px' }}>
                     <hr
-                      style={{
-                        borderTop: "2px solid black",
-                        width: "100%",
-                      }}
+                      style={{ borderTop: '2px solid black', width: '100%' }}
                     />
                     <p
                       style={{
-                        textAlign: "justify",
-                        fontSize: "9px",
-                        lineHeight: "1.4",
-                        fontFamily: "Times New Roman, serif",
-                        margin: "5px 0",
+                        textAlign: 'justify',
+                        fontSize: '9px',
+                        lineHeight: '1.4',
+                        fontFamily: 'Times New Roman, serif',
+                        margin: '5px 0',
                       }}
                     >
                       I CERTIFY on my honor that the above is a true and correct
@@ -2793,49 +2985,44 @@ const DailyTimeRecordFaculty = () => {
                     </p>
                     <div
                       style={{
-                        width: "50%",
-                        marginLeft: "auto",
-                        textAlign: "center",
-                        marginTop: "40px",
+                        width: '50%',
+                        marginLeft: 'auto',
+                        textAlign: 'center',
+                        marginTop: '40px',
                       }}
                     >
-                      <hr
-                        style={{
-                          borderTop: "2px solid black",
-                          margin: 0,
-                        }}
-                      />
+                      <hr style={{ borderTop: '2px solid black', margin: 0 }} />
                       <p
                         style={{
-                          fontSize: "9px",
-                          fontFamily: "Arial, serif",
-                          margin: "5px 0 0 0",
+                          fontSize: '9px',
+                          fontFamily: 'Arial, serif',
+                          margin: '5px 0 0 0',
                         }}
                       >
                         Signature
                       </p>
                     </div>
-                    <div style={{ width: "100%", marginTop: "15px" }}>
+                    <div style={{ width: '100%', marginTop: '15px' }}>
                       <hr
                         style={{
-                          borderTop: "1px solid black",
-                          width: "100%",
+                          borderTop: '1px solid black',
+                          width: '100%',
                           margin: 0,
                         }}
                       />
                       <hr
                         style={{
-                          borderTop: "1.5px solid black",
-                          width: "100%",
-                          margin: "2px 0 0 0",
+                          borderTop: '1.5px solid black',
+                          width: '100%',
+                          margin: '2px 0 0 0',
                         }}
                       />
                       <p
                         style={{
-                          paddingLeft: "30px",
-                          fontSize: "9px",
-                          fontFamily: "Arial, serif",
-                          margin: "5px 0 0 0",
+                          paddingLeft: '30px',
+                          fontSize: '9px',
+                          fontFamily: 'Arial, serif',
+                          margin: '5px 0 0 0',
                         }}
                       >
                         Verified as to prescribed office hours.
@@ -2843,32 +3030,27 @@ const DailyTimeRecordFaculty = () => {
                     </div>
                     <div
                       style={{
-                        width: "80%",
-                        marginLeft: "auto",
-                        marginTop: "15px",
-                        textAlign: "center",
+                        width: '80%',
+                        marginLeft: 'auto',
+                        marginTop: '15px',
+                        textAlign: 'center',
                       }}
                     >
-                      <hr
-                        style={{
-                          borderTop: "2px solid black",
-                          margin: 0,
-                        }}
-                      />
+                      <hr style={{ borderTop: '2px solid black', margin: 0 }} />
                       <p
                         style={{
-                          fontSize: "9px",
-                          fontFamily: "Times New Roman, serif",
-                          margin: "2px 0 0 0",
+                          fontSize: '9px',
+                          fontFamily: 'Times New Roman, serif',
+                          margin: '2px 0 0 0',
                         }}
                       >
                         In-Charge
                       </p>
                       <p
                         style={{
-                          fontSize: "9px",
-                          fontFamily: "Arial, serif",
-                          margin: "0",
+                          fontSize: '9px',
+                          fontFamily: 'Arial, serif',
+                          margin: '0',
                         }}
                       >
                         (Signature Over Printed Name)
@@ -2884,8 +3066,7 @@ const DailyTimeRecordFaculty = () => {
     );
   };
 
-  // Hidden print-ready DTR (off-screen) for bulk printing — unchanged structure,
-  // but we render these hidden elements inside the modal (off-screen) so they are available for html2canvas.
+  // Hidden print-ready DTR (off-screen) for bulk printing
   const renderUserDTRTable = (user) => {
     return (
       <div
@@ -2893,12 +3074,12 @@ const DailyTimeRecordFaculty = () => {
           if (el) bulkDTRRefs.current[user.employeeNumber] = el;
         }}
         style={{
-          position: "absolute",
-          left: "-9999px",
-          top: "0",
-          visibility: "hidden",
+          position: 'absolute',
+          left: '-9999px',
+          top: '0',
+          visibility: 'hidden',
           width: DTR_WIDTH_IN,
-          color: "black",
+          color: 'black',
         }}
         className="bulk-dtr-print"
       >
@@ -2910,20 +3091,20 @@ const DailyTimeRecordFaculty = () => {
   // Simple handler for printing selected DTRs
   const handlePrintAllSelected = async () => {
     if (previewUsers.length === 0) {
-      showAlert("No Selection", "No DTRs to print. Please select users first.");
+      showAlert('No Selection', 'No DTRs to print. Please select users first.');
       return;
     }
 
     try {
       setPrintingAll(true);
-      setPrintingStatus("Preparing DTRs for printing...");
+      setPrintingStatus('Preparing DTRs for printing...');
 
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "in",
-        format: "a4",
+        orientation: 'portrait',
+        unit: 'in',
+        format: 'a4',
       });
 
       const dtrWidth = 8;
@@ -2949,10 +3130,7 @@ const DailyTimeRecordFaculty = () => {
         }
 
         try {
-          // Ensure capture-friendly styles
           const orig = ensureCaptureStyles(ref);
-
-          // Wait for styles to apply (off-screen)
           await new Promise((resolve) => setTimeout(resolve, 50));
 
           const canvas = await html2canvas(ref, {
@@ -2971,9 +3149,9 @@ const DailyTimeRecordFaculty = () => {
             continue;
           }
 
-          const imgData = canvas.toDataURL("image/png");
+          const imgData = canvas.toDataURL('image/png');
 
-          if (!imgData || imgData === "data:,") {
+          if (!imgData || imgData === 'data:,') {
             console.error(`Invalid image data for ${user.employeeNumber}`);
             continue;
           }
@@ -2982,7 +3160,7 @@ const DailyTimeRecordFaculty = () => {
             pdf.addPage();
           }
 
-          pdf.addImage(imgData, "PNG", xOffset, yOffset, dtrWidth, dtrHeight);
+          pdf.addImage(imgData, 'PNG', xOffset, yOffset, dtrWidth, dtrHeight);
           successCount++;
 
           console.log(
@@ -2993,7 +3171,6 @@ const DailyTimeRecordFaculty = () => {
             `Error capturing DTR for ${user.employeeNumber}:`,
             error,
           );
-          // Restore styles even on error
           try {
             restoreCaptureStyles(ref, {});
           } catch (e) {
@@ -3008,16 +3185,15 @@ const DailyTimeRecordFaculty = () => {
 
       if (successCount === 0) {
         throw new Error(
-          "No DTRs were successfully captured. Please try again or contact support.",
+          'No DTRs were successfully captured. Please try again or contact support.',
         );
       }
 
-      setPrintingStatus("Opening print preview...");
+      setPrintingStatus('Opening print preview...');
       pdf.autoPrint();
-      const blobUrl = pdf.output("bloburl");
-      window.open(blobUrl, "_blank");
+      const blobUrl = pdf.output('bloburl');
+      window.open(blobUrl, '_blank');
 
-      // Mark DTRs as printed
       try {
         const year = new Date(startDate).getFullYear();
         const month = new Date(startDate).getMonth() + 1;
@@ -3029,30 +3205,26 @@ const DailyTimeRecordFaculty = () => {
           getAuthHeaders(),
         );
 
-        // Update local print status map
         const newMap = new Map(printStatusMap);
         employeeNumbers.forEach((empNum) => {
           newMap.set(empNum, {
             printed_at: new Date().toISOString(),
-            printed_by: "current_user",
+            printed_by: 'current_user',
           });
         });
         setPrintStatusMap(newMap);
-
-        // Clear selection
         setSelectedUsers(new Set());
       } catch (error) {
-        console.error("Error marking DTRs as printed:", error);
-        // Don't fail the entire operation if marking fails
+        console.error('Error marking DTRs as printed:', error);
       }
     } catch (error) {
-      console.error("Error printing DTRs:", error);
+      console.error('Error printing DTRs:', error);
       showAlert(
-        "Print Error",
-        `Error printing DTRs: ${error.message || "Unknown error"}`,
+        'Print Error',
+        `Error printing DTRs: ${error.message || 'Unknown error'}`,
       );
     } finally {
-      setPrintingStatus("");
+      setPrintingStatus('');
       setPrintingAll(false);
       setPreviewModalOpen(false);
     }
@@ -3062,22 +3234,22 @@ const DailyTimeRecordFaculty = () => {
   const handleDownloadAllSelected = async () => {
     if (previewUsers.length === 0) {
       showAlert(
-        "No Selection",
-        "No DTRs to download. Please select users first.",
+        'No Selection',
+        'No DTRs to download. Please select users first.',
       );
       return;
     }
 
     try {
       setPrintingAll(true);
-      setPrintingStatus("Preparing DTRs for download...");
+      setPrintingStatus('Preparing DTRs for download...');
 
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "in",
-        format: "a4",
+        orientation: 'portrait',
+        unit: 'in',
+        format: 'a4',
       });
 
       const dtrWidth = 8;
@@ -3103,10 +3275,7 @@ const DailyTimeRecordFaculty = () => {
         }
 
         try {
-          // Ensure capture-friendly styles
           const orig = ensureCaptureStyles(ref);
-
-          // Wait for styles to apply (off-screen)
           await new Promise((resolve) => setTimeout(resolve, 50));
 
           const canvas = await html2canvas(ref, {
@@ -3125,9 +3294,9 @@ const DailyTimeRecordFaculty = () => {
             continue;
           }
 
-          const imgData = canvas.toDataURL("image/png");
+          const imgData = canvas.toDataURL('image/png');
 
-          if (!imgData || imgData === "data:,") {
+          if (!imgData || imgData === 'data:,') {
             console.error(`Invalid image data for ${user.employeeNumber}`);
             continue;
           }
@@ -3136,7 +3305,7 @@ const DailyTimeRecordFaculty = () => {
             pdf.addPage();
           }
 
-          pdf.addImage(imgData, "PNG", xOffset, yOffset, dtrWidth, dtrHeight);
+          pdf.addImage(imgData, 'PNG', xOffset, yOffset, dtrWidth, dtrHeight);
           successCount++;
 
           console.log(
@@ -3147,7 +3316,6 @@ const DailyTimeRecordFaculty = () => {
             `Error capturing DTR for ${user.employeeNumber}:`,
             error,
           );
-          // Restore styles even on error
           try {
             restoreCaptureStyles(ref, {});
           } catch (e) {
@@ -3162,21 +3330,21 @@ const DailyTimeRecordFaculty = () => {
 
       if (successCount === 0) {
         throw new Error(
-          "No DTRs were successfully captured. Please try again or contact support.",
+          'No DTRs were successfully captured. Please try again or contact support.',
         );
       }
 
-      setPrintingStatus("Saving PDF...");
+      setPrintingStatus('Saving PDF...');
       const fileName = `DTR-AllUsers-${formatMonth(startDate)}.pdf`;
       pdf.save(fileName);
     } catch (error) {
-      console.error("Error downloading DTRs:", error);
+      console.error('Error downloading DTRs:', error);
       showAlert(
-        "Download Error",
-        `Error downloading DTRs: ${error.message || "Unknown error"}`,
+        'Download Error',
+        `Error downloading DTRs: ${error.message || 'Unknown error'}`,
       );
     } finally {
-      setPrintingStatus("");
+      setPrintingStatus('');
       setPrintingAll(false);
       setPreviewModalOpen(false);
     }
@@ -3185,121 +3353,102 @@ const DailyTimeRecordFaculty = () => {
   return (
     <Container maxWidth="xl" sx={{ py: 4, mt: -5 }}>
       {/* Fixed Status Overlay at Top of Screen - Shows during printing/downloading/loading */}
-      {(printingAll || loadingAllUsers) && (
-<Dialog
-  open={loadingAllUsers || printingStatus}
-  maxWidth="xs"
-  fullWidth
-  PaperProps={{
-    sx: {
-      borderRadius: 4,
-      p: 0,
-      backgroundColor: '#ffffff',
-      boxShadow: '0 10px 50px rgba(0,0,0,0.12)',
-      overflow: 'hidden',
-    },
-  }}
->
-  <Box
-    sx={{
-      p: 4,
-      minHeight: 280,
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'center',
-      alignItems: 'center',
-      textAlign: 'center',
-      gap: 2,
-    }}
-  >
-    {/* Spinner */}
-    <MCircularProgress
-      size={80}
-      thickness={4.5}
-      sx={{ color: '#2e7d32' }}
-    />
-
-    {/* Title */}
-    <Typography
-      variant="h6"
-      sx={{
-        fontWeight: 700,
-        color: '#111',
-      }}
-    >
-      {printingStatus ||
-        (loadingAllUsers
-          ? "Loading attendance and DTR records…"
-          : "Preparing DTRs...")}
-    </Typography>
-
-    {/* Subtitle (UNCHANGED STRUCTURE) */}
-    <Typography
-      variant="body2"
-      sx={{
-        color: '#555',
-        maxWidth: 360,
-      }}
-    >
-      {loadingAllUsers
-        ? "This may take a moment for all employees."
-        : "Please wait — the DTRs are being captured and compiled. A new tab will open when ready."}
-    </Typography>
-  </Box>
-</Dialog>
+      {(printingAll || loadingAllUsers || singlePrintLoading) && (
+        <Dialog
+          open={
+            printingAll ||
+            loadingAllUsers ||
+            singlePrintLoading ||
+            !!printingStatus ||
+            !!singlePrintStatus
+          }
+          maxWidth="xs"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: 4,
+              backgroundColor: '#ffffff',
+              boxShadow: '0 10px 50px rgba(0,0,0,0.12)',
+              overflow: 'hidden',
+            },
+          }}
+        >
+          <Box
+            sx={{
+              p: 4,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              textAlign: 'center',
+              gap: 2,
+            }}
+          >
+            <MCircularProgress
+              size={52}
+              thickness={4}
+              sx={{ color: accentColor }}
+            />
+            <Typography
+              variant="h6"
+              sx={{ fontWeight: 700, color: '#111', lineHeight: 1.3 }}
+            >
+              {loadingAllUsers
+                ? 'Loading DTR Records'
+                : singlePrintLoading
+                  ? singlePrintStatus || 'Preparing DTR...'
+                  : printingStatus || 'Preparing DTRs...'}
+            </Typography>
+            <Typography
+              variant="body2"
+              sx={{ color: '#777', maxWidth: 280, lineHeight: 1.6 }}
+            >
+              {loadingAllUsers
+                ? 'Fetching attendance data for all employees. This may take a moment.'
+                : singlePrintLoading
+                  ? 'Your DTR is being captured and compiled. Please wait.'
+                  : 'DTRs are being captured and compiled into a PDF. A new tab will open when ready.'}
+            </Typography>
+            <Box sx={{ width: '100%', mt: 1 }}>
+              <LinearProgress
+                sx={{
+                  height: 5,
+                  borderRadius: 3,
+                  backgroundColor: alpha(accentColor, 0.12),
+                  '& .MuiLinearProgress-bar': {
+                    borderRadius: 3,
+                    backgroundColor: accentColor,
+                  },
+                }}
+              />
+            </Box>
+          </Box>
+        </Dialog>
       )}
 
       <style>
         {`
-          /* FIX: Force vertical scrollbar to prevent center-jump when data loads */
-          html {
-            overflow-y: scroll;
-          }
-
-
-          /* Frontend responsive styles (NOT for print) */
-          .dtr-responsive-header,
-          .dtr-responsive-cell,
-          .dtr-time-cell {
-            width: auto !important;
-            max-width: none !important;
-          }
-
-
-          .dtr-time-cell {
-            white-space: nowrap !important;
-            word-break: keep-all !important;
-          }
-
-
-          table {
-            table-layout: auto !important;
-          }
-
-
-          @page {
-            size: A4;
-            margin: 0;
-          }
-
-
-          @media print {
-            .no-print { display: none !important; }
-            .header, .top-banner, .page-banner, header, footer, .MuiDrawer-root, .MuiAppBar-root { display: none !important; }
-            html, body { width: 21cm; height: 29.7cm; margin: 0; padding: 0; background: white; }
-            .MuiContainer-root { max-width: 100% !important; width: 21cm !important; margin: 0 auto !important; padding: 0 !important; display: flex !important; justify-content: center !important; align-items: center !important; background: white !important; }
-            .MuiPaper-root, .MuiBox-root, .MuiCard-root { background: transparent !important; box-shadow: none !important; margin: 0 !important; }
-            .table-container { width: 100% !important; height: auto !important; margin: 0 auto !important; padding: 0 !important; display: block !important; background: transparent !important; }
-            .table-wrapper { width: 100% !important; height: auto !important; margin: 0 !important; padding: 0 !important; display: flex !important; justify-content: center !important; align-items: flex-start !important; box-sizing: border-box !important; }
-            .table-side-by-side { display: flex !important; flex-direction: row !important; gap: 1.5% !important; width: 100% !important; height: auto !important; }
-            .table-side-by-side table { width: 47% !important; border: 1px solid black !important; border-collapse: collapse !important; background: white !important; }
-            table td, table th { background: white !important; font-family: Arial, "Times New Roman", serif !important; position: relative !important; }
-            table thead div, table thead p, table thead h4 { font-family: Arial, "Times New Roman", serif !important; }
-            table td div { position: relative !important; }
-            table { page-break-inside: avoid !important; table-layout: fixed !important; }
-            .dtr-responsive-header, .dtr-responsive-cell, .dtr-time-cell { width: auto !important; white-space: nowrap !important; word-break: keep-all !important; }
-            table tbody tr:last-child td { padding-bottom: 20px !important; }
-            .bulk-dtr-print { display: none !important; }
+          html { overflow-y: scroll; }
+          .dtr-responsive-header,.dtr-responsive-cell,.dtr-time-cell{width:auto!important;max-width:none!important;}
+          .dtr-time-cell{white-space:nowrap!important;word-break:keep-all!important;}
+          table{table-layout:auto!important;}
+          @page{size:A4;margin:0;}
+          @media print{
+            .no-print{display:none!important;}
+            .header,.top-banner,.page-banner,header,footer,.MuiDrawer-root,.MuiAppBar-root{display:none!important;}
+            html,body{width:21cm;height:29.7cm;margin:0;padding:0;background:white;}
+            .MuiContainer-root{max-width:100%!important;width:21cm!important;margin:0 auto!important;padding:0!important;display:flex!important;justify-content:center!important;align-items:center!important;background:white!important;}
+            .MuiPaper-root,.MuiBox-root,.MuiCard-root{background:transparent!important;box-shadow:none!important;margin:0!important;}
+            .table-container{width:100%!important;height:auto!important;margin:0 auto!important;padding:0!important;display:block!important;background:transparent!important;}
+            .table-wrapper{width:100%!important;height:auto!important;margin:0!important;padding:0!important;display:flex!important;justify-content:center!important;align-items:flex-start!important;box-sizing:border-box!important;}
+            .table-side-by-side{display:flex!important;flex-direction:row!important;gap:1.5%!important;width:100%!important;height:auto!important;}
+            .table-side-by-side table{width:47%!important;border:1px solid black!important;border-collapse:collapse!important;background:white!important;}
+            table td,table th{background:white!important;font-family:Arial,"Times New Roman",serif!important;position:relative!important;}
+            table thead div,table thead p,table thead h4{font-family:Arial,"Times New Roman",serif!important;}
+            table td div{position:relative!important;}
+            table{page-break-inside:avoid!important;table-layout:fixed!important;}
+            .dtr-responsive-header,.dtr-responsive-cell,.dtr-time-cell{width:auto!important;white-space:nowrap!important;word-break:keep-all!important;}
+            table tbody tr:last-child td{padding-bottom:20px!important;}
+            .bulk-dtr-print{display:none!important;}
           }
         `}
       </style>
@@ -3313,7 +3462,7 @@ const DailyTimeRecordFaculty = () => {
                 background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
                 boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
                 border: `1px solid ${alpha(accentColor, 0.1)}`,
-                "&:hover": {
+                '&:hover': {
                   boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
                 },
               }}
@@ -3323,37 +3472,30 @@ const DailyTimeRecordFaculty = () => {
                   p: 10,
                   background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                   color: textPrimaryColor,
-                  position: "relative",
-                  overflow: "hidden",
+                  position: 'relative',
+                  overflow: 'hidden',
                 }}
               >
                 <Box
                   sx={{
-                    position: "absolute",
+                    position: 'absolute',
                     top: -50,
                     right: -50,
                     width: 200,
                     height: 200,
-                    background: `radial-gradient(circle, ${alpha(
-                      accentColor,
-                      0.1,
-                    )} 0%, ${alpha(accentColor, 0)} 70%)`,
+                    background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, ${alpha(accentColor, 0)} 70%)`,
                   }}
                 />
                 <Box
                   sx={{
-                    position: "absolute",
+                    position: 'absolute',
                     bottom: -30,
-                    left: "30%",
+                    left: '30%',
                     width: 150,
                     height: 150,
-                    background: `radial-gradient(circle, ${alpha(
-                      accentColor,
-                      0.08,
-                    )} 0%, ${alpha(accentColor, 0)} 70%)`,
+                    background: `radial-gradient(circle, ${alpha(accentColor, 0.08)} 0%, ${alpha(accentColor, 0)} 70%)`,
                   }}
                 />
-
                 <Box
                   display="flex"
                   alignItems="center"
@@ -3401,22 +3543,12 @@ const DailyTimeRecordFaculty = () => {
                     </Box>
                   </Box>
                   <Box display="flex" alignItems="center" gap={2}>
-                    <Chip
-                      label="Faculty Records"
-                      size="small"
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.15),
-                        color: textPrimaryColor,
-                        fontWeight: 500,
-                        "& .MuiChip-label": { px: 1 },
-                      }}
-                    />
                     <Tooltip title="Refresh Data">
                       <IconButton
                         onClick={() => window.location.reload()}
                         sx={{
                           bgcolor: alpha(accentColor, 0.1),
-                          "&:hover": { bgcolor: alpha(accentColor, 0.2) },
+                          '&:hover': { bgcolor: alpha(accentColor, 0.2) },
                           color: textPrimaryColor,
                           width: 48,
                           height: 48,
@@ -3441,7 +3573,7 @@ const DailyTimeRecordFaculty = () => {
               background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
               boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
               border: `1px solid ${alpha(accentColor, 0.1)}`,
-              "&:hover": {
+              '&:hover': {
                 boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
               },
             }}
@@ -3451,68 +3583,101 @@ const DailyTimeRecordFaculty = () => {
                 p: 4,
                 background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                 color: textPrimaryColor,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                boxShadow: "0 2px 4px rgba(0, 0, 0, 0.1)",
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
               }}
             >
-              <Box sx={{ display: "flex", alignItems: "center" }}>
-                <CalendarToday sx={{ fontSize: "1.8rem", mr: 2 }} />
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <CalendarToday sx={{ fontSize: '1.8rem', mr: 2 }} />
                 <Box>
                   <Typography variant="h7" sx={{ opacity: 0.9 }}>
                     Select date range to view records
                   </Typography>
                 </Box>
               </Box>
-              <Box sx={{ display: "flex", gap: 1 }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  backgroundColor: alpha(accentColor, 0.12),
+                  borderRadius: '50px',
+                  padding: '4px',
+                  gap: 0,
+                }}
+              >
                 <ProfessionalButton
-                  variant={viewMode === "single" ? "contained" : "outlined"}
-                  onClick={() => setViewMode("single")}
+                  variant="text"
+                  onClick={() => setViewMode('single')}
                   sx={{
+                    borderRadius: '50px',
+                    px: 2.5,
+                    py: 0.75,
+                    fontWeight: 600,
+                    fontSize: '0.85rem',
                     backgroundColor:
-                      viewMode === "single" ? accentColor : "transparent",
+                      viewMode === 'single' ? accentColor : 'transparent',
                     color:
-                      viewMode === "single"
+                      viewMode === 'single'
                         ? textSecondaryColor
                         : textPrimaryColor,
-                    borderColor: accentColor,
-                    "&:hover": {
+                    boxShadow:
+                      viewMode === 'single'
+                        ? `0 2px 8px ${alpha(accentColor, 0.4)}`
+                        : 'none',
+                    transition: 'all 0.25s ease',
+                    '&:hover': {
                       backgroundColor:
-                        viewMode === "single"
-                          ? hoverColor
-                          : alpha(accentColor, 0.1),
-                      borderColor: accentColor,
+                        viewMode === 'single'
+                          ? accentColor
+                          : alpha(accentColor, 0.08),
+                      boxShadow:
+                        viewMode === 'single'
+                          ? `0 2px 8px ${alpha(accentColor, 0.4)}`
+                          : 'none',
                     },
-                    py: 0.75,
-                    px: 2,
+                    minWidth: '130px',
+                    textTransform: 'none',
                   }}
                 >
-                  Single User
+                  Individual DTR
                 </ProfessionalButton>
                 <ProfessionalButton
-                  variant={viewMode === "multiple" ? "contained" : "outlined"}
-                  onClick={() => setViewMode("multiple")}
+                  variant="text"
+                  onClick={() => setViewMode('multiple')}
                   sx={{
+                    borderRadius: '50px',
+                    px: 2.5,
+                    py: 0.75,
+                    fontWeight: 600,
+                    fontSize: '0.85rem',
                     backgroundColor:
-                      viewMode === "multiple" ? accentColor : "transparent",
+                      viewMode === 'multiple' ? accentColor : 'transparent',
                     color:
-                      viewMode === "multiple"
+                      viewMode === 'multiple'
                         ? textSecondaryColor
                         : textPrimaryColor,
-                    borderColor: accentColor,
-                    "&:hover": {
+                    boxShadow:
+                      viewMode === 'multiple'
+                        ? `0 2px 8px ${alpha(accentColor, 0.4)}`
+                        : 'none',
+                    transition: 'all 0.25s ease',
+                    '&:hover': {
                       backgroundColor:
-                        viewMode === "multiple"
-                          ? hoverColor
-                          : alpha(accentColor, 0.1),
-                      borderColor: accentColor,
+                        viewMode === 'multiple'
+                          ? accentColor
+                          : alpha(accentColor, 0.08),
+                      boxShadow:
+                        viewMode === 'multiple'
+                          ? `0 2px 8px ${alpha(accentColor, 0.4)}`
+                          : 'none',
                     },
-                    py: 0.75,
-                    px: 2,
+                    minWidth: '130px',
+                    textTransform: 'none',
                   }}
                 >
-                  All Users
+                  Batch Printing
                 </ProfessionalButton>
               </Box>
             </Box>
@@ -3521,12 +3686,12 @@ const DailyTimeRecordFaculty = () => {
               {/* Month Buttons + Year Selector */}
               <Box
                 sx={{
-                  display: "flex",
-                  flexWrap: "wrap",
+                  display: 'flex',
+                  flexWrap: 'wrap',
                   gap: 1,
                   mb: 3,
-                  justifyContent: "center",
-                  alignItems: "center",
+                  justifyContent: 'center',
+                  alignItems: 'center',
                 }}
               >
                 <FormControl sx={{ minWidth: 140 }}>
@@ -3536,8 +3701,8 @@ const DailyTimeRecordFaculty = () => {
                     onChange={(e) => setSelectedYear(e.target.value)}
                     label="Year"
                     sx={{
-                      backgroundColor: "white",
-                      "& .MuiOutlinedInput-notchedOutline": {
+                      backgroundColor: 'white',
+                      '& .MuiOutlinedInput-notchedOutline': {
                         borderColor: accentColor,
                       },
                       borderRadius: 2,
@@ -3557,29 +3722,29 @@ const DailyTimeRecordFaculty = () => {
                   return (
                     <ProfessionalButton
                       key={month}
-                      variant={isSelected ? "contained" : "outlined"}
+                      variant={isSelected ? 'contained' : 'outlined'}
                       size="medium"
                       onClick={() => handleMonthClick(index)}
                       sx={{
                         borderColor: isSelected ? accentColor : accentColor,
                         backgroundColor: isSelected
                           ? accentColor
-                          : "transparent",
+                          : 'transparent',
                         color: isSelected
                           ? textSecondaryColor
                           : textPrimaryColor,
                         py: 1.5,
                         fontWeight: 600,
-                        "&:hover": {
+                        '&:hover': {
                           backgroundColor: isSelected
                             ? accentDark
                             : alpha(accentColor, 0.1),
                           borderWidth: 2,
                         },
-                        transition: "all 0.3s ease",
+                        transition: 'all 0.3s ease',
                         boxShadow: isSelected
                           ? `0 4px 12px ${alpha(accentColor, 0.3)}`
-                          : "none",
+                          : 'none',
                       }}
                     >
                       {month}
@@ -3591,11 +3756,11 @@ const DailyTimeRecordFaculty = () => {
               {/* DTR Type Selector */}
               <Box
                 sx={{
-                  display: "flex",
-                  flexDirection: "column",
+                  display: 'flex',
+                  flexDirection: 'column',
                   gap: 2,
                   mb: 3,
-                  alignItems: "center",
+                  alignItems: 'center',
                 }}
               >
                 <Typography
@@ -3606,26 +3771,26 @@ const DailyTimeRecordFaculty = () => {
                 </Typography>
                 <Box
                   sx={{
-                    display: "flex",
+                    display: 'flex',
                     gap: 1,
-                    flexWrap: "wrap",
-                    justifyContent: "center",
+                    flexWrap: 'wrap',
+                    justifyContent: 'center',
                   }}
                 >
                   <ProfessionalButton
-                    variant={dtrType === "regular" ? "contained" : "outlined"}
-                    onClick={() => setDtrType("regular")}
+                    variant={dtrType === 'regular' ? 'contained' : 'outlined'}
+                    onClick={() => setDtrType('regular')}
                     sx={{
                       backgroundColor:
-                        dtrType === "regular" ? accentColor : "transparent",
+                        dtrType === 'regular' ? accentColor : 'transparent',
                       color:
-                        dtrType === "regular"
+                        dtrType === 'regular'
                           ? textSecondaryColor
                           : textPrimaryColor,
                       borderColor: accentColor,
-                      "&:hover": {
+                      '&:hover': {
                         backgroundColor:
-                          dtrType === "regular"
+                          dtrType === 'regular'
                             ? hoverColor
                             : alpha(accentColor, 0.1),
                         borderColor: accentColor,
@@ -3638,20 +3803,20 @@ const DailyTimeRecordFaculty = () => {
                   </ProfessionalButton>
                   <ProfessionalButton
                     variant={
-                      dtrType === "honorarium" ? "contained" : "outlined"
+                      dtrType === 'honorarium' ? 'contained' : 'outlined'
                     }
-                    onClick={() => setDtrType("honorarium")}
+                    onClick={() => setDtrType('honorarium')}
                     sx={{
                       backgroundColor:
-                        dtrType === "honorarium" ? accentColor : "transparent",
+                        dtrType === 'honorarium' ? accentColor : 'transparent',
                       color:
-                        dtrType === "honorarium"
+                        dtrType === 'honorarium'
                           ? textSecondaryColor
                           : textPrimaryColor,
                       borderColor: accentColor,
-                      "&:hover": {
+                      '&:hover': {
                         backgroundColor:
-                          dtrType === "honorarium"
+                          dtrType === 'honorarium'
                             ? hoverColor
                             : alpha(accentColor, 0.1),
                         borderColor: accentColor,
@@ -3664,22 +3829,22 @@ const DailyTimeRecordFaculty = () => {
                   </ProfessionalButton>
                   <ProfessionalButton
                     variant={
-                      dtrType === "service-credit" ? "contained" : "outlined"
+                      dtrType === 'service-credit' ? 'contained' : 'outlined'
                     }
-                    onClick={() => setDtrType("service-credit")}
+                    onClick={() => setDtrType('service-credit')}
                     sx={{
                       backgroundColor:
-                        dtrType === "service-credit"
+                        dtrType === 'service-credit'
                           ? accentColor
-                          : "transparent",
+                          : 'transparent',
                       color:
-                        dtrType === "service-credit"
+                        dtrType === 'service-credit'
                           ? textSecondaryColor
                           : textPrimaryColor,
                       borderColor: accentColor,
-                      "&:hover": {
+                      '&:hover': {
                         backgroundColor:
-                          dtrType === "service-credit"
+                          dtrType === 'service-credit'
                             ? hoverColor
                             : alpha(accentColor, 0.1),
                         borderColor: accentColor,
@@ -3691,19 +3856,19 @@ const DailyTimeRecordFaculty = () => {
                     Service Credit
                   </ProfessionalButton>
                   <ProfessionalButton
-                    variant={dtrType === "overtime" ? "contained" : "outlined"}
-                    onClick={() => setDtrType("overtime")}
+                    variant={dtrType === 'overtime' ? 'contained' : 'outlined'}
+                    onClick={() => setDtrType('overtime')}
                     sx={{
                       backgroundColor:
-                        dtrType === "overtime" ? accentColor : "transparent",
+                        dtrType === 'overtime' ? accentColor : 'transparent',
                       color:
-                        dtrType === "overtime"
+                        dtrType === 'overtime'
                           ? textSecondaryColor
                           : textPrimaryColor,
                       borderColor: accentColor,
-                      "&:hover": {
+                      '&:hover': {
                         backgroundColor:
-                          dtrType === "overtime"
+                          dtrType === 'overtime'
                             ? hoverColor
                             : alpha(accentColor, 0.1),
                         borderColor: accentColor,
@@ -3718,14 +3883,14 @@ const DailyTimeRecordFaculty = () => {
               </Box>
 
               {/* Show Employee Number, Date fields, and Search button only in Single User mode */}
-              {viewMode === "single" && (
+              {viewMode === 'single' && (
                 <Box
                   sx={{
-                    display: "flex",
+                    display: 'flex',
                     gap: 2,
-                    alignItems: "flex-end",
-                    flexWrap: "wrap",
-                    justifyContent: "center",
+                    alignItems: 'flex-end',
+                    flexWrap: 'wrap',
+                    justifyContent: 'center',
                   }}
                 >
                   <Box sx={{ minWidth: 225 }}>
@@ -3742,7 +3907,6 @@ const DailyTimeRecordFaculty = () => {
                       fullWidth
                     />
                   </Box>
-
                   <Box sx={{ minWidth: 225 }}>
                     <Typography
                       variant="body2"
@@ -3760,7 +3924,6 @@ const DailyTimeRecordFaculty = () => {
                       fullWidth
                     />
                   </Box>
-
                   <Box sx={{ minWidth: 225 }}>
                     <Typography
                       variant="body2"
@@ -3778,7 +3941,6 @@ const DailyTimeRecordFaculty = () => {
                       fullWidth
                     />
                   </Box>
-
                   <ProfessionalButton
                     variant="contained"
                     onClick={fetchRecords}
@@ -3786,7 +3948,7 @@ const DailyTimeRecordFaculty = () => {
                     sx={{
                       backgroundColor: accentColor,
                       color: textSecondaryColor,
-                      "&:hover": { backgroundColor: hoverColor },
+                      '&:hover': { backgroundColor: hoverColor },
                       py: 1.5,
                       px: 3,
                     }}
@@ -3800,7 +3962,7 @@ const DailyTimeRecordFaculty = () => {
         </Fade>
 
         {/* All Users DTR List Section - Show when viewMode is 'multiple' */}
-        {viewMode === "multiple" && (
+        {viewMode === 'multiple' && (
           <Fade in timeout={1000}>
             <GlassCard
               className="no-print"
@@ -3809,169 +3971,127 @@ const DailyTimeRecordFaculty = () => {
                 background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
                 boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
                 border: `1px solid ${alpha(accentColor, 0.1)}`,
-                "&:hover": {
+                '&:hover': {
                   boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
                 },
               }}
             >
+              {/* Header: title + Load button only */}
               <Box
                 sx={{
                   p: 4,
                   background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                   color: textPrimaryColor,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  boxShadow: "0 2px 4px rgba(0, 0, 0, 0.1)",
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
                 }}
               >
                 <Typography
                   variant="h6"
-                  sx={{
-                    fontWeight: 700,
-                    color: textPrimaryColor,
-                  }}
+                  sx={{ fontWeight: 700, color: textPrimaryColor }}
                 >
                   All Users DTR List
                 </Typography>
-                <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
-                  <ProfessionalButton
-                    variant="contained"
-                    onClick={fetchAllUsersDTR}
-                    disabled={loadingAllUsers || !startDate || !endDate}
-                    startIcon={
-                      loadingAllUsers ? (
-                        <MCircularProgress size={20} />
-                      ) : (
-                        <AccessTime />
-                      )
-                    }
-                    sx={{
-                      backgroundColor: accentColor,
-                      color: textSecondaryColor,
-                      "&:hover": { backgroundColor: hoverColor },
-                      "&:disabled": {
-                        backgroundColor: alpha(accentColor, 0.5),
-                        color: alpha(textSecondaryColor, 0.5),
-                      },
-                    }}
-                  >
-                    {loadingAllUsers ? "Loading..." : "Load All Users DTR"}
-                  </ProfessionalButton>
-
-                  {/* Print limit selector: auto-select first N when changed */}
-                  {allUsersDTR.length > 0 && (
-                    <FormControl
-                      sx={{
-                        minWidth: 160,
-                        backgroundColor: "white",
-                        marginRight: 1,
-                      }}
-                    >
-                      <Select
-                        value={""}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val === "none") return;
-                          // If the user picks an option, auto select first N
-                          if (val === "all") handleAutoSelectFirstN("all");
-                          else handleAutoSelectFirstN(Number(val));
-                        }}
-                        displayEmpty
-                        renderValue={() => "Print first..."}
-                      >
-                        <MenuItem value="none">
-                          <em>Choose</em>
-                        </MenuItem>
-                        <MenuItem value={10}>First 10</MenuItem>
-                        <MenuItem value={20}>First 20</MenuItem>
-                        <MenuItem value={50}>First 50 (Max)</MenuItem>
-                      </Select>
-                    </FormControl>
-                  )}
-
-                  {allUsersDTR.length > 0 && (
-                    <ProfessionalButton
-                      variant="contained"
-                      onClick={handleBulkPrint}
-                      disabled={selectedUsers.size === 0}
-                      startIcon={<PrintIcon />}
-                      sx={{
-                        backgroundColor: accentColor,
-                        color: textSecondaryColor,
-                        "&:hover": { backgroundColor: hoverColor },
-                        "&:disabled": {
-                          backgroundColor: alpha(accentColor, 0.5),
-                          color: alpha(textSecondaryColor, 0.5),
-                        },
-                      }}
-                    >
-                      Bulk Printing ({selectedUsers.size})
-                    </ProfessionalButton>
-                  )}
-                </Box>
+                <ProfessionalButton
+                  variant="contained"
+                  onClick={fetchAllUsersDTR}
+                  disabled={loadingAllUsers || !startDate || !endDate}
+                  startIcon={
+                    loadingAllUsers ? (
+                      <MCircularProgress size={20} />
+                    ) : (
+                      <AccessTime />
+                    )
+                  }
+                  sx={{
+                    backgroundColor: accentColor,
+                    color: textSecondaryColor,
+                    '&:hover': { backgroundColor: hoverColor },
+                    '&:disabled': {
+                      backgroundColor: alpha(accentColor, 0.5),
+                      color: alpha(textSecondaryColor, 0.5),
+                    },
+                  }}
+                >
+                  {loadingAllUsers ? 'Loading...' : 'Load All Users DTR'}
+                </ProfessionalButton>
               </Box>
 
               <Box sx={{ p: 4 }}>
                 {allUsersDTR.length > 0 ? (
                   <>
-                    {/* Print Status Filter Tabs */}
-                    <Box sx={{ mb: 3 }}>
-                      <Typography
-                        variant="body2"
-                        sx={{
-                          fontWeight: 600,
-                          mb: 1,
-                          color: textPrimaryColor,
-                          fontSize: "0.9rem",
-                        }}
-                      >
-                        Print Status:
-                      </Typography>
-                      <Box sx={{ display: "flex", gap: 1 }}>
-                        <Chip
-                          label="All"
-                          onClick={() => setPrintStatusFilter("all")}
-                          color={
-                            printStatusFilter === "all" ? "primary" : "default"
-                          }
+                    {/* Print Status chips + Period badge */}
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: 2,
+                        mb: 3,
+                      }}
+                    >
+                      <Box>
+                        <Typography
+                          variant="body2"
                           sx={{
-                            fontWeight: printStatusFilter === "all" ? 700 : 400,
-                            cursor: "pointer",
+                            fontWeight: 600,
+                            mb: 1,
+                            color: textPrimaryColor,
+                            fontSize: '0.9rem',
                           }}
-                        />
-                        <Chip
-                          label="Printed"
-                          onClick={() => setPrintStatusFilter("printed")}
-                          color={
-                            printStatusFilter === "printed"
-                              ? "primary"
-                              : "default"
-                          }
-                          sx={{
-                            fontWeight:
-                              printStatusFilter === "printed" ? 700 : 400,
-                            cursor: "pointer",
-                          }}
-                        />
-                        <Chip
-                          label="Unprinted"
-                          onClick={() => setPrintStatusFilter("unprinted")}
-                          color={
-                            printStatusFilter === "unprinted"
-                              ? "primary"
-                              : "default"
-                          }
-                          sx={{
-                            fontWeight:
-                              printStatusFilter === "unprinted" ? 700 : 400,
-                            cursor: "pointer",
-                          }}
-                        />
+                        >
+                          Print Status:
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          {['all', 'printed', 'unprinted'].map((val) => (
+                            <Chip
+                              key={val}
+                              label={val.charAt(0).toUpperCase() + val.slice(1)}
+                              onClick={() => setPrintStatusFilter(val)}
+                              color={
+                                printStatusFilter === val
+                                  ? 'primary'
+                                  : 'default'
+                              }
+                              sx={{
+                                fontWeight:
+                                  printStatusFilter === val ? 700 : 400,
+                                cursor: 'pointer',
+                              }}
+                            />
+                          ))}
+                        </Box>
                       </Box>
+                      {startDate && (
+                        <Box
+                          sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 1,
+                            backgroundColor: '#000000',
+                            color: '#ffffff',
+                            borderRadius: 2,
+                            px: 2,
+                            py: 0.75,
+                            fontWeight: 700,
+                            fontSize: '0.95rem',
+                            letterSpacing: '0.02em',
+                            userSelect: 'none',
+                          }}
+                        >
+                          <CalendarToday
+                            sx={{ fontSize: 16, color: '#ffffff' }}
+                          />
+                          {formatMonth(startDate)}{' '}
+                          {new Date(startDate).getFullYear()}
+                        </Box>
+                      )}
                     </Box>
 
-                    {/* Search and Additional Filters */}
+                    {/* Search & Filters — two rows */}
                     <Box sx={{ mb: 3 }}>
                       <Typography
                         variant="body2"
@@ -3979,26 +4099,25 @@ const DailyTimeRecordFaculty = () => {
                           fontWeight: 600,
                           mb: 1.5,
                           color: textPrimaryColor,
-                          fontSize: "0.9rem",
+                          fontSize: '0.9rem',
                         }}
                       >
                         Search & Filters:
                       </Typography>
+                      {/* Row 1 */}
                       <Box
                         sx={{
-                          display: "flex",
+                          display: 'flex',
                           gap: 2,
-                          flexWrap: "wrap",
-                          alignItems: "center",
+                          flexWrap: 'wrap',
+                          mb: 2,
                         }}
                       >
-                        {/* Replaced alphabetical dropdown with free-text search */}
                         <TextField
                           label="Search users"
                           value={searchQuery}
                           onChange={(e) => {
                             setSearchQuery(e.target.value);
-                            // reset to first page on search change
                             setCurrentPage(1);
                           }}
                           InputProps={{
@@ -4008,12 +4127,14 @@ const DailyTimeRecordFaculty = () => {
                               </InputAdornment>
                             ),
                           }}
-                          sx={{ minWidth: 300, backgroundColor: "white" }}
+                          sx={{
+                            minWidth: 260,
+                            flex: 1,
+                            backgroundColor: 'white',
+                          }}
                         />
-
-                        {/* New dropdown for Has Records / No Records */}
                         <FormControl
-                          sx={{ minWidth: 160, backgroundColor: "white" }}
+                          sx={{ minWidth: 150, backgroundColor: 'white' }}
                         >
                           <InputLabel>Records</InputLabel>
                           <Select
@@ -4029,10 +4150,8 @@ const DailyTimeRecordFaculty = () => {
                             <MenuItem value="no">No Records</MenuItem>
                           </Select>
                         </FormControl>
-
-                        {/* Department Filter */}
                         <FormControl
-                          sx={{ minWidth: 180, backgroundColor: "white" }}
+                          sx={{ minWidth: 170, backgroundColor: 'white' }}
                         >
                           <InputLabel>Department</InputLabel>
                           <Select
@@ -4051,10 +4170,18 @@ const DailyTimeRecordFaculty = () => {
                             ))}
                           </Select>
                         </FormControl>
-
-                        {/* Employment Category Filter */}
+                      </Box>
+                      {/* Row 2 */}
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          gap: 2,
+                          flexWrap: 'wrap',
+                          alignItems: 'center',
+                        }}
+                      >
                         <FormControl
-                          sx={{ minWidth: 200, backgroundColor: "white" }}
+                          sx={{ minWidth: 190, backgroundColor: 'white' }}
                         >
                           <InputLabel>Employment Category</InputLabel>
                           <Select
@@ -4073,10 +4200,8 @@ const DailyTimeRecordFaculty = () => {
                             ))}
                           </Select>
                         </FormControl>
-
-                        {/* Registration Status Filter */}
                         <FormControl
-                          sx={{ minWidth: 220, backgroundColor: "white" }}
+                          sx={{ minWidth: 210, backgroundColor: 'white' }}
                         >
                           <InputLabel>Registration Status</InputLabel>
                           <Select
@@ -4089,19 +4214,17 @@ const DailyTimeRecordFaculty = () => {
                           >
                             <MenuItem value="">All Status</MenuItem>
                             <MenuItem value="Registered">
-                              🟢 Registered -{" "}
-                              {registrationStatusCounts["Registered"]}
+                              🟢 Registered –{' '}
+                              {registrationStatusCounts['Registered']}
                             </MenuItem>
                             <MenuItem value="Not Registered">
-                              🟠 Not Registered -{" "}
-                              {registrationStatusCounts["Not Registered"]}
+                              🟠 Not Registered –{' '}
+                              {registrationStatusCounts['Not Registered']}
                             </MenuItem>
                           </Select>
                         </FormControl>
-
-                        {/* Rows per page selector */}
                         <FormControl
-                          sx={{ minWidth: 140, backgroundColor: "white" }}
+                          sx={{ minWidth: 120, backgroundColor: 'white' }}
                         >
                           <InputLabel>Rows</InputLabel>
                           <Select
@@ -4118,40 +4241,21 @@ const DailyTimeRecordFaculty = () => {
                             <MenuItem value={100}>100</MenuItem>
                           </Select>
                         </FormControl>
-
-                        {/* Simple pagination controls */}
+                        {/* Pagination pinned right */}
                         <Box
-                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1,
+                            ml: 'auto',
+                          }}
                         >
-                          <IconButton
-                            onClick={() => goToPage(currentPage - 1)}
-                            disabled={currentPage === 1}
-                            sx={{ bgcolor: "white" }}
-                          >
-                            <ArrowBack />
-                          </IconButton>
-                          <Typography
-                            sx={{ minWidth: 36, textAlign: "center" }}
-                          >
-                            {currentPage} / {totalPages}
-                          </Typography>
-                          <IconButton
-                            onClick={() => goToPage(currentPage + 1)}
-                            disabled={currentPage === totalPages}
-                            sx={{ bgcolor: "white" }}
-                          >
-                            <ArrowForward />
-                          </IconButton>
-                        </Box>
-
-                        {/* Footer Pagination Buttons moved here */}
-                        <Box sx={{ display: "flex", gap: 1, ml: 2 }}>
                           <ProfessionalButton
                             variant="outlined"
                             onClick={() => goToPage(1)}
                             disabled={currentPage === 1}
                             size="small"
-                            sx={{ py: 1, px: 2, minWidth: "auto" }}
+                            sx={{ py: 1, px: 2, minWidth: 'auto' }}
                           >
                             First
                           </ProfessionalButton>
@@ -4160,16 +4264,25 @@ const DailyTimeRecordFaculty = () => {
                             onClick={() => goToPage(currentPage - 1)}
                             disabled={currentPage === 1}
                             size="small"
-                            sx={{ py: 1, px: 2, minWidth: "auto" }}
+                            sx={{ py: 1, px: 2, minWidth: 'auto' }}
                           >
                             Prev
                           </ProfessionalButton>
+                          <Typography
+                            sx={{
+                              minWidth: 48,
+                              textAlign: 'center',
+                              fontSize: '0.85rem',
+                            }}
+                          >
+                            {currentPage} / {totalPages}
+                          </Typography>
                           <ProfessionalButton
                             variant="outlined"
                             onClick={() => goToPage(currentPage + 1)}
                             disabled={currentPage === totalPages}
                             size="small"
-                            sx={{ py: 1, px: 2, minWidth: "auto" }}
+                            sx={{ py: 1, px: 2, minWidth: 'auto' }}
                           >
                             Next
                           </ProfessionalButton>
@@ -4178,7 +4291,7 @@ const DailyTimeRecordFaculty = () => {
                             onClick={() => goToPage(totalPages)}
                             disabled={currentPage === totalPages}
                             size="small"
-                            sx={{ py: 1, px: 2, minWidth: "auto" }}
+                            sx={{ py: 1, px: 2, minWidth: 'auto' }}
                           >
                             Last
                           </ProfessionalButton>
@@ -4186,28 +4299,28 @@ const DailyTimeRecordFaculty = () => {
                       </Box>
                     </Box>
 
-                    {/* Table wrapped with fixed-height scrollable container */}
+                    {/* Table */}
                     <Box
                       sx={{
                         maxHeight: 360,
-                        overflow: "auto",
+                        overflow: 'auto',
                         borderRadius: 1,
-                        width: "100%",
+                        width: '100%',
                       }}
                     >
                       <Table
                         stickyHeader
-                        sx={{ tableLayout: "fixed", width: "100%" }}
+                        sx={{ tableLayout: 'fixed', width: '100%' }}
                       >
                         <TableHead>
                           <TableRow>
-                            <TableCell>
+                            <TableCell padding="checkbox">
                               <Checkbox
                                 checked={(() => {
                                   const filtered = getFilteredUsers();
                                   const selectableCount = filtered.filter(
-                                    (user) =>
-                                      !printStatusMap.has(user.employeeNumber),
+                                    (u) =>
+                                      !printStatusMap.has(u.employeeNumber),
                                   ).length;
                                   return (
                                     selectedUsers.size === selectableCount &&
@@ -4217,8 +4330,8 @@ const DailyTimeRecordFaculty = () => {
                                 indeterminate={(() => {
                                   const filtered = getFilteredUsers();
                                   const selectableCount = filtered.filter(
-                                    (user) =>
-                                      !printStatusMap.has(user.employeeNumber),
+                                    (u) =>
+                                      !printStatusMap.has(u.employeeNumber),
                                   ).length;
                                   return (
                                     selectedUsers.size > 0 &&
@@ -4229,24 +4342,22 @@ const DailyTimeRecordFaculty = () => {
                                   handleSelectAll(e.target.checked)
                                 }
                                 sx={{
-                                  color: "#ffffff",
-                                  "&.Mui-checked": {
-                                    color: "#ffffff",
-                                  },
-                                  "&.MuiCheckbox-indeterminate": {
-                                    color: "#ffffff",
+                                  color: '#ffffff',
+                                  '&.Mui-checked': { color: '#ffffff' },
+                                  '&.MuiCheckbox-indeterminate': {
+                                    color: '#ffffff',
                                   },
                                 }}
                               />
                             </TableCell>
-                            <TableCell sx={{ minWidth: 120, color: "#ffffff" }}>
+                            <TableCell sx={{ minWidth: 120, color: '#ffffff' }}>
                               Employee Number
                             </TableCell>
                             <TableCell
                               sx={{
                                 minWidth: 200,
                                 maxWidth: 250,
-                                color: "#ffffff",
+                                color: '#ffffff',
                               }}
                             >
                               Full Name
@@ -4255,21 +4366,21 @@ const DailyTimeRecordFaculty = () => {
                               sx={{
                                 minWidth: 120,
                                 maxWidth: 180,
-                                color: "#ffffff",
+                                color: '#ffffff',
                               }}
                             >
                               Department
                             </TableCell>
-                            <TableCell sx={{ minWidth: 180, color: "#ffffff" }}>
+                            <TableCell sx={{ minWidth: 180, color: '#ffffff' }}>
                               Employment Category
                             </TableCell>
-                            <TableCell sx={{ minWidth: 180, color: "#ffffff" }}>
-                              System Registration Status
+                            <TableCell sx={{ minWidth: 180, color: '#ffffff' }}>
+                              Registration Status
                             </TableCell>
-                            <TableCell sx={{ minWidth: 120, color: "#ffffff" }}>
+                            <TableCell sx={{ minWidth: 120, color: '#ffffff' }}>
                               Print Status
                             </TableCell>
-                            <TableCell sx={{ minWidth: 100, color: "#ffffff" }}>
+                            <TableCell sx={{ minWidth: 80, color: '#ffffff' }}>
                               Actions
                             </TableCell>
                           </TableRow>
@@ -4277,7 +4388,7 @@ const DailyTimeRecordFaculty = () => {
                         <TableBody>
                           {paginatedUsers.map((user) => (
                             <TableRow key={user.employeeNumber}>
-                              <TableCell>
+                              <TableCell padding="checkbox">
                                 <Checkbox
                                   checked={selectedUsers.has(
                                     user.employeeNumber,
@@ -4290,40 +4401,33 @@ const DailyTimeRecordFaculty = () => {
                                   )}
                                 />
                               </TableCell>
-                              <TableCell sx={{ minWidth: 120 }}>
-                                {user.employeeNumber}
-                              </TableCell>
+                              <TableCell>{user.employeeNumber}</TableCell>
                               <TableCell
                                 sx={{
-                                  minWidth: 200,
-                                  maxWidth: 250,
-                                  whiteSpace: "nowrap",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
                                 }}
                               >
-                                {/* highlight matched substring */}
                                 {searchQuery
                                   ? highlightMatch(
-                                      user.fullName || "",
+                                      user.fullName || '',
                                       searchQuery,
                                     )
                                   : user.fullName}
                               </TableCell>
                               <TableCell
                                 sx={{
-                                  minWidth: 120,
-                                  maxWidth: 180,
-                                  whiteSpace: "nowrap",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
                                 }}
                               >
                                 {user.rawUser?.departmentCode ||
                                   user.departmentCode ||
-                                  "N/A"}
+                                  'N/A'}
                               </TableCell>
-                              <TableCell sx={{ minWidth: 180 }}>
+                              <TableCell>
                                 <Chip
                                   label={getCategoryLabel(
                                     user.rawUser?.employmentCategory ??
@@ -4346,66 +4450,56 @@ const DailyTimeRecordFaculty = () => {
                                         null,
                                     ),
                                     border: `1px solid ${getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null)}`,
-                                    fontWeight: "600",
-                                    fontSize: "0.75rem",
-                                    "&:hover": {
-                                      backgroundColor: alpha(
-                                        getCategoryColor(
-                                          user.rawUser?.employmentCategory ??
-                                            user.employmentCategory ??
-                                            null,
-                                        ),
-                                        0.2,
-                                      ),
-                                    },
+                                    fontWeight: '600',
+                                    fontSize: '0.75rem',
                                   }}
                                 />
                               </TableCell>
-                              <TableCell sx={{ minWidth: 180 }}>
+                              <TableCell>
                                 <Chip
                                   label={
-                                    user.registrationStatus === "Registered"
-                                      ? "🟢 Registered"
-                                      : "🟠 Not Registered"
+                                    user.registrationStatus === 'Registered'
+                                      ? '🟢 Registered'
+                                      : '🟠 Not Registered'
                                   }
                                   size="small"
                                   color={
-                                    user.registrationStatus === "Registered"
-                                      ? "success"
-                                      : "warning"
+                                    user.registrationStatus === 'Registered'
+                                      ? 'success'
+                                      : 'warning'
                                   }
                                   sx={{
-                                    fontWeight: "600",
-                                    fontSize: "0.75rem",
+                                    fontWeight: '600',
+                                    fontSize: '0.75rem',
                                   }}
                                 />
                               </TableCell>
-                              <TableCell sx={{ minWidth: 120 }}>
+                              <TableCell>
                                 {printStatusMap.has(user.employeeNumber) ? (
                                   <Chip
                                     label="Printed"
                                     size="small"
                                     color="success"
-                                    sx={{ fontSize: "0.75rem" }}
+                                    sx={{ fontSize: '0.75rem' }}
                                   />
                                 ) : (
                                   <Chip
                                     label="Not Printed"
                                     size="small"
                                     color="default"
-                                    sx={{ fontSize: "0.75rem" }}
+                                    sx={{ fontSize: '0.75rem' }}
                                   />
                                 )}
                               </TableCell>
-                              <TableCell sx={{ minWidth: 100 }}>
+                              <TableCell>
                                 <IconButton
                                   size="small"
                                   onClick={() => showReprintConfirm(user)}
                                   sx={{ color: accentColor }}
                                   title={
                                     printStatusMap.has(user.employeeNumber)
-                                      ? "Re-print this DTR"
-                                      : "Print this DTR"
+                                      ? 'Re-print this DTR'
+                                      : 'Print this DTR'
                                   }
                                 >
                                   <PrintIcon fontSize="small" />
@@ -4416,11 +4510,10 @@ const DailyTimeRecordFaculty = () => {
                         </TableBody>
                       </Table>
 
-                      {/* Empty State Message */}
                       {paginatedUsers.length === 0 && (
                         <Box
                           sx={{
-                            textAlign: "center",
+                            textAlign: 'center',
                             py: 8,
                             color: textPrimaryColor,
                           }}
@@ -4430,110 +4523,184 @@ const DailyTimeRecordFaculty = () => {
                           </Typography>
                           <Typography variant="body2" sx={{ opacity: 0.7 }}>
                             {allUsersDTR.length === 0
-                              ? "No attendance records exist for the selected date range. Records must be saved from the attendance device first."
-                              : "No users match the current filters. Try adjusting your search or filter criteria."}
+                              ? 'No attendance records exist for the selected date range.'
+                              : 'No users match the current filters.'}
                           </Typography>
                         </Box>
                       )}
                     </Box>
 
-                    {/* Employment Category Legend */}
+                    {/* Action bar: Bulk print + Print-first selector + footer info */}
                     <Box
                       sx={{
-                        mt: 2,
-                        p: 2,
-                        backgroundColor: alpha("#f5f5f5", 0.5),
-                        borderRadius: 2,
-                        border: "1px solid rgba(0,0,0,0.1)",
-                      }}
-                    >
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          fontWeight: 700,
-                          mb: 1,
-                          display: "block",
-                          color: textPrimaryColor,
-                        }}
-                      >
-                        EMPLOYMENT CATEGORY LEGEND
-                      </Typography>
-                      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
-                        {[0, 1, 2, 3, 4, 5].map((id) => (
-                          <Box
-                            key={id}
-                            sx={{ display: "flex", alignItems: "center" }}
-                          >
-                            <Circle
-                              sx={{
-                                color: getCategoryColor(id),
-                                fontSize: 10,
-                                mr: 0.5,
-                              }}
-                            />
-                            <Typography
-                              variant="caption"
-                              sx={{ color: "#555" }}
-                            >
-                              {getCategoryLabel(id)}
-                            </Typography>
-                          </Box>
-                        ))}
-                      </Box>
-                    </Box>
-
-                    {/* Info at bottom */}
-                    <Box
-                      sx={{
-                        display: "flex",
-                        justifyContent: "flex-start",
-                        alignItems: "center",
-                        mt: 2,
+                        mt: 0,
+                        px: 2,
+                        py: 1.5,
+                        backgroundColor: alpha(accentColor, 0.05),
+                        borderTop: `2px solid ${alpha(accentColor, 0.2)}`,
+                        borderRadius: '0 0 8px 8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: 2,
                       }}
                     >
                       <Box
                         sx={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 0.5,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 2,
+                          flexWrap: 'wrap',
                         }}
                       >
-                        <Typography
-                          variant="body2"
-                          sx={{ color: textPrimaryColor }}
+                        {/* Print-first quick selector */}
+                        <FormControl
+                          sx={{ minWidth: 150, backgroundColor: 'white' }}
                         >
-                          Showing{" "}
-                          {Math.min(
-                            filteredUsers.length,
-                            (currentPage - 1) * rowsPerPage + 1,
-                          )}{" "}
-                          -{" "}
-                          {Math.min(
-                            filteredUsers.length,
-                            currentPage * rowsPerPage,
-                          )}{" "}
-                          of {filteredUsers.length} users
-                        </Typography>
-                        {startDate && (
+                          <Select
+                            value={''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === 'none') return;
+                              if (val === 'all') handleAutoSelectFirstN('all');
+                              else handleAutoSelectFirstN(Number(val));
+                            }}
+                            displayEmpty
+                            renderValue={() => 'Quick select…'}
+                            size="small"
+                          >
+                            <MenuItem value="none">
+                              <em>Choose</em>
+                            </MenuItem>
+                            <MenuItem value={10}>First 10</MenuItem>
+                            <MenuItem value={20}>First 20</MenuItem>
+                            <MenuItem value={50}>First 50 (Max)</MenuItem>
+                          </Select>
+                        </FormControl>
+
+                        <ProfessionalButton
+                          variant="contained"
+                          onClick={handleBulkPrint}
+                          disabled={selectedUsers.size === 0}
+                          startIcon={<PrintIcon />}
+                          sx={{
+                            backgroundColor:
+                              selectedUsers.size > 0
+                                ? accentColor
+                                : alpha(accentColor, 0.4),
+                            color: textSecondaryColor,
+                            '&:hover': { backgroundColor: hoverColor },
+                          }}
+                        >
+                          Bulk Print ({selectedUsers.size})
+                        </ProfessionalButton>
+                      </Box>
+
+                      {/* Footer info + Legend FAB */}
+                      <Box
+                        sx={{ display: 'flex', alignItems: 'center', gap: 2 }}
+                      >
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 0.25,
+                          }}
+                        >
                           <Typography
-                            variant="caption"
+                            variant="body2"
+                            sx={{ color: textPrimaryColor, fontSize: '0.8rem' }}
+                          >
+                            Showing{' '}
+                            {Math.min(
+                              filteredUsers.length,
+                              (currentPage - 1) * rowsPerPage + 1,
+                            )}
+                            –
+                            {Math.min(
+                              filteredUsers.length,
+                              currentPage * rowsPerPage,
+                            )}{' '}
+                            of {filteredUsers.length} users
+                          </Typography>
+                        </Box>
+
+                        <Tooltip
+                          title={
+                            <Box sx={{ p: 0.5 }}>
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  fontWeight: 700,
+                                  display: 'block',
+                                  mb: 0.5,
+                                }}
+                              >
+                                Employment Category Legend
+                              </Typography>
+                              {[0, 1, 2, 3, 4, 5].map((id) => (
+                                <Box
+                                  key={id}
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 0.5,
+                                    mb: 0.25,
+                                  }}
+                                >
+                                  <Circle
+                                    sx={{
+                                      fontSize: 8,
+                                      color: getCategoryColor(id),
+                                    }}
+                                  />
+                                  <Typography variant="caption">
+                                    {getCategoryLabel(id)}
+                                  </Typography>
+                                </Box>
+                              ))}
+                            </Box>
+                          }
+                          placement="top-end"
+                          arrow
+                        >
+                          <IconButton
                             sx={{
-                              color: textPrimaryColor,
-                              opacity: 0.8,
-                              fontWeight: 600,
+                              width: 36,
+                              height: 36,
+                              borderRadius: '50%',
+                              backgroundColor: accentColor,
+                              color: '#ffffff',
+                              fontWeight: 700,
+                              fontSize: '1rem',
+                              flexShrink: 0,
+                              '&:hover': {
+                                backgroundColor: hoverColor,
+                                transform: 'scale(1.1)',
+                              },
+                              transition: 'all 0.2s ease',
                             }}
                           >
-                            Period: {formatMonth(startDate)}{" "}
-                            {new Date(startDate).getFullYear()}
-                          </Typography>
-                        )}
+                            <Typography
+                              sx={{
+                                fontWeight: 700,
+                                fontSize: '0.9rem',
+                                color: '#fff',
+                                lineHeight: 1,
+                              }}
+                            >
+                              ?
+                            </Typography>
+                          </IconButton>
+                        </Tooltip>
                       </Box>
                     </Box>
                   </>
                 ) : (
                   <Box
                     sx={{
-                      textAlign: "center",
+                      textAlign: 'center',
                       py: 4,
                       color: textPrimaryColor,
                       opacity: 0.7,
@@ -4544,156 +4711,141 @@ const DailyTimeRecordFaculty = () => {
                     </Typography>
                   </Box>
                 )}
-
-                {/* Hidden DTR tables for previewUsers will be rendered on-demand inside the modal */}
               </Box>
             </GlassCard>
           </Fade>
         )}
 
         {/* Records Table - Two Tables Side by Side - Show when viewMode is 'single' */}
-        {viewMode === "single" && (
+        {viewMode === 'single' && (
           <Fade in timeout={900}>
             <Paper
               elevation={4}
               sx={{
                 borderRadius: 2,
-                overflowX: "auto",
-                boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
-                border: "1px solid rgba(109, 35, 35, 0.1)",
+                overflowX: 'auto',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                border: '1px solid rgba(109, 35, 35, 0.1)',
                 mb: 4,
-                width: "100%",
+                width: '100%',
               }}
             >
-              <Box sx={{ p: 5, minWidth: "fit-content" }}>
+              <Box sx={{ p: 5, minWidth: 'fit-content' }}>
                 <div className="table-container" ref={dtrRef}>
                   <div
                     className="table-wrapper"
-                    style={{ position: "relative" }}
+                    style={{ position: 'relative' }}
                   >
                     {/* Watermark */}
                     <img
                       src={hrisLogo}
                       alt="Watermark"
                       style={{
-                        position: "absolute",
-                        top: "50%",
-                        left: "50%",
-                        transform: "translate(-50%, -50%)",
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
                         opacity: 0.07,
-                        width: "80%",
-                        maxWidth: "600px",
-                        pointerEvents: "none",
-                        userSelect: "none",
+                        width: '80%',
+                        maxWidth: '600px',
+                        pointerEvents: 'none',
+                        userSelect: 'none',
                         zIndex: 0,
                       }}
                     />
                     <div
                       style={{
-                        display: "flex",
-                        gap: "2%",
-                        width: "8.7in",
-                        minWidth: "8.5in",
-                        margin: "0 auto",
-                        backgroundColor: "white",
-                        position: "relative",
+                        display: 'flex',
+                        gap: '2%',
+                        width: '8.7in',
+                        minWidth: '8.5in',
+                        margin: '0 auto',
+                        backgroundColor: 'white',
+                        position: 'relative',
                         zIndex: 1,
                       }}
                       className="table-side-by-side"
                     >
                       {(() => {
-                        const dataFontSize = "10px";
-                        const rowHeight = "16px";
+                        const dataFontSize = '10px';
+                        const rowHeight = '16px';
 
-                        // Helper function to calculate rendered time based on DTR type
                         const getRenderedTimeData = (record, type) => {
-                          if (!record) return { hours: "", minutes: "" };
-
-                          // For regular type, use existing minutes field
-                          if (type === "regular") {
-                            return { hours: "", minutes: record.minutes || "" };
+                          if (!record) return { hours: '', minutes: '' };
+                          if (type === 'regular') {
+                            return { hours: '', minutes: record.minutes || '' };
                           }
-
-                          // For other types (honorarium, service-credit, overtime),
-                          // the backend already calculates rendered times. We display them as hours and minutes.
                           const minutes = record.minutes || 0;
                           const hours = Math.floor(minutes / 60);
                           const remainingMinutes = minutes % 60;
-
                           return {
-                            hours: hours > 0 ? String(hours) : "",
+                            hours: hours > 0 ? String(hours) : '',
                             minutes:
                               remainingMinutes > 0
                                 ? String(remainingMinutes)
-                                : "",
+                                : '',
                           };
                         };
 
-                        // Helper function to get time fields based on DTR type
                         const getTimeFields = (record, type) => {
                           if (!record)
                             return {
-                              timeIN: "",
-                              breaktimeIN: "",
-                              breaktimeOUT: "",
-                              timeOUT: "",
+                              timeIN: '',
+                              breaktimeIN: '',
+                              breaktimeOUT: '',
+                              timeOUT: '',
                             };
 
                           switch (type) {
-                            case "honorarium":
-                            case "service-credit":
-                            case "overtime":
-                              // Show special attendance times (specialTimeIN/specialTimeOUT from database)
+                            case 'honorarium':
+                            case 'service-credit':
+                            case 'overtime':
                               return {
-                                timeIN: record.specialTimeIN || "",
-                                breaktimeIN: "",
-                                breaktimeOUT: "",
-                                timeOUT: record.specialTimeOUT || "",
+                                timeIN: record.specialTimeIN || '',
+                                breaktimeIN: '',
+                                breaktimeOUT: '',
+                                timeOUT: record.specialTimeOUT || '',
                               };
-                            default: // regular
+                            default:
                               return {
-                                timeIN: record.timeIN || "",
-                                breaktimeIN: record.breaktimeIN || "",
-                                breaktimeOUT: record.breaktimeOUT || "",
-                                timeOUT: record.timeOUT || "",
+                                timeIN: record.timeIN || '',
+                                breaktimeIN: record.breaktimeIN || '',
+                                breaktimeOUT: record.breaktimeOUT || '',
+                                timeOUT: record.timeOUT || '',
                               };
                           }
                         };
 
                         const renderHeader = () => (
-                          <thead
-                            style={{
-                              textAlign: "center",
-                            }}
-                          >
+                          <thead style={{ textAlign: 'center' }}>
                             <tr>
                               <td
-                                colSpan="9"
+                                colSpan="7"
                                 style={{
-                                  position: "relative",
-                                  padding: "25px 10px 0px 10px",
-                                  textAlign: "center",
+                                  position: 'relative',
+                                  padding: '25px 10px 0px 10px',
+                                  textAlign: 'center',
                                 }}
                               >
                                 <div
                                   style={{
-                                    fontWeight: "bold",
-                                    fontSize: "11px",
+                                    fontWeight: 'bold',
+                                    fontSize: '11px',
                                     fontFamily:
                                       'Arial, "Times New Roman", serif',
-                                    color: "black",
-                                    marginBottom: "2px",
+                                    color: 'black',
+                                    marginBottom: '2px',
                                   }}
                                 >
                                   Republic of the Philippines
                                 </div>
                                 <div
                                   style={{
-                                    position: "relative",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    marginTop: "3px",
+                                    position: 'relative',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    marginTop: '3px',
                                   }}
                                 >
                                   <img
@@ -4702,19 +4854,19 @@ const DailyTimeRecordFaculty = () => {
                                     width="50"
                                     height="50"
                                     style={{
-                                      position: "absolute",
-                                      left: "10px",
+                                      position: 'absolute',
+                                      left: '10px',
                                     }}
                                   />
                                   <p
                                     style={{
-                                      margin: "0",
-                                      fontSize: "11.5px",
-                                      fontWeight: "bold",
-                                      textAlign: "center",
+                                      margin: '0',
+                                      fontSize: '11.5px',
+                                      fontWeight: 'bold',
+                                      textAlign: 'center',
                                       fontFamily:
                                         'Arial, "Times New Roman", serif',
-                                      lineHeight: "1.2",
+                                      lineHeight: '1.2',
                                     }}
                                   >
                                     EULOGIO "AMANG" RODRIGUEZ <br /> INSTITUTE
@@ -4725,18 +4877,18 @@ const DailyTimeRecordFaculty = () => {
                             </tr>
                             <tr>
                               <td
-                                colSpan="9"
+                                colSpan="7"
                                 style={{
-                                  textAlign: "center",
-                                  padding: "0px 5px 2px 5px",
+                                  textAlign: 'center',
+                                  padding: '0px 5px 2px 5px',
                                 }}
                               >
                                 <p
                                   style={{
-                                    fontSize: "11px",
-                                    fontWeight: "bold",
-                                    margin: "0",
-                                    fontFamily: "Arial, serif",
+                                    fontSize: '11px',
+                                    fontWeight: 'bold',
+                                    margin: '0',
+                                    fontFamily: 'Arial, serif',
                                   }}
                                 >
                                   Nagtahan, Sampaloc Manila
@@ -4745,18 +4897,18 @@ const DailyTimeRecordFaculty = () => {
                             </tr>
                             <tr>
                               <td
-                                colSpan="9"
+                                colSpan="7"
                                 style={{
-                                  textAlign: "center",
-                                  padding: "2px 5px",
+                                  textAlign: 'center',
+                                  padding: '2px 5px',
                                 }}
                               >
                                 <p
                                   style={{
-                                    fontSize: "8px",
-                                    fontWeight: "bold",
-                                    margin: "0",
-                                    fontFamily: "Arial, serif",
+                                    fontSize: '8px',
+                                    fontWeight: 'bold',
+                                    margin: '0',
+                                    fontFamily: 'Arial, serif',
                                   }}
                                 >
                                   Civil Service Form No. 48
@@ -4765,31 +4917,31 @@ const DailyTimeRecordFaculty = () => {
                             </tr>
                             <tr>
                               <td
-                                colSpan="9"
+                                colSpan="7"
                                 style={{
-                                  textAlign: "center",
-                                  padding: "2px 5px",
-                                  lineHeight: "1.2",
+                                  textAlign: 'center',
+                                  padding: '2px 5px',
+                                  lineHeight: '1.2',
                                 }}
                               >
-                                {dtrType === "service-credit" ? (
-                                  <div style={{ textAlign: "center" }}>
+                                {dtrType === 'service-credit' ? (
+                                  <div style={{ textAlign: 'center' }}>
                                     <h4
                                       style={{
-                                        fontFamily: "Times New Roman, serif",
-                                        margin: "2px 0",
-                                        fontWeight: "bold",
-                                        fontSize: "16px",
+                                        fontFamily: 'Times New Roman, serif',
+                                        margin: '2px 0',
+                                        fontWeight: 'bold',
+                                        fontSize: '16px',
                                       }}
                                     >
                                       DAILY TIME RECORD
                                     </h4>
                                     <div
                                       style={{
-                                        fontFamily: "Times New Roman, serif",
-                                        fontSize: "16px",
-                                        marginTop: "-2px",
-                                        fontWeight: "bold",
+                                        fontFamily: 'Times New Roman, serif',
+                                        fontSize: '16px',
+                                        marginTop: '-2px',
+                                        fontWeight: 'bold',
                                       }}
                                     >
                                       SERVICE CREDITS
@@ -4798,80 +4950,75 @@ const DailyTimeRecordFaculty = () => {
                                 ) : (
                                   <h4
                                     style={{
-                                      fontFamily: "Times New Roman, serif",
-                                      textAlign: "center",
-                                      margin: "2px 0",
-                                      fontWeight: "bold",
-                                      fontSize: "16px",
+                                      fontFamily: 'Times New Roman, serif',
+                                      textAlign: 'center',
+                                      margin: '2px 0',
+                                      fontWeight: 'bold',
+                                      fontSize: '16px',
                                     }}
                                   >
-                                    {dtrType === "honorarium"
-                                      ? "DAILY TIME RECORD - HONORARIUM"
-                                      : dtrType === "overtime"
-                                        ? "DAILY TIME RECORD - OVERTIME"
-                                        : "DAILY TIME RECORD"}
+                                    {dtrType === 'honorarium'
+                                      ? 'DAILY TIME RECORD - HONORARIUM'
+                                      : dtrType === 'overtime'
+                                        ? 'DAILY TIME RECORD - OVERTIME'
+                                        : 'DAILY TIME RECORD'}
                                   </h4>
                                 )}
                               </td>
                             </tr>
                             <tr>
                               <td
-                                colSpan="9"
+                                colSpan="7"
                                 style={{
-                                  paddingTop: "10px",
-                                  paddingBottom: "5px",
-                                  lineHeight: "1.1",
-                                  verticalAlign: "top",
-                                  textAlign: "center",
+                                  paddingTop: '10px',
+                                  paddingBottom: '5px',
+                                  lineHeight: '1.1',
+                                  verticalAlign: 'top',
+                                  textAlign: 'center',
                                 }}
                               >
                                 <div
                                   style={{
-                                    margin: "0 auto",
-                                    fontFamily: "Arial, serif",
-                                    width: "100%",
-                                    maxWidth: "400px",
-                                    position: "relative",
+                                    margin: '0 auto',
+                                    fontFamily: 'Arial, serif',
+                                    width: '100%',
+                                    maxWidth: '400px',
+                                    position: 'relative',
                                   }}
                                 >
                                   <div
                                     style={{
-                                      borderBottom: "2px solid black",
-                                      width: "100%",
-                                      margin: "2px 0 3px 0",
+                                      borderBottom: '2px solid black',
+                                      width: '100%',
+                                      margin: '2px 0 3px 0',
                                     }}
                                   />
-                                  {/* Employee Name */}
                                   <div
                                     style={{
-                                      fontSize: "12px",
-                                      fontWeight: "bold",
-                                      textTransform: "uppercase",
-                                      whiteSpace: "nowrap",
-                                      textAlign: "center",
-                                      fontFamily: "Times New Roman",
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
+                                      fontSize: '12px',
+                                      fontWeight: 'bold',
+                                      textTransform: 'uppercase',
+                                      whiteSpace: 'nowrap',
+                                      textAlign: 'center',
+                                      fontFamily: 'Times New Roman',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
                                     }}
                                   >
                                     {employeeName}
                                   </div>
-
-                                  {/* Underline */}
                                   <div
                                     style={{
-                                      borderBottom: "2px solid black",
-                                      width: "100%",
-                                      margin: "2px 0 3px 0",
+                                      borderBottom: '2px solid black',
+                                      width: '100%',
+                                      margin: '2px 0 3px 0',
                                     }}
                                   />
-
-                                  {/* Label */}
                                   <div
                                     style={{
-                                      fontSize: "9px",
-                                      textAlign: "center",
-                                      fontFamily: "Times New Roman",
+                                      fontSize: '9px',
+                                      textAlign: 'center',
+                                      fontFamily: 'Times New Roman',
                                     }}
                                   >
                                     NAME
@@ -4879,39 +5026,36 @@ const DailyTimeRecordFaculty = () => {
                                 </div>
                               </td>
                             </tr>
-
                             <tr>
                               <td
-                                colSpan="9"
+                                colSpan="7"
                                 style={{
-                                  padding: "2px 5px",
-                                  lineHeight: "1.1",
-                                  textAlign: "left",
+                                  padding: '2px 5px',
+                                  lineHeight: '1.1',
+                                  textAlign: 'left',
                                 }}
                               >
                                 <div
                                   style={{
-                                    display: "flex",
-                                    alignItems: "flex-end",
-                                    paddingLeft: "5px",
-                                    fontFamily: "Times New Roman, serif",
-                                    fontSize: "10px",
+                                    display: 'flex',
+                                    alignItems: 'flex-end',
+                                    paddingLeft: '5px',
+                                    fontFamily: 'Times New Roman, serif',
+                                    fontSize: '10px',
                                   }}
                                 >
-                                  <span style={{ marginRight: "6px" }}>
+                                  <span style={{ marginRight: '6px' }}>
                                     Covered Dates:
                                   </span>
-
                                   <div
-                                    style={{ minWidth: "220px", flexGrow: 1 }}
+                                    style={{ minWidth: '220px', flexGrow: 1 }}
                                   >
-                                    {/* Value */}
                                     <div
                                       style={{
-                                        fontWeight: "bold",
-                                        textAlign: "left",
-                                        fontSize: "10px",
-                                        fontFamily: "Times New Roman, serif",
+                                        fontWeight: 'bold',
+                                        textAlign: 'left',
+                                        fontSize: '10px',
+                                        fontFamily: 'Times New Roman, serif',
                                       }}
                                     >
                                       {formattedStartDate} - {formattedEndDate}
@@ -4920,40 +5064,39 @@ const DailyTimeRecordFaculty = () => {
                                 </div>
                               </td>
                             </tr>
-
                             <tr>
                               <td
-                                colSpan="9"
+                                colSpan="7"
                                 style={{
-                                  padding: "2px 5px",
-                                  lineHeight: "1.2",
-                                  textAlign: "left",
+                                  padding: '2px 5px',
+                                  lineHeight: '1.2',
+                                  textAlign: 'left',
                                 }}
                               >
                                 <p
                                   style={{
-                                    fontSize: "11px",
-                                    margin: "0",
-                                    paddingLeft: "5px",
-                                    fontFamily: "Times New Roman, serif",
+                                    fontSize: '11px',
+                                    margin: '0',
+                                    paddingLeft: '5px',
+                                    fontFamily: 'Times New Roman, serif',
                                   }}
                                 >
-                                  For the month of:{" "}
+                                  For the month of:{' '}
                                   <b>
-                                    {startDate ? formatMonth(startDate) : ""}
+                                    {startDate ? formatMonth(startDate) : ''}
                                   </b>
                                 </p>
                               </td>
                             </tr>
                             <tr>
                               <td
-                                colSpan="9"
+                                colSpan="7"
                                 style={{
-                                  padding: "8px 5px 2px 5px",
-                                  textAlign: "left",
-                                  fontSize: "10px",
-                                  fontFamily: "Arial, serif",
-                                  lineHeight: "1.2",
+                                  padding: '8px 5px 2px 5px',
+                                  textAlign: 'left',
+                                  fontSize: '10px',
+                                  fontFamily: 'Arial, serif',
+                                  lineHeight: '1.2',
                                 }}
                               >
                                 Official hours for arrival (regular day) and
@@ -4962,87 +5105,82 @@ const DailyTimeRecordFaculty = () => {
                             </tr>
                             {Array.from({ length: 6 }, (_, i) => (
                               <tr key={`empty1-${i}`}>
-                                <td colSpan="9"></td>
+                                <td colSpan="7"></td>
                               </tr>
                             ))}
-
-                            {/* Use fixed-height rows for stability rather than absolute positioning */}
                             <tr>
-                              <td colSpan="9" style={{ padding: "2px 5px" }}>
+                              <td colSpan="7" style={{ padding: '2px 5px' }}>
                                 <div
                                   style={{
-                                    display: "flex",
-                                    alignItems: "flex-end",
-                                    paddingLeft: "5%",
-                                    height: "12px",
-                                    marginBottom: "0px",
-                                    fontFamily: "Arial, serif",
-                                    fontSize: "10px",
-                                    whiteSpace: "nowrap",
+                                    display: 'flex',
+                                    alignItems: 'flex-end',
+                                    paddingLeft: '5%',
+                                    height: '12px',
+                                    marginBottom: '0px',
+                                    fontFamily: 'Arial, serif',
+                                    fontSize: '10px',
+                                    whiteSpace: 'nowrap',
                                   }}
                                 >
-                                  <span style={{ marginRight: "5px" }}>
+                                  <span style={{ marginRight: '5px' }}>
                                     Regular Days:
                                   </span>
                                   <span
                                     style={{
-                                      display: "inline-block",
-                                      borderBottom: "1.5px solid black",
+                                      display: 'inline-block',
+                                      borderBottom: '1.5px solid black',
                                       flexGrow: 1,
-                                      minWidth: "310px",
-                                      marginBottom: "2px",
+                                      minWidth: '310px',
+                                      marginBottom: '2px',
                                     }}
                                   ></span>
                                 </div>
                               </td>
                             </tr>
-
                             {Array.from({ length: 2 }, (_, i) => (
                               <tr key={`empty2-${i}`}>
-                                <td colSpan="9"></td>
+                                <td colSpan="7"></td>
                               </tr>
                             ))}
-
                             <tr>
-                              <td colSpan="9" style={{ padding: "2px 5px" }}>
+                              <td colSpan="7" style={{ padding: '2px 5px' }}>
                                 <div
                                   style={{
-                                    display: "flex",
-                                    alignItems: "flex-end",
-                                    paddingLeft: "5%",
-                                    height: "20px",
-                                    fontFamily: "Arial, serif",
-                                    fontSize: "10px",
-                                    whiteSpace: "nowrap",
+                                    display: 'flex',
+                                    alignItems: 'flex-end',
+                                    paddingLeft: '5%',
+                                    height: '20px',
+                                    fontFamily: 'Arial, serif',
+                                    fontSize: '10px',
+                                    whiteSpace: 'nowrap',
                                   }}
                                 >
-                                  <span style={{ marginRight: "5px" }}>
+                                  <span style={{ marginRight: '5px' }}>
                                     Saturdays:
                                   </span>
                                   <span
                                     style={{
-                                      display: "inline-block",
-                                      borderBottom: "1.5px solid black",
+                                      display: 'inline-block',
+                                      borderBottom: '1.5px solid black',
                                       flexGrow: 1,
-                                      minWidth: "318px",
-                                      marginBottom: "2px",
+                                      minWidth: '318px',
+                                      marginBottom: '2px',
                                     }}
                                   ></span>
                                 </div>
                               </td>
                             </tr>
-
                             {Array.from({ length: 2 }, (_, i) => (
                               <tr key={`empty3-${i}`}>
-                                <td colSpan="9"></td>
+                                <td colSpan="7"></td>
                               </tr>
                             ))}
                             <tr>
                               <th
                                 rowSpan="2"
                                 style={{
-                                  border: "1px solid black",
-                                  fontFamily: "Arial, serif",
+                                  border: '1px solid black',
+                                  fontFamily: 'Arial, serif',
                                   fontSize: dataFontSize,
                                 }}
                               >
@@ -5051,8 +5189,8 @@ const DailyTimeRecordFaculty = () => {
                               <th
                                 colSpan="2"
                                 style={{
-                                  border: "1px solid black",
-                                  fontFamily: "Arial, serif",
+                                  border: '1px solid black',
+                                  fontFamily: 'Arial, serif',
                                   fontSize: dataFontSize,
                                 }}
                               >
@@ -5061,8 +5199,8 @@ const DailyTimeRecordFaculty = () => {
                               <th
                                 colSpan="2"
                                 style={{
-                                  border: "1px solid black",
-                                  fontFamily: "Arial, serif",
+                                  border: '1px solid black',
+                                  fontFamily: 'Arial, serif',
                                   fontSize: dataFontSize,
                                 }}
                               >
@@ -5070,8 +5208,8 @@ const DailyTimeRecordFaculty = () => {
                               </th>
                               <th
                                 style={{
-                                  border: "1px solid black",
-                                  fontFamily: "Arial, serif",
+                                  border: '1px solid black',
+                                  fontFamily: 'Arial, serif',
                                   fontSize: dataFontSize,
                                 }}
                               >
@@ -5079,65 +5217,65 @@ const DailyTimeRecordFaculty = () => {
                               </th>
                               <th
                                 style={{
-                                  border: "1px solid black",
-                                  fontFamily: "Arial, serif",
+                                  border: '1px solid black',
+                                  fontFamily: 'Arial, serif',
                                   fontSize: dataFontSize,
                                 }}
                               >
                                 Undertime
                               </th>
                             </tr>
-                            <tr style={{ textAlign: "center" }}>
+                            <tr style={{ textAlign: 'center' }}>
                               <td
                                 style={{
-                                  border: "1px solid black",
-                                  fontSize: "9px",
-                                  fontFamily: "Arial, serif",
+                                  border: '1px solid black',
+                                  fontSize: '9px',
+                                  fontFamily: 'Arial, serif',
                                 }}
                               >
                                 Arrival
                               </td>
                               <td
                                 style={{
-                                  border: "1px solid black",
-                                  fontSize: "9px",
-                                  fontFamily: "Arial, serif",
+                                  border: '1px solid black',
+                                  fontSize: '9px',
+                                  fontFamily: 'Arial, serif',
                                 }}
                               >
                                 Departure
                               </td>
                               <td
                                 style={{
-                                  border: "1px solid black",
-                                  fontSize: "9px",
-                                  fontFamily: "Arial, serif",
+                                  border: '1px solid black',
+                                  fontSize: '9px',
+                                  fontFamily: 'Arial, serif',
                                 }}
                               >
                                 Arrival
                               </td>
                               <td
                                 style={{
-                                  border: "1px solid black",
-                                  fontSize: "9px",
-                                  fontFamily: "Arial, serif",
+                                  border: '1px solid black',
+                                  fontSize: '9px',
+                                  fontFamily: 'Arial, serif',
                                 }}
                               >
                                 Departure
                               </td>
                               <td
                                 style={{
-                                  border: "1px solid black",
-                                  fontSize: "9px",
-                                  fontFamily: "Arial, serif",
+                                  border: '1px solid black',
+                                  fontSize: '9px',
+                                  fontFamily: 'Arial, serif',
                                 }}
                               >
                                 Min
                               </td>
                               <td
                                 style={{
-                                  border: "1px solid black",
-                                  fontSize: "9px",
-                                  fontFamily: "Arial, serif",
+                                  border: '1px solid black',
+                                  fontSize: '9px',
+                                  fontFamily: 'Arial, serif',
                                 }}
                               >
                                 Min
@@ -5147,59 +5285,49 @@ const DailyTimeRecordFaculty = () => {
                         );
 
                         const cellStyle = {
-                          border: "1px solid black",
-                          textAlign: "center",
-                          padding: "0 2px",
-                          fontFamily: "Arial, serif",
+                          border: '1px solid black',
+                          textAlign: 'center',
+                          padding: '0 2px',
+                          fontFamily: 'Arial, serif',
                           fontSize: dataFontSize,
                           height: rowHeight,
-                          whiteSpace: "nowrap",
+                          whiteSpace: 'nowrap',
                         };
 
                         return (
                           <>
                             {/* ================= TABLE 1 ================= */}
                             <table
-  style={{
-    position: "relative",
-    border: "1px solid black",
-    borderCollapse: "collapse",
-    width: "49%",
-    tableLayout: "fixed",  // keep fixed so colgroup widths are respected
-  }}
-  className="print-visble"
->
-  {/* ADD THIS colgroup for equal column widths */}
-  <colgroup>
-    <col style={{ width: "8%" }} />   {/* DAY */}
-    <col style={{ width: "16%" }} />  {/* AM Arrival */}
-    <col style={{ width: "16%" }} />  {/* AM Departure */}
-    <col style={{ width: "16%" }} />  {/* PM Arrival */}
-    <col style={{ width: "16%" }} />  {/* PM Departure */}
-    <col style={{ width: "14%" }} />  {/* Late Min */}
-    <col style={{ width: "14%" }} />  {/* Undertime Min */}
-  </colgroup>
-  {renderHeader()}
+                              style={{
+                                position: 'relative',
+                                border: '1px solid black',
+                                borderCollapse: 'collapse',
+                                width: '49%',
+                                tableLayout: 'fixed',
+                              }}
+                              className="print-visble"
+                            >
+                              <DTRColGroup />
+                              {renderHeader()}
                               <tbody>
                                 {Array.from({ length: 31 }, (_, i) => {
                                   const day = (i + 1)
                                     .toString()
-                                    .padStart(2, "0");
+                                    .padStart(2, '0');
                                   const record = records.find((r) =>
                                     r.date.endsWith(`-${day}`),
                                   );
 
-                                  // Construct full date for holiday/suspension highlighting
                                   let fullDate = null;
                                   if (record?.date) {
                                     fullDate = record.date;
                                   } else if (startDate) {
-                                    const [year, month] = startDate.split("-");
+                                    const [year, month] = startDate.split('-');
                                     fullDate = `${year}-${month}-${day}`;
                                   } else if (selectedMonth !== null) {
                                     const monthNum = String(
                                       selectedMonth + 1,
-                                    ).padStart(2, "0");
+                                    ).padStart(2, '0');
                                     fullDate = `${selectedYear}-${monthNum}-${day}`;
                                   }
 
@@ -5220,7 +5348,7 @@ const DailyTimeRecordFaculty = () => {
                                           ...cellStyle,
                                           backgroundColor: indicator
                                             ? indicator.bgColor
-                                            : "transparent",
+                                            : 'transparent',
                                         }}
                                       >
                                         {day}
@@ -5230,23 +5358,23 @@ const DailyTimeRecordFaculty = () => {
                                           ...cellStyle,
                                           backgroundColor: indicator
                                             ? indicator.bgColor
-                                            : "transparent",
-                                          position: "relative",
+                                            : 'transparent',
+                                          position: 'relative',
                                         }}
                                       >
                                         {indicator && (
                                           <div
                                             style={{
-                                              position: "absolute",
-                                              top: "50%",
-                                              left: "50%",
+                                              position: 'absolute',
+                                              top: '50%',
+                                              left: '50%',
                                               transform:
-                                                "translate(-50%, -50%)",
-                                              fontSize: "7px",
-                                              fontWeight: "bold",
-                                              color: "rgba(0, 0, 0, 0.25)",
-                                              whiteSpace: "nowrap",
-                                              pointerEvents: "none",
+                                                'translate(-50%, -50%)',
+                                              fontSize: '7px',
+                                              fontWeight: 'bold',
+                                              color: 'rgba(0, 0, 0, 0.25)',
+                                              whiteSpace: 'nowrap',
+                                              pointerEvents: 'none',
                                               zIndex: 0,
                                             }}
                                           >
@@ -5255,7 +5383,7 @@ const DailyTimeRecordFaculty = () => {
                                         )}
                                         <span
                                           style={{
-                                            position: "relative",
+                                            position: 'relative',
                                             zIndex: 1,
                                           }}
                                         >
@@ -5267,7 +5395,7 @@ const DailyTimeRecordFaculty = () => {
                                           ...cellStyle,
                                           backgroundColor: indicator
                                             ? indicator.bgColor
-                                            : "transparent",
+                                            : 'transparent',
                                         }}
                                       >
                                         {formatTime(timeFields.breaktimeIN)}
@@ -5277,7 +5405,7 @@ const DailyTimeRecordFaculty = () => {
                                           ...cellStyle,
                                           backgroundColor: indicator
                                             ? indicator.bgColor
-                                            : "transparent",
+                                            : 'transparent',
                                         }}
                                       >
                                         {formatTime(timeFields.breaktimeOUT)}
@@ -5287,23 +5415,23 @@ const DailyTimeRecordFaculty = () => {
                                           ...cellStyle,
                                           backgroundColor: indicator
                                             ? indicator.bgColor
-                                            : "transparent",
-                                          position: "relative",
+                                            : 'transparent',
+                                          position: 'relative',
                                         }}
                                       >
                                         {indicator && (
                                           <div
                                             style={{
-                                              position: "absolute",
-                                              top: "50%",
-                                              left: "50%",
+                                              position: 'absolute',
+                                              top: '50%',
+                                              left: '50%',
                                               transform:
-                                                "translate(-50%, -50%)",
-                                              fontSize: "7px",
-                                              fontWeight: "bold",
-                                              color: "rgba(0, 0, 0, 0.25)",
-                                              whiteSpace: "nowrap",
-                                              pointerEvents: "none",
+                                                'translate(-50%, -50%)',
+                                              fontSize: '7px',
+                                              fontWeight: 'bold',
+                                              color: 'rgba(0, 0, 0, 0.25)',
+                                              whiteSpace: 'nowrap',
+                                              pointerEvents: 'none',
                                               zIndex: 0,
                                             }}
                                           >
@@ -5312,7 +5440,7 @@ const DailyTimeRecordFaculty = () => {
                                         )}
                                         <span
                                           style={{
-                                            position: "relative",
+                                            position: 'relative',
                                             zIndex: 1,
                                           }}
                                         >
@@ -5324,7 +5452,7 @@ const DailyTimeRecordFaculty = () => {
                                           ...cellStyle,
                                           backgroundColor: indicator
                                             ? indicator.bgColor
-                                            : "transparent",
+                                            : 'transparent',
                                         }}
                                       >
                                         {renderedTime.minutes}
@@ -5334,7 +5462,7 @@ const DailyTimeRecordFaculty = () => {
                                           ...cellStyle,
                                           backgroundColor: indicator
                                             ? indicator.bgColor
-                                            : "transparent",
+                                            : 'transparent',
                                         }}
                                       >
                                         {renderedTime.minutes}
@@ -5345,21 +5473,21 @@ const DailyTimeRecordFaculty = () => {
                                 <tr>
                                   <td
                                     colSpan="7"
-                                    style={{ padding: "10px 5px" }}
+                                    style={{ padding: '10px 5px' }}
                                   >
                                     <hr
                                       style={{
-                                        borderTop: "2px solid black",
-                                        width: "100%",
+                                        borderTop: '2px solid black',
+                                        width: '100%',
                                       }}
                                     />
                                     <p
                                       style={{
-                                        textAlign: "justify",
-                                        fontSize: "9px",
-                                        lineHeight: "1.4",
-                                        fontFamily: "Times New Roman, serif",
-                                        margin: "5px 0",
+                                        textAlign: 'justify',
+                                        fontSize: '9px',
+                                        lineHeight: '1.4',
+                                        fontFamily: 'Times New Roman, serif',
+                                        margin: '5px 0',
                                       }}
                                     >
                                       I CERTIFY on my honor that the above is a
@@ -5373,23 +5501,23 @@ const DailyTimeRecordFaculty = () => {
                                     </p>
                                     <div
                                       style={{
-                                        width: "50%",
-                                        marginLeft: "auto",
-                                        textAlign: "center",
-                                        marginTop: "40px",
+                                        width: '50%',
+                                        marginLeft: 'auto',
+                                        textAlign: 'center',
+                                        marginTop: '40px',
                                       }}
                                     >
                                       <hr
                                         style={{
-                                          borderTop: "2px solid black",
+                                          borderTop: '2px solid black',
                                           margin: 0,
                                         }}
                                       />
                                       <p
                                         style={{
-                                          fontSize: "9px",
-                                          fontFamily: "Arial, serif",
-                                          margin: "5px 0 0 0",
+                                          fontSize: '9px',
+                                          fontFamily: 'Arial, serif',
+                                          margin: '5px 0 0 0',
                                         }}
                                       >
                                         Signature
@@ -5397,30 +5525,30 @@ const DailyTimeRecordFaculty = () => {
                                     </div>
                                     <div
                                       style={{
-                                        width: "100%",
-                                        marginTop: "15px",
+                                        width: '100%',
+                                        marginTop: '15px',
                                       }}
                                     >
                                       <hr
                                         style={{
-                                          borderTop: "1px solid black",
-                                          width: "100%",
+                                          borderTop: '1px solid black',
+                                          width: '100%',
                                           margin: 0,
                                         }}
                                       />
                                       <hr
                                         style={{
-                                          borderTop: "1.5px solid black",
-                                          width: "100%",
-                                          margin: "2px 0 0 0",
+                                          borderTop: '1.5px solid black',
+                                          width: '100%',
+                                          margin: '2px 0 0 0',
                                         }}
                                       />
                                       <p
                                         style={{
-                                          paddingLeft: "30px",
-                                          fontSize: "9px",
-                                          fontFamily: "Arial, serif",
-                                          margin: "5px 0 0 0",
+                                          paddingLeft: '30px',
+                                          fontSize: '9px',
+                                          fontFamily: 'Arial, serif',
+                                          margin: '5px 0 0 0',
                                         }}
                                       >
                                         Verified as to prescribed office hours.
@@ -5428,32 +5556,32 @@ const DailyTimeRecordFaculty = () => {
                                     </div>
                                     <div
                                       style={{
-                                        width: "80%",
-                                        marginLeft: "auto",
-                                        marginTop: "15px",
-                                        textAlign: "center",
+                                        width: '80%',
+                                        marginLeft: 'auto',
+                                        marginTop: '15px',
+                                        textAlign: 'center',
                                       }}
                                     >
                                       <hr
                                         style={{
-                                          borderTop: "2px solid black",
+                                          borderTop: '2px solid black',
                                           margin: 0,
                                         }}
                                       />
                                       <p
                                         style={{
-                                          fontSize: "9px",
-                                          fontFamily: "Times New Roman, serif",
-                                          margin: "2px 0 0 0",
+                                          fontSize: '9px',
+                                          fontFamily: 'Times New Roman, serif',
+                                          margin: '2px 0 0 0',
                                         }}
                                       >
                                         In-Charge
                                       </p>
                                       <p
                                         style={{
-                                          fontSize: "9px",
-                                          fontFamily: "Arial, serif",
-                                          margin: "0",
+                                          fontSize: '9px',
+                                          fontFamily: 'Arial, serif',
+                                          margin: '0',
                                         }}
                                       >
                                         (Signature Over Printed Name)
@@ -5465,47 +5593,37 @@ const DailyTimeRecordFaculty = () => {
                             </table>
 
                             {/* ================= TABLE 2 ================= */}
-                           <table
+                            <table
                               style={{
-                                position: "relative",
-                                border: "1px solid black",
-                                borderCollapse: "collapse",
-                                width: "49%",
-                                tableLayout: "fixed",  // keep fixed so colgroup widths are respected
+                                position: 'relative',
+                                border: '1px solid black',
+                                borderCollapse: 'collapse',
+                                width: '49%',
+                                tableLayout: 'fixed',
                               }}
                               className="print-visble"
                             >
-                              {/* ADD THIS colgroup for equal column widths */}
-                              <colgroup>
-                                <col style={{ width: "8%" }} />   {/* DAY */}
-                                <col style={{ width: "16%" }} />  {/* AM Arrival */}
-                                <col style={{ width: "16%" }} />  {/* AM Departure */}
-                                <col style={{ width: "16%" }} />  {/* PM Arrival */}
-                                <col style={{ width: "16%" }} />  {/* PM Departure */}
-                                <col style={{ width: "14%" }} />  {/* Late Min */}
-                                <col style={{ width: "14%" }} />  {/* Undertime Min */}
-                              </colgroup>
-                              {renderHeader()}  
+                              <DTRColGroup />
+                              {renderHeader()}
                               <tbody>
                                 {Array.from({ length: 31 }, (_, i) => {
                                   const day = (i + 1)
                                     .toString()
-                                    .padStart(2, "0");
+                                    .padStart(2, '0');
                                   const record = records.find((r) =>
                                     r.date.endsWith(`-${day}`),
                                   );
 
-                                  // Construct full date for holiday/suspension highlighting
                                   let fullDate = null;
                                   if (record?.date) {
                                     fullDate = record.date;
                                   } else if (startDate) {
-                                    const [year, month] = startDate.split("-");
+                                    const [year, month] = startDate.split('-');
                                     fullDate = `${year}-${month}-${day}`;
                                   } else if (selectedMonth !== null) {
                                     const monthNum = String(
                                       selectedMonth + 1,
-                                    ).padStart(2, "0");
+                                    ).padStart(2, '0');
                                     fullDate = `${selectedYear}-${monthNum}-${day}`;
                                   }
 
@@ -5526,7 +5644,7 @@ const DailyTimeRecordFaculty = () => {
                                           ...cellStyle,
                                           backgroundColor: indicator
                                             ? indicator.bgColor
-                                            : "transparent",
+                                            : 'transparent',
                                         }}
                                       >
                                         {day}
@@ -5536,23 +5654,23 @@ const DailyTimeRecordFaculty = () => {
                                           ...cellStyle,
                                           backgroundColor: indicator
                                             ? indicator.bgColor
-                                            : "transparent",
-                                          position: "relative",
+                                            : 'transparent',
+                                          position: 'relative',
                                         }}
                                       >
                                         {indicator && (
                                           <div
                                             style={{
-                                              position: "absolute",
-                                              top: "50%",
-                                              left: "50%",
+                                              position: 'absolute',
+                                              top: '50%',
+                                              left: '50%',
                                               transform:
-                                                "translate(-50%, -50%)",
-                                              fontSize: "7px",
-                                              fontWeight: "bold",
-                                              color: "rgba(0, 0, 0, 0.25)",
-                                              whiteSpace: "nowrap",
-                                              pointerEvents: "none",
+                                                'translate(-50%, -50%)',
+                                              fontSize: '7px',
+                                              fontWeight: 'bold',
+                                              color: 'rgba(0, 0, 0, 0.25)',
+                                              whiteSpace: 'nowrap',
+                                              pointerEvents: 'none',
                                               zIndex: 0,
                                             }}
                                           >
@@ -5561,7 +5679,7 @@ const DailyTimeRecordFaculty = () => {
                                         )}
                                         <span
                                           style={{
-                                            position: "relative",
+                                            position: 'relative',
                                             zIndex: 1,
                                           }}
                                         >
@@ -5573,7 +5691,7 @@ const DailyTimeRecordFaculty = () => {
                                           ...cellStyle,
                                           backgroundColor: indicator
                                             ? indicator.bgColor
-                                            : "transparent",
+                                            : 'transparent',
                                         }}
                                       >
                                         {formatTime(timeFields.breaktimeIN)}
@@ -5583,7 +5701,7 @@ const DailyTimeRecordFaculty = () => {
                                           ...cellStyle,
                                           backgroundColor: indicator
                                             ? indicator.bgColor
-                                            : "transparent",
+                                            : 'transparent',
                                         }}
                                       >
                                         {formatTime(timeFields.breaktimeOUT)}
@@ -5593,23 +5711,23 @@ const DailyTimeRecordFaculty = () => {
                                           ...cellStyle,
                                           backgroundColor: indicator
                                             ? indicator.bgColor
-                                            : "transparent",
-                                          position: "relative",
+                                            : 'transparent',
+                                          position: 'relative',
                                         }}
                                       >
                                         {indicator && (
                                           <div
                                             style={{
-                                              position: "absolute",
-                                              top: "50%",
-                                              left: "50%",
+                                              position: 'absolute',
+                                              top: '50%',
+                                              left: '50%',
                                               transform:
-                                                "translate(-50%, -50%)",
-                                              fontSize: "7px",
-                                              fontWeight: "bold",
-                                              color: "rgba(0, 0, 0, 0.25)",
-                                              whiteSpace: "nowrap",
-                                              pointerEvents: "none",
+                                                'translate(-50%, -50%)',
+                                              fontSize: '7px',
+                                              fontWeight: 'bold',
+                                              color: 'rgba(0, 0, 0, 0.25)',
+                                              whiteSpace: 'nowrap',
+                                              pointerEvents: 'none',
                                               zIndex: 0,
                                             }}
                                           >
@@ -5618,7 +5736,7 @@ const DailyTimeRecordFaculty = () => {
                                         )}
                                         <span
                                           style={{
-                                            position: "relative",
+                                            position: 'relative',
                                             zIndex: 1,
                                           }}
                                         >
@@ -5630,7 +5748,7 @@ const DailyTimeRecordFaculty = () => {
                                           ...cellStyle,
                                           backgroundColor: indicator
                                             ? indicator.bgColor
-                                            : "transparent",
+                                            : 'transparent',
                                         }}
                                       >
                                         {renderedTime.minutes}
@@ -5640,7 +5758,7 @@ const DailyTimeRecordFaculty = () => {
                                           ...cellStyle,
                                           backgroundColor: indicator
                                             ? indicator.bgColor
-                                            : "transparent",
+                                            : 'transparent',
                                         }}
                                       >
                                         {renderedTime.minutes}
@@ -5651,21 +5769,21 @@ const DailyTimeRecordFaculty = () => {
                                 <tr>
                                   <td
                                     colSpan="7"
-                                    style={{ padding: "10px 5px" }}
+                                    style={{ padding: '10px 5px' }}
                                   >
                                     <hr
                                       style={{
-                                        borderTop: "2px solid black",
-                                        width: "100%",
+                                        borderTop: '2px solid black',
+                                        width: '100%',
                                       }}
                                     />
                                     <p
                                       style={{
-                                        textAlign: "justify",
-                                        fontSize: "10px",
-                                        lineHeight: "1.4",
-                                        fontFamily: "Times New Roman, serif",
-                                        margin: "5px 0",
+                                        textAlign: 'justify',
+                                        fontSize: '10px',
+                                        lineHeight: '1.4',
+                                        fontFamily: 'Times New Roman, serif',
+                                        margin: '5px 0',
                                       }}
                                     >
                                       I CERTIFY on my honor that the above is a
@@ -5679,23 +5797,23 @@ const DailyTimeRecordFaculty = () => {
                                     </p>
                                     <div
                                       style={{
-                                        width: "50%",
-                                        marginLeft: "auto",
-                                        textAlign: "center",
-                                        marginTop: "40px",
+                                        width: '50%',
+                                        marginLeft: 'auto',
+                                        textAlign: 'center',
+                                        marginTop: '40px',
                                       }}
                                     >
                                       <hr
                                         style={{
-                                          borderTop: "2px solid black",
+                                          borderTop: '2px solid black',
                                           margin: 0,
                                         }}
                                       />
                                       <p
                                         style={{
-                                          fontSize: "9px",
-                                          fontFamily: "Arial, serif",
-                                          margin: "5px 0 0 0",
+                                          fontSize: '9px',
+                                          fontFamily: 'Arial, serif',
+                                          margin: '5px 0 0 0',
                                         }}
                                       >
                                         Signature
@@ -5703,30 +5821,30 @@ const DailyTimeRecordFaculty = () => {
                                     </div>
                                     <div
                                       style={{
-                                        width: "100%",
-                                        marginTop: "15px",
+                                        width: '100%',
+                                        marginTop: '15px',
                                       }}
                                     >
                                       <hr
                                         style={{
-                                          borderTop: "1px solid black",
-                                          width: "100%",
+                                          borderTop: '1px solid black',
+                                          width: '100%',
                                           margin: 0,
                                         }}
                                       />
                                       <hr
                                         style={{
-                                          borderTop: "1.5px solid black",
-                                          width: "100%",
-                                          margin: "2px 0 0 0",
+                                          borderTop: '1.5px solid black',
+                                          width: '100%',
+                                          margin: '2px 0 0 0',
                                         }}
                                       />
                                       <p
                                         style={{
-                                          paddingLeft: "30px",
-                                          fontSize: "9px",
-                                          fontFamily: "Arial, serif",
-                                          margin: "5px 0 0 0",
+                                          paddingLeft: '30px',
+                                          fontSize: '9px',
+                                          fontFamily: 'Arial, serif',
+                                          margin: '5px 0 0 0',
                                         }}
                                       >
                                         Verified as to prescribed office hours.
@@ -5734,32 +5852,32 @@ const DailyTimeRecordFaculty = () => {
                                     </div>
                                     <div
                                       style={{
-                                        width: "80%",
-                                        marginLeft: "auto",
-                                        marginTop: "15px",
-                                        textAlign: "center",
+                                        width: '80%',
+                                        marginLeft: 'auto',
+                                        marginTop: '15px',
+                                        textAlign: 'center',
                                       }}
                                     >
                                       <hr
                                         style={{
-                                          borderTop: "2px solid black",
+                                          borderTop: '2px solid black',
                                           margin: 0,
                                         }}
                                       />
                                       <p
                                         style={{
-                                          fontSize: "9px",
-                                          fontFamily: "Times New Roman, serif",
-                                          margin: "2px 0 0 0",
+                                          fontSize: '9px',
+                                          fontFamily: 'Times New Roman, serif',
+                                          margin: '2px 0 0 0',
                                         }}
                                       >
                                         In-Charge
                                       </p>
                                       <p
                                         style={{
-                                          fontSize: "9px",
-                                          fontFamily: "Arial, serif",
-                                          margin: "0",
+                                          fontSize: '9px',
+                                          fontFamily: 'Arial, serif',
+                                          margin: '0',
                                         }}
                                       >
                                         (Signature Over Printed Name)
@@ -5780,47 +5898,28 @@ const DailyTimeRecordFaculty = () => {
           </Fade>
         )}
 
-        {/* Print and Download Buttons - Show when viewMode is 'single' */}
-        {viewMode === "single" && (
-          <Box
-            sx={{
-              display: "flex",
-              justifyContent: "center",
-              gap: 2,
-              mt: 2,
-              mb: 4,
-            }}
-          >
-            <ProfessionalButton
-              variant="contained"
-              onClick={printPage}
-              startIcon={<PrintIcon />}
-              className="no-print"
-              sx={{
-                backgroundColor: accentColor,
-                color: textSecondaryColor,
-                "&:hover": { backgroundColor: accentDark },
-                py: 1.5,
-                px: 4,
-              }}
-            >
-              Print
-            </ProfessionalButton>
-            <ProfessionalButton
-              variant="contained"
-              onClick={downloadPDF}
-              startIcon={<PrintIcon />}
-              className="no-print"
-              sx={{
-                backgroundColor: accentColor,
-                color: textSecondaryColor,
-                "&:hover": { backgroundColor: accentDark },
-                py: 1.5,
-                px: 4,
-              }}
-            >
-              Download PDF
-            </ProfessionalButton>
+        {/* FAB buttons for single user - Show when viewMode is 'single' */}
+        {viewMode === 'single' && (
+          <Box className="no-print" sx={{ position: 'fixed', bottom: 60, right: 24, display: 'flex', flexDirection: 'row', gap: 1.5, zIndex: 1300, alignItems: 'center' }}>
+            <Tooltip placement="top" title={
+              <Box sx={{ p: 0.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '11px', letterSpacing: '0.05em' }}>LEGEND</Typography>
+                {[{ label: 'Holiday', bg: 'rgba(237,108,2,0.25)', border: '#ed6c02' }, { label: 'Suspension', bg: 'rgba(211,47,47,0.2)', border: '#d32f2f' }, { label: 'On Leave', bg: 'rgba(46,125,50,0.2)', border: '#2e7d32' }].map(({ label, bg, border }) => (
+                  <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ width: 28, height: 16, backgroundColor: bg, border: `1.5px solid ${border}`, borderRadius: '3px', flexShrink: 0 }} />
+                    <Typography variant="caption" sx={{ fontSize: '11px', fontWeight: 500 }}>{label}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            } arrow componentsProps={{ tooltip: { sx: { bgcolor: 'white', color: '#333', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', border: '1px solid #e0e0e0', borderRadius: '10px', p: 1.5 } }, arrow: { sx: { color: 'white' } } }}>
+              <IconButton sx={{ backgroundColor: '#ffffff', color: '#6D2323', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', transition: 'all 0.2s ease', fontSize: '18px', fontWeight: 700, '&:hover': { backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}>?</IconButton>
+            </Tooltip>
+            <Tooltip title="Print DTR" placement="top">
+              <IconButton onClick={printPage} sx={{ backgroundColor: '#ffffff', color: '#6D2323', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', transition: 'all 0.2s ease', '&:hover':{ backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}><PrintIcon /></IconButton>
+            </Tooltip>
+            <Tooltip title="Download PDF" placement="top">
+              <IconButton onClick={downloadPDF} sx={{ backgroundColor: '#ffffff', color: '#A31D1D', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', transition: 'all 0.2s ease', '&:hover':{ backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}><PictureAsPdfIcon /></IconButton>
+            </Tooltip>
           </Box>
         )}
 
@@ -5830,134 +5929,158 @@ const DailyTimeRecordFaculty = () => {
           onClose={() => setPreviewModalOpen(false)}
           maxWidth="lg"
           fullWidth
+          sx={{
+            '& .MuiDialog-container': { overflow: 'hidden' },
+            '& .MuiDialog-paper': { margin: 2 },
+          }}
           PaperProps={{
             sx: {
-              backgroundColor: "rgba(255, 255, 255, 0.98)",
-              borderRadius: 3,
-              visibility: printingAll ? "hidden" : "visible",
-              pointerEvents: printingAll ? "none" : "auto",
+              borderRadius: 4,
+              overflow: 'hidden',
+              visibility: printingAll ? 'hidden' : 'visible',
+              pointerEvents: printingAll ? 'none' : 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              maxHeight: '90vh',
             },
           }}
         >
-          <DialogTitle
+          {/* Header */}
+          <Box
             sx={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              backgroundColor: alpha(accentColor, 0.1),
-              borderBottom: `2px solid ${alpha(accentColor, 0.2)}`,
+              px: 3,
+              py: 2,
+              background: `linear-gradient(135deg, ${accentColor} 0%, ${accentDark} 100%)`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexShrink: 0,
             }}
           >
-            <Typography
-              variant="h6"
-              sx={{
-                fontWeight: 700,
-                color: textPrimaryColor,
-              }}
-            >
-              DTR Preview - {previewUsers[currentPreviewIndex]?.fullName || ""}{" "}
-              ({currentPreviewIndex + 1} of {previewUsers.length})
-            </Typography>
-            <IconButton
-              onClick={() => setPreviewModalOpen(false)}
-              sx={{
-                color: textPrimaryColor,
-                "&:hover": {
-                  backgroundColor: alpha(accentColor, 0.2),
-                },
-              }}
-            >
-              <Close />
-            </IconButton>
-          </DialogTitle>
+            <Box>
+              <Typography
+                variant="subtitle1"
+                sx={{ fontWeight: 700, color: '#fff', lineHeight: 1.2 }}
+              >
+                DTR Preview
+              </Typography>
+              {previewUsers[currentPreviewIndex] && (
+                <Typography
+                  variant="caption"
+                  sx={{ color: 'rgba(255,255,255,0.75)' }}
+                >
+                  {previewUsers[currentPreviewIndex].fullName}
+                  {startDate &&
+                    ` · ${formatMonth(startDate)} ${new Date(startDate).getFullYear()}`}
+                </Typography>
+              )}
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              {previewUsers.length > 1 && !printingAll && (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    backgroundColor: 'rgba(255,255,255,0.15)',
+                    borderRadius: '20px',
+                    px: 1.5,
+                    py: 0.5,
+                  }}
+                >
+                  <IconButton
+                    size="small"
+                    onClick={handlePrevious}
+                    sx={{
+                      color: '#fff',
+                      p: 0.25,
+                      '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
+                    }}
+                  >
+                    <ArrowBack sx={{ fontSize: 18 }} />
+                  </IconButton>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: '#fff',
+                      fontWeight: 600,
+                      minWidth: 48,
+                      textAlign: 'center',
+                    }}
+                  >
+                    {currentPreviewIndex + 1} of {previewUsers.length}
+                  </Typography>
+                  <IconButton
+                    size="small"
+                    onClick={handleNext}
+                    sx={{
+                      color: '#fff',
+                      p: 0.25,
+                      '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
+                    }}
+                  >
+                    <ArrowForward sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Box>
+              )}
+              <IconButton
+                onClick={() => setPreviewModalOpen(false)}
+                size="small"
+                sx={{
+                  backgroundColor: 'rgba(255,255,255,0.15)',
+                  color: '#fff',
+                  width: 30,
+                  height: 30,
+                  '&:hover': { backgroundColor: 'rgba(255,255,255,0.25)' },
+                }}
+              >
+                <Close sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Box>
+          </Box>
+
+          {/* Body */}
           <DialogContent
             sx={{
-              p: 3,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              backgroundColor: "#f5f5f5",
-              minHeight: "80vh",
-              maxHeight: "90vh",
-              position: "relative",
-              overflow: "auto",
+              p: 0,
+              flex: 1,
+              overflow: 'hidden',
+              backgroundColor: '#f0f0f0',
+              display: 'flex',
+              flexDirection: 'column',
             }}
           >
-            {/* Navigation Arrows */}
-            {previewUsers.length > 1 && !printingAll && (
-              <>
-                <IconButton
-                  onClick={handlePrevious}
-                  sx={{
-                    position: "absolute",
-                    left: 16,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    backgroundColor: "white",
-                    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
-                    zIndex: 10,
-                    "&:hover": {
-                      backgroundColor: alpha(accentColor, 0.1),
-                    },
-                  }}
-                >
-                  <ArrowBack sx={{ color: textPrimaryColor, fontSize: 32 }} />
-                </IconButton>
-                <IconButton
-                  onClick={handleNext}
-                  sx={{
-                    position: "absolute",
-                    right: 16,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    backgroundColor: "white",
-                    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
-                    zIndex: 10,
-                    "&:hover": {
-                      backgroundColor: alpha(accentColor, 0.1),
-                    },
-                  }}
-                >
-                  <ArrowForward
-                    sx={{ color: textPrimaryColor, fontSize: 32 }}
-                  />
-                </IconButton>
-              </>
-            )}
-
-            {/* DTR Preview Container (visible) */}
             {!printingAll && (
               <Box
                 sx={{
-                  width: "100%",
-                  display: "flex",
-                  justifyContent: "center",
-                  alignItems: "flex-start",
-                  overflow: "auto",
-                  py: 2,
                   flex: 1,
+                  overflowY: 'auto',
+                  overflowX: 'hidden',
+                  p: 2,
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'flex-start',
                 }}
               >
                 {previewUsers[currentPreviewIndex] && (
                   <Paper
-                    elevation={8}
+                    elevation={0}
                     sx={{
                       p: 2,
-                      backgroundColor: "white",
+                      backgroundColor: 'white',
                       borderRadius: 2,
-                      width: "fit-content",
-                      maxWidth: "100%",
-                      overflow: "auto",
-                      boxShadow: "0 8px 24px rgba(0, 0, 0, 0.2)",
-                      "& .table-container": {
-                        width: "100%",
-                        overflow: "auto",
+                      width: 'fit-content',
+                      maxWidth: '100%',
+                      border: '1px solid #e0e0e0',
+                      '& .table-container': {
+                        width: '100%',
+                        overflow: 'visible',
                       },
-                      "& .table-wrapper": {
-                        position: "relative",
-                        width: "100%",
-                        display: "flex",
-                        justifyContent: "center",
+                      '& .table-wrapper': {
+                        position: 'relative',
+                        width: '100%',
+                        display: 'flex',
+                        justifyContent: 'center',
                       },
                     }}
                   >
@@ -5967,77 +6090,115 @@ const DailyTimeRecordFaculty = () => {
               </Box>
             )}
 
-            {/* Hidden print-ready DTR tables: render ONLY for previewUsers (on-demand) */}
+            {/* Hidden off-screen DTR refs for html2canvas */}
             <Box
               sx={{
-                position: "absolute",
-                left: "-9999px",
+                position: 'absolute',
+                left: '-9999px',
                 top: 0,
                 width: 0,
                 height: 0,
-                overflow: "hidden",
+                overflow: 'hidden',
               }}
             >
               {previewUsers.map((user) => renderUserDTRTable(user))}
             </Box>
+          </DialogContent>
 
-            {/* Action Buttons */}
-            <Box
-              sx={{
-                display: "flex",
-                gap: 2,
-                mt: 2,
-                width: "100%",
-                justifyContent: "center",
-                flexWrap: "wrap",
-              }}
-            >
+          {/* Footer Action Bar */}
+          <Box
+            sx={{
+              px: 3,
+              py: 1.5,
+              backgroundColor: '#fff',
+              borderTop: `2px solid ${alpha(accentColor, 0.15)}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexShrink: 0,
+              flexWrap: 'wrap',
+              gap: 2,
+            }}
+          >
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
               <ProfessionalButton
                 variant="contained"
                 onClick={handlePrintAllSelected}
                 startIcon={<PrintIcon />}
                 sx={{
                   backgroundColor: accentColor,
-                  color: textSecondaryColor,
-                  "&:hover": { backgroundColor: hoverColor },
-                  py: 1.5,
-                  px: 4,
+                  color: '#fff',
+                  borderRadius: '50px',
+                  px: 3,
+                  py: 1,
+                  '&:hover': { backgroundColor: hoverColor },
                 }}
               >
-                Print All Selected DTRs ({previewUsers.length})
-              </ProfessionalButton>
-              <ProfessionalButton
-                variant="contained"
-                onClick={handleDownloadAllSelected}
-                startIcon={<PrintIcon />}
-                sx={{
-                  backgroundColor: accentColor,
-                  color: textSecondaryColor,
-                  "&:hover": { backgroundColor: hoverColor },
-                  py: 1.5,
-                  px: 4,
-                }}
-              >
-                Download All as PDF ({previewUsers.length})
+                Print All
+                <Box
+                  component="span"
+                  sx={{
+                    ml: 1,
+                    backgroundColor: 'rgba(255,255,255,0.25)',
+                    borderRadius: '20px',
+                    px: 1,
+                    py: 0.25,
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                  }}
+                >
+                  {previewUsers.length}
+                </Box>
               </ProfessionalButton>
               <ProfessionalButton
                 variant="outlined"
-                onClick={() => setPreviewModalOpen(false)}
+                onClick={handleDownloadAllSelected}
+                startIcon={<PrintIcon />}
                 sx={{
                   borderColor: accentColor,
-                  color: textPrimaryColor,
-                  "&:hover": {
+                  color: accentColor,
+                  borderRadius: '50px',
+                  borderWidth: 2,
+                  px: 3,
+                  py: 1,
+                  '&:hover': {
                     borderColor: hoverColor,
-                    backgroundColor: alpha(accentColor, 0.1),
+                    backgroundColor: alpha(accentColor, 0.05),
+                    borderWidth: 2,
                   },
-                  py: 1.5,
-                  px: 4,
                 }}
               >
-                Close
+                Download PDF
+                <Box
+                  component="span"
+                  sx={{
+                    ml: 1,
+                    backgroundColor: alpha(accentColor, 0.1),
+                    borderRadius: '20px',
+                    px: 1,
+                    py: 0.25,
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    color: accentColor,
+                  }}
+                >
+                  {previewUsers.length}
+                </Box>
               </ProfessionalButton>
             </Box>
-          </DialogContent>
+            <ProfessionalButton
+              variant="text"
+              onClick={() => setPreviewModalOpen(false)}
+              sx={{
+                color: 'text.secondary',
+                borderRadius: '50px',
+                px: 3,
+                '&:hover': { backgroundColor: alpha('#000', 0.05) },
+              }}
+            >
+              Close
+            </ProfessionalButton>
+          </Box>
         </Dialog>
 
         {/* Alert Modal */}
@@ -6059,14 +6220,14 @@ const DailyTimeRecordFaculty = () => {
           <DialogContent sx={{ mt: 2 }}>
             <Typography variant="body1">{alertModal.message}</Typography>
           </DialogContent>
-          <Box sx={{ p: 2, display: "flex", justifyContent: "flex-end" }}>
+          <Box sx={{ p: 2, display: 'flex', justifyContent: 'flex-end' }}>
             <ProfessionalButton
               variant="contained"
               onClick={closeAlert}
               sx={{
                 backgroundColor: accentColor,
                 color: textSecondaryColor,
-                "&:hover": { backgroundColor: hoverColor },
+                '&:hover': { backgroundColor: hoverColor },
               }}
             >
               OK
@@ -6075,144 +6236,173 @@ const DailyTimeRecordFaculty = () => {
         </Dialog>
 
         {/* Re-print Confirmation Modal */}
-<Dialog
-  open={confirmModal.open}
-  onClose={closeConfirm}
-  maxWidth="sm"
-  fullWidth
-  PaperProps={{
-    sx: {
-      borderRadius: 3, // Softer, modern rounded corners
-      boxShadow: "0px 10px 30px rgba(0,0,0,0.1)", // Soft, diffused shadow
-      overflow: "hidden",
-    },
-  }}
->
-  <DialogContent
-    sx={{
-      textAlign: "center",
-      py: 4,
-      px: 3,
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-    }}
-  >
-    {/* Clean, Large Icon without heavy background */}
-    <Box
-      sx={{
-        mb: 2,
-        color: accentColor, // Uses your theme accent
-        backgroundColor: alpha(accentColor, 0.05), // Very subtle background tint
-        p: 2,
-        borderRadius: "12px", // Squircle shape
-      }}
-    >
-      <PrintIcon sx={{ fontSize: 40 }} />
-    </Box>
-
-    {/* Typography Focus */}
-    <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5, color: textPrimaryColor }}>
-      {printStatusMap.has(confirmModal.user?.employeeNumber)
-        ? "Re-print DTR?"
-        : "Confirm Print Job"}
-    </Typography>
-    
-    <Typography variant="body2" sx={{ color: "text.secondary", mb: 3, maxWidth: "85%" }}>
-      {printStatusMap.has(confirmModal.user?.employeeNumber)
-        ? "This record was printed previously. Would you like to generate a new copy?"
-        : "Please verify the details below before printing."}
-    </Typography>
-
-    {/* Document Preview Style Box */}
-    {confirmModal.user && (
-      <Box
-        sx={{
-          width: "100%",
-          border: "1px dashed",
-          borderColor: "divider",
-          backgroundColor: "background.paper",
-          borderRadius: 2,
-          p: 2.5,
-          mb: 3,
-          display: "flex",
-          flexDirection: "column",
-          gap: 1.5,
-          alignItems: "center",
-        }}
-      >
-        <Typography variant="body1" sx={{ fontWeight: 600 }}>
-          {confirmModal.user.fullName ||
-            `${confirmModal.user.firstName} ${confirmModal.user.lastName}`}
-        </Typography>
-        
-        {/* Simple Divider Line */}
-        <Box 
-          sx={{ 
-            width: "40px", 
-            height: "3px", 
-            backgroundColor: accentColor, 
-            borderRadius: "2px" 
-          }} 
-        />
-
-        <Stack direction="row" spacing={2} divider={<Divider orientation="vertical" flexItem />}>
-           <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              {confirmModal.user.employeeNumber}
-           </Typography>
-           <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              {formatMonth(startDate)}
-           </Typography>
-        </Stack>
+        <Dialog
+          open={confirmModal.open}
+          onClose={closeConfirm}
+          maxWidth="sm"
+          fullWidth
+          sx={{
+            '& .MuiDialog-scrollPaper': { alignItems: 'center' },
+            '& .MuiDialog-container': { overflow: 'hidden' },
+          }}
+          PaperProps={{
+            sx: {
+              borderRadius: 3,
+              boxShadow: '0px 10px 30px rgba(0,0,0,0.1)',
+              overflow: 'hidden',
+              margin: 2,
+            },
+          }}
+        >
+          <DialogContent
+            sx={{
+              textAlign: 'center',
+              py: 4,
+              px: 3,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              overflowX: 'hidden',
+              overflowY: 'hidden',
+            }}
+          >
+            <Box
+              sx={{
+                mb: 2,
+                color: accentColor,
+                backgroundColor: alpha(accentColor, 0.05),
+                p: 2,
+                borderRadius: '12px',
+              }}
+            >
+              <PrintIcon sx={{ fontSize: 40 }} />
+            </Box>
+            <Typography
+              variant="h6"
+              sx={{ fontWeight: 700, mb: 0.5, color: textPrimaryColor }}
+            >
+              {printStatusMap.has(confirmModal.user?.employeeNumber)
+                ? 'Re-print DTR?'
+                : 'Confirm Print Job'}
+            </Typography>
+            <Typography
+              variant="body2"
+              sx={{ color: 'text.secondary', mb: 3, maxWidth: '85%' }}
+            >
+              {printStatusMap.has(confirmModal.user?.employeeNumber)
+                ? 'This record was printed previously. Would you like to generate a new copy?'
+                : 'Please verify the details below before printing.'}
+            </Typography>
+            {confirmModal.user && (
+              <Box
+                sx={{
+                  width: '100%',
+                  border: '1px dashed',
+                  borderColor: 'divider',
+                  backgroundColor: 'background.paper',
+                  borderRadius: 2,
+                  p: 2.5,
+                  mb: 3,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 1.5,
+                  alignItems: 'center',
+                }}
+              >
+                <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                  {confirmModal.user.fullName ||
+                    `${confirmModal.user.firstName} ${confirmModal.user.lastName}`}
+                </Typography>
+                <Box
+                  sx={{
+                    width: '40px',
+                    height: '3px',
+                    backgroundColor: accentColor,
+                    borderRadius: '2px',
+                  }}
+                />
+                <Stack
+                  direction="row"
+                  spacing={2}
+                  divider={<Divider orientation="vertical" flexItem />}
+                >
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                    {confirmModal.user.employeeNumber}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                    {formatMonth(startDate)}
+                  </Typography>
+                </Stack>
+              </Box>
+            )}
+            <Box
+              sx={{
+                display: 'flex',
+                gap: 2,
+                width: '100%',
+                justifyContent: 'center',
+              }}
+            >
+              <ProfessionalButton
+                variant="outlined"
+                onClick={closeConfirm}
+                sx={{
+                  borderRadius: '50px',
+                  px: 3,
+                  borderColor: 'divider',
+                  color: 'text.primary',
+                  borderWidth: 2,
+                  '&:hover': {
+                    borderColor: accentColor,
+                    backgroundColor: 'transparent',
+                    color: accentColor,
+                  },
+                }}
+              >
+                Cancel
+              </ProfessionalButton>
+              <ProfessionalButton
+                variant="contained"
+                onClick={() =>
+                  confirmModal.user &&
+                  handleIndividualPrintConfirmed(confirmModal.user)
+                }
+                startIcon={<PrintIcon />}
+                sx={{
+                  borderRadius: '50px',
+                  px: 4,
+                  py: 1,
+                  backgroundColor: accentColor,
+                  boxShadow: `0 4px 14px 0 ${alpha(accentColor, 0.39)}`,
+                  color: textSecondaryColor,
+                  '&:hover': {
+                    backgroundColor: hoverColor,
+                    transform: 'translateY(-1px)',
+                  },
+                }}
+              >
+                Print
+              </ProfessionalButton>
+            </Box>
+          </DialogContent>
+        </Dialog>
       </Box>
-    )}
 
-    {/* Action Buttons - Pill shaped for modern look */}
-    <Box sx={{ display: "flex", gap: 2, width: "100%", justifyContent: "center" }}>
-      <ProfessionalButton
-        variant="outlined"
-        onClick={closeConfirm}
-        sx={{
-          borderRadius: "50px", // Pill shape
-          px: 3,
-          borderColor: "divider",
-          color: "text.primary",
-          borderWidth: 2,
-          "&:hover": {
-            borderColor: accentColor,
-            backgroundColor: "transparent",
-            color: accentColor,
-          },
-        }}
+      {/* ── Integrity Status Snackbar ────────────────────────────────────────── */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={5000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       >
-        Cancel
-      </ProfessionalButton>
-      <ProfessionalButton
-        variant="contained"
-        onClick={() =>
-          confirmModal.user &&
-          handleIndividualPrintConfirmed(confirmModal.user)
-        }
-        startIcon={<PrintIcon />}
-        sx={{
-          borderRadius: "50px", // Pill shape
-          px: 4,
-          py: 1,
-          backgroundColor: accentColor,
-          boxShadow: `0 4px 14px 0 ${alpha(accentColor, 0.39)}`, // Colored shadow
-          color: textSecondaryColor,
-          "&:hover": { 
-            backgroundColor: hoverColor,
-            transform: "translateY(-1px)", // Subtle lift
-          },
-        }}
-      >
-        Print
-      </ProfessionalButton>
-    </Box>
-  </DialogContent>
-</Dialog>
-      </Box>
+        <Alert
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };

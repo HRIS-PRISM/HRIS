@@ -35,6 +35,15 @@ function logAudit(
       ? user.employeeNumber
       : user || null;
 
+  // Guard against NOT NULL violations on audit_log.employeeNumber.
+  // If actor identity is missing, skip audit insert instead of throwing SQL errors.
+  if (!employeeNumber) {
+    console.warn(
+      `[audit] Skipping audit log for action "${action}" because employeeNumber is missing.`
+    );
+    return;
+  }
+
   let detailsJson = null;
   if (details != null) {
     if (typeof details === 'string') {
