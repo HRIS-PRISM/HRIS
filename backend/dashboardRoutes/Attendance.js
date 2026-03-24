@@ -588,34 +588,67 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
   const { records } = req.body;
 
   const updatePromises = records.map((record) => {
-    const query = `
-      UPDATE attendancerecord
-      SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?
+    const fetchQuery = `
+      SELECT timeIN, breaktimeIN, breaktimeOUT, timeOUT
+      FROM attendancerecord
       WHERE personID = ? AND date = ?
     `;
 
-    const params = [
-      record.timeIN,
-      record.breaktimeIN,
-      record.breaktimeOUT,
-      record.timeOUT,
-      record.personID,
-      record.date,
-    ];
-
     return new Promise((resolve, reject) => {
-      db.query(query, params, (err, result) => {
-        if (err) reject(err);
-        else {
-          logAudit(
-          req.user,
-          `Updated Attendance Record`,
-          'Attendance Modification',
-          record.date,
+      db.query(fetchQuery, [record.personID, record.date], (fetchErr, existing) => {
+        if (fetchErr) return reject(fetchErr);
+
+        const old = existing[0] || {};
+        const normalize = (val) => (val == null ? '' : String(val).trim());
+
+        // Build a diff of only the fields that changed
+        const fields = [
+          { key: 'timeIN',       label: 'Time IN'       },
+          { key: 'breaktimeIN',  label: 'Breaktime IN'  },
+          { key: 'breaktimeOUT', label: 'Breaktime OUT' },
+          { key: 'timeOUT',      label: 'Time OUT'      },
+        ];
+
+        const changes = fields
+          .filter(({ key }) => normalize(old[key]) !== normalize(record[key]))
+          .map(({ key, label }) =>
+            `${label}: [${normalize(old[key]) || 'empty'} → ${normalize(record[key]) || 'empty'}]`
+          )
+          .join(' | ');
+
+        const hasChanged = changes.length > 0;
+
+        const updateQuery = `
+          UPDATE attendancerecord
+          SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?
+          WHERE personID = ? AND date = ?
+        `;
+
+        const params = [
+          record.timeIN,
+          record.breaktimeIN,
+          record.breaktimeOUT,
+          record.timeOUT,
           record.personID,
-        );
+          record.date,
+        ];
+
+        db.query(updateQuery, params, (updateErr, result) => {
+          if (updateErr) return reject(updateErr);
+
+          if (hasChanged) {
+            // action now carries the before/after diff inline
+            logAudit(
+              req.user,
+              `Updated Attendance Record | ${record.date} | ${changes}`,
+              'Attendance Modification',
+              record.date,
+              record.personID,
+            );
+          }
+
           resolve(result);
-        }
+        });
       });
     });
   });
@@ -624,6 +657,9 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
     .then(() => res.send({ message: 'Records updated successfully.' }))
     .catch((err) => res.status(500).send(err));
 });
+
+
+
 
 // GET API for fetching attendance records
 router.get('/api/dtr', authenticateToken, (req, res) => {

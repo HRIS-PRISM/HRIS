@@ -1,5 +1,5 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import {
   Button,
@@ -28,6 +28,8 @@ import {
   Select,
   MenuItem,
   CircularProgress,
+  TablePagination,
+  Divider,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -39,6 +41,8 @@ import {
   Search,
   Shortcut,
   Refresh,
+  FilterList,
+  ClearAll,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
@@ -49,10 +53,11 @@ import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
 // Helper function to convert hex to rgb
 const hexToRgb = (hex) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '109, 35, 35';
+  return result
+    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
+    : '109, 35, 35';
 };
 
-// Professional styled components - colors will be applied via sx prop
 const GlassCard = styled(Paper)(({ theme }) => ({
   borderRadius: 20,
   backdropFilter: 'blur(10px)',
@@ -131,9 +136,8 @@ const PremiumTableContainer = styled(Box)(({ theme }) => ({
 
 const SalaryGradeTable = () => {
   const [salaryGrades, setSalaryGrades] = useState([]);
-  const [filteredGrades, setFilteredGrades] = useState([]);
   const [newSalaryGrade, setNewSalaryGrade] = useState({
-    effectivityDate: '2024', // Default to 2024
+    effectivityDate: '2024',
     sg_number: '',
     step1: '',
     step2: '',
@@ -145,94 +149,105 @@ const SalaryGradeTable = () => {
     step8: '',
   });
   const [editSalaryGradeId, setEditSalaryGradeId] = useState(null);
+
+  // --- FIXED FILTERS: three independent fields ---
   const [searchFilters, setSearchFilters] = useState({
-    effectivityDate: '',
-    step: '',
+    effectivityDate: '', // dropdown: exact year match
+    sg_number: '',       // dropdown: exact SG match
+    stepValue: '',       // text: search across any step value
   });
+
+  // --- PAGINATION STATE ---
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+
   const navigate = useNavigate();
-  
   const { settings } = useSystemSettings();
-  
-  // Get colors from system settings
-  const primaryColor = settings.accentColor || '#FEF9E1'; // Cards color
-  const secondaryColor = settings.backgroundColor || '#FFF8E7'; // Background
-  const accentColor = settings.primaryColor || '#6d2323'; // Primary accent
-  const accentDark = settings.secondaryColor || '#8B3333'; // Darker accent
+
+  const primaryColor = settings.accentColor || '#FEF9E1';
+  const secondaryColor = settings.backgroundColor || '#FFF8E7';
+  const accentColor = settings.primaryColor || '#6d2323';
+  const accentDark = settings.secondaryColor || '#8B3333';
   const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
   const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
   const hoverColor = settings.hoverColor || '#6D2323';
-  const blackColor = '#1a1a1a';
-  const whiteColor = '#FFFFFF';
-  const grayColor = '#6c757d';
 
-  //ACCESSING
-  // Dynamic page access control using component identifier
-  // The identifier 'salary-grade' should match the component_identifier in the pages table
-  const {
-    hasAccess,
-    loading: accessLoading,
-    error: accessError,
-  } = usePageAccess('salary-grade');
-  // ACCESSING END
+  const { hasAccess, loading: accessLoading } = usePageAccess('salary-grade');
 
-  // Generate year options for dropdown (2020 to 10 years in the future from current year)
-  const generateYearOptions = () => {
+  // Derive unique year and SG options from loaded data
+  const yearOptions = useMemo(() => {
+    const years = [...new Set(salaryGrades.map((r) => r.effectivityDate))].sort();
+    // Also include generated years so the form dropdown is still fully populated
+    const generated = generateYearOptions().map(String);
+    const merged = [...new Set([...generated, ...years])].sort();
+    return merged;
+  }, [salaryGrades]);
+
+  const sgOptionsFromData = useMemo(() => {
+    return [...new Set(salaryGrades.map((r) => r.sg_number))];
+  }, [salaryGrades]);
+
+  // --- FIXED FILTER LOGIC ---
+  const filteredGrades = useMemo(() => {
+    const { effectivityDate, sg_number, stepValue } = searchFilters;
+    return salaryGrades.filter((record) => {
+      // Year filter — exact match from dropdown
+      if (effectivityDate && record.effectivityDate !== effectivityDate) return false;
+
+      // SG number filter — exact match from dropdown
+      if (sg_number && record.sg_number !== sg_number) return false;
+
+      // Step value filter — match any step that contains the search string
+      if (stepValue) {
+        const query = stepValue.toLowerCase().trim();
+        const anyStepMatches = [...Array(8)].some((_, i) =>
+          (record[`step${i + 1}`] ?? '').toString().toLowerCase().includes(query)
+        );
+        if (!anyStepMatches) return false;
+      }
+
+      return true;
+    });
+  }, [salaryGrades, searchFilters]);
+
+  // Reset to first page whenever filters change
+  useEffect(() => {
+    setPage(0);
+  }, [searchFilters]);
+
+  // Paginated slice
+  const paginatedGrades = useMemo(() => {
+    const start = page * rowsPerPage;
+    return filteredGrades.slice(start, start + rowsPerPage);
+  }, [filteredGrades, page, rowsPerPage]);
+
+  function generateYearOptions() {
     const currentYear = new Date().getFullYear();
     const years = [];
     for (let i = 2020; i <= currentYear + 10; i++) {
       years.push(i);
     }
     return years;
-  };
+  }
 
-  // Generate salary grade options
-  const generateSGOptions = () => {
+  function generateSGOptions() {
     const options = [];
     for (let i = 1; i <= 33; i++) {
       options.push(i.toString());
     }
-    options.push("Job Order(Graduated)");
-    options.push("Job Order(Undergraduate)");
+    options.push('Job Order(Graduated)');
+    options.push('Job Order(Undergraduate)');
     return options;
-  };
+  }
 
-  // Helper function to get auth headers
   const getAuthHeaders = () => {
-    const token = localStorage.getItem('token'); // or however you store token
-    return {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    };
+    const token = localStorage.getItem('token');
+    return { headers: { Authorization: `Bearer ${token}` } };
   };
 
   useEffect(() => {
     fetchSalaryGrades();
   }, []);
-
-  useEffect(() => {
-    const { effectivityDate, step } = searchFilters;
-
-    if (!effectivityDate && !step) {
-      setFilteredGrades(salaryGrades);
-      return;
-    }
-
-    const filtered = salaryGrades.filter((record) => {
-      const matchDate = record.effectivityDate
-        .toLowerCase()
-        .includes(effectivityDate.toLowerCase());
-      const matchStep = [...Array(8)].some((_, i) =>
-        record[`step${i + 1}`]
-          ?.toString()
-          .toLowerCase()
-          .includes(step.toLowerCase())
-      );
-      return matchDate && matchStep;
-    });
-
-    setFilteredGrades(filtered);
-  }, [searchFilters, salaryGrades]);
 
   const fetchSalaryGrades = async () => {
     try {
@@ -241,13 +256,10 @@ const SalaryGradeTable = () => {
         getAuthHeaders()
       );
       setSalaryGrades(response.data);
-      setFilteredGrades(response.data);
     } catch (error) {
       console.error('Error fetching salary grades:', error);
       if (error.response?.status === 401 || error.response?.status === 403) {
         alert('Session expired. Please login again.');
-        // Optionally redirect to login
-        // navigate('/login');
       }
     }
   };
@@ -264,16 +276,10 @@ const SalaryGradeTable = () => {
         getAuthHeaders()
       );
       setNewSalaryGrade({
-        effectivityDate: '2024', // Reset to 2024
+        effectivityDate: '2024',
         sg_number: '',
-        step1: '',
-        step2: '',
-        step3: '',
-        step4: '',
-        step5: '',
-        step6: '',
-        step7: '',
-        step8: '',
+        step1: '', step2: '', step3: '', step4: '',
+        step5: '', step6: '', step7: '', step8: '',
       });
       fetchSalaryGrades();
     } catch (error) {
@@ -319,7 +325,8 @@ const SalaryGradeTable = () => {
 
   const highlightText = (text, query) => {
     if (!query) return text;
-    const parts = text.toString().split(new RegExp(`(${query})`, 'gi'));
+    const str = (text ?? '').toString();
+    const parts = str.split(new RegExp(`(${query})`, 'gi'));
     return parts.map((part, i) =>
       part.toLowerCase() === query.toLowerCase() ? (
         <span key={i} style={{ backgroundColor: 'rgba(109, 35, 35, 0.2)' }}>
@@ -331,18 +338,19 @@ const SalaryGradeTable = () => {
     );
   };
 
-  // ACCESSING 2
-  // Loading state
+  const clearFilters = () => {
+    setSearchFilters({ effectivityDate: '', sg_number: '', stepValue: '' });
+    setPage(0);
+  };
+
+  const hasActiveFilters =
+    searchFilters.effectivityDate || searchFilters.sg_number || searchFilters.stepValue;
+
+  // ACCESS CONTROL
   if (accessLoading) {
     return (
       <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <CircularProgress sx={{ color: '#6d2323', mb: 2 }} />
           <Typography variant="h6" sx={{ color: '#6d2323' }}>
             Loading access information...
@@ -351,7 +359,6 @@ const SalaryGradeTable = () => {
       </Container>
     );
   }
-  // Access denied state - Now using the reusable component
   if (!accessLoading && hasAccess !== true) {
     return (
       <AccessDenied
@@ -362,72 +369,44 @@ const SalaryGradeTable = () => {
       />
     );
   }
-  //ACCESSING END2
 
   return (
-    <Box sx={{ 
+    <Box sx={{
       py: 4,
       mt: -5,
-      width: '1600px', // Fixed width
-      mx: 'auto', // Center horizontally
-      overflow: 'hidden', // Prevent horizontal scroll
+      width: '1600px',
+      mx: 'auto',
+      overflow: 'hidden',
     }}>
-      {/* Container with fixed width */}
       <Box sx={{ px: 6 }}>
-        {/* Header */}
+
+        {/* ── HEADER ── */}
         <Fade in timeout={500}>
           <Box sx={{ mb: 4 }}>
             <GlassCard sx={{
               background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
               boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
               border: `1px solid ${alpha(accentColor, 0.1)}`,
-              '&:hover': {
-                boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-              },
+              '&:hover': { boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}` },
             }}>
-              <Box
-                sx={{
-                  p: 5,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  color: textPrimaryColor,
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}
-              >
-                {/* Decorative elements */}
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: -50,
-                    right: -50,
-                    width: 200,
-                    height: 200,
-                    background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, ${alpha(accentColor, 0)} 70%)`,
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    bottom: -30,
-                    left: '30%',
-                    width: 150,
-                    height: 150,
-                    background: `radial-gradient(circle, ${alpha(accentColor, 0.08)} 0%, ${alpha(accentColor, 0)} 70%)`,
-                  }}
-                />
-                
+              <Box sx={{
+                p: 5,
+                background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                color: textPrimaryColor,
+                position: 'relative',
+                overflow: 'hidden',
+              }}>
+                <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200,
+                  background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, ${alpha(accentColor, 0)} 70%)` }} />
+                <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150,
+                  background: `radial-gradient(circle, ${alpha(accentColor, 0.08)} 0%, ${alpha(accentColor, 0)} 70%)` }} />
                 <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
                   <Box display="flex" alignItems="center">
-                    <Avatar 
-                      sx={{ 
-                        bgcolor: alpha(accentColor, 0.15), 
-                        mr: 4, 
-                        width: 64,
-                        height: 64,
-                        boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`
-                      }}
-                    >
-                      <Upgrade sx={{color: textPrimaryColor, fontSize: 32 }} />
+                    <Avatar sx={{
+                      bgcolor: alpha(accentColor, 0.15), mr: 4, width: 64, height: 64,
+                      boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`
+                    }}>
+                      <Upgrade sx={{ color: textPrimaryColor, fontSize: 32 }} />
                     </Avatar>
                     <Box>
                       <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}>
@@ -440,14 +419,12 @@ const SalaryGradeTable = () => {
                   </Box>
                   <Box display="flex" alignItems="center" gap={2}>
                     <Tooltip title="Refresh Data">
-                      <IconButton 
+                      <IconButton
                         onClick={() => window.location.reload()}
-                        sx={{ 
-                          bgcolor: 'rgba(109,35,35,0.1)', 
+                        sx={{
+                          bgcolor: 'rgba(109,35,35,0.1)',
                           '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
-                          color: accentColor,
-                          width: 48,
-                          height: 48,
+                          color: accentColor, width: 48, height: 48,
                         }}
                       >
                         <Refresh sx={{ fontSize: 24 }} />
@@ -460,27 +437,21 @@ const SalaryGradeTable = () => {
           </Box>
         </Fade>
 
-        {/* Add Salary Grade Form */}
+        {/* ── ADD FORM ── */}
         <Fade in timeout={700}>
           <GlassCard sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}>
-            <Box
-              sx={{
-                p: 4,
-                background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                color: accentColor,
-                display: "flex",
-                alignItems: "center",
-                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <Upgrade sx={{ fontSize: "1.8rem", mr: 2 }} />
+            <Box sx={{
+              p: 4,
+              background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+              color: accentColor,
+              display: 'flex',
+              alignItems: 'center',
+              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+            }}>
+              <Upgrade sx={{ fontSize: '1.8rem', mr: 2 }} />
               <Box>
-                <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                  Add New Salary Grade
-                </Typography>
-                <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                  Fill in salary grade information
-                </Typography>
+                <Typography variant="h6" sx={{ fontWeight: 'bold' }}>Add New Salary Grade</Typography>
+                <Typography variant="caption" sx={{ opacity: 0.9 }}>Fill in salary grade information</Typography>
               </Box>
             </Box>
 
@@ -495,22 +466,16 @@ const SalaryGradeTable = () => {
                     <Select
                       labelId="effectivity-date-label"
                       value={newSalaryGrade.effectivityDate}
-                      onChange={(e) =>
-                        setNewSalaryGrade({
-                          ...newSalaryGrade,
-                          effectivityDate: e.target.value,
-                        })
-                      }
+                      onChange={(e) => setNewSalaryGrade({ ...newSalaryGrade, effectivityDate: e.target.value })}
                       label="Year"
                     >
                       {generateYearOptions().map((year) => (
-                        <MenuItem key={year} value={year.toString()}>
-                          {year}
-                        </MenuItem>
+                        <MenuItem key={year} value={year.toString()}>{year}</MenuItem>
                       ))}
                     </Select>
                   </ModernSelect>
                 </Grid>
+
                 <Grid item xs={12} sm={6}>
                   <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
                     Salary Grade Number
@@ -520,30 +485,17 @@ const SalaryGradeTable = () => {
                     <Select
                       labelId="sg-number-label"
                       value={newSalaryGrade.sg_number}
-                      onChange={(e) =>
-                        setNewSalaryGrade({
-                          ...newSalaryGrade,
-                          sg_number: e.target.value,
-                        })
-                      }
+                      onChange={(e) => setNewSalaryGrade({ ...newSalaryGrade, sg_number: e.target.value })}
                       label="Salary Grade"
-                      MenuProps={{
-                        PaperProps: {
-                          sx: {
-                            width: '200px', // Set dropdown menu width
-                            maxHeight: '300px', // Set max height to prevent too long menu
-                          }
-                        }
-                      }}
+                      MenuProps={{ PaperProps: { sx: { width: '200px', maxHeight: '300px' } } }}
                     >
                       {generateSGOptions().map((sg) => (
-                        <MenuItem key={sg} value={sg}>
-                          {sg}
-                        </MenuItem>
+                        <MenuItem key={sg} value={sg}>{sg}</MenuItem>
                       ))}
                     </Select>
                   </ModernSelect>
                 </Grid>
+
                 {[...Array(8)].map((_, i) => (
                   <Grid item xs={12} sm={6} md={3} key={i}>
                     <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
@@ -552,15 +504,11 @@ const SalaryGradeTable = () => {
                     <ModernTextField
                       fullWidth
                       value={newSalaryGrade[`step${i + 1}`]}
-                      onChange={(e) =>
-                        setNewSalaryGrade({
-                          ...newSalaryGrade,
-                          [`step${i + 1}`]: e.target.value,
-                        })
-                      }
+                      onChange={(e) => setNewSalaryGrade({ ...newSalaryGrade, [`step${i + 1}`]: e.target.value })}
                     />
                   </Grid>
                 ))}
+
                 <Grid item xs={12}>
                   <ProfessionalButton
                     onClick={addSalaryGrade}
@@ -572,9 +520,7 @@ const SalaryGradeTable = () => {
                       fontSize: '1rem',
                       backgroundColor: settings.updateButtonColor || settings.primaryColor || '#6d2323',
                       color: settings.accentColor || '#FEF9E1',
-                      '&:hover': {
-                        backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d',
-                      },
+                      '&:hover': { backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d' },
                     }}
                   >
                     Add Salary Grade
@@ -585,57 +531,108 @@ const SalaryGradeTable = () => {
           </GlassCard>
         </Fade>
 
-        {/* Search Filters & Shortcut */}
+        {/* ── SEARCH / FILTER BAR ── */}
         <Fade in timeout={900}>
           <GlassCard sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}>
-            <Box
-              sx={{
-                p: 3,
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 2,
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexGrow: 1 }}>
+            <Box sx={{
+              p: 3,
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 2,
+            }}>
+              {/* Left: filters */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', flexGrow: 1 }}>
+                <FilterList sx={{ color: accentColor, fontSize: 22 }} />
+
+                {/* Filter by Year */}
+                <ModernSelect size="small" sx={{ minWidth: 140 }}>
+                  <InputLabel id="filter-year-label">Year</InputLabel>
+                  <Select
+                    labelId="filter-year-label"
+                    value={searchFilters.effectivityDate}
+                    onChange={(e) => setSearchFilters({ ...searchFilters, effectivityDate: e.target.value })}
+                    label="Year"
+                    size="small"
+                  >
+                    <MenuItem value=""><em>All Years</em></MenuItem>
+                    {generateYearOptions().map((year) => (
+                      <MenuItem key={year} value={year.toString()}>{year}</MenuItem>
+                    ))}
+                  </Select>
+                </ModernSelect>
+
+                {/* Filter by SG Number */}
+                <ModernSelect size="small" sx={{ minWidth: 180 }}>
+                  <InputLabel id="filter-sg-label">SG Number</InputLabel>
+                  <Select
+                    labelId="filter-sg-label"
+                    value={searchFilters.sg_number}
+                    onChange={(e) => setSearchFilters({ ...searchFilters, sg_number: e.target.value })}
+                    label="SG Number"
+                    size="small"
+                    MenuProps={{ PaperProps: { sx: { maxHeight: '300px' } } }}
+                  >
+                    <MenuItem value=""><em>All Grades</em></MenuItem>
+                    {generateSGOptions().map((sg) => (
+                      <MenuItem key={sg} value={sg}>{sg}</MenuItem>
+                    ))}
+                  </Select>
+                </ModernSelect>
+
+                {/* Filter by Step Value */}
                 <ModernTextField
-                  label="Search by Date"
+                  label="Search Step Value"
                   size="small"
-                  value={searchFilters.effectivityDate}
-                  onChange={(e) =>
-                    setSearchFilters({
-                      ...searchFilters,
-                      effectivityDate: e.target.value,
-                    })
-                  }
+                  value={searchFilters.stepValue}
+                  onChange={(e) => setSearchFilters({ ...searchFilters, stepValue: e.target.value })}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
-                        <Search sx={{ color: accentColor }} />
+                        <Search sx={{ color: accentColor, fontSize: 18 }} />
                       </InputAdornment>
                     ),
                   }}
                   sx={{ width: '200px' }}
                 />
-                <ModernTextField
-                  label="Search by Step"
-                  size="small"
-                  value={searchFilters.step}
-                  onChange={(e) =>
-                    setSearchFilters({ ...searchFilters, step: e.target.value })
-                  }
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <Search sx={{ color: accentColor }} />
-                      </InputAdornment>
-                    ),
-                  }}
-                  sx={{ width: '200px' }}
-                />
+
+                {/* Result count chip */}
+                {hasActiveFilters && (
+                  <Chip
+                    label={`${filteredGrades.length} result${filteredGrades.length !== 1 ? 's' : ''}`}
+                    size="small"
+                    sx={{
+                      bgcolor: alpha(accentColor, 0.1),
+                      color: accentColor,
+                      fontWeight: 600,
+                      fontSize: '0.75rem',
+                    }}
+                  />
+                )}
               </Box>
+
+              {/* Right: action buttons */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                {hasActiveFilters && (
+                  <Tooltip title="Clear All Filters">
+                    <ProfessionalButton
+                      onClick={clearFilters}
+                      variant="outlined"
+                      startIcon={<ClearAll />}
+                      size="small"
+                      sx={{
+                        borderColor: accentColor,
+                        color: accentColor,
+                        py: 0.8,
+                        fontSize: '0.85rem',
+                        '&:hover': { backgroundColor: alpha(accentColor, 0.06) },
+                      }}
+                    >
+                      Clear Filters
+                    </ProfessionalButton>
+                  </Tooltip>
+                )}
                 <ProfessionalButton
                   variant="contained"
                   startIcon={<Shortcut />}
@@ -643,130 +640,98 @@ const SalaryGradeTable = () => {
                   sx={{
                     backgroundColor: settings.updateButtonColor || settings.primaryColor || '#6d2323',
                     color: settings.accentColor || '#FEF9E1',
-                    '&:hover': {
-                      backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d',
-                    },
+                    '&:hover': { backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d' },
                   }}
                 >
                   Insert to Item Table
                 </ProfessionalButton>
-                <Tooltip title="Clear Filters">
-                  <IconButton 
-                    onClick={() => setSearchFilters({ effectivityDate: '', step: '' })}
-                    sx={{ 
-                      bgcolor: 'rgba(109,35,35,0.1)', 
-                      '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
-                      color: accentColor,
-                    }}
-                  >
-                    <Refresh sx={{ fontSize: 20 }} />
-                  </IconButton>
-                </Tooltip>
               </Box>
             </Box>
           </GlassCard>
         </Fade>
 
-        {/* Salary Grade Table */}
+        {/* ── TABLE ── */}
         <Fade in timeout={1100}>
           <PremiumTableContainer>
             <Table sx={{ backgroundColor: '#fff' }}>
               <TableHead>
                 <TableRow sx={{ backgroundColor: accentColor }}>
-                  <TableCell sx={{ color: '#fff', fontWeight: 'bold' }}>
-                    Effectivity Date
-                  </TableCell>
-                  <TableCell sx={{ color: '#fff', fontWeight: 'bold' }}>
-                    SG Number
-                  </TableCell>
+                  <TableCell sx={{ color: '#fff', fontWeight: 'bold' }}>Effectivity Date</TableCell>
+                  <TableCell sx={{ color: '#fff', fontWeight: 'bold' }}>SG Number</TableCell>
                   {[...Array(8)].map((_, i) => (
-                    <TableCell key={i} sx={{ color: '#fff', fontWeight: 'bold' }}>
-                      Step {i + 1}
-                    </TableCell>
+                    <TableCell key={i} sx={{ color: '#fff', fontWeight: 'bold' }}>Step {i + 1}</TableCell>
                   ))}
-                  <TableCell sx={{ color: '#fff', fontWeight: 'bold' }}>
-                    Actions
-                  </TableCell>
+                  <TableCell sx={{ color: '#fff', fontWeight: 'bold' }}>Actions</TableCell>
                 </TableRow>
               </TableHead>
+
               <TableBody>
-                {filteredGrades.length === 0 ? (
+                {paginatedGrades.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
-                      <Typography variant="h6" color={accentColor}>
-                        No matching records found
-                      </Typography>
+                    <TableCell colSpan={11} align="center" sx={{ py: 6 }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                        <Search sx={{ fontSize: 40, color: alpha(accentColor, 0.3) }} />
+                        <Typography variant="h6" color={accentColor}>
+                          {hasActiveFilters ? 'No records match your filters' : 'No records found'}
+                        </Typography>
+                        {hasActiveFilters && (
+                          <Typography variant="body2" color="text.secondary">
+                            Try adjusting or clearing your filters
+                          </Typography>
+                        )}
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredGrades.map((record) => (
-                    <TableRow key={record.id}>
+                  paginatedGrades.map((record) => (
+                    <TableRow key={record.id} sx={{ '&:hover': { backgroundColor: alpha(accentColor, 0.03) } }}>
+
+                      {/* Effectivity Date cell */}
                       <TableCell>
                         {editSalaryGradeId === record.id ? (
                           <ModernSelect fullWidth variant="outlined" size="small">
                             <Select
                               value={record.effectivityDate}
                               onChange={(e) => {
-                                const updated = {
-                                  ...record,
-                                  effectivityDate: e.target.value,
-                                };
-                                setSalaryGrades((prev) =>
-                                  prev.map((r) => (r.id === record.id ? updated : r))
-                                );
+                                const updated = { ...record, effectivityDate: e.target.value };
+                                setSalaryGrades((prev) => prev.map((r) => (r.id === record.id ? updated : r)));
                               }}
+                              size="small"
                             >
                               {generateYearOptions().map((year) => (
-                                <MenuItem key={year} value={year.toString()}>
-                                  {year}
-                                </MenuItem>
+                                <MenuItem key={year} value={year.toString()}>{year}</MenuItem>
                               ))}
                             </Select>
                           </ModernSelect>
                         ) : (
-                          highlightText(
-                            record.effectivityDate,
-                            searchFilters.effectivityDate
-                          )
+                          highlightText(record.effectivityDate, searchFilters.effectivityDate)
                         )}
                       </TableCell>
+
+                      {/* SG Number cell */}
                       <TableCell>
                         {editSalaryGradeId === record.id ? (
                           <ModernSelect fullWidth variant="outlined" size="small">
                             <Select
                               value={record.sg_number}
                               onChange={(e) => {
-                                const updated = {
-                                  ...record,
-                                  sg_number: e.target.value,
-                                };
-                                setSalaryGrades((prev) =>
-                                  prev.map((r) => (r.id === record.id ? updated : r))
-                                );
+                                const updated = { ...record, sg_number: e.target.value };
+                                setSalaryGrades((prev) => prev.map((r) => (r.id === record.id ? updated : r)));
                               }}
-                              MenuProps={{
-                                PaperProps: {
-                                  sx: {
-                                    width: '200px', // Set dropdown menu width
-                                    maxHeight: '300px', // Set max height
-                                  }
-                                }
-                              }}
+                              size="small"
+                              MenuProps={{ PaperProps: { sx: { width: '200px', maxHeight: '300px' } } }}
                             >
                               {generateSGOptions().map((sg) => (
-                                <MenuItem key={sg} value={sg}>
-                                  {sg}
-                                </MenuItem>
+                                <MenuItem key={sg} value={sg}>{sg}</MenuItem>
                               ))}
                             </Select>
                           </ModernSelect>
                         ) : (
-                          highlightText(
-                            record.sg_number,
-                            searchFilters.effectivityDate
-                          )
+                          highlightText(record.sg_number, searchFilters.sg_number)
                         )}
                       </TableCell>
+
+                      {/* Step cells */}
                       {[...Array(8)].map((_, i) => (
                         <TableCell key={i}>
                           {editSalaryGradeId === record.id ? (
@@ -774,23 +739,17 @@ const SalaryGradeTable = () => {
                               size="small"
                               value={record[`step${i + 1}`]}
                               onChange={(e) => {
-                                const updated = {
-                                  ...record,
-                                  [`step${i + 1}`]: e.target.value,
-                                };
-                                setSalaryGrades((prev) =>
-                                  prev.map((r) => (r.id === record.id ? updated : r))
-                                );
+                                const updated = { ...record, [`step${i + 1}`]: e.target.value };
+                                setSalaryGrades((prev) => prev.map((r) => (r.id === record.id ? updated : r)));
                               }}
                             />
                           ) : (
-                            highlightText(
-                              record[`step${i + 1}`],
-                              searchFilters.step
-                            )
+                            highlightText(record[`step${i + 1}`], searchFilters.stepValue)
                           )}
                         </TableCell>
                       ))}
+
+                      {/* Actions cell */}
                       <TableCell>
                         {editSalaryGradeId === record.id ? (
                           <Box sx={{ display: 'flex', gap: 1 }}>
@@ -801,12 +760,8 @@ const SalaryGradeTable = () => {
                               sx={{
                                 backgroundColor: settings.updateButtonColor || settings.primaryColor || '#6d2323',
                                 color: settings.accentColor || '#FEF9E1',
-                                py: 0.5,
-                                fontSize: '0.8rem',
-                                minWidth: '80px',
-                                '&:hover': {
-                                  backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d',
-                                },
+                                py: 0.5, fontSize: '0.8rem', minWidth: '80px',
+                                '&:hover': { backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d' },
                               }}
                             >
                               Update
@@ -818,9 +773,7 @@ const SalaryGradeTable = () => {
                               sx={{
                                 borderColor: settings.cancelButtonColor || '#6c757d',
                                 color: settings.cancelButtonColor || '#6c757d',
-                                py: 0.5,
-                                fontSize: '0.8rem',
-                                minWidth: '80px',
+                                py: 0.5, fontSize: '0.8rem', minWidth: '80px',
                                 '&:hover': {
                                   backgroundColor: alpha(settings.cancelButtonColor || '#6c757d', 0.1),
                                   borderColor: settings.cancelButtonHoverColor || '#5a6268',
@@ -840,12 +793,8 @@ const SalaryGradeTable = () => {
                               sx={{
                                 backgroundColor: settings.updateButtonColor || settings.primaryColor || '#6d2323',
                                 color: settings.accentColor || '#FEF9E1',
-                                py: 0.5,
-                                fontSize: '0.8rem',
-                                minWidth: '80px',
-                                '&:hover': {
-                                  backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d',
-                                },
+                                py: 0.5, fontSize: '0.8rem', minWidth: '80px',
+                                '&:hover': { backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d' },
                               }}
                             >
                               Edit
@@ -857,9 +806,7 @@ const SalaryGradeTable = () => {
                               sx={{
                                 borderColor: settings.deleteButtonColor || settings.primaryColor || '#6d2323',
                                 color: settings.deleteButtonColor || settings.primaryColor || '#6d2323',
-                                py: 0.5,
-                                fontSize: '0.8rem',
-                                minWidth: '80px',
+                                py: 0.5, fontSize: '0.8rem', minWidth: '80px',
                                 '&:hover': {
                                   backgroundColor: alpha(settings.deleteButtonColor || settings.primaryColor || '#6d2323', 0.1),
                                   borderColor: settings.deleteButtonHoverColor || settings.hoverColor || '#a31d1d',
@@ -877,8 +824,41 @@ const SalaryGradeTable = () => {
                 )}
               </TableBody>
             </Table>
+
+            {/* ── PAGINATION ── */}
+            <Divider />
+            <TablePagination
+              component="div"
+              count={filteredGrades.length}
+              page={page}
+              onPageChange={(_, newPage) => setPage(newPage)}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={(e) => {
+                setRowsPerPage(parseInt(e.target.value, 10));
+                setPage(0);
+              }}
+              rowsPerPageOptions={[5, 10, 20, 50]}
+              sx={{
+                borderTop: `1px solid ${alpha(accentColor, 0.1)}`,
+                backgroundColor: alpha(primaryColor, 0.5),
+                '.MuiTablePagination-toolbar': { px: 3 },
+                '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
+                  color: accentColor,
+                  fontWeight: 500,
+                },
+                '.MuiTablePagination-select': {
+                  color: accentColor,
+                  fontWeight: 600,
+                },
+                '.MuiTablePagination-actions button': {
+                  color: accentColor,
+                  '&:disabled': { color: alpha(accentColor, 0.3) },
+                },
+              }}
+            />
           </PremiumTableContainer>
         </Fade>
+
       </Box>
     </Box>
   );

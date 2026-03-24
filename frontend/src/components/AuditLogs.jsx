@@ -1,7 +1,7 @@
-import API_BASE_URL from "../apiConfig";
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import axios from "axios";
+import API_BASE_URL from '../apiConfig';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import {
   Box,
   Typography,
@@ -36,7 +36,7 @@ import {
   CardHeader,
   Modal,
   Snackbar,
-} from "@mui/material";
+} from '@mui/material';
 import {
   Download as DownloadIcon,
   Delete as DeleteIcon,
@@ -75,18 +75,18 @@ import {
   FolderSpecial,
   KeyboardArrowDown,
   KeyboardArrowUp,
-} from "@mui/icons-material";
-import { getUserInfo } from "../utils/auth";
+} from '@mui/icons-material';
+import { getUserInfo } from '../utils/auth';
 import usePageAccess from '../hooks/usePageAccess';
 import AccessDenied from './AccessDenied';
 import { useSocket } from '../contexts/SocketContext';
 
 // Get auth headers function
 const getAuthHeaders = () => {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem('token');
   return {
     headers: {
-      "Content-Type": "application/json",
+      'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
   };
@@ -95,42 +95,42 @@ const getAuthHeaders = () => {
 // System Settings Hook
 const useSystemSettings = () => {
   const [settings, setSettings] = useState({
-    primaryColor: "#894444",
-    secondaryColor: "#6d2323",
-    accentColor: "#FEF9E1",
-    textColor: "#FFFFFF",
-    textPrimaryColor: "#6D2323",
-    textSecondaryColor: "#FEF9E1",
-    hoverColor: "#6D2323",
-    backgroundColor: "#FFFFFF",
+    primaryColor: '#894444',
+    secondaryColor: '#6d2323',
+    accentColor: '#FEF9E1',
+    textColor: '#FFFFFF',
+    textPrimaryColor: '#6D2323',
+    textSecondaryColor: '#FEF9E1',
+    hoverColor: '#6D2323',
+    backgroundColor: '#FFFFFF',
   });
 
   useEffect(() => {
-    const storedSettings = localStorage.getItem("systemSettings");
+    const storedSettings = localStorage.getItem('systemSettings');
     if (storedSettings) {
       try {
         const parsedSettings = JSON.parse(storedSettings);
-        if (parsedSettings && typeof parsedSettings === "object") {
+        if (parsedSettings && typeof parsedSettings === 'object') {
           setSettings(parsedSettings);
         }
       } catch (error) {
-        console.error("Error parsing stored settings:", error);
+        console.error('Error parsing stored settings:', error);
       }
     }
 
     const fetchSettings = async () => {
       try {
-        const url = API_BASE_URL.includes("/api")
+        const url = API_BASE_URL.includes('/api')
           ? `${API_BASE_URL}/system-settings`
           : `${API_BASE_URL}/api/system-settings`;
 
         const response = await axios.get(url, getAuthHeaders());
-        if (response.data && typeof response.data === "object") {
+        if (response.data && typeof response.data === 'object') {
           setSettings(response.data);
-          localStorage.setItem("systemSettings", JSON.stringify(response.data));
+          localStorage.setItem('systemSettings', JSON.stringify(response.data));
         }
       } catch (error) {
-        console.error("Error fetching system settings:", error);
+        console.error('Error fetching system settings:', error);
       }
     };
 
@@ -140,6 +140,10 @@ const useSystemSettings = () => {
   return settings;
 };
 
+// ─── Session durations ───────────────────────────────────────────────────────
+const SESSION_DURATION_DEFAULT = 10 * 60 * 1000; // 10 minutes (admin / superadmin)
+const SESSION_DURATION_TECHNICAL = 30 * 60 * 1000; // 30 minutes (technical)
+
 const AuditLogs = () => {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);
@@ -147,18 +151,18 @@ const AuditLogs = () => {
   const [loading, setLoading] = useState(true);
   const [auditLogs, setAuditLogs] = useState([]);
   const [filteredLogs, setFilteredLogs] = useState([]);
-  const [actionFilter, setActionFilter] = useState("");
-  const [moduleFilter, setModuleFilter] = useState("");
-  const [dateFilter, setDateFilter] = useState("");
-  const [employeeFilter, setEmployeeFilter] = useState("");
+  const [actionFilter, setActionFilter] = useState('');
+  const [moduleFilter, setModuleFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
+  const [employeeFilter, setEmployeeFilter] = useState('');
   const [toast, setToast] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(true);
-  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [passwordError, setPasswordError] = useState("");
+  const [passwordError, setPasswordError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const [sessionTimer, setSessionTimer] = useState(600); // 10 minutes in seconds
+  const [sessionTimer, setSessionTimer] = useState(600); // will be overridden per role
   const [sessionWarningShown, setSessionWarningShown] = useState(false);
   const [sessionWarningOpen, setSessionWarningOpen] = useState(false);
   const [auditPage, setAuditPage] = useState(1);
@@ -166,40 +170,44 @@ const AuditLogs = () => {
   const LOGS_PER_PAGE = 10;
   const logScrollRef = useRef(null);
 
-  const SESSION_DURATION = 10 * 60 * 1000; // 10 minutes in milliseconds
   const LOG_LIST_HEIGHT = 500;
 
   const settings = useSystemSettings();
   const { socket, connected } = useSocket();
 
-    //ACCESSING
-    // Dynamic page access control using component identifier
-    // The identifier 'philhealth' should match the component_identifier in the pages table
-    const {
-      hasAccess,
-      loading: accessLoading,
-      error: accessError,
-    } = usePageAccess('audit-logs');
-    // ACCESSING END
+  // ── Derived: is the current user a technical role? ─────────────────────────
+  const isTechnical = userRole === 'technical';
 
+  // ── Per-role session duration (ms) ────────────────────────────────────────
+  const SESSION_DURATION = isTechnical
+    ? SESSION_DURATION_TECHNICAL
+    : SESSION_DURATION_DEFAULT;
+
+  //ACCESSING
+  const {
+    hasAccess,
+    loading: accessLoading,
+    error: accessError,
+  } = usePageAccess('audit-logs');
+  // ACCESSING END
 
   // Memoized styled components
   const GlassCard = useMemo(
     () =>
       styled(Card)(({ theme }) => ({
         borderRadius: 20,
-        background: `${settings?.accentColor || "#FEF9E1"}F2`,
-        backdropFilter: "blur(10px)",
-        boxShadow: `0 8px 40px ${settings?.primaryColor || "#894444"}14`,
-        border: `1px solid ${settings?.primaryColor || "#894444"}1A`,
-        overflow: "hidden",
-        transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-        "&:hover": {
-          boxShadow: `0 12px 48px ${settings?.primaryColor || "#894444"}26`,
-          transform: "translateY(-4px)",
+        background: `${settings?.accentColor || '#FEF9E1'}F2`,
+        backdropFilter: 'blur(10px)',
+        boxShadow: `0 8px 40px ${settings?.primaryColor || '#894444'}14`,
+        border: `1px solid ${settings?.primaryColor || '#894444'}1A`,
+        overflow: 'hidden',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        '&:hover': {
+          boxShadow: `0 12px 48px ${settings?.primaryColor || '#894444'}26`,
+          transform: 'translateY(-4px)',
         },
       })),
-    [settings]
+    [settings],
   );
 
   const ProfessionalButton = useMemo(
@@ -207,78 +215,84 @@ const AuditLogs = () => {
       styled(Button)(({ theme, variant }) => ({
         borderRadius: 12,
         fontWeight: 600,
-        padding: "12px 24px",
-        transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-        textTransform: "none",
-        fontSize: "0.95rem",
-        letterSpacing: "0.025em",
+        padding: '12px 24px',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        textTransform: 'none',
+        fontSize: '0.95rem',
+        letterSpacing: '0.025em',
         boxShadow:
-          variant === "contained"
-            ? `0 4px 14px ${settings?.primaryColor || "#894444"}40`
-            : "none",
-        "&:hover": {
-          transform: "translateY(-2px)",
+          variant === 'contained'
+            ? `0 4px 14px ${settings?.primaryColor || '#894444'}40`
+            : 'none',
+        '&:hover': {
+          transform: 'translateY(-2px)',
           boxShadow:
-            variant === "contained"
-              ? `0 6px 20px ${settings?.primaryColor || "#894444"}59`
-              : "none",
+            variant === 'contained'
+              ? `0 6px 20px ${settings?.primaryColor || '#894444'}59`
+              : 'none',
         },
-        "&:active": {
-          transform: "translateY(0)",
+        '&:active': {
+          transform: 'translateY(0)',
         },
       })),
-    [settings]
+    [settings],
   );
 
   const ModernTextField = useMemo(
     () =>
       styled(TextField)(({ theme }) => ({
-        "& .MuiOutlinedInput-root": {
+        '& .MuiOutlinedInput-root': {
           borderRadius: 12,
-          transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-          backgroundColor: "rgba(255, 255, 255, 0.8)",
-          "&:hover": {
-            transform: "translateY(-1px)",
-            backgroundColor: "rgba(255, 255, 255, 0.95)",
+          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          backgroundColor: 'rgba(255, 255, 255, 0.8)',
+          '&:hover': {
+            transform: 'translateY(-1px)',
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
           },
-          "&.Mui-focused": {
-            transform: "translateY(-1px)",
-            boxShadow: `0 4px 20px ${settings?.primaryColor || "#894444"}40`,
-            backgroundColor: "rgba(255, 255, 255, 1)",
+          '&.Mui-focused': {
+            transform: 'translateY(-1px)',
+            boxShadow: `0 4px 20px ${settings?.primaryColor || '#894444'}40`,
+            backgroundColor: 'rgba(255, 255, 255, 1)',
           },
         },
-        "& .MuiInputLabel-root": {
+        '& .MuiInputLabel-root': {
           fontWeight: 500,
         },
       })),
-    [settings]
+    [settings],
   );
 
   // Session management
   const isSessionValid = () => {
-    const sessionData = sessionStorage.getItem("auditLogsSession");
+    const sessionData = sessionStorage.getItem('auditLogsSession');
     if (!sessionData) return false;
 
     try {
-      const { timestamp } = JSON.parse(sessionData);
+      const { timestamp, role } = JSON.parse(sessionData);
       const now = Date.now();
       const sessionAge = now - timestamp;
-      return sessionAge < SESSION_DURATION;
+      // Honour whichever duration was used when the session was originally created
+      const duration =
+        role === 'technical'
+          ? SESSION_DURATION_TECHNICAL
+          : SESSION_DURATION_DEFAULT;
+      return sessionAge < duration;
     } catch (error) {
       return false;
     }
   };
 
-  const storeSession = () => {
+  const storeSession = (role) => {
     const sessionData = {
       timestamp: Date.now(),
       authenticated: true,
+      role: role || 'default',
     };
-    sessionStorage.setItem("auditLogsSession", JSON.stringify(sessionData));
+    sessionStorage.setItem('auditLogsSession', JSON.stringify(sessionData));
   };
 
   const clearSession = () => {
-    sessionStorage.removeItem("auditLogsSession");
+    sessionStorage.removeItem('auditLogsSession');
     setIsAuthenticated(false);
     setPasswordDialogOpen(true);
   };
@@ -287,14 +301,14 @@ const AuditLogs = () => {
   const formatTimer = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   // Get timer color based on remaining time
   const getTimerColor = (seconds) => {
-    if (seconds < 120) return "#ef4444"; // Red - less than 2 mins
-    if (seconds < 300) return "#f59e0b"; // Orange - less than 5 mins
-    return "#10b981"; // Green - more than 5 mins
+    if (seconds < 120) return '#ef4444'; // Red - less than 2 mins
+    if (seconds < 300) return '#f59e0b'; // Orange - less than 5 mins
+    return '#10b981'; // Green - more than 5 mins
   };
 
   // Get current user
@@ -306,8 +320,23 @@ const AuditLogs = () => {
     }
   }, []);
 
-  // Check session on mount
+  // ── Auto-authenticate technical users; check session for everyone else ─────
   useEffect(() => {
+    if (userRole === null) return; // wait until role is known
+
+    if (userRole === 'technical') {
+      // Technical users skip the password gate entirely
+      if (!isAuthenticated) {
+        storeSession('technical');
+        setIsAuthenticated(true);
+        setPasswordDialogOpen(false);
+        setSessionTimer(SESSION_DURATION_TECHNICAL / 1000);
+      }
+      setLoading(false);
+      return;
+    }
+
+    // For all other roles, check the existing session
     if (isSessionValid()) {
       setIsAuthenticated(true);
       setPasswordDialogOpen(false);
@@ -315,35 +344,51 @@ const AuditLogs = () => {
     } else {
       setLoading(false);
     }
-  }, []);
+  }, [userRole]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Session timer countdown
   useEffect(() => {
     if (!isAuthenticated) return;
 
+    // Initialise the timer from the stored session so it survives page refreshes
+    const sessionData = sessionStorage.getItem('auditLogsSession');
+    if (sessionData) {
+      try {
+        const { timestamp, role } = JSON.parse(sessionData);
+        const duration =
+          role === 'technical'
+            ? SESSION_DURATION_TECHNICAL
+            : SESSION_DURATION_DEFAULT;
+        const remaining = duration - (Date.now() - timestamp);
+        setSessionTimer(Math.max(0, Math.floor(remaining / 1000)));
+      } catch (_) {}
+    }
+
     const interval = setInterval(() => {
-      const sessionData = sessionStorage.getItem("auditLogsSession");
-      if (!sessionData) {
+      const sd = sessionStorage.getItem('auditLogsSession');
+      if (!sd) {
         clearSession();
         return;
       }
 
       try {
-        const { timestamp } = JSON.parse(sessionData);
-        const now = Date.now();
-        const elapsed = now - timestamp;
-        const remaining = SESSION_DURATION - elapsed;
+        const { timestamp, role } = JSON.parse(sd);
+        const duration =
+          role === 'technical'
+            ? SESSION_DURATION_TECHNICAL
+            : SESSION_DURATION_DEFAULT;
+        const remaining = duration - (Date.now() - timestamp);
 
         if (remaining <= 0) {
           clearSession();
           setToast({
-            message: "Session expired. Please re-authenticate.",
-            type: "error",
+            message: 'Session expired. Please re-authenticate.',
+            type: 'error',
           });
         } else {
           const secondsRemaining = Math.floor(remaining / 1000);
           setSessionTimer(secondsRemaining);
-          
+
           // Show warning when 2 minutes remaining and warning hasn't been shown yet
           if (secondsRemaining <= 120 && !sessionWarningShown) {
             setSessionWarningOpen(true);
@@ -364,7 +409,6 @@ const AuditLogs = () => {
 
     const handleNewAuditLog = (newLog) => {
       setAuditLogs((prev) => {
-        // Deduplicate by id in case both role-room and personal-room deliver the same event
         if (prev.some((l) => l.id === newLog.id)) return prev;
         return [newLog, ...prev];
       });
@@ -382,7 +426,7 @@ const AuditLogs = () => {
       setLoading(true);
       const response = await axios.get(
         `${API_BASE_URL}/audit-logs`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
 
       if (response.data && Array.isArray(response.data)) {
@@ -391,9 +435,9 @@ const AuditLogs = () => {
         setAuditLogs([]);
       }
     } catch (error) {
-      console.error("Error loading audit logs:", error);
+      console.error('Error loading audit logs:', error);
       setAuditLogs([]);
-      setToast({ message: "Failed to load audit logs", type: "error" });
+      setToast({ message: 'Failed to load audit logs', type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -412,40 +456,45 @@ const AuditLogs = () => {
     }
   }, [actionFilter, moduleFilter, dateFilter, employeeFilter, isAuthenticated]);
 
-
-
   // Filter logs
   useEffect(() => {
     let filtered = [...auditLogs];
 
-    if (userRole && userRole !== "administrator" && userRole !== "superadmin" && userRole !== "technical") {
+    if (
+      userRole &&
+      userRole !== 'administrator' &&
+      userRole !== 'superadmin' &&
+      userRole !== 'technical'
+    ) {
       filtered = filtered.filter(
-        (log) => log.employeeNumber === currentUser?.employeeNumber
+        (log) => log.employeeNumber === currentUser?.employeeNumber,
       );
     }
 
     if (employeeFilter) {
       filtered = filtered.filter((log) =>
-        log.employeeNumber?.toLowerCase().includes(employeeFilter.toLowerCase())
+        log.employeeNumber
+          ?.toLowerCase()
+          .includes(employeeFilter.toLowerCase()),
       );
     }
 
     if (actionFilter) {
-      filtered = filtered.filter((log) =>
-        normalizeAction(log.action) === actionFilter
+      filtered = filtered.filter(
+        (log) => normalizeAction(log.action) === actionFilter,
       );
     }
 
     if (moduleFilter) {
-      filtered = filtered.filter((log) =>
-        log.table_name?.toLowerCase() === moduleFilter.toLowerCase()
+      filtered = filtered.filter(
+        (log) => log.table_name?.toLowerCase() === moduleFilter.toLowerCase(),
       );
     }
 
     if (dateFilter) {
       filtered = filtered.filter((log) => {
         if (!log.timestamp) return false;
-        const logDate = new Date(log.timestamp).toISOString().split("T")[0];
+        const logDate = new Date(log.timestamp).toISOString().split('T')[0];
         return logDate === dateFilter;
       });
     }
@@ -485,7 +534,7 @@ const AuditLogs = () => {
   // Handle password submit - verify confidential password
   const handlePasswordSubmit = async () => {
     if (!passwordInput) {
-      setPasswordError("Please enter an authorized password.");
+      setPasswordError('Please enter an authorized password.');
       return;
     }
 
@@ -493,27 +542,27 @@ const AuditLogs = () => {
       const response = await axios.post(
         `${API_BASE_URL}/api/confidential-password/verify`,
         { password: passwordInput },
-        getAuthHeaders()
+        getAuthHeaders(),
       );
 
       if (response.data.verified) {
-        setPasswordError("");
+        setPasswordError('');
         setPasswordDialogOpen(false);
         setIsAuthenticated(true);
-        storeSession();
-        setToast(); //{ message: "Access granted", type: "success" }
-        setPasswordInput("");
+        storeSession(userRole);
+        setToast();
+        setPasswordInput('');
       } else {
-        setPasswordError("Incorrect password. Please try again.");
-        setPasswordInput("");
+        setPasswordError('Incorrect password. Please try again.');
+        setPasswordInput('');
       }
     } catch (error) {
-      console.error("Error verifying authorized password:", error);
+      console.error('Error verifying authorized password:', error);
       setPasswordError(
         error.response?.data?.error ||
-          "Failed to verify password. Please try again."
+          'Failed to verify password. Please try again.',
       );
-      setPasswordInput("");
+      setPasswordInput('');
     }
   };
 
@@ -529,35 +578,42 @@ const AuditLogs = () => {
 
   // ENHANCED: Get action color with distinct colors for each action type
   const getActionColor = (action) => {
-    if (!action) return "#10b981";
+    if (!action) return '#10b981';
     const a = action.toUpperCase();
-    if (['DELETE','REMOVE','DESTROY'].some((k) => a.includes(k)))       return "#ef4444"; // red
-    if (['RESTORE','REVERS'].some((k) => a.includes(k)))                return "#ec4899"; // rose
-    if (['DEDUCT','TARDINESS'].some((k) => a.includes(k)))              return "#f97316"; // orange
-    if (a.includes('ASSIGN'))                                           return "#6366f1"; // indigo
-    if (a.includes('TEVL'))                                             return "#f59e0b"; // amber
-    if (a.includes('VL BALANCE'))                                       return "#0d9488"; // teal
-    if (['UPDATE','EDIT','MODIFY','CHANGE'].some((k) => a.includes(k))) return "#3b82f6"; // blue
-    if (['VIEW','OPEN','READ'].some((k) => a.includes(k)))              return "#06b6d4"; // cyan
-    if (a.includes('LOGOUT'))                                           return "#7c3aed"; // purple
-    if (a.includes('LOGIN'))                                            return "#8b5cf6"; // light purple
-    return "#10b981"; // green — CREATE / ADD / etc.
+    if (['DELETE', 'REMOVE', 'DESTROY'].some((k) => a.includes(k)))
+      return '#ef4444';
+    if (['RESTORE', 'REVERS'].some((k) => a.includes(k))) return '#ec4899';
+    if (['DEDUCT', 'TARDINESS'].some((k) => a.includes(k))) return '#f97316';
+    if (a.includes('ASSIGN')) return '#6366f1';
+    if (a.includes('TEVL')) return '#f59e0b';
+    if (a.includes('VL BALANCE')) return '#0d9488';
+    if (['UPDATE', 'EDIT', 'MODIFY', 'CHANGE'].some((k) => a.includes(k)))
+      return '#3b82f6';
+    if (['VIEW', 'OPEN', 'READ'].some((k) => a.includes(k))) return '#06b6d4';
+    if (a.includes('LOGOUT')) return '#7c3aed';
+    if (a.includes('LOGIN')) return '#8b5cf6';
+    return '#10b981';
   };
 
   // ENHANCED: Get action icon for each action type
   const getActionIcon = (action) => {
     if (!action) return <AddIcon sx={{ fontSize: 16 }} />;
     const a = action.toUpperCase();
-    if (['DELETE','REMOVE','DESTROY'].some((k) => a.includes(k)))       return <DeleteIcon sx={{ fontSize: 16 }} />;
-    if (['RESTORE','REVERS'].some((k) => a.includes(k)))                return <RefreshIcon sx={{ fontSize: 16 }} />;
-    if (['DEDUCT','TARDINESS'].some((k) => a.includes(k)))              return <RemoveIcon sx={{ fontSize: 16 }} />;
-    if (a.includes('ASSIGN'))                                           return <Assignment sx={{ fontSize: 16 }} />;
-    if (a.includes('TEVL'))                                             return <AddIcon sx={{ fontSize: 16 }} />;
-    if (a.includes('VL BALANCE'))                                       return <Assessment sx={{ fontSize: 16 }} />;
-    if (['UPDATE','EDIT','MODIFY','CHANGE'].some((k) => a.includes(k))) return <EditIcon sx={{ fontSize: 16 }} />;
-    if (['VIEW','OPEN','READ'].some((k) => a.includes(k)))              return <VisibilityIcon sx={{ fontSize: 16 }} />;
-    if (a.includes('LOGOUT'))                                           return <LockIcon sx={{ fontSize: 16 }} />;
-    if (a.includes('LOGIN'))                                            return <LockOpenIcon sx={{ fontSize: 16 }} />;
+    if (['DELETE', 'REMOVE', 'DESTROY'].some((k) => a.includes(k)))
+      return <DeleteIcon sx={{ fontSize: 16 }} />;
+    if (['RESTORE', 'REVERS'].some((k) => a.includes(k)))
+      return <RefreshIcon sx={{ fontSize: 16 }} />;
+    if (['DEDUCT', 'TARDINESS'].some((k) => a.includes(k)))
+      return <RemoveIcon sx={{ fontSize: 16 }} />;
+    if (a.includes('ASSIGN')) return <Assignment sx={{ fontSize: 16 }} />;
+    if (a.includes('TEVL')) return <AddIcon sx={{ fontSize: 16 }} />;
+    if (a.includes('VL BALANCE')) return <Assessment sx={{ fontSize: 16 }} />;
+    if (['UPDATE', 'EDIT', 'MODIFY', 'CHANGE'].some((k) => a.includes(k)))
+      return <EditIcon sx={{ fontSize: 16 }} />;
+    if (['VIEW', 'OPEN', 'READ'].some((k) => a.includes(k)))
+      return <VisibilityIcon sx={{ fontSize: 16 }} />;
+    if (a.includes('LOGOUT')) return <LockIcon sx={{ fontSize: 16 }} />;
+    if (a.includes('LOGIN')) return <LockOpenIcon sx={{ fontSize: 16 }} />;
     return <AddIcon sx={{ fontSize: 16 }} />;
   };
 
@@ -568,24 +624,24 @@ const AuditLogs = () => {
       const formattedTime =
         ts && !isNaN(ts)
           ? `${ts.toLocaleDateString()} ${ts.toLocaleTimeString()}`
-          : "No Date";
-      const safeMessage = (log.action || log.message || "No message")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-      return `[${formattedTime}] - <strong>Employee ${log.employeeNumber || "Unknown"}</strong>: ${safeMessage}`;
+          : 'No Date';
+      const safeMessage = (log.action || log.message || 'No message')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      return `[${formattedTime}] - <strong>Employee ${log.employeeNumber || 'Unknown'}</strong>: ${safeMessage}`;
     }
 
     const timestamp = new Date(log.timestamp);
     const formattedTime = `${timestamp.toLocaleDateString()} ${timestamp.toLocaleTimeString()}`;
-    const employeeNumber = log.employeeNumber || "Unknown";
-    const action = log.action?.toUpperCase() || "UNKNOWN";
+    const employeeNumber = log.employeeNumber || 'Unknown';
+    const action = log.action?.toUpperCase() || 'UNKNOWN';
     const actionColor = getActionColor(log.action);
-    const module = log.table_name?.toUpperCase() || "UNKNOWN";
-    const recordId = log.record_id ? ` #${log.record_id}` : "";
+    const module = log.table_name?.toUpperCase() || 'UNKNOWN';
+    const recordId = log.record_id ? ` #${log.record_id}` : '';
     const targetEmployee = log.targetEmployeeNumber
       ? ` (Target: ${log.targetEmployeeNumber})`
-      : "";
+      : '';
 
     let logString = `[${formattedTime}] - `;
     logString += `<strong>Employee ${employeeNumber}</strong> `;
@@ -598,24 +654,24 @@ const AuditLogs = () => {
   // Export audit log
   const handleExportLog = () => {
     let csv =
-      "Timestamp,Employee Number,Action,Table Name,Record ID,Target Employee\n";
+      'Timestamp,Employee Number,Action,Table Name,Record ID,Target Employee\n';
 
     filteredLogs.forEach((log) => {
       const timestamp = new Date(
-        log.timestamp || log.created_at
+        log.timestamp || log.created_at,
       ).toLocaleString();
-      csv += `"${timestamp}","${log.employeeNumber || "Unknown"}","${
-        log.action || "N/A"
-      }","${log.table_name || "N/A"}","${log.record_id || "N/A"}","${
-        log.targetEmployeeNumber || "N/A"
+      csv += `"${timestamp}","${log.employeeNumber || 'Unknown'}","${
+        log.action || 'N/A'
+      }","${log.table_name || 'N/A'}","${log.record_id || 'N/A'}","${
+        log.targetEmployeeNumber || 'N/A'
       }"\n`;
     });
 
-    const blob = new Blob([csv], { type: "text/csv" });
+    const blob = new Blob([csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const a = document.createElement('a');
     a.href = url;
-    a.download = `audit-trail-${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `audit-trail-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
 
@@ -631,22 +687,20 @@ const AuditLogs = () => {
 
   // Store first the action needed to normalize
   const ACTION_MAP = {
-    DELETED:          ["DELETE", "REMOVE", "DESTROY"],
-    REVERSED:         ["RESTORE", "REVERS"],
-    DEDUCTED:         ["DEDUCT", "TARDINESS"],
-    "ASSIGNED LEAVE": ["ASSIGN"],
-    TEVL:             ["TEVL"],
-    "VL BALANCE":     ["VL BALANCE"],
-    UPDATE:           ["UPDATE", "EDIT", "MODIFY", "CHANGE"],
-    VIEW:             ["VIEW", "OPEN", "READ"],
-    CREATE:           ["ADD", "INSERT", "CREATE", "REGISTER"],
+    DELETED: ['DELETE', 'REMOVE', 'DESTROY'],
+    REVERSED: ['RESTORE', 'REVERS'],
+    DEDUCTED: ['DEDUCT', 'TARDINESS'],
+    'ASSIGNED LEAVE': ['ASSIGN'],
+    TEVL: ['TEVL'],
+    'VL BALANCE': ['VL BALANCE'],
+    UPDATE: ['UPDATE', 'EDIT', 'MODIFY', 'CHANGE'],
+    VIEW: ['VIEW', 'OPEN', 'READ'],
+    CREATE: ['ADD', 'INSERT', 'CREATE', 'REGISTER'],
   };
 
   // Normalize first the action before putting on map
   const normalizeAction = (action) => {
-    if (typeof action !== "string") return null;
-    
-
+    if (typeof action !== 'string') return null;
     const normalized = action.trim().toUpperCase();
     if (!normalized) return null;
 
@@ -663,9 +717,7 @@ const AuditLogs = () => {
   const getUniqueActions = () => {
     return [
       ...new Set(
-        auditLogs
-          .map((log) => normalizeAction(log.action))
-          .filter(Boolean)
+        auditLogs.map((log) => normalizeAction(log.action)).filter(Boolean),
       ),
     ].sort();
   };
@@ -678,35 +730,41 @@ const AuditLogs = () => {
     return modules.sort();
   };
 
-  // Format module name to match how it appears in log entries (e.g. "audit-logs" → "AUDIT_LOGS")
+  // Format module name
   const formatModuleName = (tableName) => {
-    if (!tableName) return "";
-    return tableName.toUpperCase().replace(/[\s\-]+/g, "_");
+    if (!tableName) return '';
+    return tableName.toUpperCase().replace(/[\s\-]+/g, '_');
   };
 
   // Build a clean readable sentence for each audit log entry
   const buildLogDescription = (log) => {
-    const actor = log.employeeNumber ? `Employee #${log.employeeNumber}` : 'Unknown user';
+    const actor = log.employeeNumber
+      ? `Employee #${log.employeeNumber}`
+      : 'Unknown user';
     const action = log.action?.toLowerCase() || 'performed an action';
-    const module = log.table_name ? formatModuleName(log.table_name) : 'the system';
+    const module = log.table_name
+      ? formatModuleName(log.table_name)
+      : 'the system';
     const recordHint = log.record_id ? ` (Record #${log.record_id})` : '';
-    const targetHint = log.targetEmployeeNumber ? ` on employee #${log.targetEmployeeNumber}` : '';
+    const targetHint = log.targetEmployeeNumber
+      ? ` on employee #${log.targetEmployeeNumber}`
+      : '';
     return `${actor} performed ${action} on ${module}${recordHint}${targetHint}.`;
   };
 
   const isOfficialTimeModule = (tableName) => {
-    const t = String(tableName || "").toLowerCase();
+    const t = String(tableName || '').toLowerCase();
     return (
-      t.includes("official time") ||
-      t.includes("official_time") ||
-      t.includes("officialtime")
+      t.includes('official time') ||
+      t.includes('official_time') ||
+      t.includes('officialtime')
     );
   };
 
   const parseAuditDetails = (raw) => {
     if (!raw) return null;
-    if (typeof raw === "object") return raw;
-    if (typeof raw !== "string") return null;
+    if (typeof raw === 'object') return raw;
+    if (typeof raw !== 'string') return null;
     try {
       return JSON.parse(raw);
     } catch (e) {
@@ -717,20 +775,22 @@ const AuditLogs = () => {
   const getOfficialTimeAuditSnapshot = (log) => {
     if (!isOfficialTimeModule(log?.table_name)) return null;
     const details = parseAuditDetails(log?.details_json);
-    if (!details || typeof details !== "object") return null;
+    if (!details || typeof details !== 'object') return null;
 
     if (Array.isArray(details.records) && details.records.length > 0) {
       return details;
     }
 
-    // Excel uploads store grouped schedules; flatten for a single audit preview table.
     if (Array.isArray(details.schedules) && details.schedules.length > 0) {
       const flattenedRecords = details.schedules.flatMap((schedule) => {
         const list = Array.isArray(schedule?.records) ? schedule.records : [];
         return list.map((r) => ({
           ...r,
           employeeID:
-            r?.employeeID || schedule?.employeeID || details?.employeeID || null,
+            r?.employeeID ||
+            schedule?.employeeID ||
+            details?.employeeID ||
+            null,
           startDate: r?.startDate || schedule?.startDate || details?.startDate,
           endDate: r?.endDate || schedule?.endDate || details?.endDate,
           academicYear:
@@ -752,51 +812,306 @@ const AuditLogs = () => {
     }));
   };
 
-  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / LOGS_PER_PAGE));
-  const pagedLogs = filteredLogs.slice((auditPage - 1) * LOGS_PER_PAGE, auditPage * LOGS_PER_PAGE);
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredLogs.length / LOGS_PER_PAGE),
+  );
+  const pagedLogs = filteredLogs.slice(
+    (auditPage - 1) * LOGS_PER_PAGE,
+    auditPage * LOGS_PER_PAGE,
+  );
 
-  const virtualizationRange = { startIndex: 0, endIndex: -1 }; // kept to avoid ref errors
+  const virtualizationRange = { startIndex: 0, endIndex: -1 };
   const visibleLogs = pagedLogs;
   const topSpacerHeight = 0;
   const bottomSpacerHeight = 0;
 
-
   // ACCESSING 2
-    // Loading state
-    if (accessLoading) {
-      return (
-        <Container maxWidth="md" sx={{ py: 8 }}>
+  if (accessLoading) {
+    // Shimmer keyframe injected once via a <style> tag
+    const shimmerCSS = `
+      @keyframes auditShimmer {
+        0%   { background-position: -800px 0; }
+        100% { background-position:  800px 0; }
+      }
+    `;
+
+    const shimmerBg = {
+      background:
+        'linear-gradient(90deg, #f0e6e6 25%, #faf0f0 50%, #f0e6e6 75%)',
+      backgroundSize: '800px 100%',
+      animation: 'auditShimmer 1.6s infinite linear',
+      borderRadius: 2,
+    };
+
+    // Reusable shimmer bar
+    const ShimmerBar = ({ width = '100%', height = 14, sx = {} }) => (
+      <Box sx={{ width, height, ...shimmerBg, ...sx }} />
+    );
+
+    // A single fake log-row skeleton
+    const SkeletonRow = ({ delay = 0 }) => (
+      <Box
+        sx={{
+          bgcolor: '#fff',
+          border: '1px solid #f3e8e8',
+          borderLeft: '4px solid #e8d0d0',
+          borderRadius: 2,
+          p: 2.5,
+          mb: 1.5,
+          opacity: 0,
+          animation: `fadeInRow 0.4s ease forwards`,
+          animationDelay: `${delay}s`,
+          '@keyframes fadeInRow': {
+            from: { opacity: 0, transform: 'translateY(6px)' },
+            to: { opacity: 1, transform: 'translateY(0)' },
+          },
+        }}
+      >
+        {/* Row 1: action badge + timestamp */}
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            mb: 1.5,
+            alignItems: 'center',
+          }}
+        >
+          <ShimmerBar width={90} height={22} sx={{ borderRadius: '6px' }} />
+          <ShimmerBar width={140} height={12} sx={{ borderRadius: 1 }} />
+        </Box>
+        {/* Row 2: actor chip */}
+        <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5 }}>
+          <ShimmerBar width={160} height={38} sx={{ borderRadius: '8px' }} />
+        </Box>
+        {/* Row 3: description line */}
+        <ShimmerBar width="85%" height={13} sx={{ mb: 0.75 }} />
+        <ShimmerBar width="55%" height={13} />
+      </Box>
+    );
+
+    return (
+      <Box
+        sx={{
+          py: 4,
+          borderRadius: '14px',
+          width: '100vw',
+          mx: 'auto',
+          maxWidth: '100%',
+          overflow: 'hidden',
+          position: 'relative',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          minHeight: '92vh',
+        }}
+      >
+        <style>{shimmerCSS}</style>
+        <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
+          {/* ── Header card skeleton ── */}
           <Box
             sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
+              borderRadius: '20px',
+              border: '1px solid #f0e0e0',
+              overflow: 'hidden',
+              mb: 4,
+              boxShadow: '0 8px 40px #89444414',
             }}
           >
-            <CircularProgress sx={{ color: '#6d2323', mb: 2 }} />
-            <Typography variant="h6" sx={{ color: '#6d2323' }}>
-              Loading access information...
-            </Typography>
+            <Box
+              sx={{
+                p: 5,
+                bgcolor: '#fef9f9',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                {/* Avatar circle */}
+                <Box
+                  sx={{
+                    width: 64,
+                    height: 64,
+                    borderRadius: '50%',
+                    ...shimmerBg,
+                    flexShrink: 0,
+                  }}
+                />
+                <Box>
+                  <ShimmerBar
+                    width={220}
+                    height={22}
+                    sx={{ mb: 1.5, borderRadius: 2 }}
+                  />
+                  <ShimmerBar
+                    width={320}
+                    height={13}
+                    sx={{ borderRadius: 1 }}
+                  />
+                </Box>
+              </Box>
+              {/* Right chips + buttons */}
+              <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+                <ShimmerBar
+                  width={72}
+                  height={28}
+                  sx={{ borderRadius: '14px' }}
+                />
+                <ShimmerBar
+                  width={72}
+                  height={28}
+                  sx={{ borderRadius: '14px' }}
+                />
+                <ShimmerBar
+                  width={48}
+                  height={48}
+                  sx={{ borderRadius: '12px' }}
+                />
+                <ShimmerBar
+                  width={100}
+                  height={44}
+                  sx={{ borderRadius: '12px' }}
+                />
+              </Box>
+            </Box>
           </Box>
-        </Container>
-      );
-    }
-    // Access denied state - Now using the reusable component
-    if (!accessLoading && hasAccess !== true) {
-      return (
-        <AccessDenied
-          title="Access Denied"
-          message="You do not have permission to access PhilHealth Table. Contact your administrator to request access."
-          returnPath="/admin-home"
-          returnButtonText="Return to Home"
-        />
-      );
-    }
-    //ACCESSING END2
 
+          {/* ── Filter card skeleton ── */}
+          <Box
+            sx={{
+              borderRadius: '20px',
+              border: '1px solid #f0e0e0',
+              overflow: 'hidden',
+              mb: 4,
+              boxShadow: '0 8px 40px #89444414',
+            }}
+          >
+            {/* Card header */}
+            <Box
+              sx={{
+                px: 4,
+                py: 3,
+                bgcolor: '#fdf5f5',
+                borderBottom: '1px solid #f5e8e8',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+              }}
+            >
+              <Box
+                sx={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: '50%',
+                  ...shimmerBg,
+                  flexShrink: 0,
+                }}
+              />
+              <Box>
+                <ShimmerBar
+                  width={160}
+                  height={18}
+                  sx={{ mb: 1, borderRadius: 2 }}
+                />
+                <ShimmerBar width={260} height={12} sx={{ borderRadius: 1 }} />
+              </Box>
+            </Box>
+            {/* 4-column filter row */}
+            <Box
+              sx={{
+                p: 4,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: 3,
+              }}
+            >
+              {[0, 1, 2, 3].map((i) => (
+                <ShimmerBar
+                  key={i}
+                  width="100%"
+                  height={56}
+                  sx={{ borderRadius: '12px' }}
+                />
+              ))}
+            </Box>
+          </Box>
 
-  // Show password dialog if not authenticated
-  if (!isAuthenticated) {
+          {/* ── Log list card skeleton ── */}
+          <Box
+            sx={{
+              borderRadius: '20px',
+              border: '1px solid #f0e0e0',
+              overflow: 'hidden',
+              boxShadow: '0 8px 40px #89444414',
+            }}
+          >
+            {/* List header */}
+            <Box
+              sx={{
+                px: 4,
+                py: 3,
+                bgcolor: '#fdf5f5',
+                borderBottom: '1px solid #f5e8e8',
+              }}
+            >
+              <ShimmerBar
+                width={200}
+                height={18}
+                sx={{ mb: 1, borderRadius: 2 }}
+              />
+              <ShimmerBar width={280} height={12} sx={{ borderRadius: 1 }} />
+            </Box>
+
+            {/* Skeleton rows */}
+            <Box sx={{ p: 3 }}>
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <SkeletonRow key={i} delay={i * 0.07} />
+              ))}
+            </Box>
+
+            {/* Footer pagination */}
+            <Box
+              sx={{
+                px: 3,
+                py: 2,
+                borderTop: '1px solid #f0e0e0',
+                bgcolor: '#fdf9f9',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <ShimmerBar width={200} height={14} sx={{ borderRadius: 1 }} />
+              <Box sx={{ display: 'flex', gap: 0.75 }}>
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <ShimmerBar
+                    key={i}
+                    width={30}
+                    height={30}
+                    sx={{ borderRadius: '8px' }}
+                  />
+                ))}
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+    );
+  }
+  if (!accessLoading && hasAccess !== true) {
+    return (
+      <AccessDenied
+        title="Access Denied"
+        message="You do not have permission to access PhilHealth Table. Contact your administrator to request access."
+        returnPath="/admin-home"
+        returnButtonText="Return to Home"
+      />
+    );
+  }
+  //ACCESSING END2
+
+  // Show password dialog ONLY for non-technical unauthenticated users
+  if (!isAuthenticated && !isTechnical) {
     return (
       <Modal
         open={passwordDialogOpen}
@@ -840,7 +1155,10 @@ const AuditLogs = () => {
               <LockIcon sx={{ fontSize: 28 }} />
             </Avatar>
             <Box>
-              <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
+              <Typography
+                variant="h5"
+                sx={{ fontWeight: 'bold', color: '#333' }}
+              >
                 Audit Logs Access
               </Typography>
               <Typography variant="body2" sx={{ color: '#666' }}>
@@ -865,21 +1183,69 @@ const AuditLogs = () => {
                 },
               }}
             >
-              <Typography variant="body1" sx={{ fontWeight: 600, mb: 2, color: '#333' }}>
+              <Typography
+                variant="body1"
+                sx={{ fontWeight: 600, mb: 2, color: '#333' }}
+              >
                 Access Control Notice
               </Typography>
               <Box sx={{ pl: 1 }}>
-                <Typography variant="body2" sx={{ color: '#666', mb: 1, display: 'flex', alignItems: 'flex-start' }}>
-                  <Box component="span" sx={{ mr: 1, color: settings?.primaryColor || '#894444' }}>•</Box>
-                  <Box>Access to this module is restricted to authorized personnel only</Box>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: '#666',
+                    mb: 1,
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                  }}
+                >
+                  <Box
+                    component="span"
+                    sx={{ mr: 1, color: settings?.primaryColor || '#894444' }}
+                  >
+                    •
+                  </Box>
+                  <Box>
+                    Access to this module is restricted to authorized personnel
+                    only
+                  </Box>
                 </Typography>
-                <Typography variant="body2" sx={{ color: '#666', mb: 1, display: 'flex', alignItems: 'flex-start' }}>
-                  <Box component="span" sx={{ mr: 1, color: settings?.primaryColor || '#894444' }}>•</Box>
-                  <Box>For security compliance, sessions are limited to 10 minutes</Box>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: '#666',
+                    mb: 1,
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                  }}
+                >
+                  <Box
+                    component="span"
+                    sx={{ mr: 1, color: settings?.primaryColor || '#894444' }}
+                  >
+                    •
+                  </Box>
+                  <Box>
+                    For security compliance, sessions are limited to 10 minutes
+                  </Box>
                 </Typography>
-                <Typography variant="body2" sx={{ color: '#666', display: 'flex', alignItems: 'flex-start' }}>
-                  <Box component="span" sx={{ mr: 1, color: settings?.primaryColor || '#894444' }}>•</Box>
-                  <Box>Re-authentication will be required upon session expiration</Box>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: '#666',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                  }}
+                >
+                  <Box
+                    component="span"
+                    sx={{ mr: 1, color: settings?.primaryColor || '#894444' }}
+                  >
+                    •
+                  </Box>
+                  <Box>
+                    Re-authentication will be required upon session expiration
+                  </Box>
                 </Typography>
               </Box>
             </Alert>
@@ -888,13 +1254,13 @@ const AuditLogs = () => {
               autoFocus
               margin="dense"
               label="Enter Authorized Password"
-              type={showPassword ? "text" : "password"}
+              type={showPassword ? 'text' : 'password'}
               fullWidth
               variant="outlined"
               value={passwordInput}
               onChange={(e) => {
                 setPasswordInput(e.target.value);
-                setPasswordError("");
+                setPasswordError('');
               }}
               onKeyPress={(e) => {
                 if (e.key === 'Enter') {
@@ -926,7 +1292,10 @@ const AuditLogs = () => {
                   borderRadius: 2,
                   '&:hover': {
                     borderColor: settings?.secondaryColor || '#6d2323',
-                    backgroundColor: alpha(settings?.primaryColor || '#894444', 0.08),
+                    backgroundColor: alpha(
+                      settings?.primaryColor || '#894444',
+                      0.08,
+                    ),
                   },
                 }}
               >
@@ -959,25 +1328,28 @@ const AuditLogs = () => {
     );
   }
 
-  const isAdmin = userRole === "administrator" || userRole === "superadmin" || userRole === "technical";
-  const pageTitle = isAdmin ? "Audit Trail (All Users)" : "My Activity Log";
+  const isAdmin =
+    userRole === 'administrator' ||
+    userRole === 'superadmin' ||
+    userRole === 'technical';
+  const pageTitle = isAdmin ? 'Audit Trail (All Users)' : 'My Activity Log';
 
   return (
     <Box
       sx={{
         py: 4,
-        borderRadius: "14px",
-        width: "100vw",
-        mx: "auto",
-        maxWidth: "100%",
-        overflow: "hidden",
-        position: "relative",
-        left: "50%",
-        transform: "translateX(-50%)",
-        minHeight: "92vh",
+        borderRadius: '14px',
+        width: '100vw',
+        mx: 'auto',
+        maxWidth: '100%',
+        overflow: 'hidden',
+        position: 'relative',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        minHeight: '92vh',
       }}
     >
-      <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
+      <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
         {/* Header */}
         <Fade in timeout={500}>
           <Box sx={{ mb: 4 }}>
@@ -986,45 +1358,45 @@ const AuditLogs = () => {
                 sx={{
                   p: 5,
                   background: `linear-gradient(135deg, ${
-                    settings?.accentColor || "#FEF9E1"
+                    settings?.accentColor || '#FEF9E1'
                   } 0%, ${alpha(
-                    settings?.accentColor || "#FEF9E1",
-                    0.9
+                    settings?.accentColor || '#FEF9E1',
+                    0.9,
                   )} 100%)`,
-                  color: settings?.primaryColor || "#894444",
-                  position: "relative",
-                  overflow: "hidden",
+                  color: settings?.primaryColor || '#894444',
+                  position: 'relative',
+                  overflow: 'hidden',
                 }}
               >
                 <Box
                   sx={{
-                    position: "absolute",
+                    position: 'absolute',
                     top: -50,
                     right: -50,
                     width: 200,
                     height: 200,
                     background: `radial-gradient(circle, ${alpha(
-                      settings?.primaryColor || "#894444",
-                      0.1
+                      settings?.primaryColor || '#894444',
+                      0.1,
                     )} 0%, ${alpha(
-                      settings?.primaryColor || "#894444",
-                      0
+                      settings?.primaryColor || '#894444',
+                      0,
                     )} 70%)`,
                   }}
                 />
                 <Box
                   sx={{
-                    position: "absolute",
+                    position: 'absolute',
                     bottom: -30,
-                    left: "30%",
+                    left: '30%',
                     width: 150,
                     height: 150,
                     background: `radial-gradient(circle, ${alpha(
-                      settings?.primaryColor || "#894444",
-                      0.08
+                      settings?.primaryColor || '#894444',
+                      0.08,
                     )} 0%, ${alpha(
-                      settings?.primaryColor || "#894444",
-                      0
+                      settings?.primaryColor || '#894444',
+                      0,
                     )} 70%)`,
                   }}
                 />
@@ -1040,22 +1412,22 @@ const AuditLogs = () => {
                     <Avatar
                       sx={{
                         bgcolor: alpha(
-                          settings?.primaryColor || "#894444",
-                          0.15
+                          settings?.primaryColor || '#894444',
+                          0.15,
                         ),
                         mr: 4,
                         width: 64,
                         height: 64,
                         boxShadow: `0 8px 24px ${alpha(
-                          settings?.primaryColor || "#894444",
-                          0.15
+                          settings?.primaryColor || '#894444',
+                          0.15,
                         )}`,
                       }}
                     >
                       <Security
                         sx={{
                           fontSize: 32,
-                          color: settings?.primaryColor || "#894444",
+                          color: settings?.primaryColor || '#894444',
                         }}
                       />
                     </Avatar>
@@ -1067,7 +1439,7 @@ const AuditLogs = () => {
                           fontWeight: 700,
                           mb: 1,
                           lineHeight: 1.2,
-                          color: settings?.primaryColor || "#894444",
+                          color: settings?.primaryColor || '#894444',
                         }}
                       >
                         {pageTitle}
@@ -1077,12 +1449,12 @@ const AuditLogs = () => {
                         sx={{
                           opacity: 0.8,
                           fontWeight: 400,
-                          color: settings?.textPrimaryColor || "#6D2323",
+                          color: settings?.textPrimaryColor || '#6D2323',
                         }}
                       >
                         {isAdmin
-                          ? "System-wide activity tracking and security monitoring"
-                          : "Your personal activity history and access logs"}
+                          ? 'System-wide activity tracking and security monitoring'
+                          : 'Your personal activity history and access logs'}
                       </Typography>
                     </Box>
                   </Box>
@@ -1092,22 +1464,29 @@ const AuditLogs = () => {
                       size="small"
                       sx={{
                         bgcolor: alpha(
-                          settings?.primaryColor || "#894444",
-                          0.15
+                          settings?.primaryColor || '#894444',
+                          0.15,
                         ),
-                        color: settings?.primaryColor || "#894444",
+                        color: settings?.primaryColor || '#894444',
                         fontWeight: 500,
-                        "& .MuiChip-label": { px: 1 },
+                        '& .MuiChip-label': { px: 1 },
                       }}
                     />
 
-                    {/* Session Timer with Enhanced Tooltip */}
+                    {/* Session Timer — shown for all roles; label clarifies the duration */}
                     <Tooltip
                       title={
                         <Box>
-                          <Typography variant="body2">Session expires in {formatTimer(sessionTimer)}</Typography>
-                          <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                            For security purposes, access to audit logs is limited to 10-minute sessions
+                          <Typography variant="body2">
+                            Session expires in {formatTimer(sessionTimer)}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            sx={{ display: 'block', mt: 0.5 }}
+                          >
+                            {isTechnical
+                              ? 'Technical accounts have a 30-minute session'
+                              : 'For security purposes, access to audit logs is limited to 10-minute sessions'}
                           </Typography>
                         </Box>
                       }
@@ -1122,18 +1501,19 @@ const AuditLogs = () => {
                           bgcolor: alpha(getTimerColor(sessionTimer), 0.15),
                           color: getTimerColor(sessionTimer),
                           fontWeight: 600,
-                          fontSize: "0.9rem",
+                          fontSize: '0.9rem',
                           border: `2px solid ${alpha(getTimerColor(sessionTimer), 0.3)}`,
-                          "& .MuiChip-label": { px: 1.5 },
-                          "& .MuiChip-icon": {
+                          '& .MuiChip-label': { px: 1.5 },
+                          '& .MuiChip-icon': {
                             color: getTimerColor(sessionTimer),
-                            animation: sessionTimer < 120 ? "pulse 1s infinite" : "none",
+                            animation:
+                              sessionTimer < 120 ? 'pulse 1s infinite' : 'none',
                           },
-                          "@keyframes pulse": {
-                            "0%, 100%": { opacity: 1 },
-                            "50%": { opacity: 0.5 },
+                          '@keyframes pulse': {
+                            '0%, 100%': { opacity: 1 },
+                            '50%': { opacity: 0.5 },
                           },
-                          cursor: "pointer"
+                          cursor: 'pointer',
                         }}
                       />
                     </Tooltip>
@@ -1144,26 +1524,26 @@ const AuditLogs = () => {
                         disabled={loading}
                         sx={{
                           bgcolor: alpha(
-                            settings?.primaryColor || "#894444",
-                            0.1
+                            settings?.primaryColor || '#894444',
+                            0.1,
                           ),
-                          "&:hover": {
+                          '&:hover': {
                             bgcolor: alpha(
-                              settings?.primaryColor || "#894444",
-                              0.2
+                              settings?.primaryColor || '#894444',
+                              0.2,
                             ),
                           },
-                          color: settings?.primaryColor || "#894444",
+                          color: settings?.primaryColor || '#894444',
                           width: 48,
                           height: 48,
-                          "&:disabled": {
+                          '&:disabled': {
                             bgcolor: alpha(
-                              settings?.primaryColor || "#894444",
-                              0.05
+                              settings?.primaryColor || '#894444',
+                              0.05,
                             ),
                             color: alpha(
-                              settings?.primaryColor || "#894444",
-                              0.3
+                              settings?.primaryColor || '#894444',
+                              0.3,
                             ),
                           },
                         }}
@@ -1171,7 +1551,7 @@ const AuditLogs = () => {
                         {loading ? (
                           <CircularProgress
                             size={24}
-                            sx={{ color: settings?.primaryColor || "#894444" }}
+                            sx={{ color: settings?.primaryColor || '#894444' }}
                           />
                         ) : (
                           <RefreshIcon />
@@ -1185,10 +1565,10 @@ const AuditLogs = () => {
                         startIcon={<FileDownloadIcon />}
                         onClick={handleExportLog}
                         sx={{
-                          bgcolor: settings?.primaryColor || "#894444",
-                          color: settings?.accentColor || "#FEF9E1",
-                          "&:hover": {
-                            bgcolor: settings?.secondaryColor || "#6d2323",
+                          bgcolor: settings?.primaryColor || '#894444',
+                          color: settings?.accentColor || '#FEF9E1',
+                          '&:hover': {
+                            bgcolor: settings?.secondaryColor || '#6d2323',
                           },
                         }}
                       >
@@ -1203,13 +1583,13 @@ const AuditLogs = () => {
         </Fade>
 
         {/* Toast Messages */}
-        {toast && toast.type === "success" && (
+        {toast && toast.type === 'success' && (
           <Backdrop
             open={true}
             sx={{
               zIndex: 9999,
-              backdropFilter: "blur(8px)",
-              backgroundColor: "rgba(0, 0, 0, 0.5)",
+              backdropFilter: 'blur(8px)',
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
             }}
             onClick={() => setToast(null)}
           >
@@ -1217,20 +1597,20 @@ const AuditLogs = () => {
               <Box
                 onClick={(e) => e.stopPropagation()}
                 sx={{
-                  position: "relative",
-                  minWidth: "400px",
-                  maxWidth: "600px",
+                  position: 'relative',
+                  minWidth: '400px',
+                  maxWidth: '600px',
                 }}
               >
                 <Alert
                   severity="success"
                   sx={{
                     borderRadius: 4,
-                    boxShadow: "0 12px 48px rgba(0, 0, 0, 0.4)",
-                    fontSize: "1.1rem",
+                    boxShadow: '0 12px 48px rgba(0, 0, 0, 0.4)',
+                    fontSize: '1.1rem',
                     p: 3,
-                    "& .MuiAlert-message": { fontWeight: 500 },
-                    "& .MuiAlert-icon": { fontSize: "2rem" },
+                    '& .MuiAlert-message': { fontWeight: 500 },
+                    '& .MuiAlert-icon': { fontSize: '2rem' },
                   }}
                   icon={<CheckCircleIcon />}
                   onClose={() => setToast(null)}
@@ -1241,13 +1621,13 @@ const AuditLogs = () => {
             </Fade>
           </Backdrop>
         )}
-        {toast && toast.type === "error" && (
+        {toast && toast.type === 'error' && (
           <Backdrop
             open={true}
             sx={{
               zIndex: 9999,
-              backdropFilter: "blur(8px)",
-              backgroundColor: "rgba(0, 0, 0, 0.5)",
+              backdropFilter: 'blur(8px)',
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
             }}
             onClick={() => setToast(null)}
           >
@@ -1255,20 +1635,20 @@ const AuditLogs = () => {
               <Box
                 onClick={(e) => e.stopPropagation()}
                 sx={{
-                  position: "relative",
-                  minWidth: "400px",
-                  maxWidth: "600px",
+                  position: 'relative',
+                  minWidth: '400px',
+                  maxWidth: '600px',
                 }}
               >
                 <Alert
                   severity="error"
                   sx={{
                     borderRadius: 4,
-                    boxShadow: "0 12px 48px rgba(0, 0, 0, 0.4)",
-                    fontSize: "1.1rem",
+                    boxShadow: '0 12px 48px rgba(0, 0, 0, 0.4)',
+                    fontSize: '1.1rem',
                     p: 3,
-                    "& .MuiAlert-message": { fontWeight: 500 },
-                    "& .MuiAlert-icon": { fontSize: "2rem" },
+                    '& .MuiAlert-message': { fontWeight: 500 },
+                    '& .MuiAlert-icon': { fontSize: '2rem' },
                   }}
                   icon={<Error />}
                   onClose={() => setToast(null)}
@@ -1285,11 +1665,11 @@ const AuditLogs = () => {
           <GlassCard sx={{ mb: 4 }}>
             <CardHeader
               title={
-                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                   <Avatar
                     sx={{
-                      bgcolor: alpha(settings?.accentColor || "#FEF9E1", 0.8),
-                      color: settings?.textPrimaryColor || "#6D2323",
+                      bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.8),
+                      color: settings?.textPrimaryColor || '#6D2323',
                     }}
                   >
                     <FilterList />
@@ -1300,7 +1680,7 @@ const AuditLogs = () => {
                       component="div"
                       sx={{
                         fontWeight: 600,
-                        color: settings?.textPrimaryColor || "#6D2323",
+                        color: settings?.textPrimaryColor || '#6D2323',
                       }}
                     >
                       Search & Filter
@@ -1308,7 +1688,7 @@ const AuditLogs = () => {
                     <Typography
                       variant="body2"
                       color="text.secondary"
-                      sx={{ color: settings?.textPrimaryColor || "#6D2323" }}
+                      sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
                     >
                       Find and filter audit logs by various criteria
                     </Typography>
@@ -1316,11 +1696,11 @@ const AuditLogs = () => {
                 </Box>
               }
               sx={{
-                bgcolor: alpha(settings?.accentColor || "#FEF9E1", 0.5),
+                bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.5),
                 pb: 2,
                 borderBottom: `1px solid ${alpha(
-                  settings?.primaryColor || "#894444",
-                  0.1
+                  settings?.primaryColor || '#894444',
+                  0.1,
                 )}`,
               }}
             />
@@ -1336,12 +1716,20 @@ const AuditLogs = () => {
                     InputProps={{
                       startAdornment: (
                         <InputAdornment position="start">
-                          <SearchIcon sx={{ color: settings?.primaryColor || "#894444", fontSize: 20 }} />
+                          <SearchIcon
+                            sx={{
+                              color: settings?.primaryColor || '#894444',
+                              fontSize: 20,
+                            }}
+                          />
                         </InputAdornment>
                       ),
                       endAdornment: employeeFilter ? (
                         <InputAdornment position="end">
-                          <IconButton size="small" onClick={() => setEmployeeFilter("")}>
+                          <IconButton
+                            size="small"
+                            onClick={() => setEmployeeFilter('')}
+                          >
                             <CloseIcon sx={{ fontSize: 16 }} />
                           </IconButton>
                         </InputAdornment>
@@ -1361,7 +1749,7 @@ const AuditLogs = () => {
                     {getUniqueActions().map((action) => (
                       <MenuItem key={action} value={action}>
                         <Box
-                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                          sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
                         >
                           {getActionIcon(action)}
                           <span
@@ -1411,16 +1799,16 @@ const AuditLogs = () => {
         {/* Loading Backdrop */}
         <Backdrop
           sx={{
-            color: settings?.accentColor || "#FEF9E1",
+            color: settings?.accentColor || '#FEF9E1',
             zIndex: (theme) => theme.zIndex.drawer + 1,
           }}
           open={loading && !refreshing}
         >
-          <Box sx={{ textAlign: "center" }}>
+          <Box sx={{ textAlign: 'center' }}>
             <CircularProgress color="inherit" size={60} thickness={4} />
             <Typography
               variant="h6"
-              sx={{ mt: 2, color: settings?.accentColor || "#FEF9E1" }}
+              sx={{ mt: 2, color: settings?.accentColor || '#FEF9E1' }}
             >
               Loading audit logs...
             </Typography>
@@ -1435,18 +1823,18 @@ const AuditLogs = () => {
                 sx={{
                   p: 3,
                   background: `linear-gradient(135deg, ${
-                    settings?.accentColor || "#FEF9E1"
+                    settings?.accentColor || '#FEF9E1'
                   } 0%, ${alpha(
-                    settings?.accentColor || "#FEF9E1",
-                    0.9
+                    settings?.accentColor || '#FEF9E1',
+                    0.9,
                   )} 100%)`,
-                  color: settings?.primaryColor || "#894444",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
+                  color: settings?.primaryColor || '#894444',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
                   borderBottom: `1px solid ${alpha(
-                    settings?.primaryColor || "#894444",
-                    0.1
+                    settings?.primaryColor || '#894444',
+                    0.1,
                   )}`,
                 }}
               >
@@ -1455,16 +1843,16 @@ const AuditLogs = () => {
                     variant="h5"
                     sx={{
                       fontWeight: 600,
-                      color: settings?.primaryColor || "#894444",
+                      color: settings?.primaryColor || '#894444',
                     }}
                   >
-                    {isAdmin ? "System Activity Log" : "My Activity History"}
+                    {isAdmin ? 'System Activity Log' : 'My Activity History'}
                   </Typography>
                   <Typography
                     variant="body2"
                     sx={{
                       opacity: 0.8,
-                      color: settings?.textPrimaryColor || "#6D2323",
+                      color: settings?.textPrimaryColor || '#6D2323',
                     }}
                   >
                     {actionFilter || moduleFilter || dateFilter
@@ -1479,43 +1867,55 @@ const AuditLogs = () => {
                 ref={logScrollRef}
                 sx={{
                   minHeight: `${LOG_LIST_HEIGHT}px`,
-                  overflowY: "auto",
+                  overflowY: 'auto',
                   p: 3,
-                  "&::-webkit-scrollbar": { width: "8px" },
-                  "&::-webkit-scrollbar-track": { background: alpha(settings?.accentColor || "#FEF9E1", 0.2), borderRadius: "4px" },
-                  "&::-webkit-scrollbar-thumb": { background: alpha(settings?.primaryColor || "#894444", 0.5), borderRadius: "4px", "&:hover": { background: alpha(settings?.primaryColor || "#894444", 0.7) } },
+                  '&::-webkit-scrollbar': { width: '8px' },
+                  '&::-webkit-scrollbar-track': {
+                    background: alpha(settings?.accentColor || '#FEF9E1', 0.2),
+                    borderRadius: '4px',
+                  },
+                  '&::-webkit-scrollbar-thumb': {
+                    background: alpha(settings?.primaryColor || '#894444', 0.5),
+                    borderRadius: '4px',
+                    '&:hover': {
+                      background: alpha(
+                        settings?.primaryColor || '#894444',
+                        0.7,
+                      ),
+                    },
+                  },
                 }}
               >
                 {filteredLogs.length === 0 ? (
                   <Box
                     sx={{
-                      textAlign: "center",
+                      textAlign: 'center',
                       py: 8,
-                      color: "#666",
+                      color: '#666',
                     }}
                   >
                     <Info
                       sx={{
                         fontSize: 80,
-                        color: alpha(settings?.primaryColor || "#894444", 0.3),
+                        color: alpha(settings?.primaryColor || '#894444', 0.3),
                         mb: 3,
                       }}
                     />
                     <Typography
                       variant="h6"
-                      sx={{ mb: 1, color: settings?.primaryColor || "#894444" }}
+                      sx={{ mb: 1, color: settings?.primaryColor || '#894444' }}
                     >
                       No audit logs found
                     </Typography>
                     <Typography
                       variant="body2"
                       sx={{
-                        color: alpha(settings?.primaryColor || "#894444", 0.6),
+                        color: alpha(settings?.primaryColor || '#894444', 0.6),
                       }}
                     >
                       {isAdmin
-                        ? "System activities will be logged here"
-                        : "Your activities will be logged here"}
+                        ? 'System activities will be logged here'
+                        : 'Your activities will be logged here'}
                     </Typography>
                   </Box>
                 ) : (
@@ -1525,20 +1925,25 @@ const AuditLogs = () => {
                     )}
                     {visibleLogs.map((log, index) => {
                       const virtualIndex = index;
-                      const rowKey = log.id || `${virtualIndex}-${log.timestamp || "no-time"}`;
+                      const rowKey =
+                        log.id ||
+                        `${virtualIndex}-${log.timestamp || 'no-time'}`;
                       const actionColor = getActionColor(log.action);
                       const actionBg = alpha(actionColor, 0.1);
-                      const officialSnapshot = getOfficialTimeAuditSnapshot(log);
+                      const officialSnapshot =
+                        getOfficialTimeAuditSnapshot(log);
                       const hasOfficialSnapshot =
                         officialSnapshot &&
                         Array.isArray(officialSnapshot.records) &&
                         officialSnapshot.records.length > 0;
-                      const isOfficialExpanded = !!expandedOfficialDetails[rowKey];
+                      const isOfficialExpanded =
+                        !!expandedOfficialDetails[rowKey];
 
                       const ts = log.timestamp ? new Date(log.timestamp) : null;
-                      const timeLabel = ts && !isNaN(ts)
-                        ? `${ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
-                        : null;
+                      const timeLabel =
+                        ts && !isNaN(ts)
+                          ? `${ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
+                          : null;
 
                       const description = buildLogDescription(log);
 
@@ -1554,25 +1959,63 @@ const AuditLogs = () => {
                             mb: 1.5,
                             boxShadow: '0 1px 6px rgba(0,0,0,0.05)',
                             transition: 'box-shadow 0.2s ease',
-                            '&:hover': { boxShadow: `0 4px 16px ${alpha(actionColor, 0.12)}` },
+                            '&:hover': {
+                              boxShadow: `0 4px 16px ${alpha(actionColor, 0.12)}`,
+                            },
                           }}
                         >
                           {/* Row 1: WHAT + WHEN */}
-                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.25, flexWrap: 'wrap', gap: 1 }}>
-                            <Box sx={{
-                              display: 'inline-flex', alignItems: 'center', gap: 0.6,
-                              px: 1.25, py: 0.35, borderRadius: '6px',
-                              bgcolor: actionBg, border: `1px solid ${alpha(actionColor, 0.2)}`,
-                            }}>
-                              {React.cloneElement(getActionIcon(log.action), { sx: { fontSize: 13, color: actionColor } })}
-                              <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: actionColor, lineHeight: 1 }}>
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              mb: 1.25,
+                              flexWrap: 'wrap',
+                              gap: 1,
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 0.6,
+                                px: 1.25,
+                                py: 0.35,
+                                borderRadius: '6px',
+                                bgcolor: actionBg,
+                                border: `1px solid ${alpha(actionColor, 0.2)}`,
+                              }}
+                            >
+                              {React.cloneElement(getActionIcon(log.action), {
+                                sx: { fontSize: 13, color: actionColor },
+                              })}
+                              <Typography
+                                sx={{
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  color: actionColor,
+                                  lineHeight: 1,
+                                }}
+                              >
                                 {log.action?.toUpperCase() || 'UNKNOWN'}
                               </Typography>
                             </Box>
                             {timeLabel && (
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <AccessTime sx={{ fontSize: 12, color: '#c0c0c0' }} />
-                                <Typography variant="caption" sx={{ color: '#b0b0b0', fontSize: '0.72rem' }}>
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 0.5,
+                                }}
+                              >
+                                <AccessTime
+                                  sx={{ fontSize: 12, color: '#c0c0c0' }}
+                                />
+                                <Typography
+                                  variant="caption"
+                                  sx={{ color: '#b0b0b0', fontSize: '0.72rem' }}
+                                >
                                   {timeLabel}
                                 </Typography>
                               </Box>
@@ -1580,26 +2023,70 @@ const AuditLogs = () => {
                           </Box>
 
                           {/* Row 2: WHO */}
-                          <Box sx={{ display: 'flex', gap: 1.5, mb: 1.25, flexWrap: 'wrap' }}>
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              gap: 1.5,
+                              mb: 1.25,
+                              flexWrap: 'wrap',
+                            }}
+                          >
                             {log.employeeNumber && (
-                              <Box sx={{
-                                display: 'flex', alignItems: 'center', gap: 0.75,
-                                px: 1.25, py: 0.6,
-                                bgcolor: alpha(settings?.primaryColor || '#894444', 0.06),
-                                borderRadius: '8px',
-                                border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.15)}`,
-                              }}>
-                                <Person sx={{ fontSize: 14, color: settings?.primaryColor || '#894444' }} />
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 0.75,
+                                  px: 1.25,
+                                  py: 0.6,
+                                  bgcolor: alpha(
+                                    settings?.primaryColor || '#894444',
+                                    0.06,
+                                  ),
+                                  borderRadius: '8px',
+                                  border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.15)}`,
+                                }}
+                              >
+                                <Person
+                                  sx={{
+                                    fontSize: 14,
+                                    color: settings?.primaryColor || '#894444',
+                                  }}
+                                />
                                 <Box>
-                                  <Typography sx={{ fontSize: '0.62rem', color: '#aaa', lineHeight: 1, mb: 0.2, fontWeight: 600, letterSpacing: '0.04em' }}>
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.62rem',
+                                      color: '#aaa',
+                                      lineHeight: 1,
+                                      mb: 0.2,
+                                      fontWeight: 600,
+                                      letterSpacing: '0.04em',
+                                    }}
+                                  >
                                     PERFORMED BY
                                   </Typography>
                                   {log.actorName && (
-                                    <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: settings?.primaryColor || '#894444', lineHeight: 1.2 }}>
+                                    <Typography
+                                      sx={{
+                                        fontSize: '0.82rem',
+                                        fontWeight: 700,
+                                        color:
+                                          settings?.primaryColor || '#894444',
+                                        lineHeight: 1.2,
+                                      }}
+                                    >
                                       {log.actorName}
                                     </Typography>
                                   )}
-                                  <Typography sx={{ fontSize: '0.68rem', color: '#888', lineHeight: 1, mt: log.actorName ? 0.2 : 0 }}>
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.68rem',
+                                      color: '#888',
+                                      lineHeight: 1,
+                                      mt: log.actorName ? 0.2 : 0,
+                                    }}
+                                  >
                                     #{log.employeeNumber}
                                   </Typography>
                                 </Box>
@@ -1607,25 +2094,55 @@ const AuditLogs = () => {
                             )}
 
                             {log.targetEmployeeNumber && (
-                              <Box sx={{
-                                display: 'flex', alignItems: 'center', gap: 0.75,
-                                px: 1.25, py: 0.6,
-                                bgcolor: alpha('#1565C0', 0.05),
-                                borderRadius: '8px',
-                                border: '1px solid rgba(21,101,192,0.15)',
-                                ml: 'auto',
-                              }}>
-                                <Person sx={{ fontSize: 14, color: '#1565C0' }} />
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 0.75,
+                                  px: 1.25,
+                                  py: 0.6,
+                                  bgcolor: alpha('#1565C0', 0.05),
+                                  borderRadius: '8px',
+                                  border: '1px solid rgba(21,101,192,0.15)',
+                                  ml: 'auto',
+                                }}
+                              >
+                                <Person
+                                  sx={{ fontSize: 14, color: '#1565C0' }}
+                                />
                                 <Box>
-                                  <Typography sx={{ fontSize: '0.62rem', color: '#aaa', lineHeight: 1, mb: 0.2, fontWeight: 600, letterSpacing: '0.04em' }}>
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.62rem',
+                                      color: '#aaa',
+                                      lineHeight: 1,
+                                      mb: 0.2,
+                                      fontWeight: 600,
+                                      letterSpacing: '0.04em',
+                                    }}
+                                  >
                                     EMPLOYEE
                                   </Typography>
                                   {log.targetName && (
-                                    <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: '#1565C0', lineHeight: 1.2 }}>
+                                    <Typography
+                                      sx={{
+                                        fontSize: '0.82rem',
+                                        fontWeight: 700,
+                                        color: '#1565C0',
+                                        lineHeight: 1.2,
+                                      }}
+                                    >
                                       {log.targetName}
                                     </Typography>
                                   )}
-                                  <Typography sx={{ fontSize: '0.68rem', color: '#888', lineHeight: 1, mt: log.targetName ? 0.2 : 0 }}>
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.68rem',
+                                      color: '#888',
+                                      lineHeight: 1,
+                                      mt: log.targetName ? 0.2 : 0,
+                                    }}
+                                  >
                                     #{log.targetEmployeeNumber}
                                   </Typography>
                                 </Box>
@@ -1634,7 +2151,14 @@ const AuditLogs = () => {
                           </Box>
 
                           {/* Row 3: Clean sentence */}
-                          <Typography sx={{ fontSize: '0.85rem', color: '#444', lineHeight: 1.65, fontWeight: 400 }}>
+                          <Typography
+                            sx={{
+                              fontSize: '0.85rem',
+                              color: '#444',
+                              lineHeight: 1.65,
+                              fontWeight: 400,
+                            }}
+                          >
                             {description}
                           </Typography>
 
@@ -1652,18 +2176,21 @@ const AuditLogs = () => {
                                   )
                                 }
                                 sx={{
-                                  textTransform: "none",
+                                  textTransform: 'none',
                                   fontWeight: 700,
-                                  borderColor: alpha(settings?.primaryColor || "#894444", 0.3),
-                                  color: settings?.primaryColor || "#894444",
-                                  fontSize: "0.75rem",
+                                  borderColor: alpha(
+                                    settings?.primaryColor || '#894444',
+                                    0.3,
+                                  ),
+                                  color: settings?.primaryColor || '#894444',
+                                  fontSize: '0.75rem',
                                   py: 0.35,
                                   px: 1,
                                 }}
                               >
                                 {isOfficialExpanded
-                                  ? "Hide official time schedule record"
-                                  : "View official time schedule record"}
+                                  ? 'Hide official time schedule record'
+                                  : 'View official time schedule record'}
                               </Button>
 
                               {isOfficialExpanded && (
@@ -1671,54 +2198,79 @@ const AuditLogs = () => {
                                   sx={{
                                     mt: 1.2,
                                     borderRadius: 1.5,
-                                    border: `1px solid ${alpha(settings?.primaryColor || "#894444", 0.2)}`,
-                                    bgcolor: alpha(settings?.accentColor || "#FEF9E1", 0.45),
+                                    border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
+                                    bgcolor: alpha(
+                                      settings?.accentColor || '#FEF9E1',
+                                      0.45,
+                                    ),
                                     p: 1.25,
                                   }}
                                 >
                                   <Typography
                                     sx={{
-                                      fontSize: "0.72rem",
+                                      fontSize: '0.72rem',
                                       fontWeight: 700,
-                                      color: alpha(settings?.primaryColor || "#894444", 0.85),
-                                      textTransform: "uppercase",
-                                      letterSpacing: "0.03em",
+                                      color: alpha(
+                                        settings?.primaryColor || '#894444',
+                                        0.85,
+                                      ),
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '0.03em',
                                       mb: 0.75,
                                     }}
                                   >
-                                    Official Time Schedule Snapshot (Stored in Audit)
+                                    Official Time Schedule Snapshot (Stored in
+                                    Audit)
                                   </Typography>
 
-                                  <Typography sx={{ fontSize: "0.74rem", color: "#555", mb: 0.75 }}>
-                                    Employee: #{officialSnapshot.employeeID || log.targetEmployeeNumber || "N/A"}
-                                    {officialSnapshot.startDate ? ` | Start: ${officialSnapshot.startDate}` : ""}
-                                    {officialSnapshot.endDate ? ` | End: ${officialSnapshot.endDate}` : ""}
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.74rem',
+                                      color: '#555',
+                                      mb: 0.75,
+                                    }}
+                                  >
+                                    Employee: #
+                                    {officialSnapshot.employeeID ||
+                                      log.targetEmployeeNumber ||
+                                      'N/A'}
+                                    {officialSnapshot.startDate
+                                      ? ` | Start: ${officialSnapshot.startDate}`
+                                      : ''}
+                                    {officialSnapshot.endDate
+                                      ? ` | End: ${officialSnapshot.endDate}`
+                                      : ''}
                                     {officialSnapshot.academicYear
                                       ? ` | Academic Year: ${officialSnapshot.academicYear}`
-                                      : ""}
+                                      : ''}
                                   </Typography>
 
-                                  <Box sx={{ overflowX: "auto" }}>
+                                  <Box sx={{ overflowX: 'auto' }}>
                                     <Box
                                       sx={{
                                         minWidth: 860,
-                                        border: "1px solid rgba(0,0,0,0.08)",
+                                        border: '1px solid rgba(0,0,0,0.08)',
                                         borderRadius: 1,
-                                        bgcolor: "#fff",
+                                        bgcolor: '#fff',
                                       }}
                                     >
                                       <Box
                                         sx={{
-                                          display: "grid",
+                                          display: 'grid',
                                           gridTemplateColumns:
-                                            "120px repeat(4, 120px) 150px 150px 150px",
+                                            '120px repeat(4, 120px) 150px 150px 150px',
                                           px: 1,
                                           py: 0.7,
-                                          bgcolor: alpha(settings?.primaryColor || "#894444", 0.08),
-                                          borderBottom: "1px solid rgba(0,0,0,0.08)",
-                                          fontSize: "0.7rem",
+                                          bgcolor: alpha(
+                                            settings?.primaryColor || '#894444',
+                                            0.08,
+                                          ),
+                                          borderBottom:
+                                            '1px solid rgba(0,0,0,0.08)',
+                                          fontSize: '0.7rem',
                                           fontWeight: 700,
-                                          color: settings?.primaryColor || "#894444",
+                                          color:
+                                            settings?.primaryColor || '#894444',
                                         }}
                                       >
                                         <Box>DAY</Box>
@@ -1731,54 +2283,81 @@ const AuditLogs = () => {
                                         <Box>OVERTIME</Box>
                                       </Box>
 
-                                      {officialSnapshot.records.map((r, idx2) => {
-                                        const honorarium = `${r.officialHonorariumTimeIN || "-"} -> ${
-                                          r.officialHonorariumTimeOUT || "-"
-                                        }`;
-                                        const serviceCredit = `${
-                                          r.officialServiceCreditTimeIN || "-"
-                                        } -> ${r.officialServiceCreditTimeOUT || "-"}`;
-                                        const overtime = `${r.officialOverTimeIN || "-"} -> ${
-                                          r.officialOverTimeOUT || "-"
-                                        }`;
+                                      {officialSnapshot.records.map(
+                                        (r, idx2) => {
+                                          const honorarium = `${r.officialHonorariumTimeIN || '-'} -> ${
+                                            r.officialHonorariumTimeOUT || '-'
+                                          }`;
+                                          const serviceCredit = `${
+                                            r.officialServiceCreditTimeIN || '-'
+                                          } -> ${r.officialServiceCreditTimeOUT || '-'}`;
+                                          const overtime = `${r.officialOverTimeIN || '-'} -> ${
+                                            r.officialOverTimeOUT || '-'
+                                          }`;
 
-                                        return (
-                                          <Box
-                                            key={`${rowKey}-record-${idx2}`}
-                                            sx={{
-                                              display: "grid",
-                                              gridTemplateColumns:
-                                                "120px repeat(4, 120px) 150px 150px 150px",
-                                              px: 1,
-                                              py: 0.65,
-                                              borderBottom:
-                                                idx2 < officialSnapshot.records.length - 1
-                                                  ? "1px solid rgba(0,0,0,0.05)"
-                                                  : "none",
-                                              fontSize: "0.72rem",
-                                              color: "#333",
-                                              bgcolor: idx2 % 2 === 0 ? "#fff" : "#fafafa",
-                                              fontFamily: "monospace",
-                                            }}
-                                          >
-                                            <Box sx={{ fontFamily: "inherit", fontWeight: 700 }}>
-                                              {r.day || "-"}
+                                          return (
+                                            <Box
+                                              key={`${rowKey}-record-${idx2}`}
+                                              sx={{
+                                                display: 'grid',
+                                                gridTemplateColumns:
+                                                  '120px repeat(4, 120px) 150px 150px 150px',
+                                                px: 1,
+                                                py: 0.65,
+                                                borderBottom:
+                                                  idx2 <
+                                                  officialSnapshot.records
+                                                    .length -
+                                                    1
+                                                    ? '1px solid rgba(0,0,0,0.05)'
+                                                    : 'none',
+                                                fontSize: '0.72rem',
+                                                color: '#333',
+                                                bgcolor:
+                                                  idx2 % 2 === 0
+                                                    ? '#fff'
+                                                    : '#fafafa',
+                                                fontFamily: 'monospace',
+                                              }}
+                                            >
+                                              <Box
+                                                sx={{
+                                                  fontFamily: 'inherit',
+                                                  fontWeight: 700,
+                                                }}
+                                              >
+                                                {r.day || '-'}
+                                              </Box>
+                                              <Box>
+                                                {r.officialTimeIN || '-'}
+                                              </Box>
+                                              <Box>
+                                                {r.officialBreaktimeIN || '-'}
+                                              </Box>
+                                              <Box>
+                                                {r.officialBreaktimeOUT || '-'}
+                                              </Box>
+                                              <Box>
+                                                {r.officialTimeOUT || '-'}
+                                              </Box>
+                                              <Box>{honorarium}</Box>
+                                              <Box>{serviceCredit}</Box>
+                                              <Box>{overtime}</Box>
                                             </Box>
-                                            <Box>{r.officialTimeIN || "-"}</Box>
-                                            <Box>{r.officialBreaktimeIN || "-"}</Box>
-                                            <Box>{r.officialBreaktimeOUT || "-"}</Box>
-                                            <Box>{r.officialTimeOUT || "-"}</Box>
-                                            <Box>{honorarium}</Box>
-                                            <Box>{serviceCredit}</Box>
-                                            <Box>{overtime}</Box>
-                                          </Box>
-                                        );
-                                      })}
+                                          );
+                                        },
+                                      )}
                                     </Box>
                                   </Box>
 
                                   {officialSnapshot.truncated && (
-                                    <Typography sx={{ fontSize: "0.72rem", color: "#b25c00", mt: 0.8 }}>
+                                    <Typography
+                                      sx={{
+                                        fontSize: '0.72rem',
+                                        color: '#b25c00',
+                                        mt: 0.8,
+                                      }}
+                                    >
                                       Snapshot truncated in audit storage.
                                     </Typography>
                                   )}
@@ -1802,20 +2381,28 @@ const AuditLogs = () => {
                   mt: 0,
                   pt: 2,
                   pb: 2,
-                  borderTop: "1px solid #e5e7eb",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
+                  borderTop: '1px solid #e5e7eb',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
                   px: 3,
-                  flexWrap: "wrap",
+                  flexWrap: 'wrap',
                   gap: 2,
-                  backgroundColor: alpha(settings?.accentColor || "#FEF9E1", 0.5),
+                  backgroundColor: alpha(
+                    settings?.accentColor || '#FEF9E1',
+                    0.5,
+                  ),
                 }}
               >
-                <Typography sx={{ color: "#666", fontSize: "14px" }}>
-                  <strong>Total Logs:</strong> {filteredLogs.length}{" "}
-                  <span style={{ color: "#999" }}>
-                    | Showing {filteredLogs.length === 0 ? 0 : (auditPage - 1) * LOGS_PER_PAGE + 1}–{Math.min(auditPage * LOGS_PER_PAGE, filteredLogs.length)} of {filteredLogs.length}
+                <Typography sx={{ color: '#666', fontSize: '14px' }}>
+                  <strong>Total Logs:</strong> {filteredLogs.length}{' '}
+                  <span style={{ color: '#999' }}>
+                    | Showing{' '}
+                    {filteredLogs.length === 0
+                      ? 0
+                      : (auditPage - 1) * LOGS_PER_PAGE + 1}
+                    –{Math.min(auditPage * LOGS_PER_PAGE, filteredLogs.length)}{' '}
+                    of {filteredLogs.length}
                   </span>
                 </Typography>
 
@@ -1825,19 +2412,49 @@ const AuditLogs = () => {
                     <IconButton
                       size="small"
                       disabled={auditPage === 1}
-                      onClick={() => { setAuditPage((p) => p - 1); logScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                      onClick={() => {
+                        setAuditPage((p) => p - 1);
+                        logScrollRef.current?.scrollTo({
+                          top: 0,
+                          behavior: 'smooth',
+                        });
+                      }}
                       sx={{
-                        width: 30, height: 30, borderRadius: '8px',
+                        width: 30,
+                        height: 30,
+                        borderRadius: '8px',
                         border: `1px solid ${alpha(settings?.primaryColor || '#894444', auditPage === 1 ? 0.1 : 0.25)}`,
-                        color: auditPage === 1 ? '#ccc' : settings?.primaryColor || '#894444',
-                        '&:hover': { bgcolor: alpha(settings?.primaryColor || '#894444', 0.06) },
+                        color:
+                          auditPage === 1
+                            ? '#ccc'
+                            : settings?.primaryColor || '#894444',
+                        '&:hover': {
+                          bgcolor: alpha(
+                            settings?.primaryColor || '#894444',
+                            0.06,
+                          ),
+                        },
                       }}
                     >
-                      <Box component="span" sx={{ fontSize: '1rem', lineHeight: 1, fontWeight: 600 }}>‹</Box>
+                      <Box
+                        component="span"
+                        sx={{
+                          fontSize: '1rem',
+                          lineHeight: 1,
+                          fontWeight: 600,
+                        }}
+                      >
+                        ‹
+                      </Box>
                     </IconButton>
 
                     {Array.from({ length: totalPages }, (_, i) => i + 1)
-                      .filter((p) => p === 1 || p === totalPages || Math.abs(p - auditPage) <= 2)
+                      .filter(
+                        (p) =>
+                          p === 1 ||
+                          p === totalPages ||
+                          Math.abs(p - auditPage) <= 2,
+                      )
                       .reduce((acc, p, idx, arr) => {
                         if (idx > 0 && p - arr[idx - 1] > 1) acc.push('...');
                         acc.push(p);
@@ -1845,40 +2462,88 @@ const AuditLogs = () => {
                       }, [])
                       .map((item, idx) =>
                         item === '...' ? (
-                          <Typography key={`ellipsis-${idx}`} sx={{ px: 0.5, color: '#aaa', fontSize: '0.85rem' }}>…</Typography>
+                          <Typography
+                            key={`ellipsis-${idx}`}
+                            sx={{ px: 0.5, color: '#aaa', fontSize: '0.85rem' }}
+                          >
+                            …
+                          </Typography>
                         ) : (
                           <IconButton
                             key={item}
                             size="small"
-                            onClick={() => { setAuditPage(item); logScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                            onClick={() => {
+                              setAuditPage(item);
+                              logScrollRef.current?.scrollTo({
+                                top: 0,
+                                behavior: 'smooth',
+                              });
+                            }}
                             sx={{
-                              width: 30, height: 30, borderRadius: '8px',
+                              width: 30,
+                              height: 30,
+                              borderRadius: '8px',
                               fontSize: '0.78rem',
                               fontWeight: item === auditPage ? 700 : 400,
-                              bgcolor: item === auditPage ? (settings?.primaryColor || '#894444') : 'transparent',
+                              bgcolor:
+                                item === auditPage
+                                  ? settings?.primaryColor || '#894444'
+                                  : 'transparent',
                               color: item === auditPage ? '#fff' : '#666',
-                              border: `1px solid ${item === auditPage ? (settings?.primaryColor || '#894444') : alpha(settings?.primaryColor || '#894444', 0.15)}`,
-                              '&:hover': { bgcolor: item === auditPage ? (settings?.primaryColor || '#894444') : alpha(settings?.primaryColor || '#894444', 0.06) },
+                              border: `1px solid ${item === auditPage ? settings?.primaryColor || '#894444' : alpha(settings?.primaryColor || '#894444', 0.15)}`,
+                              '&:hover': {
+                                bgcolor:
+                                  item === auditPage
+                                    ? settings?.primaryColor || '#894444'
+                                    : alpha(
+                                        settings?.primaryColor || '#894444',
+                                        0.06,
+                                      ),
+                              },
                             }}
                           >
                             {item}
                           </IconButton>
-                        )
-                      )
-                    }
+                        ),
+                      )}
 
                     <IconButton
                       size="small"
                       disabled={auditPage === totalPages}
-                      onClick={() => { setAuditPage((p) => p + 1); logScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                      onClick={() => {
+                        setAuditPage((p) => p + 1);
+                        logScrollRef.current?.scrollTo({
+                          top: 0,
+                          behavior: 'smooth',
+                        });
+                      }}
                       sx={{
-                        width: 30, height: 30, borderRadius: '8px',
+                        width: 30,
+                        height: 30,
+                        borderRadius: '8px',
                         border: `1px solid ${alpha(settings?.primaryColor || '#894444', auditPage === totalPages ? 0.1 : 0.25)}`,
-                        color: auditPage === totalPages ? '#ccc' : settings?.primaryColor || '#894444',
-                        '&:hover': { bgcolor: alpha(settings?.primaryColor || '#894444', 0.06) },
+                        color:
+                          auditPage === totalPages
+                            ? '#ccc'
+                            : settings?.primaryColor || '#894444',
+                        '&:hover': {
+                          bgcolor: alpha(
+                            settings?.primaryColor || '#894444',
+                            0.06,
+                          ),
+                        },
                       }}
                     >
-                      <Box component="span" sx={{ fontSize: '1rem', lineHeight: 1, fontWeight: 600 }}>›</Box>
+                      <Box
+                        component="span"
+                        sx={{
+                          fontSize: '1rem',
+                          lineHeight: 1,
+                          fontWeight: 600,
+                        }}
+                      >
+                        ›
+                      </Box>
                     </IconButton>
                   </Box>
                 )}
@@ -1888,7 +2553,7 @@ const AuditLogs = () => {
         )}
       </Box>
 
-      {/* Session Warning Modal - Pop-up when 2 minutes remaining */}
+      {/* Session Warning Modal */}
       <Modal
         open={sessionWarningOpen}
         onClose={handleSessionWarningClose}
@@ -1931,7 +2596,10 @@ const AuditLogs = () => {
               <Warning sx={{ fontSize: 28 }} />
             </Avatar>
             <Box>
-              <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#333' }}>
+              <Typography
+                variant="h5"
+                sx={{ fontWeight: 'bold', color: '#333' }}
+              >
                 Session Expiring Soon
               </Typography>
               <Typography variant="body2" sx={{ color: '#666' }}>
@@ -1956,16 +2624,19 @@ const AuditLogs = () => {
                 },
               }}
             >
-              <Typography variant="body1" sx={{ fontWeight: 600, mb: 1, color: '#333' }}>
+              <Typography
+                variant="body1"
+                sx={{ fontWeight: 600, mb: 1, color: '#333' }}
+              >
                 Time Remaining: {formatTimer(sessionTimer)}
               </Typography>
               <Typography variant="body2" sx={{ color: '#666' }}>
-                For security purposes, your session will automatically expire. 
-                You will need to re-authenticate to continue accessing the audit logs.
+                For security purposes, your session will automatically expire.
+                You will need to re-authenticate to continue accessing the audit
+                logs.
               </Typography>
             </Alert>
 
-            {/* Action Buttons */}
             <Box display="flex" justifyContent="flex-end" gap={2} mt={2}>
               <Button
                 onClick={handleSessionWarningClose}
@@ -1991,12 +2662,12 @@ const AuditLogs = () => {
         </Box>
       </Modal>
 
-      {/* Session Timer Indicator - Fixed Position in Bottom Right */}
+      {/* Fixed bottom-right session timer (shown after warning triggers) */}
       {sessionWarningShown && (
         <Fade in timeout={300}>
           <Box
             sx={{
-              position: "fixed",
+              position: 'fixed',
               bottom: 24,
               right: 24,
               zIndex: 9999,
@@ -2008,21 +2679,21 @@ const AuditLogs = () => {
               size="medium"
               sx={{
                 bgcolor: alpha(getTimerColor(sessionTimer), 0.9),
-                color: "white",
+                color: 'white',
                 fontWeight: 600,
-                fontSize: "1rem",
+                fontSize: '1rem',
                 border: `2px solid ${getTimerColor(sessionTimer)}`,
-                "& .MuiChip-label": { px: 1.5 },
-                "& .MuiChip-icon": {
-                  color: "white",
-                  animation: sessionTimer < 60 ? "pulse 1s infinite" : "none",
+                '& .MuiChip-label': { px: 1.5 },
+                '& .MuiChip-icon': {
+                  color: 'white',
+                  animation: sessionTimer < 60 ? 'pulse 1s infinite' : 'none',
                 },
-                "@keyframes pulse": {
-                  "0%, 100%": { opacity: 1 },
-                  "50%": { opacity: 0.5 },
+                '@keyframes pulse': {
+                  '0%, 100%': { opacity: 1 },
+                  '50%': { opacity: 0.5 },
                 },
-                cursor: "pointer",
-                boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
               }}
             />
           </Box>

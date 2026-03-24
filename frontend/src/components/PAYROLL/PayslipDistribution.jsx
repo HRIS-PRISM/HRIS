@@ -1,5 +1,5 @@
 import API_BASE_URL from "../../apiConfig";
-import React, { forwardRef, useRef, useState, useEffect } from "react";
+import React, { forwardRef, useRef, useState, useEffect, useCallback } from "react";
 import {
   Paper,
   Typography,
@@ -37,6 +37,7 @@ import {
   Alert,
   Stack,
   LinearProgress,
+  Snackbar,
 } from "@mui/material";
 import WorkIcon from "@mui/icons-material/Work";
 import Search from "@mui/icons-material/Search";
@@ -64,6 +65,17 @@ const hexToRgb = (hex) => {
   return r
     ? `${parseInt(r[1], 16)}, ${parseInt(r[2], 16)}, ${parseInt(r[3], 16)}`
     : "109, 35, 35";
+};
+
+const generateHash = (data) => {
+  const str = JSON.stringify(data);
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(16).toUpperCase();
 };
 
 // ── Styled Components ──────────────────────────────────────────────────────
@@ -450,6 +462,19 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
     message: "",
   });
 
+  // ── Anti-tamper state ──────────────────────────────────────────────────────
+  const [originalPayroll, setOriginalPayroll] = useState([]);
+  const [payrollHash, setPayrollHash] = useState("");
+  const [fetchedAt, setFetchedAt] = useState(null);
+  const [integrityStatus, setIntegrityStatus] = useState("none");
+  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "info" });
+
+  // ── Anti-tamper refs ───────────────────────────────────────────────────────
+  const observerRef = useRef(null);
+  const restoreTimerRef = useRef(null);
+  const originalPayrollRef = useRef([]);
+  const isRestoringRef = useRef(false);
+
   // ── System settings ───────────────────────────────────────────────────
   const { settings } = useSystemSettings();
   const primaryColor = settings.accentColor || "#FEF9E1";
@@ -510,7 +535,25 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
         `${API_BASE_URL}/PayrollReleasedRoute/released-payroll-detailed`,
         getAuthHeaders(),
       );
-      setAllPayroll(res.data);
+      const data = res.data || [];
+      setAllPayroll(data);
+
+      // ── Capture integrity data ─────────────────────────────────
+      if (data.length > 0) {
+        const immutable = Object.freeze(JSON.parse(JSON.stringify(data)));
+        setOriginalPayroll(immutable);
+        originalPayrollRef.current = immutable;
+        const hash = generateHash(data);
+        setPayrollHash(hash);
+        setFetchedAt(new Date().toISOString());
+        setIntegrityStatus("ok");
+      } else {
+        setOriginalPayroll([]);
+        originalPayrollRef.current = [];
+        setPayrollHash("");
+        setFetchedAt(null);
+        setIntegrityStatus("none");
+      }
     } catch {
       setError("Failed to fetch payroll data. Please try again.");
     } finally {
@@ -603,6 +646,7 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
   // ── Modal: Download PDF ───────────────────────────────────────────────
   const handleModalDownload = async () => {
     if (!payslipModal.emp) return;
+    if (!verifyIntegrity()) return;
     setModalSending(true);
     try {
       const pdf = await generate3MonthPDF(payslipModal.emp);
@@ -634,6 +678,7 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
   // ── Modal: Send via Gmail ─────────────────────────────────────────────
   const handleModalSendGmail = async () => {
     if (!payslipModal.emp) return;
+    if (!verifyIntegrity()) return;
     setModalSending(true);
     try {
       const emp = payslipModal.emp;
@@ -703,6 +748,28 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
     const n =
       (parseFloat(emp.netSalary) || 0) - (parseFloat(emp.totalDeductions) || 0);
     return n !== 0 ? `₱${n.toLocaleString()}` : "—";
+  };
+
+  // ── Integrity verification ─────────────────────────────────────────────────
+  const verifyIntegrity = () => {
+    if (!fetchedAt || originalPayroll.length === 0) {
+      setSnackbar({ open: true, message: "No payroll data loaded. Please search first.", severity: "warning" });
+      return false;
+    }
+    const ageMs = Date.now() - new Date(fetchedAt).getTime();
+    if (ageMs > 30 * 60 * 1000) {
+      setIntegrityStatus("warn");
+      setSnackbar({ open: true, message: "Payroll data is older than 30 minutes. Please refresh to get fresh data.", severity: "warning" });
+      return false;
+    }
+    const currentHash = generateHash(allPayroll);
+    if (currentHash !== payrollHash) {
+      setIntegrityStatus("warn");
+      setSnackbar({ open: true, message: "Data integrity check failed. The records may have been modified. Please reload.", severity: "error" });
+      return false;
+    }
+    setIntegrityStatus("ok");
+    return true;
   };
 
   // ── HTML payslip builder (used for all PDF generation) ────────────────
@@ -1002,6 +1069,7 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
   // ── Individual: Download ──────────────────────────────────────────────
   const handleDownload = async () => {
     if (!displayEmployee) return;
+    if (!verifyIntegrity()) return;
     setIndivSending(true);
     try {
       const pdf = await generate3MonthPDF(displayEmployee);
@@ -1033,6 +1101,7 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
   // ── Individual: Send via Gmail ────────────────────────────────────────
   const handleSendGmail = async () => {
     if (!displayEmployee) return;
+    if (!verifyIntegrity()) return;
     setIndivSending(true);
     try {
       const pdf = await generate3MonthPDF(displayEmployee);
@@ -1075,6 +1144,7 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
   // ── Bulk: Send selected ───────────────────────────────────────────────
   const sendSelectedPayslips = async () => {
     if (!selectedEmployees.length) return;
+    if (!verifyIntegrity()) return;
     setSending(true);
     setLoadingMessage("Generating payslips and sending via Gmail...");
     try {
@@ -3108,6 +3178,22 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
           showOkButton={true}
         />
       )}
+
+      {/* ── Integrity Status Snackbar ────────────────────────────────────────── */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={5000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+      >
+        <Alert
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          severity={snackbar.severity}
+          sx={{ width: "100%" }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </>
   );
 });
