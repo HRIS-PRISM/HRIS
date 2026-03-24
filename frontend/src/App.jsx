@@ -782,7 +782,7 @@ function App() {
             marginLeft: drawerOpen ? `${drawerWidth}px` : `${collapsedWidth}px`,
             transition: "margin-left 0.3s ease",
             fontFamily: "Poppins, sans-serif",
-            minHeight: "100vh",
+    minHeight: "fit-content",
             "& .MuiPaper-root": { borderColor: systemSettings.primaryColor },
             "& .MuiButton-contained": {
               backgroundColor: systemSettings.primaryColor,

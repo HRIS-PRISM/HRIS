@@ -56,6 +56,8 @@ import {
   InputLabel,
   Select,
   Skeleton,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import {
   People,
@@ -66,7 +68,7 @@ import {
   Badge as BadgeIcon,
   Person,
   Visibility,
-  Refresh,
+  Refresh as RefreshIcon,
   AccountCircle,
   Business,
   Security,
@@ -104,13 +106,15 @@ import {
   Folder,
   ChevronLeft,
   ChevronRight,
+  WarningAmberRounded,
+  LockReset as LockResetIcon,
 } from '@mui/icons-material';
 import SearchIcon from '@mui/icons-material/Search';
 import WifiOffIcon from '@mui/icons-material/WifiOff';
 import axios from 'axios';
 import SuccessfulOverlay from './SuccessfulOverlay';
 
-// ─── Shimmer keyframes (mirrors Home exactly) ─────────────────────────────────
+// ─── Shimmer keyframes ────────────────────────────────────────────────────────
 const shimmerKeyframes = `
 @keyframes ulShimmer {
   0%   { background-position: -800px 0; }
@@ -128,9 +132,16 @@ const shimmerKeyframes = `
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.3; }
 }
+@keyframes rpShimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
+}
+@keyframes rpPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.60; }
+}
 `;
 
-// ─── Skeleton shimmer box (mirrors Home's SkeletonBox) ────────────────────────
 const ULShim = ({ width = '100%', height = 16, borderRadius = 8, sx = {}, light = false }) => (
   <Box sx={{
     width, height, borderRadius: `${borderRadius}px`, flexShrink: 0,
@@ -143,7 +154,17 @@ const ULShim = ({ width = '100%', height = 16, borderRadius = 8, sx = {}, light 
   }} />
 );
 
-// ─── Quiet offline banner (same as original) ──────────────────────────────────
+// ─── Password Management Modal Shimmer ───────────────────────────────────────
+const RpShim = ({ width = "100%", height = 16, borderRadius = 8, sx = {} }) => (
+  <Box sx={{
+    width, height, borderRadius: `${borderRadius}px`, flexShrink: 0,
+    background: "linear-gradient(90deg,rgba(137,68,68,0.08) 25%,rgba(137,68,68,0.20) 50%,rgba(137,68,68,0.08) 75%)",
+    backgroundSize: "800px 100%",
+    animation: "rpShimmer 1.5s infinite linear",
+    ...sx,
+  }} />
+);
+
 const OfflineBanner = ({ visible, retryIn, primaryColor }) => {
   const p = primaryColor || '#894444';
   return (
@@ -156,14 +177,8 @@ const OfflineBanner = ({ visible, retryIn, primaryColor }) => {
       }}>
         <WifiOffIcon sx={{ fontSize: 18, color: alpha(p, 0.5), animation: 'umBounce 2s ease-in-out infinite', flexShrink: 0 }} />
         <Box sx={{ flex: 1 }}>
-          <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: alpha(p, 0.75), lineHeight: 1.2 }}>
-            Waiting for connection…
-          </Typography>
-          {retryIn > 0 && (
-            <Typography sx={{ fontSize: '0.72rem', color: alpha(p, 0.45), mt: 0.3 }}>
-              Retrying in {retryIn}s
-            </Typography>
-          )}
+          <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: alpha(p, 0.75), lineHeight: 1.2 }}>Waiting for connection…</Typography>
+          {retryIn > 0 && (<Typography sx={{ fontSize: '0.72rem', color: alpha(p, 0.45), mt: 0.3 }}>Retrying in {retryIn}s</Typography>)}
         </Box>
         <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: alpha(p, 0.35), animation: 'umPulse 1.8s ease-in-out infinite', flexShrink: 0 }} />
       </Box>
@@ -171,42 +186,22 @@ const OfflineBanner = ({ visible, retryIn, primaryColor }) => {
   );
 };
 
-// ─── Full-page wireframe (mirrors Home's WireframeLoading structure) ───────────
 const UsersListWireframe = ({ settings, offline, retryIn }) => {
   const p  = settings?.primaryColor  || '#894444';
-  const s  = settings?.secondaryColor || '#6d2323';
   const ac = settings?.accentColor   || '#FEF9E1';
-  const tp = settings?.textPrimaryColor || '#6D2323';
 
   return (
     <>
       <style>{shimmerKeyframes}</style>
       <Box sx={{ py: 4, borderRadius: '14px', width: '100vw', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '50%', transform: 'translateX(-50%)', minHeight: '92vh' }}>
         <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
-
-          {/* ── Header card skeleton ── */}
-          <Box sx={{
-            mb: 4, borderRadius: 20, overflow: 'hidden',
-            background: `${ac}F2`,
-            border: `1px solid ${alpha(p, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(p, 0.08)}`,
-            animation: 'ulPulse 2.2s ease-in-out infinite',
-          }}>
-            <Box sx={{
-              p: 5, position: 'relative', overflow: 'hidden',
-              background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
-            }}>
-              {/* decorative blobs */}
+          <Box sx={{ mb: 4, borderRadius: 20, overflow: 'hidden', background: `${ac}F2`, border: `1px solid ${alpha(p, 0.1)}`, boxShadow: `0 8px 40px ${alpha(p, 0.08)}`, animation: 'ulPulse 2.2s ease-in-out infinite' }}>
+            <Box sx={{ p: 5, position: 'relative', overflow: 'hidden', background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)` }}>
               <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle, ${alpha(p, 0.08)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
-              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, background: `radial-gradient(circle, ${alpha(p, 0.06)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  {/* avatar ghost */}
                   <Box sx={{ width: 64, height: 64, borderRadius: '50%', bgcolor: alpha(p, 0.12), flexShrink: 0 }} />
-                  <Box>
-                    <ULShim width={220} height={26} borderRadius={6} sx={{ mb: 1 }} />
-                    <ULShim width={340} height={14} borderRadius={4} />
-                  </Box>
+                  <Box><ULShim width={220} height={26} borderRadius={6} sx={{ mb: 1 }} /><ULShim width={340} height={14} borderRadius={4} /></Box>
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                   <ULShim width={80} height={28} borderRadius={14} />
@@ -217,26 +212,10 @@ const UsersListWireframe = ({ settings, offline, retryIn }) => {
               </Box>
             </Box>
           </Box>
-
-          {/* ── Stats cards skeleton (5 cards) ── */}
           <Grid container spacing={3} sx={{ mb: 4 }}>
-            {[
-              { delay: 0 },
-              { delay: 0.05 },
-              { delay: 0.10 },
-              { delay: 0.15 },
-              { delay: 0.20 },
-            ].map((card, i) => (
+            {[0, 0.05, 0.10, 0.15, 0.20].map((delay, i) => (
               <Grid key={i} item xs={12} sm={6} md sx={{ minWidth: 0, flex: '1 1 0%' }}>
-                <Box sx={{
-                  borderRadius: 20,
-                  background: `${ac}F2`,
-                  border: `1px solid ${alpha(p, 0.1)}`,
-                  boxShadow: `0 8px 40px ${alpha(p, 0.06)}`,
-                  p: 3, textAlign: 'center',
-                  animation: `ulPulse 2.2s ease-in-out ${card.delay}s infinite`,
-                }}>
-                  {/* icon ghost — square to match MUI icon */}
+                <Box sx={{ borderRadius: 20, background: `${ac}F2`, border: `1px solid ${alpha(p, 0.1)}`, p: 3, textAlign: 'center', animation: `ulPulse 2.2s ease-in-out ${delay}s infinite` }}>
                   <ULShim width={44} height={44} borderRadius={6} sx={{ mx: 'auto', mb: 1.5 }} />
                   <ULShim width="50%" height={22} borderRadius={5} sx={{ mx: 'auto', mb: 0.75 }} />
                   <ULShim width="70%" height={13} borderRadius={4} sx={{ mx: 'auto' }} />
@@ -244,187 +223,56 @@ const UsersListWireframe = ({ settings, offline, retryIn }) => {
               </Grid>
             ))}
           </Grid>
-
-          {/* ── Search & Filter card skeleton ── */}
-          <Box sx={{
-            mb: 4, borderRadius: 20, overflow: 'hidden',
-            background: `${ac}F2`,
-            border: `1px solid ${alpha(p, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(p, 0.06)}`,
-            animation: 'ulPulse 2.2s ease-in-out 0.08s infinite',
-          }}>
-            {/* card header */}
-            <Box sx={{
-              px: 4, py: 3,
-              bgcolor: alpha(ac, 0.5),
-              borderBottom: `1px solid ${alpha(p, 0.08)}`,
-              display: 'flex', alignItems: 'center', gap: 2,
-            }}>
+          <Box sx={{ mb: 4, borderRadius: 20, overflow: 'hidden', background: `${ac}F2`, border: `1px solid ${alpha(p, 0.1)}`, animation: 'ulPulse 2.2s ease-in-out 0.08s infinite' }}>
+            <Box sx={{ px: 4, py: 3, bgcolor: alpha(ac, 0.5), borderBottom: `1px solid ${alpha(p, 0.08)}`, display: 'flex', alignItems: 'center', gap: 2 }}>
               <Box sx={{ width: 40, height: 40, borderRadius: '50%', bgcolor: alpha(p, 0.12), flexShrink: 0 }} />
-              <Box>
-                <ULShim width={160} height={18} borderRadius={5} sx={{ mb: 0.5 }} />
-                <ULShim width={240} height={12} borderRadius={4} />
-              </Box>
+              <Box><ULShim width={160} height={18} borderRadius={5} sx={{ mb: 0.5 }} /><ULShim width={240} height={12} borderRadius={4} /></Box>
             </Box>
-            {/* filter fields */}
             <Box sx={{ p: 4 }}>
               <Grid container spacing={3}>
-                {[
-                  { w: '100%', label: 120 },
-                  { w: '100%', label: 80 },
-                  { w: '100%', label: 200 },
-                  { w: '100%', label: 140 },
-                ].map((f, i) => (
-                  <Grid item xs={12} md={i === 0 ? 4 : i === 1 ? 2 : 3} key={i}>
-                    <Box sx={{
-                      height: 56, borderRadius: 12,
-                      border: `1px solid ${alpha(p, 0.15)}`,
-                      bgcolor: 'rgba(255,255,255,0.8)',
-                      display: 'flex', alignItems: 'center', gap: 1.5, px: 2,
-                      animation: `ulPulse 2.2s ease-in-out ${i * 0.05}s infinite`,
-                    }}>
+                {[4, 2, 3, 3].map((cols, i) => (
+                  <Grid item xs={12} md={cols} key={i}>
+                    <Box sx={{ height: 56, borderRadius: 12, border: `1px solid ${alpha(p, 0.15)}`, bgcolor: 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', gap: 1.5, px: 2 }}>
                       <Box sx={{ width: 20, height: 20, borderRadius: '50%', bgcolor: alpha(p, 0.12), flexShrink: 0 }} />
-                      <ULShim width={f.label} height={13} borderRadius={4} />
-                      {i > 0 && (
-                        <Box sx={{ ml: 'auto', width: 16, height: 16, borderRadius: 2, bgcolor: alpha(p, 0.1), flexShrink: 0 }} />
-                      )}
+                      <ULShim width={100 + i * 20} height={13} borderRadius={4} />
                     </Box>
                   </Grid>
                 ))}
               </Grid>
             </Box>
           </Box>
-
-          {/* ── Users Table card skeleton ── */}
-          <Box sx={{
-            borderRadius: 20, overflow: 'hidden',
-            background: `${ac}F2`,
-            border: `1px solid ${alpha(p, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(p, 0.08)}`,
-          }}>
-            {/* Offline banner lives here */}
-            {offline && (
-              <Box sx={{ pt: 3 }}>
-                <OfflineBanner visible={offline} retryIn={retryIn} primaryColor={p} />
-              </Box>
-            )}
-
-            {/* table header bar */}
-            <Box sx={{
-              p: 3,
-              background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
-              borderBottom: `1px solid ${alpha(p, 0.1)}`,
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              animation: 'ulPulse 2.2s ease-in-out 0.1s infinite',
-            }}>
-              <Box>
-                <ULShim width={180} height={22} borderRadius={5} sx={{ mb: 0.75 }} />
-                <ULShim width={220} height={13} borderRadius={4} />
-              </Box>
+          <Box sx={{ borderRadius: 20, overflow: 'hidden', background: `${ac}F2`, border: `1px solid ${alpha(p, 0.1)}` }}>
+            {offline && <Box sx={{ pt: 3 }}><OfflineBanner visible={offline} retryIn={retryIn} primaryColor={p} /></Box>}
+            <Box sx={{ p: 3, background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`, borderBottom: `1px solid ${alpha(p, 0.1)}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', animation: 'ulPulse 2.2s ease-in-out 0.1s infinite' }}>
+              <Box><ULShim width={180} height={22} borderRadius={5} sx={{ mb: 0.75 }} /><ULShim width={220} height={13} borderRadius={4} /></Box>
               <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                {[150, 160, 170, 190].map((w, i) => (
-                  <ULShim key={i} width={w} height={44} borderRadius={12} sx={{ animation: `ulPulse 2.2s ease-in-out ${i * 0.04}s infinite` }} />
-                ))}
+                {[150, 160, 170, 190].map((w, i) => (<ULShim key={i} width={w} height={44} borderRadius={12} />))}
               </Box>
             </Box>
-
-            {/* thead row */}
-            <Box sx={{
-              display: 'grid',
-              gridTemplateColumns: '56px 110px 1fr 1fr 150px 200px 150px 130px 120px',
-              px: 2.5, py: 2,
-              bgcolor: alpha(ac, 0.7),
-              borderBottom: `2px solid ${alpha(p, 0.12)}`,
-              animation: 'ulPulse 2.2s ease-in-out 0.12s infinite',
-            }}>
-              {[20, 80, 130, 150, 90, 160, 100, 100, 80].map((w, i) => (
-                <Box key={i} sx={{ px: 1 }}>
-                  <ULShim width={w} height={16} borderRadius={4} />
-                </Box>
-              ))}
+            <Box sx={{ px: 2, py: 1.25, bgcolor: alpha(ac, 0.4), borderBottom: `1px solid ${alpha(p, 0.08)}`, display: 'flex', gap: 2 }}>
+              <ULShim width={160} height={32} borderRadius={8} />
+              <ULShim width={180} height={32} borderRadius={8} />
             </Box>
-
-            {/* tbody rows — 8 shimmer rows */}
+            <Box sx={{ display: 'grid', gridTemplateColumns: '56px 110px 1fr 1fr 150px 200px 150px 130px 120px', px: 2.5, py: 2, bgcolor: alpha(ac, 0.7), borderBottom: `2px solid ${alpha(p, 0.12)}` }}>
+              {[20, 80, 130, 150, 90, 160, 100, 100, 80].map((w, i) => (<Box key={i} sx={{ px: 1 }}><ULShim width={w} height={16} borderRadius={4} /></Box>))}
+            </Box>
             {Array.from({ length: 8 }).map((_, rowIdx) => (
-              <Box
-                key={rowIdx}
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: '56px 110px 1fr 1fr 150px 200px 150px 130px 120px',
-                  px: 2.5, py: 1.75,
-                  bgcolor: rowIdx % 2 === 0 ? 'transparent' : alpha(ac, 0.3),
-                  borderBottom: `1px solid ${alpha(p, 0.06)}`,
-                  alignItems: 'center',
-                  animation: `ulPulse 2.2s ease-in-out ${rowIdx * 0.05}s infinite`,
-                }}
-              >
-                {/* checkbox */}
-                <Box sx={{ px: 1 }}>
-                  <ULShim width={20} height={20} borderRadius={4} />
-                </Box>
-
-                {/* employee # */}
-                <Box sx={{ px: 1 }}>
-                  <ULShim width={70} height={18} borderRadius={4} />
-                </Box>
-
-                {/* full name + avatar */}
+              <Box key={rowIdx} sx={{ display: 'grid', gridTemplateColumns: '56px 110px 1fr 1fr 150px 200px 150px 130px 120px', px: 2.5, py: 1.75, bgcolor: rowIdx % 2 === 0 ? 'transparent' : alpha(ac, 0.3), borderBottom: `1px solid ${alpha(p, 0.06)}`, alignItems: 'center', animation: `ulPulse 2.2s ease-in-out ${rowIdx * 0.05}s infinite` }}>
+                <Box sx={{ px: 1 }}><ULShim width={20} height={20} borderRadius={4} /></Box>
+                <Box sx={{ px: 1 }}><ULShim width={70} height={18} borderRadius={4} /></Box>
                 <Box sx={{ px: 1, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                   <Box sx={{ width: 48, height: 48, borderRadius: '50%', bgcolor: alpha(p, 0.12), flexShrink: 0 }} />
-                  <Box sx={{ flex: 1 }}>
-                    <ULShim width={`${55 + (rowIdx % 3) * 18}%`} height={16} borderRadius={4} sx={{ mb: 0.5 }} />
-                    <ULShim width="38%" height={12} borderRadius={3} />
-                  </Box>
+                  <Box sx={{ flex: 1 }}><ULShim width={`${55 + (rowIdx % 3) * 18}%`} height={16} borderRadius={4} sx={{ mb: 0.5 }} /><ULShim width="38%" height={12} borderRadius={3} /></Box>
                 </Box>
-
-                {/* email */}
-                <Box sx={{ px: 1 }}>
-                  <ULShim width={`${48 + (rowIdx % 4) * 10}%`} height={16} borderRadius={4} />
-                </Box>
-
-                {/* role — select-style ghost */}
-                <Box sx={{ px: 1 }}>
-                  <Box sx={{
-                    height: 38, borderRadius: 3,
-                    border: `1px solid ${alpha(p, 0.15)}`,
-                    bgcolor: 'rgba(255,255,255,0.85)',
-                    display: 'flex', alignItems: 'center', px: 1.5, gap: 1,
-                  }}>
-                    <ULShim width="70%" height={14} borderRadius={3} />
-                    <Box sx={{ ml: 'auto', width: 14, height: 14, borderRadius: 2, bgcolor: alpha(p, 0.1), flexShrink: 0 }} />
-                  </Box>
-                </Box>
-
-                {/* employment category chip */}
-                <Box sx={{ px: 1 }}>
-                  <ULShim width={`${100 + (rowIdx % 3) * 20}px`} height={26} borderRadius={13} />
-                </Box>
-
-                {/* department */}
-                <Box sx={{ px: 1, display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                  <Box sx={{ width: 18, height: 18, borderRadius: '50%', bgcolor: alpha(p, 0.1), flexShrink: 0 }} />
-                  <ULShim width={`${60 + (rowIdx % 3) * 15}px`} height={15} borderRadius={4} />
-                </Box>
-
-                {/* manage button */}
-                <Box sx={{ px: 1 }}>
-                  <ULShim width={90} height={36} borderRadius={12} />
-                </Box>
-
-                {/* actions (edit + delete) */}
-                <Box sx={{ px: 1, display: 'flex', gap: 1 }}>
-                  <Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: alpha(p, 0.1) }} />
-                  <Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: alpha('#d32f2f', 0.08) }} />
-                </Box>
+                <Box sx={{ px: 1 }}><ULShim width={`${48 + (rowIdx % 4) * 10}%`} height={16} borderRadius={4} /></Box>
+                <Box sx={{ px: 1 }}><Box sx={{ height: 38, borderRadius: 3, border: `1px solid ${alpha(p, 0.15)}`, bgcolor: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', px: 1.5, gap: 1 }}><ULShim width="70%" height={14} borderRadius={3} /></Box></Box>
+                <Box sx={{ px: 1 }}><ULShim width={`${100 + (rowIdx % 3) * 20}px`} height={26} borderRadius={13} /></Box>
+                <Box sx={{ px: 1, display: 'flex', alignItems: 'center', gap: 0.75 }}><Box sx={{ width: 18, height: 18, borderRadius: '50%', bgcolor: alpha(p, 0.1), flexShrink: 0 }} /><ULShim width={`${60 + (rowIdx % 3) * 15}px`} height={15} borderRadius={4} /></Box>
+                <Box sx={{ px: 1 }}><ULShim width={90} height={36} borderRadius={12} /></Box>
+                <Box sx={{ px: 1, display: 'flex', gap: 1 }}><Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: alpha(p, 0.1) }} /><Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: alpha('#d32f2f', 0.08) }} /></Box>
               </Box>
             ))}
-
-            {/* pagination ghost */}
-            <Box sx={{
-              display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
-              gap: 2, p: 2, pr: 3,
-              animation: 'ulPulse 2.2s ease-in-out 0.5s infinite',
-            }}>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 2, p: 2, pr: 3, animation: 'ulPulse 2.2s ease-in-out 0.5s infinite' }}>
               <ULShim width={130} height={18} borderRadius={4} />
               <ULShim width={90} height={18} borderRadius={4} />
               <ULShim width={72} height={34} borderRadius={8} />
@@ -434,68 +282,40 @@ const UsersListWireframe = ({ settings, offline, retryIn }) => {
               </Box>
             </Box>
           </Box>
-
         </Box>
       </Box>
     </>
   );
 };
 
-// Get user role from token
 const getUserRole = () => {
   try {
     const token = localStorage.getItem('token');
     if (!token) return null;
     const base64Url = token.split('.')[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-      atob(base64).split('').map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''),
-    );
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
     const payload = JSON.parse(jsonPayload);
     return payload.role || payload.userRole || null;
-  } catch (error) {
-    console.error('Error parsing token:', error);
-    return null;
-  }
+  } catch (error) { console.error('Error parsing token:', error); return null; }
 };
 
-// System Settings Hook
 const useSystemSettings = () => {
   const [settings, setSettings] = useState(() => {
-    // Read localStorage SYNCHRONOUSLY on first render — prevents color flash
     try {
       const stored = localStorage.getItem('systemSettings');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object') return parsed;
-      }
+      if (stored) { const parsed = JSON.parse(stored); if (parsed && typeof parsed === 'object') return parsed; }
     } catch {}
-    return {
-      primaryColor: '#894444',
-      secondaryColor: '#6d2323',
-      accentColor: '#FEF9E1',
-      textColor: '#FFFFFF',
-      textPrimaryColor: '#6D2323',
-      textSecondaryColor: '#FEF9E1',
-      hoverColor: '#6D2323',
-      backgroundColor: '#FFFFFF',
-    };
+    return { primaryColor: '#894444', secondaryColor: '#6d2323', accentColor: '#FEF9E1', textColor: '#FFFFFF', textPrimaryColor: '#6D2323', textSecondaryColor: '#FEF9E1', hoverColor: '#6D2323', backgroundColor: '#FFFFFF' };
   });
 
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const url = API_BASE_URL.includes('/api')
-          ? `${API_BASE_URL}/system-settings`
-          : `${API_BASE_URL}/api/system-settings`;
+        const url = API_BASE_URL.includes('/api') ? `${API_BASE_URL}/system-settings` : `${API_BASE_URL}/api/system-settings`;
         const response = await axios.get(url);
-        if (response.data && typeof response.data === 'object') {
-          setSettings(response.data);
-          localStorage.setItem('systemSettings', JSON.stringify(response.data));
-        }
-      } catch (e) {
-        console.error('Error fetching system settings:', e);
-      }
+        if (response.data && typeof response.data === 'object') { setSettings(response.data); localStorage.setItem('systemSettings', JSON.stringify(response.data)); }
+      } catch (e) { console.error('Error fetching system settings:', e); }
     };
     fetchSettings();
   }, []);
@@ -506,11 +326,11 @@ const useSystemSettings = () => {
 const getEmploymentCategoryInfo = (category, customCategory) => {
   const catNum = parseInt(category);
   switch (catNum) {
-    case 0: return { label: 'JO - Graduate',          color: '#F57C00', bgcolor: alpha('#F57C00', 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
-    case 1: return { label: 'JO - UnderGrad',          color: '#E64A19', bgcolor: alpha('#E64A19', 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
-    case 2: return { label: 'Regular - Non-Teaching',  color: '#2E7D32', bgcolor: alpha('#2E7D32', 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
-    case 3: return { label: 'Teaching (30Hrs)',         color: '#1565C0', bgcolor: alpha('#1565C0', 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
-    case 4: return { label: 'Designated (40Hrs)',       color: '#7B1FA2', bgcolor: alpha('#7B1FA2', 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
+    case 0: return { label: 'JO - Graduate',         color: '#F57C00', bgcolor: alpha('#F57C00', 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
+    case 1: return { label: 'JO - UnderGrad',         color: '#E64A19', bgcolor: alpha('#E64A19', 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
+    case 2: return { label: 'Regular - Non-Teaching', color: '#2E7D32', bgcolor: alpha('#2E7D32', 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
+    case 3: return { label: 'Teaching (30Hrs)',        color: '#1565C0', bgcolor: alpha('#1565C0', 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
+    case 4: return { label: 'Designated (40Hrs)',      color: '#7B1FA2', bgcolor: alpha('#7B1FA2', 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
     case 5: return { label: customCategory ? `Other (${String(customCategory).trim()})` : 'Other (specify)', color: '#455A64', bgcolor: alpha('#455A64', 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
     default: return { label: 'Not Set', color: '#757575', bgcolor: alpha('#757575', 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
   }
@@ -539,14 +359,14 @@ const UsersList = () => {
   const detectedRole = getUserRole();
   const isTechnicalUser = detectedRole === 'technical';
 
-  const [moduleAuthorized, setModuleAuthorized]           = useState(isTechnicalUser);
+  const [moduleAuthorized, setModuleAuthorized]                   = useState(isTechnicalUser);
   const [confidentialPasswordInput, setConfidentialPasswordInput] = useState('');
   const [openConfidentialPassword, setOpenConfidentialPassword]   = useState(!isTechnicalUser);
-  const [passwordLoading, setPasswordLoading]             = useState(false);
-  const [snackbarOpen, setSnackbarOpen]                   = useState(false);
-  const [snackbarMessage, setSnackbarMessage]             = useState('');
-  const [userRole, setUserRole]                           = useState(detectedRole);
-  const [roleChecked, setRoleChecked]                     = useState(true);
+  const [passwordLoading, setPasswordLoading]                     = useState(false);
+  const [snackbarOpen, setSnackbarOpen]                           = useState(false);
+  const [snackbarMessage, setSnackbarMessage]                     = useState('');
+  const [userRole, setUserRole]                                   = useState(detectedRole);
+  const [roleChecked, setRoleChecked]                             = useState(true);
 
   const [users, setUsers]                 = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
@@ -570,50 +390,76 @@ const UsersList = () => {
   const [bulkCustomCategory, setBulkCustomCategory]           = useState('');
   const [bulkEditLoading, setBulkEditLoading]                 = useState(false);
 
-  const [pageAccessDialog, setPageAccessDialog]         = useState(false);
-  const [selectedUser, setSelectedUser]                 = useState(null);
-  const [pages, setPages]                               = useState([]);
-  const [pageAccess, setPageAccess]                     = useState({});
-  const [pageAccessLoading, setPageAccessLoading]       = useState(false);
-  const [roleFilter, setRoleFilter]                     = useState('');
+  const [pageAccessDialog, setPageAccessDialog]             = useState(false);
+  const [selectedUser, setSelectedUser]                     = useState(null);
+  const [pages, setPages]                                   = useState([]);
+  const [pageAccess, setPageAccess]                         = useState({});
+  const [pageAccessLoading, setPageAccessLoading]           = useState(false);
+  const [roleFilter, setRoleFilter]                         = useState('');
   const [accessChangeInProgress, setAccessChangeInProgress] = useState({});
-  const [activeAccessCategory, setActiveAccessCategory] = useState(null);
+  const [activeAccessCategory, setActiveAccessCategory]     = useState(null);
 
-  const [detailsDrawerOpen, setDetailsDrawerOpen]           = useState(false);
-  const [selectedUserForDetails, setSelectedUserForDetails] = useState(null);
-  const [successOpen, setSuccessOpen]                       = useState(false);
-  const [successAction, setSuccessAction]                   = useState('');
-  const [activeTab, setActiveTab]                           = useState('info');
-  const [animatedValue, setAnimatedValue]                   = useState(0);
-  const [roleChangeDialog, setRoleChangeDialog]             = useState(false);
-  const [pendingRoleChange, setPendingRoleChange]           = useState(null);
-  const [roleChangeLoading, setRoleChangeLoading]           = useState(false);
+  const [detailsDrawerOpen, setDetailsDrawerOpen]             = useState(false);
+  const [selectedUserForDetails, setSelectedUserForDetails]   = useState(null);
+  const [successOpen, setSuccessOpen]                         = useState(false);
+  const [successAction, setSuccessAction]                     = useState('');
+  const [activeTab, setActiveTab]                             = useState('info');
+  const [animatedValue, setAnimatedValue]                     = useState(0);
+  const [roleChangeDialog, setRoleChangeDialog]               = useState(false);
+  const [pendingRoleChange, setPendingRoleChange]             = useState(null);
+  const [roleChangeLoading, setRoleChangeLoading]             = useState(false);
 
-  const [editDialog, setEditDialog]                             = useState(false);
-  const [userToEdit, setUserToEdit]                             = useState(null);
-  const [editedEmployeeNumber, setEditedEmployeeNumber]         = useState('');
-  const [editedFirstName, setEditedFirstName]                   = useState('');
-  const [editedMiddleName, setEditedMiddleName]                 = useState('');
-  const [editedLastName, setEditedLastName]                     = useState('');
-  const [editedNameExtension, setEditedNameExtension]           = useState('');
-  const [editedEmail, setEditedEmail]                           = useState('');
-  const [editedEmploymentCategory, setEditedEmploymentCategory] = useState('');
-  const [editedCustomCategory, setEditedCustomCategory]         = useState('');
-  const [editLoading, setEditLoading]                           = useState(false);
+  const [editDialog, setEditDialog]                               = useState(false);
+  const [userToEdit, setUserToEdit]                               = useState(null);
+  const [editedEmployeeNumber, setEditedEmployeeNumber]           = useState('');
+  const [editedFirstName, setEditedFirstName]                     = useState('');
+  const [editedMiddleName, setEditedMiddleName]                   = useState('');
+  const [editedLastName, setEditedLastName]                       = useState('');
+  const [editedNameExtension, setEditedNameExtension]             = useState('');
+  const [editedEmail, setEditedEmail]                             = useState('');
+  const [editedEmploymentCategory, setEditedEmploymentCategory]   = useState('');
+  const [editedCustomCategory, setEditedCustomCategory]           = useState('');
+  const [editLoading, setEditLoading]                             = useState(false);
 
   const [deleteDialog, setDeleteDialog]   = useState(false);
   const [userToDelete, setUserToDelete]   = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   const [grantingRole, setGrantingRole] = useState(null);
+  const [confirmRole, setConfirmRole] = useState(null);
+  const [grantSuccessMessage, setGrantSuccessMessage] = useState('');
+  const [grantSuccessDialog, setGrantSuccessDialog] = useState(null);
+
+  const roleGrantColors = {
+    staff:         { color: '#0F766E', bgcolor: alpha('#0F766E', 0.08) },
+    administrator: { color: '#9333EA', bgcolor: alpha('#9333EA', 0.08) },
+    superadmin:    { color: '#C2410C', bgcolor: alpha('#C2410C', 0.08) },
+  };
 
   const [categoryFilter, setCategoryFilter]     = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
 
-  const theme     = useTheme();
-  const isMobile  = useMediaQuery(theme.breakpoints.down('md'));
-  const navigate  = useNavigate();
-  const settings  = useSystemSettings();
+  const [tableTab, setTableTab] = useState(0);
+
+  // ── Password Management Modal State ──────────────────────────────────────
+  const [pwMgmtOpen, setPwMgmtOpen]               = useState(false);
+  const [pwUsers, setPwUsers]                     = useState([]);
+  const [pwFilteredUsers, setPwFilteredUsers]     = useState([]);
+  const [pwLoading, setPwLoading]                 = useState(false);
+  const [pwSearchTerm, setPwSearchTerm]           = useState('');
+  const [pwResetting, setPwResetting]             = useState({});
+  const [pwErrMessage, setPwErrMessage]           = useState('');
+  const [pwSuccessOpen, setPwSuccessOpen]         = useState(false);
+  const [pwSuccessAction, setPwSuccessAction]     = useState('');
+  const [pwPage, setPwPage]                       = useState(0);
+  const [pwRowsPerPage, setPwRowsPerPage]         = useState(10);
+  const [pwRefreshing, setPwRefreshing]           = useState(false);
+  const [pwActiveTab, setPwActiveTab]             = useState(0);
+
+  const theme    = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const navigate = useNavigate();
+  const settings = useSystemSettings();
 
   const isSuperAdmin = userRole === 'superadmin' || userRole === 'technical';
   const isTechnical  = userRole === 'technical';
@@ -662,33 +508,150 @@ const UsersList = () => {
     fontSize: '0.95rem', letterSpacing: '0.025em',
   })), [settings]);
 
+  // ── Password Management styled components (same theme) ──────────────────
+  const PwProfessionalButton = useMemo(() => styled(Button)(({ variant: v }) => ({
+    borderRadius: 12, fontWeight: 600, padding: '10px 22px',
+    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    textTransform: 'none', fontSize: '0.9rem', letterSpacing: '0.025em',
+    boxShadow: v === 'contained' ? `0 4px 14px ${alpha(settings?.primaryColor || '#894444', 0.4)}` : 'none',
+    '&:hover': { transform: 'translateY(-2px)', boxShadow: v === 'contained' ? `0 6px 20px ${alpha(settings?.primaryColor || '#894444', 0.55)}` : 'none' },
+    '&:active': { transform: 'translateY(0)' },
+  })), [settings]);
+
+  const PwModernTextField = useMemo(() => styled(TextField)(() => ({
+    '& .MuiOutlinedInput-root': {
+      borderRadius: 12, transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+      backgroundColor: 'rgba(255,255,255,0.8)',
+      '&:hover': { transform: 'translateY(-1px)', backgroundColor: 'rgba(255,255,255,0.95)' },
+      '&.Mui-focused': { transform: 'translateY(-1px)', boxShadow: `0 4px 20px ${alpha(settings?.primaryColor || '#894444', 0.4)}`, backgroundColor: 'rgba(255,255,255,1)' },
+    },
+    '& .MuiInputLabel-root': { fontWeight: 500 },
+  })), [settings]);
+
+  const PwPremiumTableCell = useMemo(() => styled(TableCell)(({ isHeader = false }) => ({
+    fontWeight: isHeader ? 600 : 500,
+    padding: '14px 16px',
+    borderBottom: isHeader
+      ? `2px solid ${alpha(settings?.primaryColor || '#894444', 0.15)}`
+      : `1px solid ${alpha(settings?.primaryColor || '#894444', 0.07)}`,
+    fontSize: '0.9rem',
+    letterSpacing: '0.025em',
+  })), [settings]);
+
   const uniqueDepartments = useMemo(() => {
     const depts = new Set(users.map((u) => u.departmentCode).filter(Boolean));
     return Array.from(depts).sort();
   }, [users]);
 
-  const p  = settings?.primaryColor  || '#894444';
-  const s  = settings?.secondaryColor || '#6d2323';
-  const ac = settings?.accentColor   || '#FEF9E1';
+  const p  = settings?.primaryColor     || '#894444';
+  const s  = settings?.secondaryColor   || '#6d2323';
+  const ac = settings?.accentColor      || '#FEF9E1';
   const tp = settings?.textPrimaryColor || '#6D2323';
+
+  const properUsers     = useMemo(() => users.filter((u) => u.fullName && u.fullName.trim() !== '' && u.fullName !== 'Username'), [users]);
+  const incompleteUsers = useMemo(() => users.filter((u) => !u.fullName || u.fullName.trim() === '' || u.fullName === 'Username'), [users]);
+
+  // ── Password Management: split proper vs incomplete ──────────────────────
+  const pwProperUsers     = useMemo(() => pwUsers.filter((u) => u.fullName && u.fullName.trim() !== ''), [pwUsers]);
+  const pwIncompleteUsers = useMemo(() => pwUsers.filter((u) => !u.fullName || u.fullName.trim() === ''), [pwUsers]);
+  const pwSourceUsers     = pwActiveTab === 0 ? pwProperUsers : pwIncompleteUsers;
+
+  // ── Password Management: filter ──────────────────────────────────────────
+  useEffect(() => {
+    if (!pwSearchTerm.trim()) {
+      setPwFilteredUsers(pwSourceUsers);
+    } else {
+      setPwFilteredUsers(
+        pwSourceUsers.filter(
+          (user) =>
+            (user.fullName || '').toLowerCase().includes(pwSearchTerm.toLowerCase()) ||
+            (user.email || '').toLowerCase().includes(pwSearchTerm.toLowerCase()) ||
+            String(user.employeeNumber || '').includes(pwSearchTerm)
+        )
+      );
+    }
+    setPwPage(0);
+  }, [pwSearchTerm, pwUsers, pwActiveTab]); // eslint-disable-line
+
+  // ── Password Management: fetch users ─────────────────────────────────────
+  const fetchPwUsers = useCallback(async () => {
+    setPwLoading(true);
+    setPwRefreshing(true);
+    setPwErrMessage('');
+    setPwSuccessOpen(false);
+    try {
+      const res = await fetch(`${API_BASE_URL}/users/search`, {
+        method: 'GET',
+        headers: getAuthHeaders().headers,
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        setPwErrMessage(error.error || 'Failed to fetch users');
+        setPwUsers([]);
+        setPwFilteredUsers([]);
+        return;
+      }
+      const data = await res.json();
+      setPwUsers(Array.isArray(data) ? data : []);
+    } catch {
+      setPwErrMessage('Something went wrong while fetching users.');
+      setPwUsers([]);
+    } finally {
+      setPwLoading(false);
+      setPwRefreshing(false);
+    }
+  }, []);
+
+  // ── Password Management: reset password ──────────────────────────────────
+  const handleResetPassword = async (employeeNumber) => {
+    setPwResetting((prev) => ({ ...prev, [employeeNumber]: true }));
+    setPwErrMessage('');
+    setPwSuccessOpen(false);
+    try {
+      const res = await fetch(`${API_BASE_URL}/users/reset-password`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders().headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employeeNumber }),
+      });
+      const data = await res.json();
+      if (res.ok) { setPwSuccessAction('reset'); setPwSuccessOpen(true); }
+      else         { setPwErrMessage(data.error || 'Failed to reset password'); }
+    } catch {
+      setPwErrMessage('Something went wrong while resetting password.');
+    } finally {
+      setPwResetting((prev) => ({ ...prev, [employeeNumber]: false }));
+    }
+  };
+
+  // ── Open Password Management modal ───────────────────────────────────────
+  const openPwMgmt = useCallback(() => {
+    setPwMgmtOpen(true);
+    setPwSearchTerm('');
+    setPwActiveTab(0);
+    setPwPage(0);
+    fetchPwUsers();
+  }, [fetchPwUsers]);
+
+  const closePwMgmt = useCallback(() => {
+    setPwMgmtOpen(false);
+    setPwErrMessage('');
+    setPwSuccessOpen(false);
+  }, []);
+
+  const pwPaginatedUsers = pwFilteredUsers.slice(pwPage * pwRowsPerPage, pwPage * pwRowsPerPage + pwRowsPerPage);
 
   const handleModuleAuthorization = async () => {
     if (!confidentialPasswordInput) { setSnackbarMessage('Please enter an authorized password.'); setSnackbarOpen(true); return; }
     setPasswordLoading(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/api/confidential-password/verify`, { password: confidentialPasswordInput }, getAuthHeaders());
-      if (response.data.verified) {
-        setModuleAuthorized(true); setOpenConfidentialPassword(false); setConfidentialPasswordInput(''); fetchUsers();
-      } else {
-        setSnackbarMessage('Password verification failed. Please try again.'); setSnackbarOpen(true); setConfidentialPasswordInput('');
-      }
+      if (response.data.verified) { setModuleAuthorized(true); setOpenConfidentialPassword(false); setConfidentialPasswordInput(''); fetchUsers(); }
+      else { setSnackbarMessage('Password verification failed. Please try again.'); setSnackbarOpen(true); setConfidentialPasswordInput(''); }
     } catch (error) {
       console.error('Error verifying authorized password:', error);
       setSnackbarMessage(error.response?.data?.error || 'Failed to verify password. Please try again.');
       setSnackbarOpen(true); setConfidentialPasswordInput('');
-    } finally {
-      setPasswordLoading(false);
-    }
+    } finally { setPasswordLoading(false); }
   };
 
   const handleModuleAccessCancel = () => navigate('/admin-home');
@@ -712,11 +675,7 @@ const UsersList = () => {
     const usersArray   = Array.isArray(usersDataRaw)   ? usersDataRaw   : usersDataRaw.users   || usersDataRaw.data   || [];
     const personsArray = Array.isArray(personsDataRaw) ? personsDataRaw : personsDataRaw.persons || personsDataRaw.data || [];
     const empCatsArray = Array.isArray(empCatsDataRaw) ? empCatsDataRaw : empCatsDataRaw.data   || empCatsDataRaw.records || [];
-    const empCatsMap = (empCatsArray || []).reduce((acc, row) => {
-      const key = String(row.employeeNumber ?? row.employee_number ?? '');
-      if (key) acc[key] = row;
-      return acc;
-    }, {});
+    const empCatsMap = (empCatsArray || []).reduce((acc, row) => { const key = String(row.employeeNumber ?? row.employee_number ?? ''); if (key) acc[key] = row; return acc; }, {});
     return (usersArray || []).map((user) => {
       const person    = (personsArray || []).find((p) => String(p.agencyEmployeeNum) === String(user.employeeNumber));
       const empCatRow = empCatsMap[String(user.employeeNumber)] || null;
@@ -782,11 +741,7 @@ const UsersList = () => {
       if (accessResponse.ok) {
         const accessDataRaw = await accessResponse.json();
         const accessData = Array.isArray(accessDataRaw) ? accessDataRaw : accessDataRaw.data || [];
-        const accessMap = (accessData || []).reduce((acc, curr) => {
-          const privilege = String(curr.page_privilege || '0');
-          acc[curr.page_id] = privilege !== '0' && privilege !== '';
-          return acc;
-        }, {});
+        const accessMap = (accessData || []).reduce((acc, curr) => { const privilege = String(curr.page_privilege || '0'); acc[curr.page_id] = privilege !== '0' && privilege !== ''; return acc; }, {});
         const pagesResponse = await fetch(`${API_BASE_URL}/pages`, { method: 'GET', ...authHeaders });
         if (pagesResponse.ok) {
           let pagesData = await pagesResponse.json();
@@ -795,13 +750,8 @@ const UsersList = () => {
           const accessiblePages = pagesData.filter((page) => accessMap[page.id] === true);
           setSelectedUserForDetails((prev) => ({ ...prev, accessiblePages, totalPages: pagesData.length, hasAccess: accessiblePages.length > 0 }));
           const percentage = pagesData.length > 0 ? (accessiblePages.length / pagesData.length) * 100 : 0;
-          let current = 0;
-          const increment = percentage / 20;
-          const timer = setInterval(() => {
-            current += increment;
-            if (current >= percentage) { current = percentage; clearInterval(timer); }
-            setAnimatedValue(current);
-          }, 50);
+          let current = 0; const increment = percentage / 20;
+          const timer = setInterval(() => { current += increment; if (current >= percentage) { current = percentage; clearInterval(timer); } setAnimatedValue(current); }, 50);
         }
       }
     } catch (err) { console.error('Error fetching user page access:', err); }
@@ -821,11 +771,7 @@ const UsersList = () => {
         if (accessResponse.ok) {
           const accessDataRaw = await accessResponse.json();
           const accessData = Array.isArray(accessDataRaw) ? accessDataRaw : accessDataRaw.data || [];
-          const accessMap = (accessData || []).reduce((acc, curr) => {
-            const privilege = String(curr.page_privilege || '0');
-            acc[curr.page_id] = privilege !== '0' && privilege !== '';
-            return acc;
-          }, {});
+          const accessMap = (accessData || []).reduce((acc, curr) => { const privilege = String(curr.page_privilege || '0'); acc[curr.page_id] = privilege !== '0' && privilege !== ''; return acc; }, {});
           setPageAccess(accessMap);
           if (pagesData.length > 0) {
             const grouped = pagesData.reduce((acc, page) => { const desc = page.page_description || 'Uncategorized'; acc[desc] = true; return acc; }, {});
@@ -870,7 +816,6 @@ const UsersList = () => {
   const closePageAccessDialog = () => { window.dispatchEvent(new Event('pageAccessUpdated')); setPageAccessDialog(false); setSelectedUser(null); setPages([]); setPageAccess({}); setActiveAccessCategory(null); };
   const openUserDetails  = (user) => { setSelectedUserForDetails(user); setDetailsDrawerOpen(true); setAnimatedValue(0); fetchUserPageAccess(user); };
   const closeUserDetails = () => { setDetailsDrawerOpen(false); setSelectedUserForDetails(null); setActiveTab('info'); setAnimatedValue(0); };
-
   const handleRoleChange = (user, newRole) => { if (user.role === newRole) return; setPendingRoleChange({ user, oldRole: user.role, newRole }); setRoleChangeDialog(true); };
 
   const confirmRoleChange = async () => {
@@ -985,33 +930,34 @@ const UsersList = () => {
   const handleCancelDelete = () => { setDeleteDialog(false); setUserToDelete(null); };
 
   const handleGrantRoleAccess = async (role) => {
-    const confirmGrant = window.confirm(`This will grant default page access to ALL existing "${role}" users based on the Access Groups configured in Page Management.\n\nContinue?`);
-    if (!confirmGrant) return;
     setGrantingRole(role);
     try {
       const authHeaders = getAuthHeaders();
       const response = await fetch(`${API_BASE_URL}/users/grant-role-access/${role}`, { method: 'POST', ...authHeaders });
       const result = await response.json();
       if (!response.ok) { setError(result.error || `Failed to grant access for role: ${role}`); return; }
-      setSuccessAction('grant-access'); setSuccessOpen(true);
-      alert(`✅ Default access granted for role: ${role}\n\nUsers Processed: ${result.usersProcessed}\nPages Granted: ${result.pagesGranted}\nSuccessful Operations: ${result.successfulOperations}\nFailed Operations: ${result.failedOperations}`);
+      setGrantSuccessDialog({ role, usersProcessed: result.usersProcessed, pagesGranted: result.pagesGranted });
       await fetchUsers();
-    } catch (err) { console.error('Error granting role access:', err); setError('Network error occurred while granting role access'); }
-    finally { setGrantingRole(null); }
+    } catch (err) {
+      setError('Network error occurred while granting role access');
+    } finally {
+      setGrantingRole(null);
+    }
   };
 
   useEffect(() => { if (moduleAuthorized && !isTechnicalUser) fetchUsers(); }, [moduleAuthorized]); // eslint-disable-line
 
   useEffect(() => {
-    const filtered = users.filter((user) => {
-      const matchesSearch = (user.fullName || '').toLowerCase().includes(searchTerm.toLowerCase()) || (user.email || '').toLowerCase().includes(searchTerm.toLowerCase()) || String(user.employeeNumber || '').includes(searchTerm) || (user.role || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const sourceUsers = tableTab === 0 ? properUsers : incompleteUsers;
+    const filtered = sourceUsers.filter((user) => {
+      const matchesSearch     = (user.fullName || '').toLowerCase().includes(searchTerm.toLowerCase()) || (user.email || '').toLowerCase().includes(searchTerm.toLowerCase()) || String(user.employeeNumber || '').includes(searchTerm) || (user.role || '').toLowerCase().includes(searchTerm.toLowerCase());
       const matchesRole       = roleFilter       ? (user.role || '').toLowerCase() === roleFilter.toLowerCase() : true;
       const matchesCategory   = categoryFilter !== '' ? String(user.employmentCategory) === String(categoryFilter) : true;
       const matchesDepartment = departmentFilter !== '' ? (user.departmentCode || '') === departmentFilter : true;
       return matchesSearch && matchesRole && matchesCategory && matchesDepartment;
     });
     setFilteredUsers(filtered); setPage(0);
-  }, [searchTerm, roleFilter, categoryFilter, departmentFilter, users]);
+  }, [searchTerm, roleFilter, categoryFilter, departmentFilter, users, tableTab, properUsers, incompleteUsers]);
 
   const handleChangePage        = (_, newPage) => setPage(newPage);
   const handleChangeRowsPerPage = (e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); };
@@ -1023,11 +969,20 @@ const UsersList = () => {
 
   const getRoleColor = (role = '') => {
     switch ((role || '').toLowerCase()) {
-      case 'superadmin':     return { sx: { bgcolor: alpha(p, 0.15), color: p }, icon: <SupervisorAccount /> };
-      case 'administrator':  return { sx: { bgcolor: alpha(s, 0.15), color: s }, icon: <AdminPanelSettings /> };
-      case 'technical':      return { sx: { bgcolor: alpha(p, 0.15), color: p }, icon: <SupervisorAccount /> };
-      case 'staff':          return { sx: { bgcolor: alpha(p, 0.1),  color: p }, icon: <Work /> };
-      default:               return { sx: { bgcolor: alpha(p, 0.1),  color: p }, icon: <Person /> };
+      case 'superadmin':    return { sx: { bgcolor: alpha(p, 0.15), color: p }, icon: <SupervisorAccount /> };
+      case 'administrator': return { sx: { bgcolor: alpha(s, 0.15), color: s }, icon: <AdminPanelSettings /> };
+      case 'technical':     return { sx: { bgcolor: alpha(p, 0.15), color: p }, icon: <SupervisorAccount /> };
+      case 'staff':         return { sx: { bgcolor: alpha(p, 0.1),  color: p }, icon: <Work /> };
+      default:              return { sx: { bgcolor: alpha(p, 0.1),  color: p }, icon: <Person /> };
+    }
+  };
+
+  const getPwRoleColor = (role = '') => {
+    switch ((role || '').toLowerCase()) {
+      case 'superadmin':    return { bgcolor: alpha(p, 0.15), color: p };
+      case 'administrator': return { bgcolor: alpha(s, 0.15), color: s };
+      case 'staff':         return { bgcolor: alpha(p, 0.1),  color: p };
+      default:              return { bgcolor: alpha(p, 0.1),  color: p };
     }
   };
 
@@ -1040,7 +995,7 @@ const UsersList = () => {
     return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
   };
 
-  // ── Password modal ────────────────────────────────────────────────────────
+  // ── Password modal ─────────────────────────────────────────────────────────
   if (!moduleAuthorized) {
     return (
       <Modal open={openConfidentialPassword} onClose={handleModuleAccessCancel} disableEscapeKeyDown>
@@ -1070,42 +1025,52 @@ const UsersList = () => {
     );
   }
 
-  // ── Show wireframe while loading (not refreshing) ─────────────────────────
   if (loading && !refreshing) {
     return <UsersListWireframe settings={settings} offline={offline} retryIn={retryIn} />;
   }
 
   return (
     <Box sx={{ py: 4, borderRadius: '14px', width: '100vw', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '50%', transform: 'translateX(-50%)', minHeight: '92vh' }}>
+      <style>{shimmerKeyframes}</style>
       <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
 
         {/* ── Header ── */}
         <Fade in timeout={500}>
           <Box sx={{ mb: 4 }}>
             <GlassCard>
-              <Box sx={{ p: 5, background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`, position: 'relative', overflow: 'hidden' }}>
-                <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle, ${alpha(p, 0.1)} 0%, transparent 70%)` }} />
-                <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, background: `radial-gradient(circle, ${alpha(p, 0.08)} 0%, transparent 70%)` }} />
+              <Box sx={{ p: 3, background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`, position: 'relative', overflow: 'hidden' }}>
+                <Box sx={{ position: 'absolute', top: -40, right: -40, width: 150, height: 150, background: `radial-gradient(circle, ${alpha(p, 0.1)} 0%, transparent 70%)` }} />
+                <Box sx={{ position: 'absolute', bottom: -20, left: '30%', width: 120, height: 120, background: `radial-gradient(circle, ${alpha(p, 0.08)} 0%, transparent 70%)` }} />
                 <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
                   <Box display="flex" alignItems="center">
-                    <Avatar sx={{ bgcolor: alpha(p, 0.15), mr: 4, width: 64, height: 64, boxShadow: `0 8px 24px ${alpha(p, 0.15)}` }}>
-                      <People sx={{ fontSize: 32, color: p }} />
+                    <Avatar sx={{ bgcolor: alpha(p, 0.15), mr: 3, width: 48, height: 48, boxShadow: `0 6px 16px ${alpha(p, 0.15)}` }}>
+                      <People sx={{ fontSize: 24, color: p }} />
                     </Avatar>
                     <Box>
-                      <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: p }}>User Management</Typography>
-                      <Typography variant="body1" sx={{ opacity: 0.8, fontWeight: 400, color: tp }}>Manage user accounts, roles, and page access permissions</Typography>
+                      <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 0.5, lineHeight: 1.2, color: p }}>User Management</Typography>
+                      <Typography variant="body2" sx={{ opacity: 0.8, fontWeight: 400, color: tp }}>Manage user accounts, roles, and page access permissions</Typography>
                     </Box>
                   </Box>
                   <Box display="flex" alignItems="center" gap={2}>
                     <Chip label={`${users.length} Users`} size="small" sx={{ bgcolor: alpha(p, 0.15), color: p, fontWeight: 500, '& .MuiChip-label': { px: 1 } }} />
                     <Tooltip title="Refresh Users">
-                      <IconButton onClick={() => fetchUsers(true)} disabled={loading} sx={{ bgcolor: alpha(p, 0.1), '&:hover': { bgcolor: alpha(p, 0.2) }, color: p, width: 48, height: 48, '&:disabled': { bgcolor: alpha(p, 0.05), color: alpha(p, 0.3) } }}>
-                        {refreshing ? <CircularProgress size={24} sx={{ color: p }} /> : <Refresh />}
+                      <IconButton onClick={() => fetchUsers(true)} disabled={loading} sx={{ bgcolor: alpha(p, 0.1), '&:hover': { bgcolor: alpha(p, 0.2) }, color: p, width: 44, height: 44, '&:disabled': { bgcolor: alpha(p, 0.05), color: alpha(p, 0.3) } }}>
+                        {refreshing ? <CircularProgress size={22} sx={{ color: p }} /> : <RefreshIcon />}
                       </IconButton>
                     </Tooltip>
-                    <ProfessionalButton variant="contained" startIcon={<PersonAdd />} onClick={() => navigate('/registration')} sx={{ bgcolor: p, color: ac, '&:hover': { bgcolor: s } }}>Single Registration</ProfessionalButton>
+                    {/* ── Password Management button now opens modal ── */}
+                    <ProfessionalButton
+                      variant="contained"
+                      startIcon={<LockResetIcon />}
+                      onClick={openPwMgmt}
+                      sx={{ bgcolor: p, color: ac, '&:hover': { bgcolor: s }, fontSize: '0.9rem', py: 1.25, px: 2 }}
+                    >
+                      Password Management
+                    </ProfessionalButton>
                     {isTechnical && (
-                      <ProfessionalButton variant="contained" startIcon={<Pages />} onClick={() => navigate('/pages-list')} sx={{ bgcolor: p, color: ac, '&:hover': { bgcolor: s } }}>Page Management</ProfessionalButton>
+                      <ProfessionalButton variant="contained" startIcon={<Pages />} onClick={() => navigate('/pages-list')} sx={{ bgcolor: p, color: ac, '&:hover': { bgcolor: s }, fontSize: '0.9rem', py: 1.25, px: 2 }}>
+                        Page Management
+                      </ProfessionalButton>
                     )}
                   </Box>
                 </Box>
@@ -1130,20 +1095,20 @@ const UsersList = () => {
 
         {/* ── Stats Cards ── */}
         <Fade in timeout={700}>
-          <Grid container spacing={3} sx={{ mb: 4 }}>
+          <Grid container spacing={2} sx={{ mb: 4 }}>
             {[
-              { icon: <AccountCircle sx={{ fontSize: 44, color: tp, mb: 1 }} />,      value: users.length,                                           label: 'Total Users' },
-              { icon: <SupervisorAccount sx={{ fontSize: 44, color: tp, mb: 1 }} />,  value: users.filter((u) => u.role === 'superadmin').length,     label: 'Superadmins' },
-              { icon: <AdminPanelSettings sx={{ fontSize: 44, color: tp, mb: 1 }} />, value: users.filter((u) => u.role === 'administrator').length,  label: 'Administrators' },
-              { icon: <Work sx={{ fontSize: 44, color: tp, mb: 1 }} />,               value: users.filter((u) => u.role === 'staff').length,          label: 'Staff Members' },
-              { icon: <Visibility sx={{ fontSize: 44, color: tp, mb: 1 }} />,         value: filteredUsers.length,                                    label: 'Filtered Results' },
+              { icon: <AccountCircle sx={{ fontSize: 32, color: tp, mb: 0.5 }} />, value: users.length, label: 'Total Users' },
+              { icon: <SupervisorAccount sx={{ fontSize: 32, color: tp, mb: 0.5 }} />, value: users.filter((u) => u.role === 'superadmin').length, label: 'Superadmins' },
+              { icon: <AdminPanelSettings sx={{ fontSize: 32, color: tp, mb: 0.5 }} />, value: users.filter((u) => u.role === 'administrator').length, label: 'Administrators' },
+              { icon: <Work sx={{ fontSize: 32, color: tp, mb: 0.5 }} />, value: users.filter((u) => u.role === 'staff').length, label: 'Staff Members' },
+              { icon: <Visibility sx={{ fontSize: 32, color: tp, mb: 0.5 }} />, value: filteredUsers.length, label: 'Filtered Results' },
             ].map((stat, i) => (
               <Grid key={i} item xs={12} sm={6} md sx={{ minWidth: 0, flex: '1 1 0%' }}>
                 <GlassCard>
-                  <CardContent sx={{ textAlign: 'center', p: 3 }}>
+                  <CardContent sx={{ textAlign: 'center', p: 2 }}>
                     {stat.icon}
-                    <Typography variant="h5" sx={{ color: tp, fontWeight: 700 }}>{stat.value}</Typography>
-                    <Typography variant="body2" sx={{ color: tp }}>{stat.label}</Typography>
+                    <Typography variant="h6" sx={{ color: tp, fontWeight: 700, mt: 0.5 }}>{stat.value}</Typography>
+                    <Typography variant="body2" sx={{ color: tp, mt: 0.25 }}>{stat.label}</Typography>
                   </CardContent>
                 </GlassCard>
               </Grid>
@@ -1156,24 +1121,23 @@ const UsersList = () => {
           <GlassCard sx={{ mb: 4 }}>
             <CardHeader
               title={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Avatar sx={{ bgcolor: alpha(ac, 0.8), color: tp }}><FilterList /></Avatar>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Avatar sx={{ width: 32, height: 32, bgcolor: alpha(ac, 0.8), color: tp }}><FilterList sx={{ fontSize: 20 }} /></Avatar>
                   <Box>
-                    <Typography variant="h5" component="div" sx={{ fontWeight: 600, color: tp }}>Search & Filter</Typography>
-                    <Typography variant="body2" sx={{ color: tp }}>Find and filter users by various criteria</Typography>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600, color: tp }}>Search & Filter</Typography>
+                    <Typography variant="body2" sx={{ color: tp, fontSize: '0.75rem' }}>Find and filter users by various criteria</Typography>
                   </Box>
                 </Box>
               }
-              sx={{ bgcolor: alpha(ac, 0.5), pb: 2, borderBottom: `1px solid ${alpha(p, 0.1)}` }}
+              sx={{ bgcolor: alpha(ac, 0.5), pb: 1.5, borderBottom: `1px solid ${alpha(p, 0.1)}` }}
             />
-            <CardContent sx={{ p: 4 }}>
-              <Grid container spacing={3} sx={{ mb: 3 }}>
+            <CardContent sx={{ p: 3 }}>
+              <Grid container spacing={2} sx={{ mb: 2 }}>
                 <Grid item xs={12} md={4}>
-                  <ModernTextField fullWidth label="Search Users" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search by name, email, employee number, or role"
-                    InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon sx={{ color: tp }} /></InputAdornment>) }} />
+                  <ModernTextField fullWidth label="Search Users" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search by name, email, employee number, or role" InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon sx={{ color: tp, fontSize: 18 }} /></InputAdornment>) }} size="small" />
                 </Grid>
                 <Grid item xs={6} md={2}>
-                  <ModernTextField select fullWidth label="Filter by Role" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+                  <ModernTextField select fullWidth label="Filter by Role" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} size="small">
                     <MenuItem value="">All Roles</MenuItem>
                     <MenuItem value="Superadmin">Superadmin</MenuItem>
                     <MenuItem value="Administrator">Administrator</MenuItem>
@@ -1182,26 +1146,26 @@ const UsersList = () => {
                   </ModernTextField>
                 </Grid>
                 <Grid item xs={6} md={3}>
-                  <FormControl fullWidth>
-                    <InputLabel sx={{ fontWeight: 500 }}>Filter by Employment Category</InputLabel>
-                    <Select value={categoryFilter} label="Filter by Employment Category" onChange={(e) => setCategoryFilter(e.target.value)} sx={{ borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.8)', '& .MuiOutlinedInput-notchedOutline': { borderRadius: 3 } }}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel sx={{ fontWeight: 500, fontSize: '0.75rem' }}>Filter by Employment Category</InputLabel>
+                    <Select value={categoryFilter} label="Filter by Employment Category" onChange={(e) => setCategoryFilter(e.target.value)} sx={{ borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.85)', '& .MuiOutlinedInput-notchedOutline': { borderRadius: 2 }, fontSize: '0.75rem' }}>
                       <MenuItem value="">All Categories</MenuItem>
-                      <ListSubheader>Job Order (JO)</ListSubheader>
-                      <MenuItem value="0"><ListItemIcon sx={{ minWidth: 30 }}><Circle sx={{ fontSize: 12, color: '#F57C00' }} /></ListItemIcon>Graduate</MenuItem>
-                      <MenuItem value="1"><ListItemIcon sx={{ minWidth: 30 }}><Circle sx={{ fontSize: 12, color: '#E64A19' }} /></ListItemIcon>UnderGrad</MenuItem>
-                      <ListSubheader>Regular</ListSubheader>
-                      <MenuItem value="2"><ListItemIcon sx={{ minWidth: 30 }}><Circle sx={{ fontSize: 12, color: '#2E7D32' }} /></ListItemIcon>Non-Teaching</MenuItem>
-                      <MenuItem value="3"><ListItemIcon sx={{ minWidth: 30 }}><Circle sx={{ fontSize: 12, color: '#1565C0' }} /></ListItemIcon>Teaching (30Hrs)</MenuItem>
-                      <MenuItem value="4"><ListItemIcon sx={{ minWidth: 30 }}><Circle sx={{ fontSize: 12, color: '#7B1FA2' }} /></ListItemIcon>Designated (40Hrs)</MenuItem>
-                      <ListSubheader>Custom</ListSubheader>
-                      <MenuItem value="5"><ListItemIcon sx={{ minWidth: 30 }}><Circle sx={{ fontSize: 12, color: '#00796B' }} /></ListItemIcon>Other (specify)</MenuItem>
+                      <ListSubheader sx={{ fontSize: '0.7rem' }}>Job Order (JO)</ListSubheader>
+                      <MenuItem value="0"><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 10, color: '#F57C00' }} /></ListItemIcon>Graduate</MenuItem>
+                      <MenuItem value="1"><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 10, color: '#E64A19' }} /></ListItemIcon>UnderGrad</MenuItem>
+                      <ListSubheader sx={{ fontSize: '0.7rem' }}>Regular</ListSubheader>
+                      <MenuItem value="2"><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 10, color: '#2E7D32' }} /></ListItemIcon>Non-Teaching</MenuItem>
+                      <MenuItem value="3"><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 10, color: '#1565C0' }} /></ListItemIcon>Teaching (30Hrs)</MenuItem>
+                      <MenuItem value="4"><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 10, color: '#7B1FA2' }} /></ListItemIcon>Designated (40Hrs)</MenuItem>
+                      <ListSubheader sx={{ fontSize: '0.7rem' }}>Custom</ListSubheader>
+                      <MenuItem value="5"><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 10, color: '#00796B' }} /></ListItemIcon>Other (specify)</MenuItem>
                     </Select>
                   </FormControl>
                 </Grid>
                 <Grid item xs={12} md={3}>
-                  <FormControl fullWidth>
-                    <InputLabel sx={{ fontWeight: 500 }}>Filter by Department</InputLabel>
-                    <Select value={departmentFilter} label="Filter by Department" onChange={(e) => setDepartmentFilter(e.target.value)} sx={{ borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.8)', '& .MuiOutlinedInput-notchedOutline': { borderRadius: 3 } }}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel sx={{ fontWeight: 500, fontSize: '0.75rem' }}>Filter by Department</InputLabel>
+                    <Select value={departmentFilter} label="Filter by Department" onChange={(e) => setDepartmentFilter(e.target.value)} sx={{ borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.85)', '& .MuiOutlinedInput-notchedOutline': { borderRadius: 2 }, fontSize: '0.75rem' }}>
                       <MenuItem value="">All Departments</MenuItem>
                       {uniqueDepartments.map((code) => (<MenuItem key={code} value={code}>{code}</MenuItem>))}
                     </Select>
@@ -1216,65 +1180,121 @@ const UsersList = () => {
         <Fade in timeout={1100}>
           <GlassCard>
             <OfflineBanner visible={offline} retryIn={retryIn} primaryColor={p} />
-            <Box sx={{ p: 3, background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${alpha(p, 0.1)}` }}>
-              <Box>
-                <Typography variant="h5" sx={{ fontWeight: 600, color: p }}>Registered Users</Typography>
-                <Typography variant="body2" sx={{ opacity: 0.8, color: tp }}>
-                  {searchTerm || roleFilter || categoryFilter !== '' || departmentFilter !== ''
-                    ? `Showing ${filteredUsers.length} of ${users.length} users`
-                    : `Total: ${users.length} registered users`}
+            <Box sx={{ p: 2, background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${alpha(p, 0.1)}`, flexWrap: 'wrap', gap: 1 }}>
+              <Box sx={{ minWidth: 0, mr: 2 }}>
+                <Typography variant="h4" sx={{ fontWeight: 600, color: p, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>Registered Users</Typography>
+                <Typography variant="body2" sx={{ opacity: 0.8, color: tp, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                  {searchTerm || roleFilter || categoryFilter !== '' || departmentFilter !== '' ? `Showing ${filteredUsers.length} of ${tableTab === 0 ? properUsers.length : incompleteUsers.length} users` : `Total: ${users.length} registered users`}
                 </Typography>
               </Box>
-              <Box display="flex" alignItems="center" gap={2} flexWrap="wrap" justifyContent="flex-end">
-                {['staff', 'administrator', 'superadmin'].map((role) => (
-                  <Tooltip key={role} title={`Grant default page access to all ${role} users (based on Access Groups in Page Management)`}>
-                    <ProfessionalButton variant="outlined" startIcon={grantingRole === role ? <CircularProgress size={16} sx={{ color: p }} /> : <LockOpen />} onClick={() => handleGrantRoleAccess(role)} disabled={grantingRole !== null} sx={{ borderColor: p, color: p, '&:hover': { bgcolor: alpha(p, 0.1), borderColor: s }, '&.Mui-disabled': { borderColor: alpha(p, 0.35), color: alpha(p, 0.6) } }}>
-                      {grantingRole === role ? 'Granting...' : `Grant ${role.charAt(0).toUpperCase() + role.slice(1)} Access`}
-                    </ProfessionalButton>
-                  </Tooltip>
-                ))}
-                {isTechnical && (
-                  <Tooltip title="Bulk Edit Employment Category">
-                    <ProfessionalButton variant="outlined" startIcon={<Category />} onClick={openBulkCategoryEdit} disabled={selectedEmployeeNumbers.length === 0} sx={{ borderColor: p, color: p, '&:hover': { bgcolor: alpha(p, 0.1), borderColor: s }, '&.Mui-disabled': { borderColor: alpha(p, 0.35), color: alpha(p, 0.6) } }}>
-                      Bulk Edit Category ({selectedEmployeeNumbers.length})
-                    </ProfessionalButton>
-                  </Tooltip>
+              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" justifyContent="flex-end" sx={{ minWidth: 0 }}>
+                {incompleteUsers.length > 0 && (
+                  <Chip icon={<WarningAmberRounded sx={{ fontSize: 14 }} />} label={`${incompleteUsers.length} incomplete`} size="small" sx={{ bgcolor: alpha('#f59e0b', 0.15), color: '#b45309', fontWeight: 600, border: `1px solid ${alpha('#f59e0b', 0.3)}`, height: 22, fontSize: '0.65rem' }} />
                 )}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, flexWrap: 'wrap' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, mr: 0.5 }}>
+                    <VerifiedUser sx={{ fontSize: 12, color: alpha(p, 0.4) }} />
+                    <Typography sx={{ fontSize: '0.66rem', fontWeight: 700, color: alpha(p, 0.4), textTransform: 'uppercase', letterSpacing: '0.09em', whiteSpace: 'nowrap' }}>Grant Default Access:</Typography>
+                  </Box>
+                  <Dialog open={!!grantSuccessDialog} onClose={() => setGrantSuccessDialog(null)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4, overflow: 'hidden', p: 0 } }}>
+                    <Box sx={{ bgcolor: alpha(p, 0.08), borderBottom: `1px solid ${alpha(p, 0.1)}`, px: 4, pt: 4, pb: 3.5, textAlign: 'center' }}>
+                      <Box sx={{ width: 60, height: 60, borderRadius: '50%', bgcolor: alpha(p, 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}><CheckCircle sx={{ fontSize: 32, color: p }} /></Box>
+                      <Typography sx={{ fontSize: '1.1rem', fontWeight: 700, color: tp, mb: 0.5 }}>Access Granted</Typography>
+                      <Typography sx={{ fontSize: '0.8rem', color: alpha(tp, 0.55) }}>Default pages successfully assigned</Typography>
+                    </Box>
+                    <Box sx={{ px: 3.5, pt: 3, pb: 3.5 }}>
+                      {[{ label: 'Role', value: grantSuccessDialog?.role?.charAt(0).toUpperCase() + grantSuccessDialog?.role?.slice(1), pill: true }, { label: 'Users updated', value: `${grantSuccessDialog?.usersProcessed} users` }, { label: 'Pages granted', value: `${grantSuccessDialog?.pagesGranted} pages` }].map(({ label, value, pill }) => (
+                        <Box key={label} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.5, bgcolor: alpha(p, 0.08), border: `1px solid ${alpha(p, 0.12)}`, borderRadius: 2.5, mb: 1.25 }}>
+                          <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: tp }}>{label}</Typography>
+                          {pill ? (<Chip label={value} size="small" sx={{ bgcolor: roleGrantColors[grantSuccessDialog?.role]?.bgcolor, color: roleGrantColors[grantSuccessDialog?.role]?.color, fontWeight: 700, fontSize: '0.75rem' }} />) : (<Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: tp }}>{value}</Typography>)}
+                        </Box>
+                      ))}
+                      <Button fullWidth variant="contained" onClick={() => setGrantSuccessDialog(null)} sx={{ mt: 1.5, py: 1.5, borderRadius: 2.5, fontWeight: 700, fontSize: '0.9rem', bgcolor: p, color: ac, background: `linear-gradient(135deg, ${p} 0%, ${s} 100%)`, '&:hover': { background: `linear-gradient(135deg, ${s} 0%, ${p} 100%)` } }}>Done</Button>
+                    </Box>
+                  </Dialog>
+                  {['staff', 'administrator', 'superadmin'].map((role) => (
+                    <Tooltip key={role} title={`Grant default page access to all ${role} users`}>
+                      <ProfessionalButton variant="outlined" startIcon={grantingRole === role ? <CircularProgress size={14} sx={{ color: roleGrantColors[role].color }} /> : null} onClick={() => setConfirmRole(role)} disabled={grantingRole !== null} sx={{ borderColor: roleGrantColors[role].color, color: roleGrantColors[role].color, bgcolor: roleGrantColors[role].bgcolor, fontSize: '0.72rem', px: 1, minWidth: 'auto', '&:hover': { bgcolor: alpha(roleGrantColors[role].color, 0.18), borderColor: roleGrantColors[role].color }, '&.Mui-disabled': { borderColor: alpha(roleGrantColors[role].color, 0.35), color: alpha(roleGrantColors[role].color, 0.5) } }}>
+                        {grantingRole === role ? 'Granting...' : `Grant ${role.charAt(0).toUpperCase() + role.slice(1)}`}
+                      </ProfessionalButton>
+                    </Tooltip>
+                  ))}
+                  {isTechnical && (
+                    <Tooltip title="Bulk Edit Employment Category">
+                      <ProfessionalButton variant="outlined" startIcon={<Category sx={{ fontSize: 14 }} />} onClick={openBulkCategoryEdit} disabled={selectedEmployeeNumbers.length === 0} sx={{ borderColor: p, color: p, fontSize: '0.72rem', px: 1, minWidth: 'auto', '&:hover': { bgcolor: alpha(p, 0.1), borderColor: s }, '&.Mui-disabled': { borderColor: alpha(p, 0.35), color: alpha(p, 0.6) } }}>
+                        Bulk Edit ({selectedEmployeeNumbers.length})
+                      </ProfessionalButton>
+                    </Tooltip>
+                  )}
+                </Box>
               </Box>
+              <Dialog open={confirmRole !== null} onClose={() => setConfirmRole(null)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4, overflow: 'hidden', backgroundColor: 'background.paper', boxShadow: '0 16px 40px rgba(0,0,0,0.15)' } }}>
+                <Box sx={{ px: 3, py: 2, display: 'flex', alignItems: 'center', gap: 1.5, backgroundColor: alpha(p, 0.06), borderBottom: '1px solid', borderColor: 'divider' }}>
+                  <VerifiedUser sx={{ fontSize: 20, color: alpha(p, 0.9) }} />
+                  <Typography sx={{ fontWeight: 700, fontSize: '1rem', letterSpacing: '0.015em' }}>Confirm Access Grant</Typography>
+                </Box>
+                <Box sx={{ px: 3, pt: 2 }}>
+                  <Typography sx={{ fontSize: '0.86rem', color: 'text.primary', mb: 1.5, lineHeight: 1.6 }}>You are about to grant default page access to all{' '}{confirmRole && (<Box component="span" sx={{ fontWeight: 700, px: 1, py: 0.3, borderRadius: 2, background: `linear-gradient(90deg, ${alpha(p, 0.12)}, ${alpha(p, 0.05)})`, color: p, display: 'inline-block', ml: 0.5 }}>{confirmRole.charAt(0).toUpperCase() + confirmRole.slice(1)}</Box>)}{' '}users.</Typography>
+                  <Box sx={{ borderRadius: 2, backgroundColor: alpha(p, 0.03), px: 2.2, py: 1.6, mb: 2, display: 'flex', flexDirection: 'column', gap: 0.6 }}>
+                    <Typography sx={{ fontSize: '0.74rem', fontWeight: 600, color: 'text.primary' }}>Access Details</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}><VerifiedUser sx={{ fontSize: 16, color: alpha(p, 0.6) }} /><Typography sx={{ fontSize: '0.72rem', color: 'text.secondary', lineHeight: 1.4 }}>Access will be applied based on the Access Groups configured in Page Management.</Typography></Box>
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1.2, px: 3, pb: 2 }}>
+                  <Button onClick={() => setConfirmRole(null)} sx={{ textTransform: 'none', fontSize: '0.76rem', color: 'text.secondary', px: 2.2, py: 0.6, borderRadius: 2 }}>Cancel</Button>
+                  <Button variant="contained" disableElevation onClick={() => { handleGrantRoleAccess(confirmRole); setConfirmRole(null); }} disabled={grantingRole !== null} sx={{ textTransform: 'none', fontSize: '0.76rem', px: 2.2, py: 0.6, borderRadius: 2, backgroundColor: p, color: '#fff', boxShadow: `0 3px 10px ${alpha(p, 0.25)}`, '&:hover': { backgroundColor: s, boxShadow: `0 5px 14px ${alpha(s, 0.25)}` }, '&.Mui-disabled': { backgroundColor: alpha(p, 0.4), color: '#fff' } }}>
+                    {grantingRole === confirmRole ? <CircularProgress size={16} sx={{ color: '#fff' }} /> : 'Confirm'}
+                  </Button>
+                </Box>
+              </Dialog>
             </Box>
+
+            {/* Tabs */}
+            <Box sx={{ borderBottom: `1px solid ${alpha(p, 0.1)}`, bgcolor: alpha(ac, 0.4) }}>
+              <Tabs value={tableTab} onChange={(_, val) => { setTableTab(val); setPage(0); setSearchTerm(''); }} sx={{ px: 2, '& .MuiTab-root': { textTransform: 'none', fontWeight: 600, fontSize: '0.85rem', color: alpha(tp, 0.5), minHeight: 48 }, '& .Mui-selected': { color: p }, '& .MuiTabs-indicator': { backgroundColor: p, height: 3, borderRadius: '3px 3px 0 0' } }}>
+                <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><CheckCircle sx={{ fontSize: 16 }} /><span>Accounts</span><Chip label={properUsers.length} size="small" sx={{ height: 18, fontSize: '0.68rem', fontWeight: 700, bgcolor: '#16a34a33', color: '#16a34a', '& .MuiChip-label': { px: 0.75 } }} /></Box>} />
+                <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><WarningAmberRounded sx={{ fontSize: 16 }} /><span>Incomplete Accounts</span><Chip label={incompleteUsers.length} size="small" sx={{ height: 18, fontSize: '0.68rem', fontWeight: 700, bgcolor: '#f59e0b33', color: '#d97706', '& .MuiChip-label': { px: 0.75 } }} /></Box>} />
+              </Tabs>
+            </Box>
+
+            {tableTab === 1 && incompleteUsers.length > 0 && (
+              <Box sx={{ px: 3, py: 1.5, bgcolor: alpha('#f59e0b', 0.06), borderBottom: `1px solid ${alpha('#f59e0b', 0.2)}`, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <WarningAmberRounded sx={{ fontSize: 15, color: '#d97706', flexShrink: 0 }} />
+                <Typography sx={{ fontSize: '0.75rem', color: '#92400e' }}>These accounts are missing a full name in the personnel records. Use the edit action to link them to an employee record.</Typography>
+              </Box>
+            )}
 
             <PremiumTableContainer component={Paper} elevation={0}>
               <Table sx={{ minWidth: 800 }}>
                 <TableHead sx={{ bgcolor: alpha(ac, 0.7) }}>
                   <TableRow>
-                    <PremiumTableCell isHeader sx={{ color: tp, width: 60 }}>
-                      <Checkbox checked={isAllCurrentPageSelected(paginatedUsers)} indeterminate={isSomeCurrentPageSelected(paginatedUsers)} onChange={() => toggleSelectAllCurrentPage(paginatedUsers)} sx={{ color: p, '&.Mui-checked': { color: p } }} />
-                    </PremiumTableCell>
-                    <PremiumTableCell isHeader sx={{ color: tp }}><BadgeIcon sx={{ mr: 1, verticalAlign: 'middle' }} />Employee #</PremiumTableCell>
-                    <PremiumTableCell isHeader sx={{ color: tp }}><Person sx={{ mr: 1, verticalAlign: 'middle' }} />Full Name</PremiumTableCell>
-                    <PremiumTableCell isHeader sx={{ color: tp }}><Email sx={{ mr: 1, verticalAlign: 'middle' }} />Email</PremiumTableCell>
-                    <PremiumTableCell isHeader sx={{ color: tp }}><Business sx={{ mr: 1, verticalAlign: 'middle' }} />Role</PremiumTableCell>
-                    <PremiumTableCell isHeader sx={{ color: tp }}><WorkOutline sx={{ mr: 1, verticalAlign: 'middle' }} />Employment Category</PremiumTableCell>
-                    <PremiumTableCell isHeader sx={{ color: tp }}><Business sx={{ mr: 1, verticalAlign: 'middle' }} />Department</PremiumTableCell>
-                    <PremiumTableCell isHeader sx={{ color: tp, textAlign: 'center' }}><Security sx={{ mr: 1, verticalAlign: 'middle' }} />Page Access</PremiumTableCell>
-                    {isTechnical && (<PremiumTableCell isHeader sx={{ color: tp, textAlign: 'center' }}><Settings sx={{ mr: 1, verticalAlign: 'middle' }} />Actions</PremiumTableCell>)}
+                    <PremiumTableCell isHeader sx={{ color: tp, width: 10, fontSize: '0.85rem' }}><Checkbox checked={isAllCurrentPageSelected(paginatedUsers)} indeterminate={isSomeCurrentPageSelected(paginatedUsers)} onChange={() => toggleSelectAllCurrentPage(paginatedUsers)} sx={{ color: '#FFFFFF', '&.Mui-checked': { color: '#FFFFFF' } }} /></PremiumTableCell>
+                    <PremiumTableCell isHeader sx={{ color: tp, fontSize: '0.85rem' }}>Emp. No.</PremiumTableCell>
+                    <PremiumTableCell isHeader sx={{ color: tp, fontSize: '0.85rem' }}>Full Name</PremiumTableCell>
+                    <PremiumTableCell isHeader sx={{ color: tp, fontSize: '0.85rem' }}>Email</PremiumTableCell>
+                    <PremiumTableCell isHeader sx={{ color: tp, fontSize: '0.85rem' }}>Role</PremiumTableCell>
+                    <PremiumTableCell isHeader sx={{ color: tp, fontSize: '0.85rem' }}>Employment Category</PremiumTableCell>
+                    <PremiumTableCell isHeader sx={{ color: tp, fontSize: '0.85rem' }}>Department</PremiumTableCell>
+                    <PremiumTableCell isHeader sx={{ color: tp, textAlign: 'center', fontSize: '0.85rem' }}>Page Access</PremiumTableCell>
+                    {isTechnical && (<PremiumTableCell isHeader sx={{ color: tp, textAlign: 'center', fontSize: '0.85rem' }}>Actions</PremiumTableCell>)}
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {paginatedUsers.length > 0 ? (
                     paginatedUsers.map((user) => {
                       const categoryInfo = getEmploymentCategoryInfo(user.employmentCategory, user.customCategory || user.custom_category);
+                      const isIncomplete = tableTab === 1;
                       return (
                         <TableRow key={user.employeeNumber} sx={{ '&:nth-of-type(even)': { bgcolor: alpha(ac, 0.3) }, '&:hover': { bgcolor: alpha(p, 0.05) }, transition: 'all 0.2s ease' }}>
                           <PremiumTableCell><Checkbox checked={isEmployeeSelected(user.employeeNumber)} onChange={() => toggleSelectEmployee(user.employeeNumber)} sx={{ color: p, '&.Mui-checked': { color: p } }} /></PremiumTableCell>
                           <PremiumTableCell sx={{ fontWeight: 600, color: tp }}>{user.employeeNumber}</PremiumTableCell>
                           <PremiumTableCell>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                              <Avatar src={user.avatar || ''} alt={user.fullName} sx={{ width: 48, height: 48, bgcolor: p, color: ac, fontWeight: 700, fontSize: '1rem', boxShadow: `0 4px 12px ${alpha(p, 0.2)}`, border: '2px solid #fff' }}>{!user.avatar && getInitials(user.fullName)}</Avatar>
-                              <Box>
-                                <Typography variant="body1" sx={{ fontWeight: 600, color: tp }}>{user.fullName}</Typography>
-                                {user.nameExtension && (<Typography variant="caption" sx={{ color: tp }}>({user.nameExtension})</Typography>)}
-                              </Box>
+                              {isIncomplete ? (
+                                <Box><Typography variant="body2" sx={{ fontStyle: 'italic', color: alpha(tp, 0.4), fontSize: '0.85rem' }}>No name on record</Typography><Chip label="Missing" size="small" sx={{ height: 18, fontSize: '0.65rem', bgcolor: alpha('#f59e0b', 0.12), color: '#d97706', mt: 0.25, '& .MuiChip-label': { px: 0.75 } }} /></Box>
+                              ) : (
+                                <Box><Typography variant="body1" sx={{ fontWeight: 600, color: tp }}>{user.fullName}</Typography>{user.nameExtension && (<Typography variant="caption" sx={{ color: tp }}>({user.nameExtension})</Typography>)}</Box>
+                              )}
                             </Box>
                           </PremiumTableCell>
                           <PremiumTableCell sx={{ color: tp }}>{user.email}</PremiumTableCell>
@@ -1289,27 +1309,14 @@ const UsersList = () => {
                               </ModernTextField>
                             )}
                           </PremiumTableCell>
-                          <PremiumTableCell>
-                            <Chip size="small" label={categoryInfo.label} icon={categoryInfo.icon} sx={{ color: categoryInfo.color, bgcolor: categoryInfo.bgcolor, border: `1px solid ${categoryInfo.color}`, fontWeight: 600, fontSize: '0.75rem' }} />
-                          </PremiumTableCell>
-                          <PremiumTableCell>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Business sx={{ color: tp, fontSize: 18 }} />
-                              <Typography variant="body2" sx={{ fontWeight: 500, color: tp }}>{user.departmentDescription || user.departmentCode || '-'}</Typography>
-                            </Box>
-                          </PremiumTableCell>
-                          <PremiumTableCell sx={{ textAlign: 'center' }}>
-                            <ProfessionalButton onClick={() => handlePageAccessClick(user)} startIcon={<Security />} size="small" variant="contained" sx={{ bgcolor: p, color: ac, '&:hover': { bgcolor: s } }}>Manage</ProfessionalButton>
-                          </PremiumTableCell>
+                          <PremiumTableCell><Chip size="small" label={categoryInfo.label} icon={categoryInfo.icon} sx={{ color: categoryInfo.color, bgcolor: categoryInfo.bgcolor, border: `1px solid ${categoryInfo.color}`, fontWeight: 600, fontSize: '0.75rem' }} /></PremiumTableCell>
+                          <PremiumTableCell><Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><Business sx={{ color: tp, fontSize: 18 }} /><Typography variant="body2" sx={{ fontWeight: 500, color: tp }}>{user.departmentDescription || user.departmentCode || '-'}</Typography></Box></PremiumTableCell>
+                          <PremiumTableCell sx={{ textAlign: 'center' }}><ProfessionalButton onClick={() => handlePageAccessClick(user)} startIcon={<Security />} size="small" variant="contained" sx={{ bgcolor: p, color: ac, '&:hover': { bgcolor: s } }}>Manage</ProfessionalButton></PremiumTableCell>
                           {isTechnical && (
                             <PremiumTableCell sx={{ textAlign: 'center' }}>
                               <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-                                <Tooltip title="Edit User" arrow>
-                                  <IconButton size="small" onClick={() => handleEditUser(user)} sx={{ bgcolor: alpha(p, 0.1), color: p, '&:hover': { bgcolor: p, color: ac } }}><EditIcon fontSize="small" /></IconButton>
-                                </Tooltip>
-                                <Tooltip title="Delete User" arrow>
-                                  <IconButton size="small" onClick={() => handleDeleteUser(user)} sx={{ bgcolor: alpha('#d32f2f', 0.1), color: '#d32f2f', '&:hover': { bgcolor: '#d32f2f', color: 'white' } }}><DeleteIcon fontSize="small" /></IconButton>
-                                </Tooltip>
+                                <Tooltip title="Edit User" arrow><IconButton size="small" onClick={() => handleEditUser(user)} sx={{ bgcolor: alpha(p, 0.1), color: p, '&:hover': { bgcolor: p, color: ac } }}><EditIcon fontSize="small" /></IconButton></Tooltip>
+                                <Tooltip title="Delete User" arrow><IconButton size="small" onClick={() => handleDeleteUser(user)} sx={{ bgcolor: alpha('#d32f2f', 0.1), color: '#d32f2f', '&:hover': { bgcolor: '#d32f2f', color: 'white' } }}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
                               </Box>
                             </PremiumTableCell>
                           )}
@@ -1318,12 +1325,10 @@ const UsersList = () => {
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={isTechnical ? 9 : 8} sx={{ textAlign: 'center', py: 8 }}>
+                      <TableCell colSpan={isTechnical ? 9 : 8} sx={{ textAlign: 'center', py: 8, border: 'none' }}>
                         <Info sx={{ fontSize: 80, color: alpha(p, 0.3), mb: 3 }} />
-                        <Typography variant="h5" color={alpha(p, 0.6)} gutterBottom sx={{ fontWeight: 600 }}>No Users Found</Typography>
-                        <Typography variant="body1" color={alpha(p, 0.4)}>
-                          {searchTerm || roleFilter || categoryFilter !== '' || departmentFilter !== '' ? 'Try adjusting your search criteria' : 'No users registered yet'}
-                        </Typography>
+                        <Typography variant="h5" color={alpha(p, 0.6)} gutterBottom sx={{ fontWeight: 600 }}>{tableTab === 1 ? 'No Incomplete Accounts' : 'No Users Found'}</Typography>
+                        <Typography variant="body1" color={alpha(p, 0.4)}>{searchTerm || roleFilter || categoryFilter !== '' || departmentFilter !== '' ? 'Try adjusting your search criteria' : tableTab === 1 ? 'All accounts have a full name on record' : 'No users registered yet'}</Typography>
                       </TableCell>
                     </TableRow>
                   )}
@@ -1333,12 +1338,254 @@ const UsersList = () => {
 
             {filteredUsers.length > 0 && (
               <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 2 }}>
-                <TablePagination component="div" count={filteredUsers.length} page={page} onPageChange={handleChangePage} rowsPerPage={rowsPerPage} onRowsPerPageChange={handleChangeRowsPerPage} rowsPerPageOptions={[5, 10, 25, 50, 100]}
-                  sx={{ '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { color: tp, fontWeight: 600 } }} />
+                <TablePagination component="div" count={filteredUsers.length} page={page} onPageChange={handleChangePage} rowsPerPage={rowsPerPage} onRowsPerPageChange={handleChangeRowsPerPage} rowsPerPageOptions={[5, 10, 25, 50, 100]} sx={{ '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { color: tp, fontWeight: 600 } }} />
               </Box>
             )}
           </GlassCard>
         </Fade>
+
+        {/* ════════════════════════════════════════════════════════════════════
+            PASSWORD MANAGEMENT MODAL
+        ════════════════════════════════════════════════════════════════════ */}
+        <Dialog
+          open={pwMgmtOpen}
+          onClose={closePwMgmt}
+          maxWidth="lg"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: 4,
+              bgcolor: ac,
+              maxHeight: '90vh',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            },
+          }}
+        >
+          {/* Modal Header */}
+          <DialogTitle sx={{ p: 0, flexShrink: 0 }}>
+            <Box sx={{ px: 4, py: 3, background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`, position: 'relative', overflow: 'hidden', borderBottom: `1px solid ${alpha(p, 0.1)}` }}>
+              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle, ${alpha(p, 0.1)} 0%, transparent 70%)` }} />
+              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, background: `radial-gradient(circle, ${alpha(p, 0.08)} 0%, transparent 70%)` }} />
+              <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
+                <Box display="flex" alignItems="center" gap={3}>
+                  <Avatar sx={{ bgcolor: alpha(p, 0.15), width: 52, height: 52, boxShadow: `0 6px 20px ${alpha(p, 0.15)}` }}>
+                    <LockResetIcon sx={{ fontSize: 26, color: p }} />
+                  </Avatar>
+                  <Box>
+                    <Typography variant="h5" component="h2" sx={{ fontWeight: 700, lineHeight: 1.2, color: p }}>Password Management</Typography>
+                    <Typography variant="body2" sx={{ opacity: 0.75, fontWeight: 400, color: tp, mt: 0.25 }}>
+                      Search for employees/users and reset their password to their surname (ALL CAPS)
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box display="flex" alignItems="center" gap={2}>
+                  <Chip label={`${pwUsers.length} Users`} size="small" sx={{ bgcolor: alpha(p, 0.15), color: p, fontWeight: 500 }} />
+                  <Tooltip title="Refresh Users">
+                    <IconButton onClick={fetchPwUsers} disabled={pwLoading} sx={{ bgcolor: alpha(p, 0.1), color: p, width: 44, height: 44, '&:hover': { bgcolor: alpha(p, 0.2) }, '&:disabled': { bgcolor: alpha(p, 0.05), color: alpha(p, 0.3) } }}>
+                      {pwLoading ? <CircularProgress size={20} sx={{ color: p }} /> : <RefreshIcon />}
+                    </IconButton>
+                  </Tooltip>
+                  <IconButton onClick={closePwMgmt} sx={{ bgcolor: alpha(p, 0.1), color: p, width: 44, height: 44, '&:hover': { bgcolor: alpha(p, 0.2) } }}>
+                    <Close />
+                  </IconButton>
+                </Box>
+              </Box>
+            </Box>
+          </DialogTitle>
+
+          <DialogContent sx={{ p: 0, overflow: 'auto', flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <Box sx={{ px: 4, py: 3, flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+
+              {/* Error inside modal */}
+              {pwErrMessage && (
+                <Fade in timeout={300}>
+                  <Alert severity="error" icon={<Cancel />} onClose={() => setPwErrMessage('')} sx={{ borderRadius: 3, fontWeight: 500 }}>
+                    {pwErrMessage}
+                  </Alert>
+                </Fade>
+              )}
+
+              {/* Success inside modal */}
+              {pwSuccessOpen && (
+                <Fade in timeout={300}>
+                  <Alert severity="success" icon={<CheckCircle />} onClose={() => setPwSuccessOpen(false)} sx={{ borderRadius: 3, fontWeight: 500 }}>
+                    {pwSuccessAction === 'reset' ? 'Password has been reset successfully.' : 'Users loaded successfully.'}
+                  </Alert>
+                </Fade>
+              )}
+
+              {/* Stats row */}
+              <Grid container spacing={2}>
+                {[
+                  { icon: <Person sx={{ fontSize: 36, color: tp, mb: 0.5 }} />, value: pwUsers.length, label: 'Total Users' },
+                  { icon: <SearchIcon sx={{ fontSize: 36, color: tp, mb: 0.5 }} />, value: pwFilteredUsers.length, label: 'Filtered Results' },
+                  { icon: <LockResetIcon sx={{ fontSize: 36, color: tp, mb: 0.5 }} />, value: Object.keys(pwResetting).filter((k) => pwResetting[k]).length, label: 'Resets In Progress' },
+                ].map((stat, i) => (
+                  <Grid key={i} item xs={12} sm={4}>
+                    <GlassCard sx={{ '&:hover': { transform: 'none' } }}>
+                      <CardContent sx={{ textAlign: 'center', p: 2 }}>
+                        {stat.icon}
+                        <Typography variant="h6" sx={{ color: tp, fontWeight: 700, mt: 0.5 }}>{stat.value}</Typography>
+                        <Typography variant="body2" sx={{ color: tp }}>{stat.label}</Typography>
+                      </CardContent>
+                    </GlassCard>
+                  </Grid>
+                ))}
+              </Grid>
+
+              {/* Search */}
+              <GlassCard sx={{ '&:hover': { transform: 'none' } }}>
+                <CardHeader
+                  title={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <Avatar sx={{ width: 32, height: 32, bgcolor: alpha(ac, 0.8), color: tp }}><SearchIcon sx={{ fontSize: 18 }} /></Avatar>
+                      <Box>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600, color: tp }}>Search Users</Typography>
+                        <Typography variant="body2" sx={{ color: tp, fontSize: '0.72rem' }}>Find users by name, email, or employee number</Typography>
+                      </Box>
+                    </Box>
+                  }
+                  sx={{ bgcolor: alpha(ac, 0.5), pb: 1.5, borderBottom: `1px solid ${alpha(p, 0.08)}` }}
+                />
+                <CardContent sx={{ p: 3 }}>
+                  <PwModernTextField
+                    fullWidth
+                    label="Search Users"
+                    value={pwSearchTerm}
+                    onChange={(e) => setPwSearchTerm(e.target.value)}
+                    placeholder="Search by name, email, or employee number..."
+                    size="small"
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <SearchIcon sx={{ color: tp, fontSize: 18 }} />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                </CardContent>
+              </GlassCard>
+
+              {/* Table card */}
+              <GlassCard sx={{ '&:hover': { transform: 'none' } }}>
+                {/* Table header */}
+                <Box sx={{ px: 3, py: 2, background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${alpha(p, 0.1)}` }}>
+                  <Box>
+                    <Typography variant="h6" sx={{ fontWeight: 600, color: p }}>User Accounts</Typography>
+                    <Typography variant="body2" sx={{ opacity: 0.75, color: tp }}>
+                      {pwSearchTerm
+                        ? `Showing ${pwFilteredUsers.length} of ${pwSourceUsers.length} users matching "${pwSearchTerm}"`
+                        : `Total: ${pwUsers.length} registered users`}
+                    </Typography>
+                  </Box>
+                  {pwIncompleteUsers.length > 0 && (
+                    <Chip icon={<WarningAmberRounded sx={{ fontSize: '14px !important' }} />} label={`${pwIncompleteUsers.length} incomplete`} size="small" sx={{ bgcolor: alpha('#f59e0b', 0.15), color: '#b45309', fontWeight: 600, border: `1px solid ${alpha('#f59e0b', 0.3)}` }} />
+                  )}
+                </Box>
+
+                {/* Tabs */}
+                <Box sx={{ borderBottom: `1px solid ${alpha(p, 0.1)}`, bgcolor: alpha(ac, 0.4) }}>
+                  <Tabs value={pwActiveTab} onChange={(_, val) => { setPwActiveTab(val); setPwPage(0); setPwSearchTerm(''); }} sx={{ px: 2, '& .MuiTab-root': { textTransform: 'none', fontWeight: 600, fontSize: '0.82rem', color: alpha(tp, 0.5), minHeight: 44 }, '& .Mui-selected': { color: p }, '& .MuiTabs-indicator': { backgroundColor: p, height: 3, borderRadius: '3px 3px 0 0' } }}>
+                    <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><CheckCircle sx={{ fontSize: 15 }} /><span>Accounts</span><Chip label={pwProperUsers.length} size="small" sx={{ height: 17, fontSize: '0.65rem', fontWeight: 700, bgcolor: '#16a34a33', color: '#16a34a', '& .MuiChip-label': { px: 0.75 } }} /></Box>} />
+                    <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><WarningAmberRounded sx={{ fontSize: 15 }} /><span>Incomplete Accounts</span><Chip label={pwIncompleteUsers.length} size="small" sx={{ height: 17, fontSize: '0.65rem', fontWeight: 700, bgcolor: '#f59e0b33', color: '#d97706', '& .MuiChip-label': { px: 0.75 } }} /></Box>} />
+                  </Tabs>
+                </Box>
+
+                {pwActiveTab === 1 && pwIncompleteUsers.length > 0 && (
+                  <Box sx={{ px: 3, py: 1.25, bgcolor: alpha('#f59e0b', 0.06), borderBottom: `1px solid ${alpha('#f59e0b', 0.2)}`, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <WarningAmberRounded sx={{ fontSize: 14, color: '#d97706', flexShrink: 0 }} />
+                    <Typography sx={{ fontSize: '0.72rem', color: '#92400e' }}>These accounts are missing a full name. They can still have their password reset, but should be updated in employee records.</Typography>
+                  </Box>
+                )}
+
+                {/* Loading state */}
+                {pwLoading && pwUsers.length === 0 ? (
+                  <Box sx={{ p: 4, textAlign: 'center' }}>
+                    <CircularProgress sx={{ color: p, mb: 2 }} />
+                    <Typography sx={{ color: tp, fontWeight: 600 }}>Loading users...</Typography>
+                  </Box>
+                ) : (
+                  <>
+                    <TableContainer component={Paper} elevation={0} sx={{ borderRadius: 0 }}>
+                      <Table sx={{ minWidth: 600 }}>
+                        <TableHead sx={{ bgcolor: alpha(ac, 0.7) }}>
+                          <TableRow>
+                            <PwPremiumTableCell isHeader sx={{ color: tp }}><BadgeIcon sx={{ mr: 0.75, verticalAlign: 'middle', fontSize: 16 }} />Employee #</PwPremiumTableCell>
+                            <PwPremiumTableCell isHeader sx={{ color: tp }}><Person sx={{ mr: 0.75, verticalAlign: 'middle', fontSize: 16 }} />Full Name</PwPremiumTableCell>
+                            <PwPremiumTableCell isHeader sx={{ color: tp }}><Email sx={{ mr: 0.75, verticalAlign: 'middle', fontSize: 16 }} />Email</PwPremiumTableCell>
+                            <PwPremiumTableCell isHeader sx={{ color: tp }}><Business sx={{ mr: 0.75, verticalAlign: 'middle', fontSize: 16 }} />Role</PwPremiumTableCell>
+                            <PwPremiumTableCell isHeader sx={{ color: tp, textAlign: 'center' }}><Security sx={{ mr: 0.75, verticalAlign: 'middle', fontSize: 16 }} />Action</PwPremiumTableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {pwPaginatedUsers.length > 0 ? (
+                            pwPaginatedUsers.map((user) => (
+                              <TableRow key={user.employeeNumber} sx={{ '&:nth-of-type(even)': { bgcolor: alpha(ac, 0.3) }, '&:hover': { bgcolor: alpha(p, 0.05) }, transition: 'all 0.2s ease' }}>
+                                <PwPremiumTableCell sx={{ fontWeight: 600, color: tp }}>{user.employeeNumber}</PwPremiumTableCell>
+                                <PwPremiumTableCell>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                    <Avatar src={user.avatar || ''} alt={user.fullName} sx={{ width: 38, height: 38, bgcolor: pwActiveTab === 1 ? alpha('#f59e0b', 0.2) : p, color: pwActiveTab === 1 ? '#d97706' : ac, fontWeight: 700, fontSize: '0.85rem', boxShadow: `0 4px 12px ${alpha(p, 0.2)}`, border: '2px solid #fff' }}>
+                                      {!user.avatar && (pwActiveTab === 1 ? '?' : getInitials(user.fullName))}
+                                    </Avatar>
+                                    {pwActiveTab === 1 ? (
+                                      <Box><Typography variant="body2" sx={{ fontStyle: 'italic', color: alpha(tp, 0.4), fontSize: '0.82rem' }}>No name on record</Typography><Chip label="Missing" size="small" sx={{ height: 16, fontSize: '0.62rem', bgcolor: alpha('#f59e0b', 0.12), color: '#d97706', mt: 0.25, '& .MuiChip-label': { px: 0.75 } }} /></Box>
+                                    ) : (
+                                      <Typography variant="body2" sx={{ fontWeight: 600, color: tp }}>{user.fullName}</Typography>
+                                    )}
+                                  </Box>
+                                </PwPremiumTableCell>
+                                <PwPremiumTableCell sx={{ color: tp, fontSize: '0.85rem' }}>{user.email || 'N/A'}</PwPremiumTableCell>
+                                <PwPremiumTableCell><Chip label={user.role || 'N/A'} size="small" sx={{ ...getPwRoleColor(user.role), fontWeight: 600, fontSize: '0.72rem' }} /></PwPremiumTableCell>
+                                <PwPremiumTableCell sx={{ textAlign: 'center' }}>
+                                  <PwProfessionalButton
+                                    variant="contained"
+                                    size="small"
+                                    onClick={() => handleResetPassword(user.employeeNumber)}
+                                    disabled={pwResetting[user.employeeNumber] || !user.email}
+                                    startIcon={pwResetting[user.employeeNumber] ? <CircularProgress size={14} sx={{ color: ac }} /> : <LockResetIcon sx={{ fontSize: 16 }} />}
+                                    sx={{ bgcolor: p, color: ac, '&:hover': { bgcolor: s }, '&:disabled': { bgcolor: alpha(p, 0.3), color: alpha(ac, 0.6) }, py: 0.75, px: 1.5 }}
+                                  >
+                                    {pwResetting[user.employeeNumber] ? 'Resetting...' : 'Reset'}
+                                  </PwProfessionalButton>
+                                </PwPremiumTableCell>
+                              </TableRow>
+                            ))
+                          ) : (
+                            <TableRow>
+                              <TableCell colSpan={5} sx={{ textAlign: 'center', py: 6, border: 'none' }}>
+                                <Info sx={{ fontSize: 60, color: alpha(p, 0.3), mb: 2 }} />
+                                <Typography variant="h6" sx={{ color: alpha(p, 0.6), fontWeight: 600, mb: 0.5 }}>
+                                  {pwActiveTab === 1 ? 'No Incomplete Accounts' : 'No Users Found'}
+                                </Typography>
+                                <Typography variant="body2" sx={{ color: alpha(p, 0.4) }}>
+                                  {pwSearchTerm ? 'Try adjusting your search criteria' : pwActiveTab === 1 ? 'All accounts have a full name on record' : 'No users available'}
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+
+                    {pwFilteredUsers.length > 0 && (
+                      <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1.5, borderTop: `1px solid ${alpha(p, 0.07)}` }}>
+                        <TablePagination component="div" count={pwFilteredUsers.length} page={pwPage} onPageChange={(_, np) => setPwPage(np)} rowsPerPage={pwRowsPerPage} onRowsPerPageChange={(e) => { setPwRowsPerPage(parseInt(e.target.value, 10)); setPwPage(0); }} rowsPerPageOptions={[5, 10, 25, 50]} sx={{ '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { color: tp, fontWeight: 600 } }} />
+                      </Box>
+                    )}
+                  </>
+                )}
+              </GlassCard>
+            </Box>
+          </DialogContent>
+
+          <DialogActions sx={{ px: 4, py: 2, borderTop: `1px solid ${alpha(p, 0.1)}`, bgcolor: alpha(ac, 0.6), flexShrink: 0 }}>
+            <Button onClick={closePwMgmt} variant="outlined" sx={{ borderColor: alpha(p, 0.4), color: tp, borderRadius: 2, fontWeight: 600, textTransform: 'none', '&:hover': { borderColor: p, bgcolor: alpha(p, 0.05) } }}>
+              Close
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         {/* ── Page Access Dialog ── */}
         <Dialog open={pageAccessDialog} onClose={closePageAccessDialog} maxWidth="lg" fullWidth PaperProps={{ sx: { borderRadius: 4, bgcolor: '#f7f8fa', height: '90vh', maxHeight: 800, overflow: 'hidden' } }}>
@@ -1349,7 +1596,6 @@ const UsersList = () => {
           <DialogContent sx={{ p: 0, display: 'flex', overflow: 'hidden', flex: 1 }}>
             {selectedUser && (
               <Box sx={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden' }}>
-                {/* Left sidebar */}
                 <Box sx={{ width: 270, flexShrink: 0, bgcolor: '#ffffff', borderRight: `2px solid ${alpha(p, 0.12)}`, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
                   <Box sx={{ px: 3, py: 2.5, borderBottom: `1px solid ${alpha(p, 0.1)}`, background: `linear-gradient(135deg, ${alpha(p, 0.07)} 0%, ${alpha(p, 0.02)} 100%)`, flexShrink: 0 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
@@ -1392,22 +1638,15 @@ const UsersList = () => {
                   <Box sx={{ px: 3, py: 2, borderTop: `1px solid ${alpha(p, 0.1)}`, flexShrink: 0 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: tp }}>Toggle All Pages</Typography>
-                      <Switch size="small" checked={!pageAccessLoading && pages.length > 0 && Object.values(pageAccess).every((v) => v === true)} onChange={(e) => { const enableAll = e.target.checked; pages.forEach((page) => { if (pageAccess[page.id] !== enableAll) handleTogglePageAccess(page.id, !enableAll); }); }}
-                        sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' }, '& .MuiSwitch-switchBase:not(.Mui-checked)': { color: '#9ca3af' }, '& .MuiSwitch-switchBase:not(.Mui-checked) + .MuiSwitch-track': { backgroundColor: '#d1d5db' } }} />
+                      <Switch size="small" checked={!pageAccessLoading && pages.length > 0 && Object.values(pageAccess).every((v) => v === true)} onChange={(e) => { const enableAll = e.target.checked; pages.forEach((page) => { if (pageAccess[page.id] !== enableAll) handleTogglePageAccess(page.id, !enableAll); }); }} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' }, '& .MuiSwitch-switchBase:not(.Mui-checked)': { color: '#9ca3af' }, '& .MuiSwitch-switchBase:not(.Mui-checked) + .MuiSwitch-track': { backgroundColor: '#d1d5db' } }} />
                     </Box>
                   </Box>
                 </Box>
-
-                {/* Center pages panel */}
                 <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: '#f7f8fa' }}>
                   {pageAccessLoading ? (
-                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Box sx={{ textAlign: 'center' }}><CircularProgress sx={{ color: p, mb: 2 }} /><Typography sx={{ fontSize: '0.85rem', color: '#6b7280', fontWeight: 600 }}>Loading page access...</Typography></Box>
-                    </Box>
+                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Box sx={{ textAlign: 'center' }}><CircularProgress sx={{ color: p, mb: 2 }} /><Typography sx={{ fontSize: '0.85rem', color: '#6b7280', fontWeight: 600 }}>Loading page access...</Typography></Box></Box>
                   ) : !activeAccessCategory ? (
-                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Box sx={{ textAlign: 'center', px: 4 }}><Security sx={{ fontSize: 56, color: alpha(p, 0.15), mb: 2 }} /><Typography sx={{ fontWeight: 700, fontSize: '1rem', color: tp, mb: 0.75 }}>Select a Category</Typography><Typography sx={{ fontSize: '0.85rem', color: '#9ca3af' }}>Choose a category from the left panel to manage page access</Typography></Box>
-                    </Box>
+                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Box sx={{ textAlign: 'center', px: 4 }}><Security sx={{ fontSize: 56, color: alpha(p, 0.15), mb: 2 }} /><Typography sx={{ fontWeight: 700, fontSize: '1rem', color: tp, mb: 0.75 }}>Select a Category</Typography><Typography sx={{ fontSize: '0.85rem', color: '#9ca3af' }}>Choose a category from the left panel to manage page access</Typography></Box></Box>
                   ) : pages.length === 0 ? (
                     <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Typography sx={{ color: '#9ca3af', fontWeight: 600 }}>No pages found in system.</Typography></Box>
                   ) : (() => {
@@ -1425,8 +1664,7 @@ const UsersList = () => {
                             </Box>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                               <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: tp }}>Toggle Current Pages</Typography>
-                              <Switch size="small" checked={enabledCount === pagesInGroup.length && pagesInGroup.length > 0} onChange={(e) => { const enableAll = e.target.checked; pagesInGroup.forEach((page) => { if (pageAccess[page.id] !== enableAll) handleTogglePageAccess(page.id, !enableAll); }); }}
-                                sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' }, '& .MuiSwitch-switchBase:not(.Mui-checked)': { color: '#9ca3af' }, '& .MuiSwitch-switchBase:not(.Mui-checked) + .MuiSwitch-track': { backgroundColor: '#d1d5db' } }} />
+                              <Switch size="small" checked={enabledCount === pagesInGroup.length && pagesInGroup.length > 0} onChange={(e) => { const enableAll = e.target.checked; pagesInGroup.forEach((page) => { if (pageAccess[page.id] !== enableAll) handleTogglePageAccess(page.id, !enableAll); }); }} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' }, '& .MuiSwitch-switchBase:not(.Mui-checked)': { color: '#9ca3af' }, '& .MuiSwitch-switchBase:not(.Mui-checked) + .MuiSwitch-track': { backgroundColor: '#d1d5db' } }} />
                             </Box>
                           </Box>
                           <Box sx={{ flex: 1, overflowY: 'auto', p: 2.5, '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: alpha(p, 0.2), borderRadius: 2 } }}>
@@ -1448,8 +1686,7 @@ const UsersList = () => {
                                             <Typography sx={{ fontSize: '0.6rem', fontWeight: 800, fontFamily: 'monospace', letterSpacing: '0.1em', textTransform: 'uppercase', color: isEnabled ? '#16a34a' : userRoleInPageGroup ? '#9ca3af' : '#ef4444', transition: 'color 0.2s' }}>{isEnabled ? 'Enabled' : userRoleInPageGroup ? 'Disabled' : 'Not Authorized'}</Typography>
                                           </Box>
                                           <Tooltip title={userRoleInPageGroup ? '' : `Not available for ${selectedUser?.role || 'this role'} - configure in Page Management`}>
-                                            <Switch checked={isEnabled} disabled={!userRoleInPageGroup} onChange={() => handleTogglePageAccess(page.id, isEnabled)}
-                                              sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' }, '& .MuiSwitch-switchBase:not(.Mui-checked)': { color: userRoleInPageGroup ? '#9ca3af' : '#ccc' }, '& .MuiSwitch-switchBase:not(.Mui-checked) + .MuiSwitch-track': { backgroundColor: userRoleInPageGroup ? '#d1d5db' : '#e5e7eb' }, '& .Mui-disabled': { opacity: 0.5 } }} />
+                                            <Switch checked={isEnabled} disabled={!userRoleInPageGroup} onChange={() => handleTogglePageAccess(page.id, isEnabled)} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' }, '& .MuiSwitch-switchBase:not(.Mui-checked)': { color: userRoleInPageGroup ? '#9ca3af' : '#ccc' }, '& .MuiSwitch-switchBase:not(.Mui-checked) + .MuiSwitch-track': { backgroundColor: userRoleInPageGroup ? '#d1d5db' : '#e5e7eb' }, '& .Mui-disabled': { opacity: 0.5 } }} />
                                           </Tooltip>
                                         </>
                                       )}
@@ -1464,8 +1701,6 @@ const UsersList = () => {
                     );
                   })()}
                 </Box>
-
-                {/* Right accessible pages panel */}
                 <Box sx={{ width: 240, flexShrink: 0, bgcolor: '#ffffff', borderLeft: `3px dashed ${alpha('#16a34a', 0.4)}`, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', boxShadow: `inset 4px 0 16px ${alpha('#16a34a', 0.04)}` }}>
                   <Box sx={{ px: 2.5, py: 2, borderBottom: `1px solid ${alpha('#16a34a', 0.12)}`, background: `linear-gradient(135deg, ${alpha('#16a34a', 0.07)} 0%, ${alpha('#16a34a', 0.02)} 100%)`, flexShrink: 0 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>

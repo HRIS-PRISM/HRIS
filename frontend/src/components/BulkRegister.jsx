@@ -1,15 +1,12 @@
 import API_BASE_URL from '../apiConfig';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import usePageAccess from '../hooks/usePageAccess';
 import AccessDenied from './AccessDenied';
 import LoadingOverlay from './LoadingOverlay';
 import SuccessfulOverlay from './SuccessfulOverlay';
 import {
-  Container,
-  Paper,
   Typography,
   Button,
-  Alert,
   Box,
   Chip,
   CircularProgress,
@@ -17,11 +14,17 @@ import {
   Fade,
   Divider,
   alpha,
-  Zoom,
-  Grow,
+  Card,
+  CardContent,
+  CardHeader,
+  Avatar,
+  TextField,
+  styled,
+  Tooltip,
 } from '@mui/material';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import {
   GroupAdd,
   CloudUpload,
@@ -34,457 +37,357 @@ import {
   AccountBalanceWallet,
   Business,
   AssignmentOutlined,
+  PersonAdd,
+  CheckCircle,
+  OpenInNew,
 } from '@mui/icons-material';
 
+// ─── Shimmer keyframes ────────────────────────────────────────────────────────
+const shimmerKeyframes = `
+@keyframes blkShimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
+}
+@keyframes blkPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.60; }
+}
+`;
+
+const BlkShim = ({ width = '100%', height = 16, borderRadius = 8, sx = {} }) => (
+  <Box sx={{
+    width, height, borderRadius: `${borderRadius}px`, flexShrink: 0,
+    background: 'linear-gradient(90deg,rgba(137,68,68,0.08) 25%,rgba(137,68,68,0.20) 50%,rgba(137,68,68,0.08) 75%)',
+    backgroundSize: '800px 100%',
+    animation: 'blkShimmer 1.5s infinite linear',
+    ...sx,
+  }} />
+);
+
+// ─── System settings hook ─────────────────────────────────────────────────────
+const useSystemSettings = () => {
+  const [settings, setSettings] = useState(() => {
+    try {
+      const stored = localStorage.getItem('systemSettings');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch {}
+    return {
+      primaryColor: '#894444',
+      secondaryColor: '#6d2323',
+      accentColor: '#FEF9E1',
+      textColor: '#FFFFFF',
+      textPrimaryColor: '#6D2323',
+      textSecondaryColor: '#FEF9E1',
+      hoverColor: '#6D2323',
+      backgroundColor: '#FFFFFF',
+    };
+  });
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const url = API_BASE_URL.includes('/api')
+          ? `${API_BASE_URL}/system-settings`
+          : `${API_BASE_URL}/api/system-settings`;
+        const response = await axios.get(url);
+        if (response.data && typeof response.data === 'object') {
+          setSettings(response.data);
+          localStorage.setItem('systemSettings', JSON.stringify(response.data));
+        }
+      } catch (e) {
+        console.error('Error fetching system settings:', e);
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  return settings;
+};
+
+// ─── Wireframe skeleton ───────────────────────────────────────────────────────
+const BulkRegisterWireframe = ({ settings }) => {
+  const p  = settings?.primaryColor || '#894444';
+  const ac = settings?.accentColor  || '#FEF9E1';
+
+  return (
+    <>
+      <style>{shimmerKeyframes}</style>
+      <Box sx={{ py: 3, width: '100vw', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '50%', transform: 'translateX(-50%)', minHeight: '92vh' }}>
+        <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
+          {/* Header shimmer */}
+          <Box sx={{ mb: 3, borderRadius: 20, overflow: 'hidden', background: `${ac}F2`, border: `1px solid ${alpha(p, 0.1)}`, boxShadow: `0 8px 40px ${alpha(p, 0.08)}`, animation: 'blkPulse 2.2s ease-in-out infinite' }}>
+            <Box sx={{ px: 4, py: 3, position: 'relative', overflow: 'hidden', background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)` }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <Box sx={{ width: 52, height: 52, borderRadius: '50%', bgcolor: alpha(p, 0.12), flexShrink: 0 }} />
+                  <Box><BlkShim width={220} height={22} borderRadius={6} sx={{ mb: 0.75 }} /><BlkShim width={320} height={12} borderRadius={4} /></Box>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 2 }}><BlkShim width={80} height={26} borderRadius={14} /><BlkShim width={160} height={40} borderRadius={12} /></Box>
+              </Box>
+            </Box>
+          </Box>
+          <Grid container spacing={3}>
+            {/* Left shimmer */}
+            <Grid item xs={12} lg={3}>
+              <Box sx={{ borderRadius: 20, overflow: 'hidden', background: `${ac}F2`, border: `1px solid ${alpha(p, 0.1)}`, animation: 'blkPulse 2.2s ease-in-out 0.05s infinite' }}>
+                <Box sx={{ px: 2.5, py: 1.75, borderBottom: `1px solid ${alpha(p, 0.08)}`, bgcolor: alpha(ac, 0.5) }}><BlkShim width={120} height={10} borderRadius={4} sx={{ mb: 0.6 }} /><BlkShim width={190} height={11} borderRadius={4} /></Box>
+                <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {[0, 0.06, 0.12].map((delay, i) => (
+                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.25, p: 1.5, borderRadius: 3, border: `1px solid ${alpha(p, 0.1)}`, bgcolor: alpha(ac, 0.4), animation: `blkPulse 2.2s ease-in-out ${delay}s infinite` }}>
+                      <Box sx={{ width: 34, height: 34, borderRadius: 2, bgcolor: alpha(p, 0.1), flexShrink: 0 }} />
+                      <Box sx={{ flex: 1 }}><BlkShim width="60%" height={11} borderRadius={4} sx={{ mb: 0.5 }} /><BlkShim width="85%" height={10} borderRadius={3} /></Box>
+                      <Box sx={{ width: 13, height: 13, borderRadius: '50%', bgcolor: alpha(p, 0.1) }} />
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            </Grid>
+            {/* Right shimmer */}
+            <Grid item xs={12} lg={9}>
+              <Box sx={{ borderRadius: 20, overflow: 'hidden', background: `${ac}F2`, border: `1px solid ${alpha(p, 0.1)}`, animation: 'blkPulse 2.2s ease-in-out 0.08s infinite' }}>
+                <Box sx={{ px: 3.5, py: 2.5, background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`, borderBottom: `1px solid ${alpha(p, 0.1)}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5 }}><Box sx={{ width: 46, height: 46, borderRadius: '50%', bgcolor: alpha(p, 0.12), flexShrink: 0 }} /><Box><BlkShim width={180} height={18} borderRadius={6} sx={{ mb: 0.5 }} /><BlkShim width={260} height={11} borderRadius={4} /></Box></Box>
+                  <BlkShim width={65} height={24} borderRadius={14} />
+                </Box>
+                <Box sx={{ p: 3 }}>
+                  <BlkShim width={160} height={10} borderRadius={4} sx={{ mb: 1.75 }} />
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+                    {[80, 110, 95, 120, 90].map((w, i) => <BlkShim key={i} width={w} height={24} borderRadius={12} />)}
+                  </Box>
+                  <Box sx={{ borderTop: `1px dashed ${alpha(p, 0.15)}`, my: 2.25 }} />
+                  <Box sx={{ height: 140, borderRadius: 3, border: `2px dashed ${alpha(p, 0.2)}`, bgcolor: alpha(p, 0.03), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <BlkShim width={120} height={40} borderRadius={12} />
+                  </Box>
+                  <Box sx={{ borderTop: `1px solid ${alpha(p, 0.08)}`, pt: 2.5, mt: 2.5, display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                    <BlkShim width="60%" height={44} borderRadius={12} />
+                    <BlkShim width="38%" height={44} borderRadius={12} />
+                  </Box>
+                </Box>
+              </Box>
+            </Grid>
+          </Grid>
+        </Box>
+      </Box>
+    </>
+  );
+};
+
+// ─── Setup checklist items ────────────────────────────────────────────────────
+const SETUP_ITEMS = [
+  { key: 'remittance', label: 'Remittances',          desc: 'Configure employee remittance settings', route: '/remittance-table',     icon: AccountBalanceWallet },
+  { key: 'department', label: 'Department assignment', desc: 'Set up department designations',        route: '/department-assignment', icon: Business },
+  { key: 'itemTable',  label: 'Item table',            desc: 'Configure Plantilla items',             route: '/item-table',            icon: AssignmentOutlined },
+];
+
+// ─── Main component ───────────────────────────────────────────────────────────
 const BulkRegister = () => {
-  const [users, setUsers] = useState([]);
-  const [success, setSuccess] = useState([]);
-  const [errors, setErrors] = useState([]);
-  const [errMessage, setErrMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
-  const [completedSteps, setCompletedSteps] = useState({
-    remittance: false,
-    department: false,
-    itemTable: false,
-  });
+  const settings = useSystemSettings();
+  const p  = settings?.primaryColor     || '#894444';
+  const s  = settings?.secondaryColor   || '#6d2323';
+  const ac = settings?.accentColor      || '#FEF9E1';
+  const tp = settings?.textPrimaryColor || '#6D2323';
 
-  // Field requirements state
-  const [fieldRequirements, setFieldRequirements] = useState({
-    firstName: true,
-    lastName: true,
-    email: true,
-    employeeNumber: true,
-    employmentCategory: true,
-    password: true,
-    middleName: false,
-    nameExtension: false,
-    department: false,
-  });
+  const GlassCard = useMemo(() => styled(Card)(() => ({
+    borderRadius: 20,
+    background: `${ac}F2`,
+    backdropFilter: 'blur(10px)',
+    boxShadow: `0 8px 40px ${alpha(p, 0.08)}`,
+    border: `1px solid ${alpha(p, 0.1)}`,
+    overflow: 'hidden',
+    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    '&:hover': { boxShadow: `0 12px 48px ${alpha(p, 0.16)}`, transform: 'translateY(-4px)' },
+  })), [p, ac]);
 
-  // Email domain restriction state
+  const ProfessionalButton = useMemo(() => styled(Button)(({ variant: v }) => ({
+    borderRadius: 12, fontWeight: 600, padding: '10px 22px',
+    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    textTransform: 'none', fontSize: '0.9rem', letterSpacing: '0.025em',
+    boxShadow: v === 'contained' ? `0 4px 14px ${alpha(p, 0.4)}` : 'none',
+    '&:hover': { transform: 'translateY(-2px)', boxShadow: v === 'contained' ? `0 6px 20px ${alpha(p, 0.55)}` : 'none' },
+    '&:active': { transform: 'translateY(0)' },
+  })), [p]);
+
+  // State
+  const [users, setUsers]                             = useState([]);
+  const [success, setSuccess]                         = useState([]);
+  const [errors, setErrors]                           = useState([]);
+  const [errMessage, setErrMessage]                   = useState('');
+  const [isLoading, setIsLoading]                     = useState(false);
+  const [showSuccessOverlay, setShowSuccessOverlay]   = useState(false);
+  const [completedSteps, setCompletedSteps]           = useState({ remittance: false, department: false, itemTable: false });
+  const [fieldRequirements, setFieldRequirements]     = useState({
+    firstName: true, lastName: true, email: true, employeeNumber: true,
+    employmentCategory: true, password: true, middleName: false, nameExtension: false, department: false,
+  });
   const [emailDomainRestricted, setEmailDomainRestricted] = useState(false);
-
   const navigate = useNavigate();
 
-  // Color scheme matching ViewAttendanceRecord
-  const primaryColor = '#6d2323';
-  const creamColor = '#FEF9E1';
-  const blackColor = '#000000';
-  const whiteColor = '#FFFFFF';
-
-  // Load completed steps from localStorage
   useEffect(() => {
     const saved = localStorage.getItem('setupCompletedSteps');
-    if (saved) {
-      setCompletedSteps(JSON.parse(saved));
-    }
+    if (saved) setCompletedSteps(JSON.parse(saved));
   }, []);
 
-  // Fetch field requirements from system settings
   useEffect(() => {
-    const fetchFieldRequirements = async () => {
+    const run = async () => {
       try {
-        const token =
-          localStorage.getItem('token') || sessionStorage.getItem('token');
-        const response = await fetch(
-          `${API_BASE_URL}/api/system-settings/registration_field_requirements`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-        if (response.ok) {
-          const data = await response.json();
-          if (data && data.setting_value) {
-            try {
-              const requirements = JSON.parse(data.setting_value);
-              setFieldRequirements(requirements);
-            } catch (parseErr) {
-              console.error('Error parsing field requirements:', parseErr);
-            }
-          }
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const res = await fetch(`${API_BASE_URL}/api/system-settings/registration_field_requirements`, { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.setting_value) { try { setFieldRequirements(JSON.parse(data.setting_value)); } catch {} }
         }
-      } catch (err) {
-        console.error('Error fetching field requirements:', err);
-        // Use defaults if fetch fails
-      }
+      } catch {}
     };
-    fetchFieldRequirements();
+    run();
   }, []);
 
-  // Fetch email domain restriction setting
   useEffect(() => {
-    const fetchEmailDomainRestriction = async () => {
+    const run = async () => {
       try {
-        const token =
-          localStorage.getItem('token') || sessionStorage.getItem('token');
-        const response = await fetch(
-          `${API_BASE_URL}/email-domain-restriction`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-        if (response.ok) {
-          const data = await response.json();
-          setEmailDomainRestricted(data.setting_value === true);
-        }
-      } catch (err) {
-        console.error('Error fetching email domain restriction:', err);
-      }
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const res = await fetch(`${API_BASE_URL}/email-domain-restriction`, { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) { const data = await res.json(); setEmailDomainRestricted(data.setting_value === true); }
+      } catch {}
     };
-    fetchEmailDomainRestriction();
+    run();
   }, []);
 
-  // Dynamic page access control using component identifier
-  const {
-    hasAccess,
-    loading: accessLoading,
-    error: accessError,
-  } = usePageAccess('bulk-register');
+  const { hasAccess, loading: accessLoading } = usePageAccess('bulk-register');
 
-  // Helper function to map employment category text to ID
+  // Helpers
   const mapEmploymentCategory = (categoryText) => {
     if (!categoryText) return null;
-    
     const categoryLower = categoryText.toString().trim().toLowerCase();
-    
-    // Map text values to numeric IDs (0-5)
     const categoryMap = {
-      // JO categories
-      'jo graduate': '0',
-      'jo graduated': '0',
-      'job order graduate': '0',
-      'job order graduated': '0',
-      'graduate': '0',
-      'graduated': '0',
-      
-      'jo undergrad': '1',
-      'jo undergraduate': '1',
-      'job order undergrad': '1',
-      'job order undergraduate': '1',
-      'undergrad': '1',
-      'undergraduate': '1',
-      
-      // Regular categories
-      'regular non-teaching': '2',
-      'regular nonteaching': '2',
-      'non-teaching': '2',
-      'nonteaching': '2',
-      
-      'regular teaching (30hrs)': '3',
-      'regular teaching 30hrs': '3',
-      'teaching 30hrs': '3',
-      'teaching (30hrs)': '3',
-      '30hrs': '3',
-      '30 hrs': '3',
-      
-      'regular designated (40hrs)': '4',
-      'regular designated 40hrs': '4',
-      'designated 40hrs': '4',
-      'designated (40hrs)': '4',
-      '40hrs': '4',
-      '40 hrs': '4',
-
-      // Custom category
-      'other': '5',
-      'custom': '5',
+      'jo graduate': '0', 'jo graduated': '0', 'job order graduate': '0', 'graduate': '0', 'graduated': '0',
+      'jo undergrad': '1', 'jo undergraduate': '1', 'job order undergrad': '1', 'undergrad': '1', 'undergraduate': '1',
+      'regular non-teaching': '2', 'regular nonteaching': '2', 'non-teaching': '2', 'nonteaching': '2',
+      'regular teaching (30hrs)': '3', 'regular teaching 30hrs': '3', 'teaching 30hrs': '3', 'teaching (30hrs)': '3', '30hrs': '3', '30 hrs': '3',
+      'regular designated (40hrs)': '4', 'regular designated 40hrs': '4', 'designated 40hrs': '4', 'designated (40hrs)': '4', '40hrs': '4', '40 hrs': '4',
+      'other': '5', 'custom': '5',
     };
-    
     return categoryMap[categoryLower] || null;
   };
 
-  // Helper function to validate email
   const validateEmail = (email) => {
     if (!email || typeof email !== 'string') return false;
-    
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) return false;
-    
-    if (emailDomainRestricted) {
-      return email.toLowerCase().endsWith('@earist.edu.ph');
-    }
-    
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return false;
+    if (emailDomainRestricted) return email.toLowerCase().endsWith('@earist.edu.ph');
     return true;
   };
 
-  // Handle file upload and parse Excel
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
         const data = new Uint8Array(evt.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+        const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+        if (worksheet.length === 0) { setErrMessage('Excel file is empty.'); return; }
 
-        if (worksheet.length === 0) {
-          setErrMessage('Excel file is empty.');
-          return;
-        }
-
-        const firstRow = worksheet[0];
-        // Build required fields list dynamically based on field requirements
         const requiredFields = [];
-        if (fieldRequirements.firstName) requiredFields.push('firstName');
-        if (fieldRequirements.lastName) requiredFields.push('lastName');
-        if (fieldRequirements.email) requiredFields.push('email');
-        if (fieldRequirements.employeeNumber) requiredFields.push('employeeNumber');
+        if (fieldRequirements.firstName)          requiredFields.push('firstName');
+        if (fieldRequirements.lastName)           requiredFields.push('lastName');
+        if (fieldRequirements.email)              requiredFields.push('email');
+        if (fieldRequirements.employeeNumber)     requiredFields.push('employeeNumber');
         if (fieldRequirements.employmentCategory) requiredFields.push('employmentCategory');
-        if (fieldRequirements.password) requiredFields.push('password');
-        if (fieldRequirements.department) requiredFields.push('department');
+        if (fieldRequirements.password)           requiredFields.push('password');
+        if (fieldRequirements.department)         requiredFields.push('department');
 
-        const missingFields = requiredFields.filter(
-          (field) => !(field in firstRow)
-        );
+        const missingFields = requiredFields.filter((f) => !(f in worksheet[0]));
+        if (missingFields.length > 0) { setErrMessage(`Missing required columns: ${missingFields.join(', ')}.`); return; }
 
-        if (missingFields.length > 0) {
-          const optionalFields = [];
-          if (!fieldRequirements.firstName) optionalFields.push('firstName');
-          if (!fieldRequirements.lastName) optionalFields.push('lastName');
-          if (!fieldRequirements.email) optionalFields.push('email');
-          if (!fieldRequirements.employeeNumber) optionalFields.push('employeeNumber');
-          if (!fieldRequirements.employmentCategory) optionalFields.push('employmentCategory');
-          if (!fieldRequirements.password) optionalFields.push('password');
-          if (!fieldRequirements.department) optionalFields.push('department');
-          optionalFields.push('middleName', 'nameExtension', 'customCategory');
-
-          setErrMessage(
-            `Missing required columns: ${missingFields.join(
-              ', '
-            )}. ${optionalFields.length > 0 ? `Optional columns: ${optionalFields.join(', ')}` : ''}`
-          );
-          return;
-        }
-
-        const processedUsers = worksheet.map((user, index) => {
-          // Map employment category text to ID
-          let employmentCategoryValue = null;
-          
-          if (user.employmentCategory) {
-            employmentCategoryValue = mapEmploymentCategory(user.employmentCategory);
-          }
-          
-          // If employmentCategory is not required and not provided, leave it as null
-          // The backend will set a default value if needed
-
-          // Generate password from lastName if not provided
+        const processedUsers = worksheet.map((user) => {
+          let employmentCategoryValue = user.employmentCategory ? mapEmploymentCategory(user.employmentCategory) : null;
           let password = user.password?.toString().trim() || '';
-          if (!password && user.lastName) {
-            // Convert to uppercase and remove all spaces
-            password = user.lastName
-              .toString()
-              .trim()
-              .toUpperCase()
-              .replace(/\s+/g, '');
-          }
-
-          // Process employeeNumber: remove dashes
+          if (!password && user.lastName) password = user.lastName.toString().trim().toUpperCase().replace(/\s+/g, '');
           let employeeNumber = user.employeeNumber?.toString().trim() || '';
-          if (employeeNumber) {
-            employeeNumber = employeeNumber.replace(/-/g, '');
-          }
-
-          // Process customCategory
-          let customCategory = user.customCategory?.toString().trim() || null;
-
+          if (employeeNumber) employeeNumber = employeeNumber.replace(/-/g, '');
           const processedUser = {
             firstName: user.firstName?.toString().trim() || '',
             middleName: user.middleName?.toString().trim() || null,
             lastName: user.lastName?.toString().trim() || '',
             nameExtension: user.nameExtension?.toString().trim() || null,
             email: user.email?.toString().trim() || '',
-            employeeNumber: employeeNumber,
-            password: password,
+            employeeNumber,
+            password,
             role: 'staff',
             access_level: 'user',
             department: user.department?.toString().trim() || null,
-            customCategory: customCategory,
+            customCategory: user.customCategory?.toString().trim() || null,
           };
-
-          // Only include employmentCategory if it has a valid value
-          if (['0', '1', '2', '3', '4', '5'].includes(employmentCategoryValue)) {
+          if (['0','1','2','3','4','5'].includes(employmentCategoryValue)) {
             processedUser.employmentCategory = employmentCategoryValue;
           } else if (fieldRequirements.employmentCategory) {
-            // Required but not provided - will be caught by validation
             processedUser.employmentCategory = null;
           }
-
           return processedUser;
         });
 
         const validationErrors = [];
         processedUsers.forEach((user, index) => {
-          // Dynamic validation based on field requirements
-          const missingFields = [];
-          if (fieldRequirements.firstName && !user.firstName) {
-            missingFields.push('firstName');
-          }
-          if (fieldRequirements.lastName && !user.lastName) {
-            missingFields.push('lastName');
-          }
-          if (fieldRequirements.email && !user.email) {
-            missingFields.push('email');
-          }
-          if (fieldRequirements.employeeNumber && !user.employeeNumber) {
-            missingFields.push('employeeNumber');
-          }
-          if (fieldRequirements.password && !user.password) {
-            missingFields.push('password');
-          }
-          if (fieldRequirements.employmentCategory && !user.employmentCategory) {
-            missingFields.push('employmentCategory');
-          }
-          if (fieldRequirements.department && !user.department) {
-            missingFields.push('department');
-          }
-
-          if (missingFields.length > 0) {
-            validationErrors.push(
-              `Row ${index + 2}: Missing required fields: ${missingFields.join(', ')}`
-            );
-          }
-
-          // Validate employmentCategory format if it's provided
-          if (user.employmentCategory && !['0', '1', '2', '3', '4', '5'].includes(user.employmentCategory)) {
-            validationErrors.push(
-              `Row ${index + 2}: Invalid employmentCategory. Must be one of: "JO Graduate", "JO UnderGrad", "Regular Non-Teaching", "Regular Teaching (30Hrs)", "Regular Designated (40Hrs)", "Other"`
-            );
-          }
-
-          // Validate customCategory when employmentCategory is 5
-          if (user.employmentCategory === '5') {
-            if (!user.customCategory || user.customCategory.trim() === '') {
-              validationErrors.push(
-                `Row ${index + 2}: Custom category description is required when employment category is "Other"`
-              );
-            } else if (user.customCategory.length > 100) {
-              validationErrors.push(
-                `Row ${index + 2}: Custom category description must not exceed 100 characters`
-              );
-            }
-          }
-
-          // Email domain validation
-          if (user.email && !validateEmail(user.email)) {
-            if (emailDomainRestricted) {
-              validationErrors.push(`Row ${index + 2}: Email must use @earist.edu.ph domain`);
-            } else {
-              validationErrors.push(`Row ${index + 2}: Invalid email format`);
-            }
-          }
+          const missing = [];
+          if (fieldRequirements.firstName && !user.firstName)                                                   missing.push('firstName');
+          if (fieldRequirements.lastName && !user.lastName)                                                     missing.push('lastName');
+          if (fieldRequirements.email && !user.email)                                                           missing.push('email');
+          if (fieldRequirements.employeeNumber && !user.employeeNumber)                                         missing.push('employeeNumber');
+          if (fieldRequirements.password && !user.password)                                                     missing.push('password');
+          if (fieldRequirements.employmentCategory && !user.employmentCategory)                                 missing.push('employmentCategory');
+          if (fieldRequirements.department && !user.department)                                                 missing.push('department');
+          if (missing.length) validationErrors.push(`Row ${index + 2}: Missing required fields: ${missing.join(', ')}`);
+          if (user.employmentCategory && !['0','1','2','3','4','5'].includes(user.employmentCategory))          validationErrors.push(`Row ${index + 2}: Invalid employmentCategory`);
+          if (user.employmentCategory === '5' && (!user.customCategory || user.customCategory.trim() === ''))  validationErrors.push(`Row ${index + 2}: customCategory required when category is "Other"`);
+          if (user.email && !validateEmail(user.email))                                                         validationErrors.push(`Row ${index + 2}: ${emailDomainRestricted ? 'Email must use @earist.edu.ph domain' : 'Invalid email format'}`);
         });
 
         if (validationErrors.length > 0) {
-          setErrMessage(
-            `Validation errors found:\n${validationErrors
-              .slice(0, 5)
-              .join('\n')}${validationErrors.length > 5 ? '\n...and more' : ''}`
-          );
+          setErrMessage(`Validation errors found:\n${validationErrors.slice(0, 5).join('\n')}${validationErrors.length > 5 ? '\n...and more' : ''}`);
           return;
         }
-
         setUsers(processedUsers);
         setErrMessage('');
-      } catch (error) {
-        console.error('Error parsing Excel file:', error);
-        setErrMessage(
-          'Error parsing Excel file. Please check the file format.'
-        );
+      } catch {
+        setErrMessage('Error parsing Excel file. Please check the file format.');
       }
     };
     reader.readAsArrayBuffer(file);
   };
 
-  // Handle register via backend
   const handleRegister = async () => {
-    if (users.length === 0) {
-      setErrMessage('Please upload an Excel file first.');
-      return;
-    }
-
-    setIsLoading(true);
-    setErrMessage('');
-
+    if (users.length === 0) { setErrMessage('Please upload an Excel file first.'); return; }
+    setIsLoading(true); setErrMessage('');
     try {
       const response = await fetch(`${API_BASE_URL}/excel-register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ users }),
       });
-
       if (!response.ok) {
-        // Try to parse error message
         let errorMessage = 'Registration failed.';
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorMessage;
-        } catch (parseErr) {
-          errorMessage = `Server error: ${response.status} ${response.statusText}`;
-        }
-        setErrMessage(errorMessage);
-        setIsLoading(false);
-        return;
+        try { const errorData = await response.json(); errorMessage = errorData.message || errorMessage; } catch {}
+        setErrMessage(errorMessage); setIsLoading(false); return;
       }
-
       const result = await response.json();
       setSuccess(result.successful || []);
       setErrors(result.errors || []);
       setIsLoading(false);
-      
-      // Show success overlay if there are successful registrations
-      if (result.successful && result.successful.length > 0) {
-        setShowSuccessOverlay(true);
-      }
+      if (result.successful?.length > 0) setShowSuccessOverlay(true);
     } catch (err) {
-      console.error('Error uploading Excel:', err);
       setIsLoading(false);
-      if (err.message.includes('Failed to fetch') || err.message.includes('CORS')) {
-        setErrMessage('Cannot connect to server. Please check if the backend server is running and CORS is properly configured.');
-      } else {
-        setErrMessage(`Something went wrong while uploading: ${err.message}`);
-      }
+      setErrMessage(`Something went wrong: ${err.message}`);
     }
   };
 
-  const handleClearAll = () => {
-    setUsers([]);
-    setSuccess([]);
-    setErrors([]);
-    setErrMessage('');
-  };
+  const handleClearAll = () => { setUsers([]); setSuccess([]); setErrors([]); setErrMessage(''); };
 
-  // Loading state
-  if (hasAccess === null) {
-    return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
-          <CircularProgress sx={{ color: primaryColor, mb: 2 }} />
-          <Typography
-            variant="h6"
-            sx={{ color: primaryColor, fontWeight: 600 }}
-          >
-            Loading access information...
-          </Typography>
-        </Box>
-      </Container>
-    );
-  }
+  if (accessLoading) return <BulkRegisterWireframe settings={settings} />;
 
-  // Access denied state
-  if (!hasAccess) {
+  if (hasAccess === false) {
     return (
       <AccessDenied
         title="Access Denied"
@@ -495,982 +398,399 @@ const BulkRegister = () => {
     );
   }
 
+  const requiredChips = [
+    { key: 'firstName', label: 'firstName' },
+    { key: 'lastName', label: 'lastName' },
+    { key: 'email', label: 'email' },
+    { key: 'employeeNumber', label: 'employeeNumber' },
+    { key: 'employmentCategory', label: 'employmentCategory' },
+    { key: 'password', label: 'password' },
+    { key: 'department', label: 'department' },
+  ].filter((f) => fieldRequirements[f.key]);
+
+  const optionalChips = [
+    { key: 'firstName', label: 'firstName' },
+    { key: 'lastName', label: 'lastName' },
+    { key: 'email', label: 'email' },
+    { key: 'employeeNumber', label: 'employeeNumber' },
+    { key: 'employmentCategory', label: 'employmentCategory' },
+    { key: 'password', label: 'password' },
+    { key: 'department', label: 'department' },
+    { key: 'middleName', label: 'middleName' },
+    { key: 'nameExtension', label: 'nameExtension' },
+    { key: 'customCategory', label: 'customCategory' },
+  ].filter((f) => !fieldRequirements[f.key]);
+
   return (
-    <Container
-      maxWidth="xl"
-      sx={{
-        py: 3,
-        px: { xs: 2, sm: 3, md: 4 },
-        position: 'relative',
-        '&::before': {
-          content: '""',
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background:
-            'radial-gradient(circle at 20% 50%, rgba(109, 35, 35, 0.03) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(245, 230, 230, 0.4) 0%, transparent 50%)',
-          pointerEvents: 'none',
-        },
-      }}
-    >
-      <Grid container spacing={2.5} sx={{ position: 'relative', zIndex: 1 }}>
-        {/* Setup Information Card - Left Side */}
-        <Grid item xs={12} lg={4}>
-          <Fade in={true} timeout={700}>
-            <Paper
-              elevation={0}
-              sx={{
-                height: '100%',
-                borderRadius: 3,
-                border: '2px solid #f5e6e6',
-                overflow: 'hidden',
-                boxShadow: '0 8px 32px rgba(109, 35, 35, 0.12)',
-                background: 'linear-gradient(135deg, #ffffff 0%, #fffef9 100%)',
-                position: 'relative',
-                transition: 'all 0.3s ease',
-                '&:hover': {
-                  boxShadow: '0 12px 48px rgba(109, 35, 35, 0.18)',
-                  transform: 'translateY(-4px)',
-                },
-                '&::before': {
-                  content: '""',
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: 4,
-                  background:
-                    'linear-gradient(90deg, #6d2323 0%, #8a4747 50%, #6d2323 100%)',
-                },
-              }}
-            >
-              <Box sx={{ p: 2.5, pt: 3.5 }}>
-                <Box display="flex" alignItems="center" mb={2}>
-                  <Box
-                    sx={{
-                      bgcolor: 'rgba(109, 35, 35, 0.1)',
-                      p: 1.2,
-                      borderRadius: 2,
-                      display: 'flex',
-                      mr: 1.5,
-                      boxShadow: '0 2px 8px rgba(109, 35, 35, 0.15)',
-                    }}
-                  >
-                    <InfoOutlined sx={{ color: '#6d2323', fontSize: 24 }} />
+    <Box sx={{ pt: 3, pb: 0, width: '100vw', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '50%', transform: 'translateX(-50%)' }}>
+      <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
+
+        {/* ── Header ── */}
+        <Fade in timeout={500}>
+          <Box sx={{ mb: 3 }}>
+            <GlassCard>
+              <Box sx={{ px: 4, py: 3, background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`, position: 'relative', overflow: 'hidden' }}>
+                <Box sx={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, background: `radial-gradient(circle, ${alpha(p, 0.1)} 0%, transparent 70%)` }} />
+                <Box sx={{ position: 'absolute', bottom: -25, left: '30%', width: 120, height: 120, background: `radial-gradient(circle, ${alpha(p, 0.07)} 0%, transparent 70%)` }} />
+                <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
+                  <Box display="flex" alignItems="center" gap={3}>
+                    <Avatar sx={{ bgcolor: alpha(p, 0.15), width: 52, height: 52, boxShadow: `0 6px 20px ${alpha(p, 0.15)}` }}>
+                      <GroupAdd sx={{ fontSize: 26, color: p }} />
+                    </Avatar>
+                    <Box>
+                      <Typography variant="h5" component="h1" sx={{ fontWeight: 700, lineHeight: 1.2, color: p }}>Bulk User Registration</Typography>
+                      <Typography variant="body2" sx={{ opacity: 0.75, fontWeight: 400, color: tp, mt: 0.25 }}>Register multiple employees at once using an Excel file</Typography>
+                    </Box>
                   </Box>
-                  <Typography
-                    variant="subtitle1"
-                    sx={{ fontWeight: 700, color: '#6d2323', fontSize: '1rem' }}
-                  >
-                    Initial Setup Requirements
-                  </Typography>
-                </Box>
-
-                <Divider
-                  sx={{ mb: 2, borderColor: 'rgba(109, 35, 35, 0.1)' }}
-                />
-
-                <Typography
-                  variant="body2"
-                  sx={{
-                    color: '#666',
-                    mb: 2,
-                    fontSize: '0.875rem',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  Before registering users, ensure the following tables are
-                  properly configured:
-                </Typography>
-
-                <Grid container spacing={1.5}>
-                  {[
-                    {
-                      title: 'Remittances',
-                      desc: 'Configure employee remittance settings',
-                      route: '/remittance-table',
-                      icon: AccountBalanceWallet,
-                    },
-                    {
-                      title: 'Department Assignment',
-                      desc: 'Set up department designations',
-                      route: '/department-assignment',
-                      icon: Business,
-                    },
-                    {
-                      title: 'Item Table',
-                      desc: 'Configure Plantilla items',
-                      route: '/item-table',
-                      icon: AssignmentOutlined,
-                    },
-                  ].map((item, idx) => (
-                    <Grid item xs={12} key={idx}>
-                      <Fade in={true} timeout={900 + idx * 200}>
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            p: 1.5,
-                            borderRadius: 2,
-                            bgcolor: 'rgba(109, 35, 35, 0.03)',
-                            border: '1px solid rgba(109, 35, 35, 0.1)',
-                            transition: 'all 0.3s ease',
-                            cursor: 'pointer',
-                            '&:hover': {
-                              bgcolor: 'rgba(109, 35, 35, 0.06)',
-                              borderColor: 'rgba(109, 35, 35, 0.3)',
-                              transform: 'translateX(4px)',
-                              boxShadow: '0 4px 12px rgba(109, 35, 35, 0.12)',
-                            },
-                          }}
-                          onClick={() => navigate(item.route)}
-                        >
-                          <Box display="flex" alignItems="center" flex={1}>
-                            <Box
-                              sx={{
-                                mr: 1.5,
-                                width: 36,
-                                height: 36,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: 1.5,
-                                bgcolor: 'rgba(109, 35, 35, 0.1)',
-                                color: '#6d2323',
-                              }}
-                            >
-                              <item.icon sx={{ fontSize: 20 }} />
-                            </Box>
-                            <Box>
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  fontWeight: 700,
-                                  color: '#6d2323',
-                                  mb: 0.25,
-                                  fontSize: '0.875rem',
-                                }}
-                              >
-                                {item.title}
-                              </Typography>
-                              <Typography
-                                variant="caption"
-                                sx={{
-                                  color: '#666',
-                                  fontSize: '0.75rem',
-                                  lineHeight: 1.3,
-                                }}
-                              >
-                                {item.desc}
-                              </Typography>
-                            </Box>
-                          </Box>
-                          <Button
-                            variant="contained"
-                            size="small"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate(item.route);
-                            }}
-                            sx={{
-                              bgcolor: '#6d2323',
-                              color: '#fff',
-                              textTransform: 'none',
-                              fontWeight: 600,
-                              fontSize: '0.7rem',
-                              px: 2,
-                              py: 0.6,
-                              whiteSpace: 'nowrap',
-                              borderRadius: 1.5,
-                              boxShadow: '0 2px 8px rgba(109, 35, 35, 0.25)',
-                              '&:hover': {
-                                bgcolor: '#5a1e1e',
-                                boxShadow: '0 4px 12px rgba(109, 35, 35, 0.35)',
-                                transform: 'translateY(-2px)',
-                              },
-                              transition: 'all 0.2s ease',
-                            }}
-                          >
-                            Configure
-                          </Button>
-                        </Box>
-                      </Fade>
-                    </Grid>
-                  ))}
-                </Grid>
-
-                <Box
-                  sx={{
-                    mt: 2.5,
-                    p: 2,
-                    borderRadius: 2,
-                    bgcolor: 'rgba(255, 193, 7, 0.08)',
-                    borderLeft: '4px solid #ffc107',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 1.5,
-                  }}
-                >
-                  <Box
-                    sx={{
-                      bgcolor: 'rgba(255, 193, 7, 0.2)',
-                      p: 0.6,
-                      borderRadius: 1,
-                      display: 'flex',
-                      mt: 0.25,
-                    }}
-                  >
-                    <InfoOutlined sx={{ fontSize: 18, color: '#f57c00' }} />
-                  </Box>
-                  <Box>
-                    <Typography
-                      variant="body2"
-                      sx={{
-                        fontWeight: 600,
-                        color: '#f57c00',
-                        mb: 0.5,
-                        fontSize: '0.85rem',
-                      }}
+                  <Box display="flex" alignItems="center" gap={2}>
+                    <Chip label="Bulk Registration" size="small" sx={{ bgcolor: alpha(p, 0.15), color: p, fontWeight: 500 }} />
+                    <ProfessionalButton
+                      variant="outlined"
+                      startIcon={<ArrowBack />}
+                      onClick={() => navigate('/registration')}
+                      sx={{ borderColor: p, color: p, '&:hover': { borderColor: s, bgcolor: alpha(p, 0.08) } }}
                     >
-                      Important Note
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        color: '#666',
-                        lineHeight: 1.4,
-                        display: 'block',
-                        fontSize: '0.75rem',
-                      }}
-                    >
-                      These tables are essential for proper Payroll Management
-                      Records. Complete setup before registering users.
-                    </Typography>
-                  </Box>
-                </Box>
-
-                <Box
-                  sx={{
-                    mt: 2.5,
-                    p: 2,
-                    borderRadius: 2,
-                    bgcolor: 'rgba(109, 35, 35, 0.05)',
-                    borderLeft: '4px solid #6d2323',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 1.5,
-                  }}
-                >
-                  <Box
-                    sx={{
-                      bgcolor: 'rgba(109, 35, 35, 0.1)',
-                      p: 0.6,
-                      borderRadius: 1,
-                      display: 'flex',
-                      mt: 0.25,
-                    }}
-                  >
-                    <InfoOutlined sx={{ fontSize: 18, color: '#6d2323' }} />
-                  </Box>
-                  <Box>
-                    <Typography
-                      variant="body2"
-                      sx={{
-                        fontWeight: 600,
-                        color: '#6d2323',
-                        mb: 0.5,
-                        fontSize: '0.85rem',
-                      }}
-                    >
-                      Excel File Requirements
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        color: '#666',
-                        lineHeight: 1.4,
-                        display: 'block',
-                        fontSize: '0.75rem',
-                        mb: 0.5,
-                      }}
-                    >
-                      <strong>EmploymentCategory</strong> values:
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        color: '#666',
-                        lineHeight: 1.4,
-                        display: 'block',
-                        fontSize: '0.7rem',
-                        mb: 0.3,
-                      }}
-                    >
-                      • Job Order: <strong>"JO Graduate"</strong> or <strong>"JO UnderGrad"</strong>
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        color: '#666',
-                        lineHeight: 1.4,
-                        display: 'block',
-                        fontSize: '0.7rem',
-                        mb: 0.3,
-                      }}
-                    >
-                      • Regular: <strong>"Regular Non-Teaching"</strong>, <strong>"Regular Teaching (30Hrs)"</strong>, or <strong>"Regular Designated (40Hrs)"</strong>
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        color: '#666',
-                        lineHeight: 1.4,
-                        display: 'block',
-                        fontSize: '0.7rem',
-                        mb: 0.5,
-                      }}
-                    >
-                      • Custom: <strong>"Other"</strong> (requires <strong>customCategory</strong> column)
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        color: '#666',
-                        lineHeight: 1.4,
-                        display: 'block',
-                        fontSize: '0.7rem',
-                        mb: 0.3,
-                      }}
-                    >
-                      <strong>CustomCategory:</strong> Required when category is "Other" (max 100 chars)
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        color: '#666',
-                        lineHeight: 1.4,
-                        display: 'block',
-                        fontSize: '0.7rem',
-                        mb: 0.3,
-                      }}
-                    >
-                      <strong>EmployeeNumber:</strong> Accepts alphanumeric with hyphens (e.g., 2013-4410, 2013-4507M)
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        color: '#666',
-                        lineHeight: 1.4,
-                        display: 'block',
-                        fontSize: '0.7rem',
-                        mb: 0.3,
-                      }}
-                    >
-                      <strong>Password:</strong> Auto-set to last name in CAPS (no spaces)
-                    </Typography>
-                    {emailDomainRestricted && (
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          color: '#666',
-                          lineHeight: 1.4,
-                          display: 'block',
-                          fontSize: '0.7rem',
-                        }}
-                      >
-                        <strong>Email:</strong> Only <strong>@earist.edu.ph</strong> allowed
-                      </Typography>
-                    )}
+                      Single Registration
+                    </ProfessionalButton>
                   </Box>
                 </Box>
               </Box>
-            </Paper>
-          </Fade>
-        </Grid>
+            </GlassCard>
+          </Box>
+        </Fade>
 
-        {/* Main Content - Right Side */}
-        <Grid item xs={12} lg={8}>
-          <Box sx={{ height: '100%' }}>
-            <Grow in={true} timeout={600}>
-              <Paper
-                elevation={0}
-                sx={{
-                  padding: { xs: 2.5, sm: 3, md: 3.5 },
-                  borderRadius: 3,
-                  border: '2px solid #f5e6e6',
-                  background:
-                    'linear-gradient(135deg, #ffffff 0%, #fffef9 100%)',
-                  boxShadow: '0 8px 32px rgba(109, 35, 35, 0.12)',
-                  position: 'relative',
-                  overflow: 'hidden',
-                  transition: 'all 0.3s ease',
-                  '&:hover': {
-                    boxShadow: '0 12px 48px rgba(109, 35, 35, 0.18)',
-                    transform: 'translateY(-4px)',
-                  },
-                  '&::before': {
-                    content: '""',
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: 4,
-                    background:
-                      'linear-gradient(90deg, #6d2323 0%, #8a4747 50%, #6d2323 100%)',
-                  },
-                }}
-              >
-                {/* Header */}
-                <Box sx={{ textAlign: 'center', mb: 3, pt: 1.5 }}>
-                  <Zoom in={true} timeout={400}>
-                    <Box
-                      sx={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        mb: 1.5,
-                      }}
-                    >
+        {/* ── Two-column layout ── */}
+        <Grid container spacing={3} alignItems="flex-start">
+
+          {/* ── LEFT: Setup checklist ── */}
+          <Grid item xs={12} lg={3}>
+            <Fade in timeout={700}>
+              <GlassCard>
+                <CardHeader
+                  title={
+                    <Box>
+                      <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: alpha(tp, 0.5), mb: 0.4 }}>
+                        Pre-setup checklist
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.8rem', color: tp, lineHeight: 1.4, fontWeight: 400 }}>
+                        Configure these before registering users
+                      </Typography>
+                    </Box>
+                  }
+                  sx={{ bgcolor: alpha(ac, 0.5), borderBottom: `1px solid ${alpha(p, 0.08)}`, py: 1.75, px: 2.5 }}
+                />
+                <CardContent sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {SETUP_ITEMS.map((item) => {
+                    const done = completedSteps[item.key];
+                    const Icon = item.icon;
+                    return (
                       <Box
+                        key={item.key}
+                        onClick={() => navigate(item.route)}
                         sx={{
-                          bgcolor: 'rgba(109, 35, 35, 0.1)',
-                          p: 1.5,
-                          borderRadius: 3,
-                          display: 'flex',
-                          boxShadow: '0 4px 16px rgba(109, 35, 35, 0.2)',
-                          transition: 'all 0.3s ease',
+                          display: 'flex', alignItems: 'center', gap: 1.25,
+                          p: 1.5, borderRadius: 3,
+                          border: `1px solid ${done ? alpha('#16a34a', 0.3) : alpha(p, 0.12)}`,
+                          bgcolor: done ? alpha('#16a34a', 0.05) : alpha(ac, 0.4),
+                          cursor: 'pointer', transition: 'all 0.2s ease',
                           '&:hover': {
-                            transform: 'scale(1.05) rotate(5deg)',
-                            boxShadow: '0 8px 24px rgba(109, 35, 35, 0.3)',
+                            border: `1px solid ${done ? alpha('#16a34a', 0.5) : alpha(p, 0.3)}`,
+                            bgcolor: done ? alpha('#16a34a', 0.08) : alpha(p, 0.05),
+                            transform: 'translateX(4px)',
                           },
                         }}
                       >
-                        <GroupAdd sx={{ fontSize: 40, color: '#6d2323' }} />
+                        <Box sx={{ width: 34, height: 34, borderRadius: 2, flexShrink: 0, bgcolor: done ? alpha('#16a34a', 0.1) : alpha(p, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Icon sx={{ fontSize: 17, color: done ? '#16a34a' : p }} />
+                        </Box>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: tp, lineHeight: 1.3 }}>{item.label}</Typography>
+                          <Typography sx={{ fontSize: '0.7rem', color: alpha(tp, 0.55), mt: 0.2 }}>{item.desc}</Typography>
+                        </Box>
+                        {done
+                          ? <CheckCircle sx={{ fontSize: 15, color: '#16a34a', flexShrink: 0 }} />
+                          : <OpenInNew sx={{ fontSize: 13, color: alpha(p, 0.35), flexShrink: 0 }} />
+                        }
                       </Box>
+                    );
+                  })}
+
+                  <Box sx={{ mt: 0.25, p: 1.5, bgcolor: alpha('#f59e0b', 0.08), border: `1px solid ${alpha('#f59e0b', 0.25)}`, borderLeft: `3px solid #f59e0b`, borderRadius: '0 8px 8px 0' }}>
+                    <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start' }}>
+                      <InfoOutlined sx={{ fontSize: 13, color: '#d97706', mt: 0.2, flexShrink: 0 }} />
+                      <Typography sx={{ fontSize: '0.72rem', color: '#92400e', lineHeight: 1.5 }}>
+                        All three tables must be configured for payroll records to function correctly.
+                      </Typography>
                     </Box>
-                  </Zoom>
-                  <Typography
-                    variant="h5"
-                    sx={{
-                      color: '#6d2323',
-                      fontWeight: 800,
-                      mb: 0.5,
-                      background:
-                        'linear-gradient(135deg, #6d2323 0%, #8a4747 100%)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      letterSpacing: '-0.5px',
-                    }}
-                  >
-                    Bulk Users Registration
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      color: '#8a4747',
-                      fontSize: '0.95rem',
-                      fontWeight: 500,
-                      maxWidth: 500,
-                      mx: 'auto',
-                    }}
-                  >
-                    Register multiple users using Excel file
-                  </Typography>
+                  </Box>
+                </CardContent>
+              </GlassCard>
+            </Fade>
+          </Grid>
+
+          {/* ── RIGHT: Bulk upload form ── */}
+          <Grid item xs={12} lg={9}>
+            <Fade in timeout={900}>
+              <GlassCard>
+                {/* Form header */}
+                <Box sx={{ px: 3.5, py: 2.5, background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`, borderBottom: `1px solid ${alpha(p, 0.1)}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
+                  <Box sx={{ position: 'absolute', top: -25, right: -25, width: 110, height: 110, background: `radial-gradient(circle, ${alpha(p, 0.07)} 0%, transparent 70%)` }} />
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
+                    <Avatar sx={{ bgcolor: alpha(p, 0.15), width: 46, height: 46, boxShadow: `0 4px 14px ${alpha(p, 0.15)}` }}>
+                      <GroupAdd sx={{ fontSize: 22, color: p }} />
+                    </Avatar>
+                    <Box>
+                      <Typography variant="h6" sx={{ fontWeight: 700, color: p, lineHeight: 1.2 }}>Register multiple users</Typography>
+                      <Typography variant="caption" sx={{ color: tp, opacity: 0.7 }}>Upload an Excel file to register employees in bulk</Typography>
+                    </Box>
+                  </Box>
+                  <Chip label="Bulk" size="small" sx={{ bgcolor: alpha(p, 0.15), color: p, fontWeight: 600, position: 'relative', zIndex: 1 }} />
                 </Box>
 
-                {/* Error Message */}
-                {errMessage && (
-                  <Fade in timeout={300}>
-                    <Alert
-                      icon={<ErrorOutline fontSize="inherit" />}
-                      severity="error"
-                      sx={{
-                        mb: 2.5,
-                        backgroundColor: '#fff',
-                        color: '#d32f2f',
-                        border: '2px solid #d32f2f',
-                        borderRadius: 2,
-                        fontWeight: 500,
-                        fontSize: '0.875rem',
-                        boxShadow: '0 4px 12px rgba(211, 47, 47, 0.2)',
-                        whiteSpace: 'pre-line',
-                        '& .MuiAlert-icon': {
-                          color: '#d32f2f',
-                        },
-                      }}
-                      onClose={() => setErrMessage('')}
-                    >
-                      {errMessage}
-                    </Alert>
-                  </Fade>
-                )}
+                {/* Form body */}
+                <Box sx={{ p: 3 }}>
 
-                {/* Instructions Card */}
-                <Fade in timeout={700}>
-                  <Box sx={{ mb: 2.5 }}>
-                    <Box display="flex" alignItems="center" mb={1.5}>
-                      <InfoOutlined
-                        sx={{ color: primaryColor, mr: 1, fontSize: 24 }}
-                      />
-                      <Typography
-                        variant="h6"
-                        sx={{
-                          fontWeight: 600,
-                          color: blackColor,
-                          fontSize: '1rem',
-                        }}
-                      >
-                        Excel File Requirements
-                      </Typography>
-                    </Box>
+                  {/* ── Column reference ── */}
+                  <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(tp, 0.45), mb: 1.75 }}>
+                    Excel column reference
+                  </Typography>
 
-                    <Divider
-                      sx={{ mb: 1.5, borderColor: 'rgba(109, 35, 35, 0.1)' }}
-                    />
-
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} md={6}>
-                        <Typography
-                          variant="subtitle2"
-                          sx={{
-                            fontWeight: 600,
-                            color: blackColor,
-                            mb: 0.75,
-                            fontSize: '0.875rem',
-                          }}
-                        >
-                          Required Columns:
-                        </Typography>
-                        <Box
-                          sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}
-                        >
-                          {[
-                            { key: 'firstName', label: 'firstName' },
-                            { key: 'lastName', label: 'lastName' },
-                            { key: 'email', label: 'email' },
-                            { key: 'employeeNumber', label: 'employeeNumber' },
-                            { key: 'employmentCategory', label: 'employmentCategory' },
-                            { key: 'password', label: 'password' },
-                            { key: 'department', label: 'department' },
-                          ]
-                            .filter((field) => fieldRequirements[field.key])
-                            .map((field) => (
-                              <Chip
-                                key={field.key}
-                                label={field.label}
-                                size="small"
-                                sx={{
-                                  bgcolor: primaryColor,
-                                  color: whiteColor,
-                                  fontSize: '0.7rem',
-                                  fontWeight: 500,
-                                  height: 22,
-                                }}
-                              />
-                            ))}
+                  <Grid container spacing={2} sx={{ mb: 0.5 }}>
+                    <Grid item xs={12} sm={3}>
+                      <Box sx={{ p: 2, borderRadius: 3, border: `1px solid ${alpha(p, 0.1)}`, bgcolor: alpha(ac, 0.4) }}>
+                        <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: tp, mb: 1, letterSpacing: '0.04em' }}>Required columns</Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
+                          {requiredChips.map((f) => (
+                            <Chip key={f.key} label={f.label} size="small" sx={{ bgcolor: p, color: ac, fontSize: '0.68rem', fontWeight: 600, height: 22 }} />
+                          ))}
                         </Box>
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <Typography
-                          variant="subtitle2"
-                          sx={{
-                            fontWeight: 600,
-                            color: blackColor,
-                            mb: 0.75,
-                            fontSize: '0.875rem',
-                          }}
-                        >
-                          Optional Columns:
-                        </Typography>
-                        <Box
-                          sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}
-                        >
-                          {[
-                            { key: 'firstName', label: 'firstName' },
-                            { key: 'lastName', label: 'lastName' },
-                            { key: 'email', label: 'email' },
-                            { key: 'employeeNumber', label: 'employeeNumber' },
-                            { key: 'employmentCategory', label: 'employmentCategory' },
-                            { key: 'password', label: 'password' },
-                            { key: 'department', label: 'department' },
-                            { key: 'middleName', label: 'middleName' },
-                            { key: 'nameExtension', label: 'nameExtension' },
-                            { key: 'customCategory', label: 'customCategory' },
-                          ]
-                            .filter((field) => !fieldRequirements[field.key])
-                            .map((field) => (
-                              <Chip
-                                key={field.key}
-                                label={field.label}
-                                size="small"
-                                variant="outlined"
-                                sx={{
-                                  borderColor: primaryColor,
-                                  color: primaryColor,
-                                  fontSize: '0.7rem',
-                                  height: 22,
-                                }}
-                              />
-                            ))}
-                        </Box>
-                      </Grid>
-                    </Grid>
-                  </Box>
-                </Fade>
-
-                {/* Upload Card */}
-                <Fade in timeout={900}>
-                  <Box sx={{ mb: 2.5 }}>
-                    <Box
-                      sx={{
-                        p: 3,
-                        border: `2px dashed ${alpha(primaryColor, 0.3)}`,
-                        borderRadius: 3,
-                        backgroundColor: alpha(creamColor, 0.3),
-                        textAlign: 'center',
-                        transition: 'all 0.3s ease',
-                        '&:hover': {
-                          borderColor: primaryColor,
-                          backgroundColor: alpha(creamColor, 0.5),
-                          transform: 'translateY(-2px)',
-                        },
-                      }}
-                    >
-                      <FileUpload
-                        sx={{ fontSize: 52, color: primaryColor, mb: 1.5 }}
-                      />
-                      <Typography
-                        variant="h6"
-                        sx={{
-                          color: blackColor,
-                          mb: 1.5,
-                          fontWeight: 600,
-                          fontSize: '1rem',
-                        }}
-                      >
-                        Upload Excel File
-                      </Typography>
-                      <input
-                        type="file"
-                        accept=".xlsx, .xls"
-                        onChange={handleFileUpload}
-                        style={{ display: 'none' }}
-                        id="file-upload"
-                      />
-                      <label htmlFor="file-upload">
-                        <Button
-                          component="span"
-                          variant="contained"
-                          startIcon={<CloudUpload />}
-                          sx={{
-                            bgcolor: primaryColor,
-                            color: whiteColor,
-                            py: 1.2,
-                            px: 3.5,
-                            fontWeight: 600,
-                            borderRadius: 2,
-                            fontSize: '0.9rem',
-                            '&:hover': {
-                              bgcolor: alpha(primaryColor, 0.8),
-                              transform: 'translateY(-2px)',
-                              boxShadow: '0 4px 12px rgba(109, 35, 35, 0.3)',
-                            },
-                            transition: 'all 0.2s ease',
-                          }}
-                        >
-                          Choose File
-                        </Button>
-                      </label>
-                    </Box>
-                  </Box>
-                </Fade>
-
-                {/* Users Loaded Status */}
-                {users.length > 0 && (
-                  <Fade in timeout={500}>
-                    <Box sx={{ mb: 2.5 }}>
-                      <Box
-                        sx={{
-                          p: 2.5,
-                          background: `linear-gradient(135deg, ${primaryColor} 0%, ${primaryColor}dd 100%)`,
-                          color: whiteColor,
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          borderRadius: 3,
-                        }}
-                      >
-                        <Box display="flex" alignItems="center">
-                          <People sx={{ fontSize: 28, mr: 1.5 }} />
-                          <Box>
-                            <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                              Users Ready
-                            </Typography>
-                            <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                              {users.length} user{users.length !== 1 ? 's' : ''}{' '}
-                              loaded
-                            </Typography>
-                          </Box>
-                        </Box>
-                        <CheckCircleOutline
-                          sx={{ fontSize: 40, opacity: 0.3 }}
-                        />
                       </Box>
-                    </Box>
-                  </Fade>
-                )}
+                    </Grid>
+                    <Grid item xs={12} sm={3}>
+                      <Box sx={{ p: 2, borderRadius: 3, border: `1px solid ${alpha(p, 0.1)}`, bgcolor: alpha(ac, 0.4) }}>
+                        <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: tp, mb: 1, letterSpacing: '0.04em' }}>Optional columns</Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
+                          {optionalChips.map((f) => (
+                            <Chip key={f.key} label={f.label} size="small" variant="outlined" sx={{ borderColor: alpha(p, 0.4), color: p, fontSize: '0.68rem', height: 22 }} />
+                          ))}
+                        </Box>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+  <Box sx={{ p: 2, borderRadius: 3, border: `1px solid ${alpha(p, 0.1)}`, bgcolor: alpha(ac, 0.3) }}>
+    <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: tp, mb: 1, letterSpacing: '0.04em' }}>Employment category values</Typography>
+    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+      {[
+        { label: '"JO Graduate"', color: '#F97316' },
+        { label: '"JO UnderGrad"', color: '#EF4444' },
+        { label: '"Regular Non-Teaching"', color: '#16A34A' },
+        { label: '"Regular Teaching (30Hrs)"', color: '#1D4ED8' },
+        { label: '"Regular Designated (40Hrs)"', color: '#7C3AED' },
+        { label: '"Other"', color: '#0D9488' },
+      ].map(({ label, color }) => (
+        <Chip
+          key={label}
+          label={label}
+          size="small"
+          sx={{ bgcolor: alpha(color, 0.1), color, border: `1px solid ${alpha(color, 0.25)}`, fontSize: '0.67rem', height: 22, fontWeight: 600 }}
+        />
+      ))}
+    </Box>
+    {emailDomainRestricted && (
+      <Typography sx={{ fontSize: '0.7rem', color: alpha(tp, 0.6), mt: 1 }}>
+        Email domain restricted to <strong>@earist.edu.ph</strong>
+      </Typography>
+    )}
+    <Typography sx={{ fontSize: '0.68rem', color: alpha(tp, 0.5), mt: 0.75 }}>
+      Password defaults to last name in CAPS. "Other" requires a <strong>customCategory</strong> column.
+    </Typography>
+  </Box>
+</Grid>
+                  </Grid>
 
-                {/* Action Buttons */}
-                <Box
-                  sx={{
-                    mt: 3,
-                    pt: 2.5,
-                    borderTop: '2px dashed rgba(109, 35, 35, 0.15)',
-                  }}
-                >
+                  {/* ── Category hint ── */}
+                  {/* <Box sx={{ mt: 1.5, mb: 0.5, p: 1.75, borderRadius: 3, border: `1px solid ${alpha(p, 0.1)}`, bgcolor: alpha(ac, 0.3) }}>
+                    <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: tp, mb: 0.75 }}>Employment category values</Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {[
+                        { label: '"JO Graduate"', color: '#F97316' },
+                        { label: '"JO UnderGrad"', color: '#EF4444' },
+                        { label: '"Regular Non-Teaching"', color: '#16A34A' },
+                        { label: '"Regular Teaching (30Hrs)"', color: '#1D4ED8' },
+                        { label: '"Regular Designated (40Hrs)"', color: '#7C3AED' },
+                        { label: '"Other"', color: '#0D9488' },
+                      ].map(({ label, color }) => (
+                        <Chip
+                          key={label}
+                          label={label}
+                          size="small"
+                          sx={{ bgcolor: alpha(color, 0.1), color, border: `1px solid ${alpha(color, 0.25)}`, fontSize: '0.67rem', height: 22, fontWeight: 600 }}
+                        />
+                      ))}
+                    </Box>
+                    {emailDomainRestricted && (
+                      <Typography sx={{ fontSize: '0.7rem', color: alpha(tp, 0.6), mt: 1 }}>
+                        Email domain restricted to <strong>@earist.edu.ph</strong>
+                      </Typography>
+                    )}
+                    <Typography sx={{ fontSize: '0.68rem', color: alpha(tp, 0.5), mt: 0.75 }}>
+                      Password auto-set to last name in CAPS (no spaces) if not provided. "Other" category requires a <strong>customCategory</strong> column.
+                    </Typography>
+                  </Box> */}
+
+                  {/* Divider */}
+                  <Box sx={{ borderTop: `1px dashed ${alpha(p, 0.15)}`, my: 1 }} />
+
+                  {/* ── Upload zone ── */}
+                  <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(tp, 0.45), mb: 1 }}>
+                    Upload file
+                  </Typography>
+
                   <Box
                     sx={{
-                      display: 'flex',
-                      gap: 2,
-                      flexDirection: { xs: 'column', sm: 'row' },
+                      p: 1, borderRadius: 3, border: `2px dashed ${alpha(p, 0.25)}`,
+                      bgcolor: alpha(ac, 0.25), textAlign: 'center',
+                      transition: 'all 0.2s ease',
+                      '&:hover': { borderColor: alpha(p, 0.5), bgcolor: alpha(ac, 0.4) },
                     }}
                   >
-                    <Button
-                      variant="contained"
-                      fullWidth
-                      startIcon={<CloudUpload sx={{ fontSize: 22 }} />}
-                      onClick={handleRegister}
-                      disabled={users.length === 0}
-                      sx={{
-                        bgcolor: '#6d2323',
-                        py: 1.5,
-                        fontSize: '0.95rem',
-                        fontWeight: 700,
-                        borderRadius: 2,
-                        textTransform: 'none',
-                        boxShadow: '0 4px 20px rgba(109, 35, 35, 0.3)',
-                        position: 'relative',
-                        overflow: 'hidden',
-                        '&::before': {
-                          content: '""',
-                          position: 'absolute',
-                          top: 0,
-                          left: '-100%',
-                          width: '100%',
-                          height: '100%',
-                          background:
-                            'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
-                          transition: 'left 0.6s ease',
-                        },
-                        '&:hover::before': {
-                          left: '100%',
-                        },
-                        '&:hover': {
-                          bgcolor: '#5a1e1e',
-                          transform: 'translateY(-3px)',
-                          boxShadow: '0 8px 32px rgba(109, 35, 35, 0.45)',
-                        },
-                        '&:disabled': {
-                          bgcolor: alpha('#6d2323', 0.3),
-                          color: alpha(whiteColor, 0.5),
-                        },
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                      }}
-                    >
-                      Upload & Register Users
-                    </Button>
+                    <FileUpload sx={{ fontSize: 44, color: alpha(p, 0.45), mb: 1 }} />
+                    <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, color: tp, mb: 0.5 }}>
+                      {users.length > 0
+                        ? `${users.length} user${users.length !== 1 ? 's' : ''} ready to register`
+                        : 'Choose an Excel file to upload'}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.72rem', color: alpha(tp, 0.5), mb: 2 }}>
+                      Accepted formats: .xlsx, .xls
+                    </Typography>
+                    <input type="file" accept=".xlsx,.xls" onChange={handleFileUpload} style={{ display: 'none' }} id="bulk-file-upload" />
+                    <label htmlFor="bulk-file-upload">
+                      <ProfessionalButton
+                        component="span"
+                        variant="contained"
+                        startIcon={<CloudUpload />}
+                        sx={{ bgcolor: p, color: ac, '&:hover': { bgcolor: s }, cursor: 'pointer' }}
+                      >
+                        {users.length > 0 ? 'Replace file' : 'Choose file'}
+                      </ProfessionalButton>
+                    </label>
+                  </Box>
 
-                    <Button
-                      type="button"
-                      variant="outlined"
-                      fullWidth
-                      startIcon={<ArrowBack sx={{ fontSize: 22 }} />}
-                      sx={{
-                        borderColor: '#6d2323',
-                        color: '#6d2323',
-                        py: 1.5,
-                        fontSize: '0.95rem',
-                        fontWeight: 700,
-                        borderRadius: 2,
-                        borderWidth: 2,
-                        textTransform: 'none',
-                        position: 'relative',
-                        overflow: 'hidden',
-                        '&:hover': {
-                          borderColor: '#5a1e1e',
-                          borderWidth: 2,
-                          bgcolor: 'rgba(109, 35, 35, 0.08)',
-                          transform: 'translateY(-3px)',
-                          boxShadow: '0 8px 32px rgba(109, 35, 35, 0.25)',
-                        },
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                      }}
-                      onClick={() => navigate('/registration')}
-                    >
-                      Back to User Registration
-                    </Button>
+                  {/* Loaded users banner */}
+                  {users.length > 0 && (
+                    <Fade in timeout={400}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 2.5, py: 1.5, mt: 1.5, borderRadius: 3, border: `1px solid ${alpha('#16a34a', 0.3)}`, bgcolor: alpha('#16a34a', 0.05) }}>
+                        <Box sx={{ width: 34, height: 34, borderRadius: 2, bgcolor: alpha('#16a34a', 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <People sx={{ fontSize: 17, color: '#16a34a' }} />
+                        </Box>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: '#15803d', lineHeight: 1.2 }}>
+                            {users.length} user{users.length !== 1 ? 's' : ''} loaded
+                          </Typography>
+                          <Typography sx={{ fontSize: '0.65rem', color: alpha('#15803d', 0.7) }}>Ready to register — click the button below</Typography>
+                        </Box>
+                        <Chip
+                          icon={<CheckCircleOutline sx={{ fontSize: '13px !important' }} />}
+                          label="Ready"
+                          size="small"
+                          sx={{ bgcolor: alpha('#16a34a', 0.1), color: '#16a34a', fontWeight: 700, fontSize: '0.68rem', height: 24, '& .MuiChip-icon': { color: '#16a34a' } }}
+                        />
+                      </Box>
+                    </Fade>
+                  )}
+
+                  {/* ── Error alert ── */}
+                  {errMessage && (
+                    <Fade in>
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.25, p: 1.75, mt: 2, borderRadius: 3, bgcolor: alpha('#dc2626', 0.05), border: `1px solid ${alpha('#dc2626', 0.25)}` }}>
+                        <ErrorOutline sx={{ fontSize: 17, color: '#dc2626', mt: 0.1, flexShrink: 0 }} />
+                        <Typography sx={{ fontSize: '0.8rem', color: '#991b1b', lineHeight: 1.5, whiteSpace: 'pre-line' }}>{errMessage}</Typography>
+                      </Box>
+                    </Fade>
+                  )}
+
+                  {/* ── Success results ── */}
+                  {success.length > 0 && (
+                    <Fade in timeout={400}>
+                      <Box sx={{ mt: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1.25, bgcolor: '#16a34a', borderRadius: '12px 12px 0 0' }}>
+                          <CheckCircleOutline sx={{ fontSize: 17, color: '#fff' }} />
+                          <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: '#fff' }}>Successful registrations ({success.length})</Typography>
+                        </Box>
+                        <Box sx={{ maxHeight: 200, overflow: 'auto', bgcolor: 'rgba(255,255,255,0.8)', borderRadius: '0 0 12px 12px', p: 1.5, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                          {success.map((user, i) => (
+                            <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 1.5, py: 1, borderRadius: 2, bgcolor: alpha('#16a34a', 0.05), border: `1px solid ${alpha('#16a34a', 0.15)}` }}>
+                              <Chip label={user.employeeNumber} size="small" sx={{ bgcolor: p, color: ac, fontWeight: 600, fontSize: '0.7rem', height: 20 }} />
+                              <Typography sx={{ fontSize: '0.8rem', color: tp }}>{user.name}</Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                      </Box>
+                    </Fade>
+                  )}
+
+                  {/* ── Error results ── */}
+                  {errors.length > 0 && (
+                    <Fade in timeout={400}>
+                      <Box sx={{ mt: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1.25, bgcolor: '#dc2626', borderRadius: '12px 12px 0 0' }}>
+                          <ErrorOutline sx={{ fontSize: 17, color: '#fff' }} />
+                          <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: '#fff' }}>Registration errors ({errors.length})</Typography>
+                        </Box>
+                        <Box sx={{ maxHeight: 200, overflow: 'auto', bgcolor: 'rgba(255,255,255,0.8)', borderRadius: '0 0 12px 12px', p: 1.5, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                          {errors.slice(0, 10).map((err, i) => (
+                            <Box key={i} sx={{ px: 1.5, py: 1, borderRadius: 2, bgcolor: alpha('#dc2626', 0.05), border: `1px solid ${alpha('#dc2626', 0.15)}` }}>
+                              <Typography sx={{ fontSize: '0.78rem', color: '#991b1b' }}>• {err}</Typography>
+                            </Box>
+                          ))}
+                          {errors.length > 10 && (
+                            <Typography sx={{ fontSize: '0.75rem', color: alpha(tp, 0.5), fontStyle: 'italic', textAlign: 'center', pt: 0.5 }}>
+                              …and {errors.length - 10} more errors
+                            </Typography>
+                          )}
+                        </Box>
+                      </Box>
+                    </Fade>
+                  )}
+
+                  {/* ── Footer / actions ── */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pt: 1, mt: 2, borderTop: `1px solid ${alpha(p, 0.1)}`, flexWrap: 'wrap', gap: 2 }}>
+                    <Typography sx={{ fontSize: '0.72rem', color: alpha(tp, 0.5) }}>
+                      Columns marked{' '}
+                      <Box component="span" sx={{ color: p, fontWeight: 700 }}>*</Box>
+                      {' '}are required in the Excel file
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1.5 }}>
+                      {(users.length > 0 || success.length > 0 || errors.length > 0) && (
+                        <ProfessionalButton
+                          variant="outlined"
+                          onClick={handleClearAll}
+                          sx={{ borderColor: alpha(p, 0.4), color: alpha(tp, 0.6), '&:hover': { borderColor: p, bgcolor: alpha(p, 0.05) } }}
+                        >
+                          Clear
+                        </ProfessionalButton>
+                      )}
+                      <ProfessionalButton
+                        variant="contained"
+                        disabled={isLoading || users.length === 0}
+                        onClick={handleRegister}
+                        startIcon={isLoading ? <CircularProgress size={16} sx={{ color: ac }} /> : <CloudUpload />}
+                        sx={{ bgcolor: p, color: ac, '&:hover': { bgcolor: s }, '&:disabled': { bgcolor: alpha(p, 0.4), color: alpha(ac, 0.7) } }}
+                      >
+                        {isLoading ? `Registering ${users.length} users…` : 'Upload & register users'}
+                      </ProfessionalButton>
+                    </Box>
                   </Box>
                 </Box>
-
-                {/* Success Results */}
-                {success.length > 0 && (
-                  <Fade in timeout={500}>
-                    <Box sx={{ mt: 2.5 }}>
-                      <Box
-                        sx={{
-                          p: 1.5,
-                          bgcolor: '#4caf50',
-                          color: whiteColor,
-                          borderRadius: '12px 12px 0 0',
-                          display: 'flex',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <CheckCircleOutline sx={{ mr: 1, fontSize: 20 }} />
-                        <Typography
-                          variant="subtitle1"
-                          sx={{ fontWeight: 600, fontSize: '0.95rem' }}
-                        >
-                          Successful Registrations ({success.length})
-                        </Typography>
-                      </Box>
-                      <Box
-                        sx={{
-                          maxHeight: '200px',
-                          overflow: 'auto',
-                          bgcolor: '#fff',
-                          borderRadius: '0 0 12px 12px',
-                          p: 1.5,
-                        }}
-                      >
-                        {success.map((user, index) => (
-                          <Box
-                            key={index}
-                            sx={{
-                              p: 1.2,
-                              mb: 1,
-                              borderRadius: 2,
-                              bgcolor: alpha('#4caf50', 0.05),
-                              display: 'flex',
-                              alignItems: 'center',
-                              '&:last-child': { mb: 0 },
-                            }}
-                          >
-                            <Chip
-                              label={user.employeeNumber}
-                              size="small"
-                              sx={{
-                                mr: 1.5,
-                                bgcolor: primaryColor,
-                                color: whiteColor,
-                                fontWeight: 600,
-                                fontSize: '0.75rem',
-                              }}
-                            />
-                            <Typography
-                              variant="body2"
-                              sx={{ color: blackColor, fontSize: '0.875rem' }}
-                            >
-                              {user.name}
-                            </Typography>
-                          </Box>
-                        ))}
-                      </Box>
-                    </Box>
-                  </Fade>
-                )}
-
-                {/* Error Results */}
-                {errors.length > 0 && (
-                  <Fade in timeout={500}>
-                    <Box sx={{ mt: 2.5 }}>
-                      <Box
-                        sx={{
-                          p: 1.5,
-                          bgcolor: '#f44336',
-                          color: whiteColor,
-                          borderRadius: '12px 12px 0 0',
-                          display: 'flex',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <ErrorOutline sx={{ mr: 1, fontSize: 20 }} />
-                        <Typography
-                          variant="subtitle1"
-                          sx={{ fontWeight: 600, fontSize: '0.95rem' }}
-                        >
-                          Registration Errors ({errors.length})
-                        </Typography>
-                      </Box>
-                      <Box
-                        sx={{
-                          maxHeight: '200px',
-                          overflow: 'auto',
-                          bgcolor: '#fff',
-                          borderRadius: '0 0 12px 12px',
-                          p: 1.5,
-                        }}
-                      >
-                        {errors.slice(0, 10).map((err, index) => (
-                          <Box
-                            key={index}
-                            sx={{
-                              p: 1.2,
-                              mb: 1,
-                              borderRadius: 2,
-                              bgcolor: alpha('#f44336', 0.05),
-                              '&:last-child': { mb: 0 },
-                            }}
-                          >
-                            <Typography
-                              variant="body2"
-                              sx={{ color: blackColor, fontSize: '0.875rem' }}
-                            >
-                              • {err}
-                            </Typography>
-                          </Box>
-                        ))}
-                        {errors.length > 10 && (
-                          <Box sx={{ p: 1.2, textAlign: 'center' }}>
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                fontStyle: 'italic',
-                                color: alpha(blackColor, 0.6),
-                                fontSize: '0.85rem',
-                              }}
-                            >
-                              ...and {errors.length - 10} more errors
-                            </Typography>
-                          </Box>
-                        )}
-                      </Box>
-                    </Box>
-                  </Fade>
-                )}
-              </Paper>
-            </Grow>
-          </Box>
+              </GlassCard>
+            </Fade>
+          </Grid>
         </Grid>
-      </Grid>
+      </Box>
 
-      {/* Loading Overlay */}
-      <LoadingOverlay 
-        open={isLoading} 
-        message={`Uploading ${users.length} user${users.length !== 1 ? 's' : ''}...`}
-      />
-
-      {/* Success Overlay */}
-      <SuccessfulOverlay
-        open={showSuccessOverlay}
-        action="create"
-        onClose={() => setShowSuccessOverlay(false)}
-        showOkButton={true}
-      />
-    </Container>
+      <LoadingOverlay open={isLoading} message={`Registering ${users.length} user${users.length !== 1 ? 's' : ''}…`} />
+      <SuccessfulOverlay open={showSuccessOverlay} action="create" onClose={() => setShowSuccessOverlay(false)} showOkButton={true} />
+    </Box>
   );
 };
 

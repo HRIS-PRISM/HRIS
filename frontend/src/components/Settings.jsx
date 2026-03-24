@@ -1,7 +1,7 @@
 import API_BASE_URL from "../apiConfig";
 import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { getUserInfo } from "../utils/auth";
 import {
   Alert, TextField, Button, Box, Typography, InputAdornment, IconButton, Rating,
@@ -475,7 +475,10 @@ const DlgHeader = ({ icon: Icon, title, onClose, P, S }) => (
 const Settings = () => {
   const { settings: sys } = useSystemSettings();
   const { socket, connected } = useSocket();
-  const navigate = useNavigate();
+  const navigate         = useNavigate();
+  const location         = useLocation();
+  const _pendingTicketId       = useRef(null);
+  const _pendingFromNotification = useRef(false); // true when arriving from a notification click
 
   const P = sys?.primaryColor   || FALLBACK_P;
   const S = sys?.secondaryColor || FALLBACK_S;
@@ -508,7 +511,10 @@ const Settings = () => {
   const [contactSubmissions, setContactSubmissions] = useState([]);
   const [selectedSub, setSelectedSub]               = useState(null);
   const [contactView, setContactView]               = useState("thread");
-  const [contactStatusFilter, setContactStatusFilter] = useState("all");
+
+  // ── FIX 1: default filter is "new" ──
+  const [contactStatusFilter, setContactStatusFilter] = useState("new");
+
   const [adminReply, setAdminReply]                 = useState("");
   const [contactMessages, setContactMessages]       = useState([]);
   const [messagesLoading, setMessagesLoading]       = useState(false);
@@ -539,6 +545,41 @@ const Settings = () => {
 
   /* ── Effects ── */
   useEffect(() => { const i = getUserInfo(); if (i?.role) setUserRole(i.role); }, []);
+
+  // ── FIX 2: navigation from notification — reset filter to "all" so ticket is visible ──
+  useEffect(() => {
+    if (pageLoading) return;
+    const { section, ticketId } = location.state || {};
+    if (!section) return;
+
+    if (ticketId) {
+      _pendingTicketId.current = Number(ticketId);
+    }
+
+    // Mark that we arrived via a notification so fetchTickets uses
+    // updated_at sorting in its fallback (handles old notifications with no ticket ID)
+    if (section === "contact") {
+      _pendingFromNotification.current = true;
+    }
+
+    // Always reset filter to "all" when deep-linking to contact section,
+    // regardless of whether a specific ticketId exists in the link.
+    // This ensures the ticket is never hidden by the default "new" filter.
+    if (section === "contact") {
+      setContactStatusFilter("all");
+    }
+
+    // Clear router state so a page refresh doesn't re-apply it
+    window.history.replaceState({}, "");
+
+    if (section === activeSection) {
+      // Already on contact section — manually trigger fetchTickets to consume the pending ID
+      fetchTickets();
+    } else {
+      setActiveSection(section);
+      // The existing useEffect([activeSection]) will call fetchTickets
+    }
+  }, [pageLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const token = localStorage.getItem("token") || sessionStorage.getItem("token");
@@ -646,13 +687,47 @@ const Settings = () => {
 
   const fetchTickets = async (selectId = null) => {
     try {
-      const r = await axios.get(`${API_BASE_URL}/api/contact-us`, { headers: { Authorization: `Bearer ${tok()}` } });
+      const r = await axios.get(`${API_BASE_URL}/api/contact-us`, {
+        headers: { Authorization: `Bearer ${tok()}` },
+      });
       const list = r.data.data || r.data || [];
       const statusOrder = { new: 1, read: 2, replied: 3, on_process: 4, resolved: 5 };
-      list.sort((a, b) => { const ar = statusOrder[a.status] || 99, br = statusOrder[b.status] || 99; return ar !== br ? ar - br : new Date(b.created_at || 0) - new Date(a.created_at || 0); });
+      list.sort((a, b) => {
+        const ar = statusOrder[a.status] || 99;
+        const br = statusOrder[b.status] || 99;
+        return ar !== br
+          ? ar - br
+          : new Date(b.created_at || 0) - new Date(a.created_at || 0);
+      });
       setContactSubmissions(list);
-      if (selectId) { const match = list.find(s => s.id === selectId); if (match) setSelectedSub(match); }
-      else if (!selectedSub && list.length > 0) setSelectedSub(list[0]);
+
+      // 1. Explicit ID — passed after submitting a new ticket
+      if (selectId) {
+        const match = list.find(s => String(s.id) === String(selectId));
+        if (match) { setSelectedSub(match); setContactView("thread"); return; }
+      }
+
+      // 2. Deep-link from notification — consume and clear immediately
+      const pendingId = _pendingTicketId.current;
+      if (pendingId) {
+        _pendingTicketId.current = null;
+        _pendingFromNotification.current = false;
+        const match = list.find(s => String(s.id) === String(pendingId));
+        if (match) { setSelectedSub(match); setContactView("thread"); return; }
+      }
+
+      // 3. Arrived from a notification but no specific ticket ID (old notification format)
+      //    Pick the most recently UPDATED ticket — that's the one admin just replied to.
+      if (_pendingFromNotification.current) {
+        _pendingFromNotification.current = false;
+        const mostRecent = [...list].sort((a, b) =>
+          new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0)
+        )[0];
+        if (mostRecent) { setSelectedSub(mostRecent); setContactView("thread"); return; }
+      }
+
+      // 4. Fallback — keep existing selection or default to first
+      if (!selectedSub && list.length > 0) setSelectedSub(list[0]);
     } catch {}
   };
 
@@ -786,9 +861,14 @@ const Settings = () => {
 
   useEffect(() => { setFeedbackMessages([]); setFeedbackReply(""); setFeedbackAttachment(null); setFeedbackRating(0); setFeedbackSubmitted(false); }, [selectedSub?.id]);
 
+  // ── FIX 3: setTimeout so DOM is fully rendered before scrolling to bottom ──
   useEffect(() => {
     if (contactView === "compose" || !selectedSub) return;
-    if (threadScrollRef.current) threadScrollRef.current.scrollTop = threadScrollRef.current.scrollHeight;
+    setTimeout(() => {
+      if (threadScrollRef.current) {
+        threadScrollRef.current.scrollTop = threadScrollRef.current.scrollHeight;
+      }
+    }, 100);
   }, [contactMessages, messagesLoading, contactView, selectedSub?.id]);
 
   if (pageLoading) return <SettingsWireframe />;
@@ -1173,7 +1253,7 @@ const Settings = () => {
                       <FormControl size="small" sx={{ minWidth: 140 }}>
                         <Select value={contactStatusFilter} onChange={e => setContactStatusFilter(e.target.value)}
                           sx={{ borderRadius: 2, bgcolor: SUBTLE, fontSize: "0.75rem", fontWeight: 700, "& .MuiOutlinedInput-notchedOutline": { borderColor: alpha(P, 0.2) } }}>
-                          <MenuItem value="all">Filter</MenuItem>
+                          <MenuItem value="all">All</MenuItem>
                           {STATUS_OPTIONS.map(opt => <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>)}
                         </Select>
                       </FormControl>
