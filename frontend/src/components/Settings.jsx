@@ -1062,7 +1062,7 @@ const Settings = () => {
                               {selectedSub.subject || "General Inquiry"}
                             </Typography>
                             <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontFamily: "'IBM Plex Sans', sans-serif" }}>
-                              {selectedSub.name} • {selectedSub.email}
+                              {selectedSub.name} • {selectedSub.email}  
                             </Typography>
                           </Box>
                           {isAdmin ? (
