@@ -1,55 +1,8 @@
 const db = require("../db");
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const { notifyPayrollChanged } = require('../socket/socketService');
-
-
-
-// Authentication middleware
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  console.log('Auth header:', authHeader);
-  console.log('Token:', token ? 'Token exists' : 'No token');
-
-  if (!token) return res.status(401).json({ error: 'No token provided' });
-
-  jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, user) => {
-    if (err) {
-      console.log('JWT verification error:', err.message);
-      return res.status(403).json({ error: 'Invalid token' });
-    }
-    console.log('Decoded JWT:', user);
-    req.user = user;
-    next();
-  });
-}
-
-// Audit logging function
-function logAudit(
-  user,
-  action,
-  tableName,
-  recordId,
-  targetEmployeeNumber = null
-) {
-  const auditQuery = `
-    INSERT INTO audit_log (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
-    VALUES (?, ?, ?, ?, ?, NOW())
-  `;
-
-  db.query(
-    auditQuery,
-    [user.employeeNumber, action, tableName, recordId, targetEmployeeNumber],
-    (err) => {
-      if (err) {
-        console.error('Error inserting audit log:', err);
-      }
-    }
-  );
-}
+const { authenticateToken, logAudit } = require('../middleware/auth');
 
 // SALARY GRADE TABLE START
 // Create
@@ -118,11 +71,6 @@ router.get('/salary-grade', authenticateToken, (req, res) => {
       console.error('Error fetching data:', err);
       res.status(500).send('Error fetching data');
     } else {
-      try {
-        logAudit(req.user, 'View', 'salary_grade_table', null, null);
-      } catch (e) {
-        console.error('Audit log error:', e);
-      }
       res.status(200).json(results);
     }
   });

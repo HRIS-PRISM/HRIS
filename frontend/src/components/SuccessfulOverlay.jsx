@@ -4,12 +4,11 @@ import { Box, Typography, Button } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 
 const SuccessfulOverlay = ({ open, action, onClose, showOkButton = false }) => {
-  // Auto-close after 2.5 seconds if OK button is not shown
   useEffect(() => {
     if (open && !showOkButton) {
       const timer = setTimeout(() => {
         if (onClose) onClose();
-      }, 1000);
+      }, 500);
       return () => clearTimeout(timer);
     }
   }, [open, showOkButton, onClose]);

@@ -1,6 +1,6 @@
-import API_BASE_URL from "../../apiConfig";
-import React, { useState, useEffect } from "react";
-import axios from "axios";
+import API_BASE_URL from '../../apiConfig';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import {
   Container,
   Typography,
@@ -21,7 +21,7 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-} from "@mui/material";
+} from '@mui/material';
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -36,26 +36,28 @@ import {
   Male as MaleIcon,
   Female as FemaleIcon,
   Wc as GenderIcon,
-} from "@mui/icons-material";
+} from '@mui/icons-material';
 
-import LoadingOverlay from "../LoadingOverlay";
-import SuccessfulOverlay from "../SuccessfulOverlay";
+import LoadingOverlay from '../LoadingOverlay';
+import SuccessfulOverlay from '../SuccessfulOverlay';
+import usePageAccess from '../../hooks/usePageAccess';
+import AccessDenied from '../AccessDenied';
 
 // ─────────────────────────────────────────────
-// SHARED STYLED HELPERS (mirrors LeaveAssignment)
+// SHARED STYLED HELPERS
 // ─────────────────────────────────────────────
 const GlassCard = ({ children, sx = {} }) => (
   <Card
     sx={{
       background:
-        "linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%)",
-      backdropFilter: "blur(10px)",
+        'linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%)',
+      backdropFilter: 'blur(10px)',
       borderRadius: 3,
-      border: "1px solid rgba(109, 35, 35, 0.1)",
-      boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
-      transition: "all 0.3s ease",
-      overflow: "visible",
-      "&:hover": { boxShadow: "0 12px 40px rgba(109, 35, 35, 0.12)" },
+      border: '1px solid rgba(109, 35, 35, 0.1)',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
+      transition: 'all 0.3s ease',
+      overflow: 'visible',
+      '&:hover': { boxShadow: '0 12px 40px rgba(109, 35, 35, 0.12)' },
       ...sx,
     }}
   >
@@ -67,19 +69,19 @@ const SectionHeader = ({ icon: Icon, title, subtitle }) => (
   <Box
     sx={{
       p: 4,
-      background: "linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)",
-      color: "#6d2323",
-      display: "flex",
-      alignItems: "center",
-      boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+      background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
+      color: '#6d2323',
+      display: 'flex',
+      alignItems: 'center',
+      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
     }}
   >
-    <Icon sx={{ fontSize: "1.8rem", mr: 2, color: "#6d2323" }} />
+    <Icon sx={{ fontSize: '1.8rem', mr: 2, color: '#6d2323' }} />
     <Box>
-      <Typography variant="h6" sx={{ fontWeight: "bold", color: "#6d2323" }}>
+      <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#6d2323' }}>
         {title}
       </Typography>
-      <Typography variant="caption" sx={{ opacity: 0.9, color: "#8B3333" }}>
+      <Typography variant="caption" sx={{ opacity: 0.9, color: '#8B3333' }}>
         {subtitle}
       </Typography>
     </Box>
@@ -87,23 +89,525 @@ const SectionHeader = ({ icon: Icon, title, subtitle }) => (
 );
 
 // ─────────────────────────────────────────────
+// WIREFRAME SHIMMER KEYFRAMES
+// ─────────────────────────────────────────────
+const ltShimmerKeyframes = `
+@keyframes ltShimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
+}
+@keyframes ltPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+`;
+
+const LTSkeletonBox = ({
+  width = '100%',
+  height = 16,
+  borderRadius = 8,
+  sx = {},
+}) => (
+  <Box
+    sx={{
+      width,
+      height,
+      borderRadius: `${borderRadius}px`,
+      background:
+        'linear-gradient(90deg,rgba(109,35,35,0.08) 25%,rgba(109,35,35,0.18) 50%,rgba(109,35,35,0.08) 75%)',
+      backgroundSize: '800px 100%',
+      animation: 'ltShimmer 1.5s infinite linear',
+      flexShrink: 0,
+      ...sx,
+    }}
+  />
+);
+
+// ─────────────────────────────────────────────
+// LEAVE TABLE WIREFRAME
+// ─────────────────────────────────────────────
+const LeaveTableWireframe = () => (
+  <>
+    <style>{ltShimmerKeyframes}</style>
+    <Box
+      sx={{
+        py: { xs: 2, md: 4 },
+        mt: { xs: 0, md: -5 },
+        width: '100%',
+        maxWidth: '1600px',
+        mx: 'auto',
+        px: { xs: 2, sm: 3, md: 4 },
+      }}
+    >
+      {/* ── Hero Header skeleton ── */}
+      <Box
+        sx={{
+          mb: 4,
+          borderRadius: '12px',
+          overflow: 'hidden',
+          border: '1px solid rgba(109,35,35,0.1)',
+          animation: 'ltPulse 2s ease-in-out infinite',
+        }}
+      >
+        <Box
+          sx={{
+            p: 5,
+            background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
+            position: 'relative',
+            overflow: 'hidden',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              top: -50,
+              right: -50,
+              width: 200,
+              height: 200,
+              borderRadius: '50%',
+              bgcolor: 'rgba(109,35,35,0.06)',
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: -30,
+              left: '30%',
+              width: 150,
+              height: 150,
+              borderRadius: '50%',
+              bgcolor: 'rgba(109,35,35,0.04)',
+            }}
+          />
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              position: 'relative',
+              zIndex: 1,
+            }}
+          >
+            <Box
+              sx={{
+                width: 64,
+                height: 64,
+                borderRadius: '50%',
+                bgcolor: 'rgba(109,35,35,0.12)',
+                mr: 4,
+                flexShrink: 0,
+              }}
+            />
+            <Box>
+              <LTSkeletonBox
+                width={280}
+                height={28}
+                borderRadius={6}
+                sx={{ mb: 1.5 }}
+              />
+              <LTSkeletonBox width={400} height={14} borderRadius={4} />
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+
+      {/* ── Add Leave Type Form skeleton ── */}
+      <Box
+        sx={{
+          mb: 4,
+          borderRadius: '12px',
+          overflow: 'hidden',
+          border: '1px solid rgba(109,35,35,0.1)',
+          animation: 'ltPulse 2s ease-in-out 0.08s infinite',
+          bgcolor: '#fff',
+        }}
+      >
+        {/* Form header */}
+        <Box
+          sx={{
+            p: 4,
+            background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            boxShadow: '0 2px 4px rgba(0,0,0,0.08)',
+          }}
+        >
+          <Box
+            sx={{
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              bgcolor: 'rgba(109,35,35,0.1)',
+              flexShrink: 0,
+            }}
+          />
+          <Box>
+            <LTSkeletonBox
+              width={200}
+              height={16}
+              borderRadius={4}
+              sx={{ mb: 0.75 }}
+            />
+            <LTSkeletonBox width={320} height={11} borderRadius={3} />
+          </Box>
+        </Box>
+
+        {/* Form fields */}
+        <Box sx={{ p: 4 }}>
+          <Grid container spacing={2} alignItems="flex-end">
+            {/* Leave Code */}
+            <Grid item xs={12} sm={6} md={2.5}>
+              <LTSkeletonBox
+                width={90}
+                height={11}
+                borderRadius={3}
+                sx={{ mb: 1.25 }}
+              />
+              <Box
+                sx={{
+                  height: 40,
+                  borderRadius: '8px',
+                  border: '1px solid rgba(109,35,35,0.15)',
+                  bgcolor: 'rgba(255,255,255,0.8)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  px: 1.5,
+                }}
+              >
+                <LTSkeletonBox width="50%" height={11} borderRadius={3} />
+              </Box>
+              <LTSkeletonBox
+                width={70}
+                height={9}
+                borderRadius={2}
+                sx={{ mt: 0.75 }}
+              />
+            </Grid>
+
+            {/* Leave Description */}
+            <Grid item xs={12} sm={6} md={3}>
+              <LTSkeletonBox
+                width={130}
+                height={11}
+                borderRadius={3}
+                sx={{ mb: 1.25 }}
+              />
+              <Box
+                sx={{
+                  height: 40,
+                  borderRadius: '8px',
+                  border: '1px solid rgba(109,35,35,0.15)',
+                  bgcolor: 'rgba(255,255,255,0.8)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  px: 1.5,
+                }}
+              >
+                <LTSkeletonBox width="60%" height={11} borderRadius={3} />
+              </Box>
+              <LTSkeletonBox
+                width={140}
+                height={9}
+                borderRadius={2}
+                sx={{ mt: 0.75 }}
+              />
+            </Grid>
+
+            {/* Default Days */}
+            <Grid item xs={12} sm={6} md={2}>
+              <LTSkeletonBox
+                width={95}
+                height={11}
+                borderRadius={3}
+                sx={{ mb: 1.25 }}
+              />
+              <Box
+                sx={{
+                  height: 40,
+                  borderRadius: '8px',
+                  border: '1px solid rgba(109,35,35,0.15)',
+                  bgcolor: 'rgba(255,255,255,0.8)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  px: 1.5,
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Box
+                    sx={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: '50%',
+                      bgcolor: 'rgba(109,35,35,0.12)',
+                      flexShrink: 0,
+                    }}
+                  />
+                  <LTSkeletonBox width={50} height={11} borderRadius={3} />
+                </Box>
+                <LTSkeletonBox width={45} height={9} borderRadius={2} />
+              </Box>
+              <LTSkeletonBox
+                width={75}
+                height={9}
+                borderRadius={2}
+                sx={{ mt: 0.75 }}
+              />
+            </Grid>
+
+            {/* Gender Restriction */}
+            <Grid item xs={12} sm={6} md={2}>
+              <LTSkeletonBox
+                width={130}
+                height={11}
+                borderRadius={3}
+                sx={{ mb: 1.25 }}
+              />
+              <Box
+                sx={{
+                  height: 40,
+                  borderRadius: '8px',
+                  border: '1px solid rgba(109,35,35,0.15)',
+                  bgcolor: 'rgba(255,255,255,0.8)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  px: 1.5,
+                }}
+              >
+                <LTSkeletonBox width="55%" height={11} borderRadius={3} />
+              </Box>
+              <LTSkeletonBox
+                width={175}
+                height={9}
+                borderRadius={2}
+                sx={{ mt: 0.75 }}
+              />
+            </Grid>
+
+            {/* Add Button */}
+            <Grid item xs={12} sm={6} md={2.5}>
+              <Box sx={{ height: 11, mb: 1.25 }} />
+              <Box
+                sx={{
+                  height: 40,
+                  borderRadius: '8px',
+                  bgcolor: 'rgba(109,35,35,0.18)',
+                  animation: 'ltPulse 2s ease-in-out 0.12s infinite',
+                }}
+              />
+              <Box sx={{ height: 9, mt: 0.75 }} />
+            </Grid>
+          </Grid>
+        </Box>
+      </Box>
+
+      {/* ── Records Section skeleton ── */}
+      <Box
+        sx={{
+          mb: 4,
+          borderRadius: '12px',
+          overflow: 'hidden',
+          border: '1px solid rgba(109,35,35,0.1)',
+          animation: 'ltPulse 2s ease-in-out 0.16s infinite',
+          bgcolor: '#fff',
+        }}
+      >
+        {/* Records header */}
+        <Box
+          sx={{
+            p: 4,
+            background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 2,
+            boxShadow: '0 2px 4px rgba(0,0,0,0.08)',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box
+              sx={{
+                width: 56,
+                height: 56,
+                borderRadius: '50%',
+                bgcolor: 'rgba(109,35,35,0.12)',
+                flexShrink: 0,
+              }}
+            />
+            <Box>
+              <LTSkeletonBox
+                width={190}
+                height={16}
+                borderRadius={4}
+                sx={{ mb: 0.75 }}
+              />
+              <LTSkeletonBox width={145} height={11} borderRadius={3} />
+            </Box>
+          </Box>
+          {/* Search bar skeleton */}
+          <Box
+            sx={{
+              width: 300,
+              height: 40,
+              borderRadius: '8px',
+              border: '1px solid rgba(109,35,35,0.15)',
+              bgcolor: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              px: 1.5,
+              gap: 1,
+            }}
+          >
+            <Box
+              sx={{
+                width: 18,
+                height: 18,
+                borderRadius: '50%',
+                bgcolor: 'rgba(109,35,35,0.12)',
+                flexShrink: 0,
+              }}
+            />
+            <LTSkeletonBox width="55%" height={11} borderRadius={3} />
+          </Box>
+        </Box>
+
+        {/* Leave Type Cards Grid */}
+        <Box sx={{ p: 4 }}>
+          <Grid container spacing={3}>
+            {[...Array(8)].map((_, i) => (
+              <Grid item xs={12} sm={6} md={4} lg={3} key={i}>
+                <Box
+                  sx={{
+                    border: '1px solid rgba(109,35,35,0.12)',
+                    borderRadius: '12px',
+                    p: 2.5,
+                    minHeight: 180,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    bgcolor: '#fff',
+                    animation: `ltPulse 2s ease-in-out ${i * 0.07}s infinite`,
+                  }}
+                >
+                  {/* Card header */}
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1.5,
+                      mb: 2,
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: '50%',
+                        bgcolor: 'rgba(109,35,35,0.15)',
+                        flexShrink: 0,
+                      }}
+                    />
+                    <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                      <LTSkeletonBox
+                        width="80%"
+                        height={14}
+                        borderRadius={3}
+                        sx={{ mb: 0.6 }}
+                      />
+                      <LTSkeletonBox width="50%" height={10} borderRadius={3} />
+                    </Box>
+                  </Box>
+
+                  {/* Divider */}
+                  <Box
+                    sx={{
+                      height: 1,
+                      bgcolor: 'rgba(109,35,35,0.08)',
+                      mb: 1.5,
+                    }}
+                  />
+
+                  {/* Days / Hours row */}
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      justifyContent: 'space-around',
+                      py: 1,
+                      bgcolor: 'rgba(109,35,35,0.02)',
+                      borderRadius: 2,
+                      mb: 1.5,
+                    }}
+                  >
+                    {[0, 1].map((j) => (
+                      <Box key={j} sx={{ textAlign: 'center' }}>
+                        <LTSkeletonBox
+                          width={38}
+                          height={18}
+                          borderRadius={3}
+                          sx={{ mb: 0.4, mx: 'auto' }}
+                        />
+                        <LTSkeletonBox
+                          width={28}
+                          height={9}
+                          borderRadius={2}
+                          sx={{ mx: 'auto' }}
+                        />
+                      </Box>
+                    ))}
+                  </Box>
+
+                  {/* Footer hint */}
+                  <Box
+                    sx={{
+                      mt: 'auto',
+                      pt: 1,
+                      borderTop: '1px solid rgba(109,35,35,0.06)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.75,
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: 13,
+                        height: 13,
+                        borderRadius: '3px',
+                        bgcolor: 'rgba(109,35,35,0.1)',
+                        flexShrink: 0,
+                      }}
+                    />
+                    <LTSkeletonBox width={110} height={9} borderRadius={2} />
+                  </Box>
+                </Box>
+              </Grid>
+            ))}
+          </Grid>
+        </Box>
+      </Box>
+    </Box>
+  </>
+);
+
+// ─────────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────────
 const LeaveTable = () => {
+  const { hasAccess, loading: accessLoading } = usePageAccess('leave-table');
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [newLeaveType, setNewLeaveType] = useState({
-    leave_description: "",
-    leave_code: "",
-    leave_hours: "",
-    gender_restriction: "",
+    leave_description: '',
+    leave_code: '',
+    leave_hours: '',
+    gender_restriction: '',
   });
   const [editLeaveType, setEditLeaveType] = useState(null);
   const [originalLeaveType, setOriginalLeaveType] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [successOpen, setSuccessOpen] = useState(false);
-  const [successAction, setSuccessAction] = useState("");
+  const [successAction, setSuccessAction] = useState('');
 
   useEffect(() => {
     fetchLeaveTypes();
@@ -114,7 +618,9 @@ const LeaveTable = () => {
       const res = await axios.get(`${API_BASE_URL}/leaveRoute/leave_table`);
       setLeaveTypes(res.data);
     } catch (error) {
-      console.error("Error fetching data:", error);
+      console.error('Error fetching data:', error);
+    } finally {
+      setPageLoading(false);
     }
   };
 
@@ -123,27 +629,27 @@ const LeaveTable = () => {
     setLoading(true);
     try {
       const filteredLeaveType = Object.fromEntries(
-        Object.entries(newLeaveType).filter(([_, value]) => value !== ""),
+        Object.entries(newLeaveType).filter(([_, value]) => value !== ''),
       );
       await axios.post(
         `${API_BASE_URL}/leaveRoute/leave_table`,
         filteredLeaveType,
       );
       setNewLeaveType({
-        leave_description: "",
-        leave_code: "",
-        leave_hours: "",
-        gender_restriction: "",
+        leave_description: '',
+        leave_code: '',
+        leave_hours: '',
+        gender_restriction: '',
       });
       setTimeout(() => {
         setLoading(false);
-        setSuccessAction("adding");
+        setSuccessAction('adding');
         setSuccessOpen(true);
         setTimeout(() => setSuccessOpen(false), 2000);
       }, 300);
       fetchLeaveTypes();
     } catch (error) {
-      console.error("Error adding data:", error);
+      console.error('Error adding data:', error);
       setLoading(false);
     }
   };
@@ -158,16 +664,16 @@ const LeaveTable = () => {
       setOriginalLeaveType(null);
       setIsEditing(false);
       fetchLeaveTypes();
-      setSuccessAction("edit");
+      setSuccessAction('edit');
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
     } catch (error) {
-      console.error("Error updating data:", error);
+      console.error('Error updating data:', error);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this leave type?"))
+    if (!window.confirm('Are you sure you want to delete this leave type?'))
       return;
     try {
       await axios.delete(`${API_BASE_URL}/leaveRoute/leave_table/${id}`);
@@ -175,11 +681,11 @@ const LeaveTable = () => {
       setOriginalLeaveType(null);
       setIsEditing(false);
       fetchLeaveTypes();
-      setSuccessAction("delete");
+      setSuccessAction('delete');
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
     } catch (error) {
-      console.error("Error deleting data:", error);
+      console.error('Error deleting data:', error);
     }
   };
 
@@ -200,36 +706,43 @@ const LeaveTable = () => {
   };
 
   const fieldLabels = {
-    leave_description: "Leave Description",
-    leave_code: "Leave Code",
-    leave_hours: "Default Days",
-    gender_restriction: "Gender Restriction",
+    leave_description: 'Leave Description',
+    leave_code: 'Leave Code',
+    leave_hours: 'Default Days',
+    gender_restriction: 'Gender Restriction',
   };
 
   const filteredLeaveTypes = leaveTypes.filter((lt) => {
-    const description = lt.leave_description?.toLowerCase() || "";
-    const code = lt.leave_code?.toLowerCase() || "";
+    const description = lt.leave_description?.toLowerCase() || '';
+    const code = lt.leave_code?.toLowerCase() || '';
     const search = searchTerm.toLowerCase();
     return description.includes(search) || code.includes(search);
   });
 
   const inputSx = {
-    "& .MuiOutlinedInput-root": {
+    '& .MuiOutlinedInput-root': {
       borderRadius: 2,
-      "& fieldset": { borderColor: "rgba(109, 35, 35, 0.2)" },
-      "&:hover fieldset": { borderColor: "#6d2323" },
-      "&.Mui-focused fieldset": { borderColor: "#6d2323", borderWidth: 2 },
+      '& fieldset': { borderColor: 'rgba(109, 35, 35, 0.2)' },
+      '&:hover fieldset': { borderColor: '#6d2323' },
+      '&.Mui-focused fieldset': { borderColor: '#6d2323', borderWidth: 2 },
     },
   };
+
+  // ── Show wireframe while initial data loads ──
+  if (accessLoading) return <LeaveTableWireframe />;
+
+  if (!hasAccess) return <AccessDenied />;
+
+  if (pageLoading) return <LeaveTableWireframe />;
 
   return (
     <Box
       sx={{
         py: { xs: 2, md: 4 },
         mt: { xs: 0, md: -5 },
-        width: "100%",
-        maxWidth: "1600px",
-        mx: "auto",
+        width: '100%',
+        maxWidth: '1600px',
+        mx: 'auto',
         px: { xs: 2, sm: 3, md: 4 },
       }}
     >
@@ -246,33 +759,32 @@ const LeaveTable = () => {
         <Box
           sx={{
             p: 5,
-            background: "linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)",
-            color: "#6d2323",
-            position: "relative",
-            overflow: "hidden",
+            background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
+            color: '#6d2323',
+            position: 'relative',
+            overflow: 'hidden',
           }}
         >
-          {/* decorative blobs */}
           <Box
             sx={{
-              position: "absolute",
+              position: 'absolute',
               top: -50,
               right: -50,
               width: 200,
               height: 200,
               background:
-                "radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)",
+                'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)',
             }}
           />
           <Box
             sx={{
-              position: "absolute",
+              position: 'absolute',
               bottom: -30,
-              left: "30%",
+              left: '30%',
               width: 150,
               height: 150,
               background:
-                "radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)",
+                'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
             }}
           />
           <Box
@@ -283,14 +795,14 @@ const LeaveTable = () => {
           >
             <Avatar
               sx={{
-                bgcolor: "rgba(109,35,35,0.15)",
+                bgcolor: 'rgba(109,35,35,0.15)',
                 mr: 4,
                 width: 64,
                 height: 64,
-                boxShadow: "0 8px 24px rgba(109,35,35,0.15)",
+                boxShadow: '0 8px 24px rgba(109,35,35,0.15)',
               }}
             >
-              <CategoryIcon sx={{ color: "#6d2323", fontSize: 32 }} />
+              <CategoryIcon sx={{ color: '#6d2323', fontSize: 32 }} />
             </Avatar>
             <Box>
               <Typography
@@ -300,14 +812,14 @@ const LeaveTable = () => {
                   fontWeight: 700,
                   mb: 1,
                   lineHeight: 1.2,
-                  color: "#6d2323",
+                  color: '#6d2323',
                 }}
               >
                 Leave Types Management
               </Typography>
               <Typography
                 variant="body1"
-                sx={{ opacity: 0.8, fontWeight: 400, color: "#8B3333" }}
+                sx={{ opacity: 0.8, fontWeight: 400, color: '#8B3333' }}
               >
                 Administrative Panel • Define universal leave types and their
                 default hours
@@ -334,8 +846,8 @@ const LeaveTable = () => {
                 sx={{
                   fontWeight: 600,
                   mb: 1,
-                  color: "#6d2323",
-                  fontSize: "0.875rem",
+                  color: '#6d2323',
+                  fontSize: '0.875rem',
                 }}
               >
                 Leave Code *
@@ -356,10 +868,10 @@ const LeaveTable = () => {
               <Typography
                 variant="caption"
                 sx={{
-                  color: "#888",
+                  color: '#888',
                   mt: 0.5,
-                  display: "block",
-                  fontSize: "0.7rem",
+                  display: 'block',
+                  fontSize: '0.7rem',
                 }}
               >
                 2–4 letters
@@ -373,8 +885,8 @@ const LeaveTable = () => {
                 sx={{
                   fontWeight: 600,
                   mb: 1,
-                  color: "#6d2323",
-                  fontSize: "0.875rem",
+                  color: '#6d2323',
+                  fontSize: '0.875rem',
                 }}
               >
                 Leave Description *
@@ -395,25 +907,25 @@ const LeaveTable = () => {
               <Typography
                 variant="caption"
                 sx={{
-                  color: "#888",
+                  color: '#888',
                   mt: 0.5,
-                  display: "block",
-                  fontSize: "0.7rem",
+                  display: 'block',
+                  fontSize: '0.7rem',
                 }}
               >
                 Full name of the leave type
               </Typography>
             </Grid>
 
-            {/* Default Days (converts to hours) */}
+            {/* Default Days */}
             <Grid item xs={12} sm={6} md={2}>
               <Typography
                 variant="subtitle2"
                 sx={{
                   fontWeight: 600,
                   mb: 1,
-                  color: "#6d2323",
-                  fontSize: "0.875rem",
+                  color: '#6d2323',
+                  fontSize: '0.875rem',
                 }}
               >
                 Default Days
@@ -421,15 +933,15 @@ const LeaveTable = () => {
               <TextField
                 type="number"
                 value={
-                  newLeaveType.leave_hours !== ""
+                  newLeaveType.leave_hours !== ''
                     ? newLeaveType.leave_hours / 8
-                    : ""
+                    : ''
                 }
                 onChange={(e) => {
                   const days = e.target.value;
                   setNewLeaveType({
                     ...newLeaveType,
-                    leave_hours: days !== "" ? parseFloat(days) * 8 : "",
+                    leave_hours: days !== '' ? parseFloat(days) * 8 : '',
                   });
                 }}
                 fullWidth
@@ -439,14 +951,14 @@ const LeaveTable = () => {
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
-                      <TimeIcon sx={{ color: "#6d2323", fontSize: 18 }} />
+                      <TimeIcon sx={{ color: '#6d2323', fontSize: 18 }} />
                     </InputAdornment>
                   ),
                   endAdornment: (
                     <InputAdornment position="end">
                       <Typography
                         variant="caption"
-                        sx={{ color: "#888", fontSize: "0.7rem" }}
+                        sx={{ color: '#888', fontSize: '0.7rem' }}
                       >
                         = {newLeaveType.leave_hours || 0} hrs
                       </Typography>
@@ -458,10 +970,10 @@ const LeaveTable = () => {
               <Typography
                 variant="caption"
                 sx={{
-                  color: "#888",
+                  color: '#888',
                   mt: 0.5,
-                  display: "block",
-                  fontSize: "0.7rem",
+                  display: 'block',
+                  fontSize: '0.7rem',
                 }}
               >
                 1 day = 8 hrs
@@ -475,8 +987,8 @@ const LeaveTable = () => {
                 sx={{
                   fontWeight: 600,
                   mb: 1,
-                  color: "#6d2323",
-                  fontSize: "0.875rem",
+                  color: '#6d2323',
+                  fontSize: '0.875rem',
                 }}
               >
                 Gender Restriction
@@ -493,14 +1005,14 @@ const LeaveTable = () => {
                   displayEmpty
                   sx={{
                     borderRadius: 2,
-                    "& .MuiOutlinedInput-notchedOutline": {
-                      borderColor: "rgba(109,35,35,0.2)",
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      borderColor: 'rgba(109,35,35,0.2)',
                     },
-                    "&:hover .MuiOutlinedInput-notchedOutline": {
-                      borderColor: "#6d2323",
+                    '&:hover .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#6d2323',
                     },
-                    "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                      borderColor: "#6d2323",
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#6d2323',
                       borderWidth: 2,
                     },
                   }}
@@ -510,12 +1022,12 @@ const LeaveTable = () => {
                     No Restriction
                   </MenuItem>
                   <MenuItem value="Male">
-                    <MaleIcon sx={{ fontSize: 15, mr: 1, color: "#1565C0" }} />
+                    <MaleIcon sx={{ fontSize: 15, mr: 1, color: '#1565C0' }} />
                     Male Only
                   </MenuItem>
                   <MenuItem value="Female">
                     <FemaleIcon
-                      sx={{ fontSize: 15, mr: 1, color: "#C2185B" }}
+                      sx={{ fontSize: 15, mr: 1, color: '#C2185B' }}
                     />
                     Female Only
                   </MenuItem>
@@ -524,10 +1036,10 @@ const LeaveTable = () => {
               <Typography
                 variant="caption"
                 sx={{
-                  color: "#888",
+                  color: '#888',
                   mt: 0.5,
-                  display: "block",
-                  fontSize: "0.7rem",
+                  display: 'block',
+                  fontSize: '0.7rem',
                 }}
               >
                 e.g., Paternity = Male, Maternity = Female
@@ -541,8 +1053,8 @@ const LeaveTable = () => {
                 sx={{
                   fontWeight: 600,
                   mb: 1,
-                  color: "transparent",
-                  fontSize: "0.875rem",
+                  color: 'transparent',
+                  fontSize: '0.875rem',
                 }}
               >
                 Action
@@ -562,42 +1074,42 @@ const LeaveTable = () => {
                   height: 40,
                   borderRadius: 2,
                   fontWeight: 600,
-                  fontSize: "0.875rem",
+                  fontSize: '0.875rem',
                   backgroundColor:
                     !newLeaveType.leave_code || !newLeaveType.leave_description
-                      ? "#cccccc"
-                      : "#6D2323",
+                      ? '#cccccc'
+                      : '#6D2323',
                   color:
                     !newLeaveType.leave_code || !newLeaveType.leave_description
-                      ? "#666"
-                      : "#FFF",
+                      ? '#666'
+                      : '#FFF',
                   boxShadow:
                     !newLeaveType.leave_code || !newLeaveType.leave_description
-                      ? "none"
-                      : "0 4px 12px rgba(109,35,35,0.3)",
-                  "&:hover": {
+                      ? 'none'
+                      : '0 4px 12px rgba(109,35,35,0.3)',
+                  '&:hover': {
                     backgroundColor:
                       !newLeaveType.leave_code ||
                       !newLeaveType.leave_description
-                        ? "#cccccc"
-                        : "#5a1d1d",
+                        ? '#cccccc'
+                        : '#5a1d1d',
                   },
-                  "&:disabled": {
-                    backgroundColor: "#cccccc !important",
-                    color: "#666 !important",
-                    boxShadow: "none !important",
+                  '&:disabled': {
+                    backgroundColor: '#cccccc !important',
+                    color: '#666 !important',
+                    boxShadow: 'none !important',
                   },
                 }}
               >
-                {loading ? "Adding..." : "Add Type"}
+                {loading ? 'Adding...' : 'Add Type'}
               </Button>
               <Typography
                 variant="caption"
                 sx={{
-                  color: "transparent",
+                  color: 'transparent',
                   mt: 0.5,
-                  display: "block",
-                  fontSize: "0.7rem",
+                  display: 'block',
+                  fontSize: '0.7rem',
                 }}
               >
                 &nbsp;
@@ -608,45 +1120,45 @@ const LeaveTable = () => {
       </GlassCard>
 
       {/* ── Records Section ── */}
-      <GlassCard sx={{ mb: { xs: 6, md: 10 }, overflow: "visible" }}>
+      <GlassCard sx={{ mb: { xs: 6, md: 10 }, overflow: 'visible' }}>
         {/* Records header */}
         <Box
           sx={{
             p: 4,
-            background: "linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)",
-            color: "#6d2323",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
+            background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
+            color: '#6d2323',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
             gap: 2,
-            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
           }}
         >
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Avatar
               sx={{
-                bgcolor: "rgba(109,35,35,0.15)",
+                bgcolor: 'rgba(109,35,35,0.15)',
                 width: 56,
                 height: 56,
-                boxShadow: "0 4px 12px rgba(109,35,35,0.15)",
+                boxShadow: '0 4px 12px rgba(109,35,35,0.15)',
               }}
             >
-              <TimeIcon sx={{ fontSize: 28, color: "#6d2323" }} />
+              <TimeIcon sx={{ fontSize: 28, color: '#6d2323' }} />
             </Avatar>
             <Box>
               <Typography
                 variant="h6"
-                sx={{ fontWeight: 700, color: "#6d2323" }}
+                sx={{ fontWeight: 700, color: '#6d2323' }}
               >
                 Leave Types Records
               </Typography>
               <Typography
                 variant="body2"
-                sx={{ opacity: 0.8, color: "#8B3333" }}
+                sx={{ opacity: 0.8, color: '#8B3333' }}
               >
-                {filteredLeaveTypes.length}{" "}
-                {filteredLeaveTypes.length === 1 ? "leave type" : "leave types"}{" "}
+                {filteredLeaveTypes.length}{' '}
+                {filteredLeaveTypes.length === 1 ? 'leave type' : 'leave types'}{' '}
                 configured
               </Typography>
             </Box>
@@ -660,59 +1172,59 @@ const LeaveTable = () => {
             onChange={(e) => setSearchTerm(e.target.value)}
             sx={{
               minWidth: 300,
-              "& .MuiOutlinedInput-root": {
+              '& .MuiOutlinedInput-root': {
                 borderRadius: 2,
-                backgroundColor: "#fff",
-                "& fieldset": { borderColor: "rgba(109,35,35,0.2)" },
-                "&:hover fieldset": { borderColor: "#6d2323" },
-                "&.Mui-focused fieldset": { borderColor: "#6d2323" },
+                backgroundColor: '#fff',
+                '& fieldset': { borderColor: 'rgba(109,35,35,0.2)' },
+                '&:hover fieldset': { borderColor: '#6d2323' },
+                '&.Mui-focused fieldset': { borderColor: '#6d2323' },
               },
             }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
-                  <SearchIcon sx={{ color: "#6d2323" }} />
+                  <SearchIcon sx={{ color: '#6d2323' }} />
                 </InputAdornment>
               ),
             }}
           />
         </Box>
 
-        <CardContent sx={{ p: 4, overflow: "visible" }}>
+        <CardContent sx={{ p: 4, overflow: 'visible' }}>
           {filteredLeaveTypes.length === 0 ? (
-            <Box sx={{ textAlign: "center", py: 10 }}>
+            <Box sx={{ textAlign: 'center', py: 10 }}>
               <Box
                 sx={{
                   width: 120,
                   height: 120,
-                  borderRadius: "50%",
-                  bgcolor: "rgba(109,35,35,0.05)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  mx: "auto",
+                  borderRadius: '50%',
+                  bgcolor: 'rgba(109,35,35,0.05)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  mx: 'auto',
                   mb: 3,
                 }}
               >
                 <EventNote
-                  sx={{ fontSize: 56, color: "rgba(109,35,35,0.3)" }}
+                  sx={{ fontSize: 56, color: 'rgba(109,35,35,0.3)' }}
                 />
               </Box>
               <Typography
                 variant="h6"
-                sx={{ color: "#6D2323", fontWeight: 700, mb: 1 }}
+                sx={{ color: '#6D2323', fontWeight: 700, mb: 1 }}
               >
                 {leaveTypes.length === 0
-                  ? "No Leave Types Found"
-                  : "No Matching Records"}
+                  ? 'No Leave Types Found'
+                  : 'No Matching Records'}
               </Typography>
               <Typography
                 variant="body2"
-                sx={{ color: "#888", maxWidth: 400, mx: "auto" }}
+                sx={{ color: '#888', maxWidth: 400, mx: 'auto' }}
               >
                 {leaveTypes.length === 0
-                  ? "Get started by creating your first leave type using the form above."
-                  : "Try adjusting your search criteria."}
+                  ? 'Get started by creating your first leave type using the form above.'
+                  : 'Try adjusting your search criteria.'}
               </Typography>
             </Box>
           ) : (
@@ -722,45 +1234,45 @@ const LeaveTable = () => {
                   <Box
                     onClick={() => handleOpenModal(leaveType)}
                     sx={{
-                      border: "1px solid rgba(109,35,35,0.15)",
+                      border: '1px solid rgba(109,35,35,0.15)',
                       borderRadius: 3,
                       p: 2.5,
-                      cursor: "pointer",
-                      transition: "all 0.3s cubic-bezier(0.4,0,0.2,1)",
+                      cursor: 'pointer',
+                      transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
                       background:
-                        "linear-gradient(135deg, #FFFFFF 0%, #FEFEFE 100%)",
+                        'linear-gradient(135deg, #FFFFFF 0%, #FEFEFE 100%)',
                       minHeight: 180,
-                      display: "flex",
-                      flexDirection: "column",
-                      "&:hover": {
-                        boxShadow: "0 12px 32px rgba(109,35,35,0.18)",
-                        borderColor: "#6d2323",
-                        transform: "translateY(-4px)",
+                      display: 'flex',
+                      flexDirection: 'column',
+                      '&:hover': {
+                        boxShadow: '0 12px 32px rgba(109,35,35,0.18)',
+                        borderColor: '#6d2323',
+                        transform: 'translateY(-4px)',
                       },
                     }}
                   >
                     {/* Card Header */}
                     <Box
                       sx={{
-                        display: "flex",
-                        alignItems: "center",
+                        display: 'flex',
+                        alignItems: 'center',
                         gap: 1.5,
                         mb: 2,
                       }}
                     >
                       <Avatar
                         sx={{
-                          bgcolor: "#6d2323",
+                          bgcolor: '#6d2323',
                           width: 48,
                           height: 48,
-                          boxShadow: "0 4px 12px rgba(109,35,35,0.25)",
+                          boxShadow: '0 4px 12px rgba(109,35,35,0.25)',
                         }}
                       >
                         <Typography
                           sx={{
                             fontWeight: 700,
-                            fontSize: "0.85rem",
-                            color: "#fff",
+                            fontSize: '0.85rem',
+                            color: '#fff',
                           }}
                         >
                           {leaveType.leave_code?.substring(0, 2)}
@@ -771,41 +1283,38 @@ const LeaveTable = () => {
                           variant="subtitle1"
                           sx={{
                             fontWeight: 700,
-                            color: "#6d2323",
-                            fontSize: "0.95rem",
+                            color: '#6d2323',
+                            fontSize: '0.95rem',
                             lineHeight: 1.3,
                             mb: 0.2,
                           }}
                         >
-                          {leaveType.leave_description || "Untitled Leave Type"}
+                          {leaveType.leave_description || 'Untitled Leave Type'}
                         </Typography>
                         <Typography
                           variant="caption"
                           sx={{
-                            color: "#888",
+                            color: '#888',
                             fontWeight: 600,
-                            fontSize: "0.72rem",
-                            display: "flex",
-                            alignItems: "center",
+                            fontSize: '0.72rem',
+                            display: 'flex',
+                            alignItems: 'center',
                             gap: 0.5,
                           }}
                         >
-                          {leaveType.gender_restriction === "Male" && (
-                            <MaleIcon sx={{ fontSize: 14, color: "#1976d2" }} />
+                          {leaveType.gender_restriction === 'Male' && (
+                            <MaleIcon sx={{ fontSize: 14, color: '#1976d2' }} />
                           )}
-
-                          {leaveType.gender_restriction === "Female" && (
+                          {leaveType.gender_restriction === 'Female' && (
                             <FemaleIcon
-                              sx={{ fontSize: 14, color: "#e91e63" }}
+                              sx={{ fontSize: 14, color: '#e91e63' }}
                             />
                           )}
-
-                          {leaveType.gender_restriction === "Both" && (
+                          {leaveType.gender_restriction === 'Both' && (
                             <GenderIcon
-                              sx={{ fontSize: 14, color: "#9c27b0" }}
+                              sx={{ fontSize: 14, color: '#9c27b0' }}
                             />
                           )}
-
                           {leaveType.leave_code}
                           {leaveType.gender_restriction &&
                             ` (${leaveType.gender_restriction})`}
@@ -814,37 +1323,37 @@ const LeaveTable = () => {
                     </Box>
 
                     <Divider
-                      sx={{ mb: 1.5, borderColor: "rgba(109,35,35,0.1)" }}
+                      sx={{ mb: 1.5, borderColor: 'rgba(109,35,35,0.1)' }}
                     />
 
                     {/* Hours / Days Row */}
                     <Box
                       sx={{
-                        display: "flex",
-                        justifyContent: "space-around",
+                        display: 'flex',
+                        justifyContent: 'space-around',
                         py: 1,
-                        bgcolor: "rgba(109,35,35,0.02)",
+                        bgcolor: 'rgba(109,35,35,0.02)',
                         borderRadius: 2,
                       }}
                     >
                       {[
                         [
-                          "Days",
+                          'Days',
                           ((leaveType.leave_hours || 0) / 8).toFixed(1),
-                          "#6d2323",
+                          '#6d2323',
                         ],
-                        ["Hours", `${leaveType.leave_hours || 0}`, "#8B3333"],
+                        ['Hours', `${leaveType.leave_hours || 0}`, '#8B3333'],
                       ].map(([label, val, color]) => (
-                        <Box key={label} sx={{ textAlign: "center" }}>
+                        <Box key={label} sx={{ textAlign: 'center' }}>
                           <Typography
                             variant="body1"
-                            sx={{ fontWeight: 700, color, fontSize: "1.1rem" }}
+                            sx={{ fontWeight: 700, color, fontSize: '1.1rem' }}
                           >
                             {val}
                           </Typography>
                           <Typography
                             variant="caption"
-                            sx={{ color: "#888", fontSize: "0.65rem" }}
+                            sx={{ color: '#888', fontSize: '0.65rem' }}
                           >
                             {label}
                           </Typography>
@@ -857,16 +1366,16 @@ const LeaveTable = () => {
                       sx={{
                         mt: 1.5,
                         pt: 1,
-                        borderTop: "1px solid rgba(109,35,35,0.06)",
+                        borderTop: '1px solid rgba(109,35,35,0.06)',
                       }}
                     >
                       <Typography
                         variant="caption"
                         sx={{
-                          color: "#888",
+                          color: '#888',
                           fontWeight: 600,
-                          display: "flex",
-                          alignItems: "center",
+                          display: 'flex',
+                          alignItems: 'center',
                           gap: 0.5,
                         }}
                       >
@@ -886,21 +1395,21 @@ const LeaveTable = () => {
         open={!!editLeaveType}
         onClose={handleCloseModal}
         sx={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
           p: 2,
         }}
       >
         <Box
           sx={{
-            backgroundColor: "#fff",
+            backgroundColor: '#fff',
             borderRadius: 4,
-            width: "90%",
-            maxWidth: "520px",
-            maxHeight: "85vh",
-            overflowY: "auto",
-            boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+            width: '90%',
+            maxWidth: '520px',
+            maxHeight: '85vh',
+            overflowY: 'auto',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
           }}
         >
           {editLeaveType && (
@@ -909,39 +1418,39 @@ const LeaveTable = () => {
               <Box
                 sx={{
                   background:
-                    "linear-gradient(135deg, #6D2323 0%, #8B4545 100%)",
-                  color: "#fff",
+                    'linear-gradient(135deg, #6D2323 0%, #8B4545 100%)',
+                  color: '#fff',
                   p: 4,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  position: "relative",
-                  overflow: "hidden",
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  position: 'relative',
+                  overflow: 'hidden',
                 }}
               >
                 <Box
                   sx={{
-                    position: "absolute",
+                    position: 'absolute',
                     top: -40,
                     right: -40,
                     width: 160,
                     height: 160,
                     background:
-                      "radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%)",
+                      'radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%)',
                   }}
                 />
                 <Box
                   sx={{
-                    display: "flex",
-                    alignItems: "center",
+                    display: 'flex',
+                    alignItems: 'center',
                     gap: 2.5,
-                    position: "relative",
+                    position: 'relative',
                     zIndex: 1,
                   }}
                 >
                   <Avatar
                     sx={{
-                      bgcolor: "rgba(255,255,255,0.2)",
+                      bgcolor: 'rgba(255,255,255,0.2)',
                       width: 56,
                       height: 56,
                     }}
@@ -950,7 +1459,7 @@ const LeaveTable = () => {
                   </Avatar>
                   <Box>
                     <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>
-                      {isEditing ? "Edit Leave Type" : "Leave Type Details"}
+                      {isEditing ? 'Edit Leave Type' : 'Leave Type Details'}
                     </Typography>
                     <Typography variant="body2" sx={{ opacity: 0.85 }}>
                       {editLeaveType.leave_code}
@@ -960,8 +1469,8 @@ const LeaveTable = () => {
                       size="small"
                       sx={{
                         mt: 0.75,
-                        bgcolor: "rgba(255,255,255,0.25)",
-                        color: "#fff",
+                        bgcolor: 'rgba(255,255,255,0.25)',
+                        color: '#fff',
                         fontWeight: 600,
                       }}
                     />
@@ -969,7 +1478,7 @@ const LeaveTable = () => {
                 </Box>
                 <IconButton
                   onClick={handleCloseModal}
-                  sx={{ color: "#fff", position: "relative", zIndex: 1 }}
+                  sx={{ color: '#fff', position: 'relative', zIndex: 1 }}
                 >
                   <Close />
                 </IconButton>
@@ -982,16 +1491,15 @@ const LeaveTable = () => {
                     <Grid item xs={12} key={field}>
                       <Typography
                         variant="subtitle2"
-                        sx={{ fontWeight: 600, mb: 1, color: "#6d2323" }}
+                        sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}
                       >
                         {fieldLabels[field]}
                       </Typography>
 
-                      {/* Gender restriction gets a Select, others get TextField */}
-                      {field === "gender_restriction" ? (
+                      {field === 'gender_restriction' ? (
                         <FormControl fullWidth disabled={!isEditing}>
                           <Select
-                            value={editLeaveType[field] ?? ""}
+                            value={editLeaveType[field] ?? ''}
                             onChange={(e) =>
                               setEditLeaveType({
                                 ...editLeaveType,
@@ -1007,13 +1515,13 @@ const LeaveTable = () => {
                             </MenuItem>
                             <MenuItem value="Male">
                               <MaleIcon
-                                sx={{ fontSize: 15, mr: 1, color: "#1565C0" }}
+                                sx={{ fontSize: 15, mr: 1, color: '#1565C0' }}
                               />
                               Male Only
                             </MenuItem>
                             <MenuItem value="Female">
                               <FemaleIcon
-                                sx={{ fontSize: 15, mr: 1, color: "#C2185B" }}
+                                sx={{ fontSize: 15, mr: 1, color: '#C2185B' }}
                               />
                               Female Only
                             </MenuItem>
@@ -1022,26 +1530,26 @@ const LeaveTable = () => {
                       ) : (
                         <TextField
                           value={
-                            field === "leave_hours"
+                            field === 'leave_hours'
                               ? editLeaveType[field] != null &&
-                                editLeaveType[field] !== ""
+                                editLeaveType[field] !== ''
                                 ? editLeaveType[field] / 8
-                                : ""
-                              : editLeaveType[field] || ""
+                                : ''
+                              : editLeaveType[field] || ''
                           }
                           onChange={(e) => {
-                            if (field === "leave_hours") {
+                            if (field === 'leave_hours') {
                               const days = e.target.value;
                               setEditLeaveType({
                                 ...editLeaveType,
                                 leave_hours:
-                                  days !== "" ? parseFloat(days) * 8 : "",
+                                  days !== '' ? parseFloat(days) * 8 : '',
                               });
                             } else {
                               setEditLeaveType({
                                 ...editLeaveType,
                                 [field]:
-                                  field === "leave_code"
+                                  field === 'leave_code'
                                     ? e.target.value.toUpperCase()
                                     : e.target.value,
                               });
@@ -1049,20 +1557,20 @@ const LeaveTable = () => {
                           }}
                           fullWidth
                           disabled={!isEditing}
-                          type={field === "leave_hours" ? "number" : "text"}
+                          type={field === 'leave_hours' ? 'number' : 'text'}
                           inputProps={
-                            field === "leave_hours"
+                            field === 'leave_hours'
                               ? { min: 0, step: 1 }
                               : undefined
                           }
                           InputProps={
-                            field === "leave_hours"
+                            field === 'leave_hours'
                               ? {
                                   endAdornment: (
                                     <InputAdornment position="end">
                                       <Typography
                                         variant="caption"
-                                        sx={{ color: "#888" }}
+                                        sx={{ color: '#888' }}
                                       >
                                         = {editLeaveType.leave_hours || 0} hrs
                                       </Typography>
@@ -1072,9 +1580,9 @@ const LeaveTable = () => {
                               : undefined
                           }
                           sx={{
-                            "& .MuiOutlinedInput-root": { borderRadius: 2 },
-                            "& .MuiInputBase-input.Mui-disabled": {
-                              WebkitTextFillColor: "#000",
+                            '& .MuiOutlinedInput-root': { borderRadius: 2 },
+                            '& .MuiInputBase-input.Mui-disabled': {
+                              WebkitTextFillColor: '#000',
                             },
                           }}
                         />
@@ -1088,27 +1596,27 @@ const LeaveTable = () => {
                       sx={{
                         p: 2.5,
                         borderRadius: 2,
-                        bgcolor: "rgba(109,35,35,0.04)",
-                        border: "1px solid rgba(109,35,35,0.1)",
+                        bgcolor: 'rgba(109,35,35,0.04)',
+                        border: '1px solid rgba(109,35,35,0.1)',
                       }}
                     >
                       <Typography
                         variant="subtitle2"
-                        sx={{ fontWeight: 600, mb: 1.5, color: "#6d2323" }}
+                        sx={{ fontWeight: 600, mb: 1.5, color: '#6d2323' }}
                       >
                         Days Equivalent (8 hours = 1 day)
                       </Typography>
                       <Grid container spacing={2}>
                         {[
                           [
-                            "Total Days",
+                            'Total Days',
                             ((editLeaveType.leave_hours || 0) / 8).toFixed(1),
-                            "#6d2323",
+                            '#6d2323',
                           ],
                           [
-                            "Total Hours",
+                            'Total Hours',
                             `${editLeaveType.leave_hours || 0} hrs`,
-                            "#8B3333",
+                            '#8B3333',
                           ],
                         ].map(([label, val, color]) => (
                           <Grid item xs={6} key={label}>
@@ -1120,7 +1628,7 @@ const LeaveTable = () => {
                             </Typography>
                             <Typography
                               variant="caption"
-                              sx={{ color: "#666" }}
+                              sx={{ color: '#666' }}
                             >
                               {label}
                             </Typography>
@@ -1134,8 +1642,8 @@ const LeaveTable = () => {
                 {/* Action Buttons */}
                 <Box
                   sx={{
-                    display: "flex",
-                    justifyContent: "flex-end",
+                    display: 'flex',
+                    justifyContent: 'flex-end',
                     mt: 4,
                     gap: 2,
                   }}
@@ -1147,13 +1655,13 @@ const LeaveTable = () => {
                         variant="outlined"
                         startIcon={<DeleteIcon />}
                         sx={{
-                          borderColor: "#d32f2f",
-                          color: "#d32f2f",
+                          borderColor: '#d32f2f',
+                          color: '#d32f2f',
                           borderRadius: 2,
                           px: 3,
-                          "&:hover": {
-                            bgcolor: "rgba(211,47,47,0.08)",
-                            borderColor: "#c62828",
+                          '&:hover': {
+                            bgcolor: 'rgba(211,47,47,0.08)',
+                            borderColor: '#c62828',
                           },
                         }}
                       >
@@ -1164,12 +1672,12 @@ const LeaveTable = () => {
                         variant="contained"
                         startIcon={<EditIcon />}
                         sx={{
-                          bgcolor: "#6D2323",
-                          color: "#FFF",
+                          bgcolor: '#6D2323',
+                          color: '#FFF',
                           borderRadius: 2,
                           px: 3,
-                          boxShadow: "0 4px 12px rgba(109,35,35,0.3)",
-                          "&:hover": { bgcolor: "#5a1d1d" },
+                          boxShadow: '0 4px 12px rgba(109,35,35,0.3)',
+                          '&:hover': { bgcolor: '#5a1d1d' },
                         }}
                       >
                         Edit
@@ -1182,13 +1690,13 @@ const LeaveTable = () => {
                         variant="outlined"
                         startIcon={<CancelIcon />}
                         sx={{
-                          color: "#6d2323",
-                          borderColor: "#6d2323",
+                          color: '#6d2323',
+                          borderColor: '#6d2323',
                           borderRadius: 2,
                           px: 3,
-                          "&:hover": {
-                            borderColor: "#6d2323",
-                            bgcolor: "rgba(109,35,35,0.05)",
+                          '&:hover': {
+                            borderColor: '#6d2323',
+                            bgcolor: 'rgba(109,35,35,0.05)',
                           },
                         }}
                       >
@@ -1199,12 +1707,12 @@ const LeaveTable = () => {
                         variant="contained"
                         startIcon={<SaveIcon />}
                         sx={{
-                          bgcolor: "#6D2323",
-                          color: "#FFF",
+                          bgcolor: '#6D2323',
+                          color: '#FFF',
                           borderRadius: 2,
                           px: 3,
-                          boxShadow: "0 4px 12px rgba(109,35,35,0.3)",
-                          "&:hover": { bgcolor: "#5a1d1d" },
+                          boxShadow: '0 4px 12px rgba(109,35,35,0.3)',
+                          '&:hover': { bgcolor: '#5a1d1d' },
                         }}
                       >
                         Save Changes

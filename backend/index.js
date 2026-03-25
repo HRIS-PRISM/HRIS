@@ -56,6 +56,7 @@ const reportsRoutes = require('./routes/reports');
 const settingsExtendedRoutes = require('./routes/settings-extended');
 const confidentialPasswordRoutes = require('./routes/confidential-password');
 const commutationRoute = require('./routes/commutation');
+const pdsTemplatesRoutes = require('./routes/pds-templates');
 
 
 const app = express();
@@ -119,6 +120,7 @@ const ensureAuditLogTableSQL = `
     table_name VARCHAR(128) NULL,
     record_id INT NULL,
     targetEmployeeNumber VARCHAR(64) NULL,
+    details_json LONGTEXT NULL,
     timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `;
@@ -128,6 +130,12 @@ db.query(ensureAuditLogTableSQL, (err) => {
     console.error('Failed to ensure audit_log table exists:', err);
   } else {
     console.log('Audit log table ready');
+  }
+});
+
+db.query('ALTER TABLE audit_log ADD COLUMN details_json LONGTEXT NULL', (err) => {
+  if (err && err.code !== 'ER_DUP_FIELDNAME') {
+    console.error('Audit log migration details_json:', err.message);
   }
 });
 
@@ -352,6 +360,7 @@ app.use('/', settingsExtendedRoutes);
 app.use('/', confidentialPasswordRoutes);
 app.use('/', PayrollFormulas);
 app.use('/commutationRoute', commutationRoute);
+app.use('/pds-templates', pdsTemplatesRoutes);
 
 // Server startup with Socket.IO
 const PORT = process.env.WEB_PORT || 5000;
@@ -361,6 +370,10 @@ const server = http.createServer(app);
 
 // Initialize Socket.IO
 const io = initializeSocket(server);
+
+// Wire up Socket.IO to route files that use it for real-time events
+leaveRoutes.setSocketIO(io);
+commutationRoute.setSocketIO(io);
 
 // Make io accessible to routes via app.locals
 app.locals.io = io;

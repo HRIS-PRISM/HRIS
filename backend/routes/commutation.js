@@ -1,11 +1,49 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const jwt = require("jsonwebtoken");
+const { logAudit } = require("../middleware/auth");
 
 let io;
 router.setSocketIO = (socketIO) => {
   io = socketIO;
 };
+
+const getActorEmployeeNumber = (req, fallback = null) => {
+  if (req.user?.employeeNumber) return String(req.user.employeeNumber);
+  const authHeader = req.headers?.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+  if (token) {
+    try {
+      const decoded = jwt.decode(token);
+      if (decoded?.employeeNumber) return String(decoded.employeeNumber);
+      if (decoded?.username) return String(decoded.username);
+    } catch (e) { /* ignore */ }
+  }
+  return fallback ? String(fallback) : 'unknown';
+};
+
+const insertTransactionLog = (employeeId, message) =>
+  new Promise((resolve) => {
+    db.query(
+      'INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)',
+      [employeeId, message],
+      (err, result) => resolve(err ? null : result)
+    );
+  });
+
+const getEmployeeFullName = (employeeNumber) =>
+  new Promise((resolve) => {
+    db.query(
+      `SELECT CONCAT_WS(' ', firstName, middleName, lastName, nameExtension) AS fullName
+       FROM person_table WHERE agencyEmployeeNum = ? LIMIT 1`,
+      [employeeNumber],
+      (err, rows) => resolve((!err && rows && rows[0]?.fullName) ? rows[0].fullName.trim() : String(employeeNumber))
+    );
+  });
+
+const formatUserDisplayName = (employeeNumber, fullName) =>
+  fullName && fullName !== String(employeeNumber) ? `${fullName} (${employeeNumber})` : String(employeeNumber);
 
 const emitChange = (eventName) => {
   if (io) {
@@ -119,6 +157,7 @@ router.get("/leave_commutation/carried-forward/:employeeNumber/:leave_code", (re
 router.post("/leave_commutation/commute/:assignmentId", (req, res) => {
   const { assignmentId } = req.params;
   const { commuted_by, remarks } = req.body || {};
+  const actorEmpNum = getActorEmployeeNumber(req, commuted_by);
 
   db.query(
     "SELECT * FROM leave_assignment WHERE id = ?",
@@ -173,8 +212,39 @@ router.post("/leave_commutation/commute/:assignmentId", (req, res) => {
             (updateErr) => {
               if (updateErr) {
                 console.error("[POST /commute] Zero-out error:", updateErr.message);
+                logAudit({ employeeNumber: actorEmpNum }, 'Commute Leave Failed', 'leave_commutation', insertResult.insertId, asgn.employeeNumber);
                 return res.status(500).json({ error: "Commutation recorded but failed to zero out assignment: " + updateErr.message });
               }
+
+              // Audit log
+              const leaveCode = asgn.leave_code;
+              (async () => {
+                try {
+                  const leaveDesc = await new Promise(resolve =>
+                    db.query('SELECT leave_description FROM leave_table WHERE leave_code = ? LIMIT 1', [leaveCode], (e, r) =>
+                      resolve((r && r[0] && r[0].leave_description) || leaveCode)
+                    )
+                  );
+                  const commutedDaysStr = commutedDays.toFixed(2);
+                  logAudit(
+                    { employeeNumber: actorEmpNum },
+                    `Commute Leave - ${leaveDesc} (${commutedDaysStr} days)`,
+                    'leave_commutation',
+                    insertResult.insertId,
+                    asgn.employeeNumber
+                  );
+                  const [actorName, empName] = await Promise.all([
+                    getEmployeeFullName(actorEmpNum),
+                    getEmployeeFullName(String(asgn.employeeNumber)),
+                  ]);
+                  const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+                  const empDisplay = formatUserDisplayName(String(asgn.employeeNumber), empName);
+                  await insertTransactionLog(
+                    String(asgn.employeeNumber),
+                    `${actorDisplay} transferred ${leaveDesc} (${commutedDaysStr} days) to Leave Commutation for ${empDisplay}`
+                  );
+                } catch (e) { console.error('[commute] log error:', e.message); }
+              })();
 
               emitChange("leaveCommutationChanged");
               emitChange("leaveAssignmentChanged");

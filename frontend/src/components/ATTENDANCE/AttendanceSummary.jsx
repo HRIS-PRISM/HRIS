@@ -10,10 +10,8 @@ import {
   TableCell,
   TableHead,
   TableRow,
-  Paper,
   Typography,
   Box,
-  Container,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -29,18 +27,20 @@ import {
   Fade,
   Alert,
   TableContainer,
-  useTheme,
   styled,
-  Divider,
   Backdrop,
   CircularProgress,
   CardHeader,
   Checkbox,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Divider,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import {
   Info,
-  Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   Save as SaveIcon,
@@ -52,7 +52,6 @@ import {
   Warning as WarningIcon,
   Error as ErrorIcon,
   Info as InfoIcon,
-  Search,
   Person,
   CalendarToday,
   Refresh,
@@ -61,30 +60,218 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
-import { useCRUDButtonStyles, useCRUDButtonStylesOutlined } from '../../hooks/useCRUDButtonStyles';
+import {
+  useCRUDButtonStyles,
+  useCRUDButtonStylesOutlined,
+} from '../../hooks/useCRUDButtonStyles';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 
-// Helper function to convert hex to rgb
+// ─────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────
 const hexToRgb = (hex) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '109, 35, 35';
+  return result
+    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
+    : '109, 35, 35';
 };
 
-// Styled components - colors will be applied via sx prop
-const GlassCard = styled(Card)(({ theme }) => ({
+// ─────────────────────────────────────────────
+// WIREFRAME
+// ─────────────────────────────────────────────
+const SHIMMER_CSS = `
+@keyframes oaShimmer {
+  0%   { background-position: -900px 0; }
+  100% { background-position:  900px 0; }
+}
+@keyframes oaPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}`;
+
+const Sk = ({ w = '100%', h = 14, r = 6, sx = {}, accent = '#6d2323' }) => (
+  <Box
+    sx={{
+      width: w,
+      height: h,
+      borderRadius: r,
+      flexShrink: 0,
+      background: `linear-gradient(90deg,
+        ${alpha(accent, 0.07)} 25%,
+        ${alpha(accent, 0.18)} 50%,
+        ${alpha(accent, 0.07)} 75%)`,
+      backgroundSize: '900px 100%',
+      animation: 'oaShimmer 1.6s infinite linear',
+      ...sx,
+    }}
+  />
+);
+
+const Pl = ({ w, h, r = 4, color = 'rgba(109,35,35,0.08)', sx = {} }) => (
+  <Box
+    sx={{
+      width: w,
+      height: h,
+      borderRadius: r,
+      bgcolor: color,
+      flexShrink: 0,
+      ...sx,
+    }}
+  />
+);
+
+const OverallAttendanceWireframe = ({
+  accentColor = '#6d2323',
+  primaryColor = '#FEF9E1',
+  secondaryColor = '#FFF8E7',
+}) => {
+  const ac = accentColor;
+  const grad = `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`;
+  return (
+    <>
+      <style>{SHIMMER_CSS}</style>
+      <Box
+        sx={{
+          py: { xs: 2, md: 4 },
+          width: '100vw',
+          mx: 'auto',
+          maxWidth: '100%',
+          overflow: 'hidden',
+          position: 'relative',
+          left: '53%',
+          transform: 'translateX(-51%)',
+          px: { xs: 2, sm: 3, md: 6 },
+        }}
+      >
+        <Box
+          sx={{
+            mb: 4,
+            borderRadius: '20px',
+            overflow: 'hidden',
+            border: `1px solid ${alpha(ac, 0.1)}`,
+            boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
+            animation: 'oaPulse 2.2s ease-in-out infinite',
+          }}
+        >
+          <Box
+            sx={{
+              p: 5,
+              background: grad,
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+          >
+            <Box
+              sx={{
+                position: 'absolute',
+                top: -50,
+                right: -50,
+                width: 200,
+                height: 200,
+                background: `radial-gradient(circle,${alpha(ac, 0.1)} 0%,${alpha(ac, 0)} 70%)`,
+              }}
+            />
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Pl w={64} h={64} r="50%" color={alpha(ac, 0.13)} />
+                <Box
+                  sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}
+                >
+                  <Sk w={260} h={26} r={6} accent={ac} />
+                  <Sk w={360} h={13} r={4} accent={ac} />
+                </Box>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Sk w={130} h={26} r={13} accent={ac} />
+                <Pl w={48} h={48} r="50%" color={alpha(ac, 0.12)} />
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+        <Box
+          sx={{
+            mb: 4,
+            borderRadius: '20px',
+            overflow: 'hidden',
+            border: `1px solid ${alpha(ac, 0.1)}`,
+            boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
+            animation: 'oaPulse 2.2s ease-in-out 0.08s infinite',
+            bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
+          }}
+        >
+          <Box sx={{ p: 4 }}>
+            <Box sx={{ display: 'flex', gap: 3, mb: 3 }}>
+              {[0, 1, 2].map((fi) => (
+                <Box key={fi} sx={{ flex: 1 }}>
+                  <Sk w={100} h={12} r={3} accent={ac} sx={{ mb: '6px' }} />
+                  <Box
+                    sx={{
+                      height: 56,
+                      borderRadius: '12px',
+                      border: `1px solid ${alpha(ac, 0.18)}`,
+                      bgcolor: 'rgba(255,255,255,0.85)',
+                    }}
+                  />
+                </Box>
+              ))}
+            </Box>
+            <Box
+              sx={{
+                p: 3,
+                borderRadius: 2,
+                border: `2px dashed ${alpha(ac, 0.2)}`,
+                bgcolor: alpha(primaryColor, 0.3),
+                mb: 4,
+              }}
+            >
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 1,
+                  justifyContent: 'center',
+                }}
+              >
+                {Array.from({ length: 12 }, (_, i) => (
+                  <Sk key={i} w={64} h={44} r={10} accent={ac} />
+                ))}
+              </Box>
+            </Box>
+            <Box
+              sx={{
+                height: 48,
+                borderRadius: '12px',
+                bgcolor: alpha(ac, 0.85),
+              }}
+            />
+          </Box>
+        </Box>
+      </Box>
+    </>
+  );
+};
+
+// ─────────────────────────────────────────────
+// STYLED COMPONENTS
+// ─────────────────────────────────────────────
+const GlassCard = styled(Card)(() => ({
   borderRadius: 20,
   backdropFilter: 'blur(10px)',
   overflow: 'hidden',
   transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  '&:hover': {
-    transform: 'translateY(-4px)',
-  },
+  '&:hover': { transform: 'translateY(-4px)' },
 }));
 
-const ProfessionalButton = styled(Button)(({ theme, variant, color = 'primary' }) => ({
+const ProfessionalButton = styled(Button)(({ variant }) => ({
   borderRadius: 12,
   fontWeight: 600,
   padding: '12px 24px',
@@ -92,70 +279,46 @@ const ProfessionalButton = styled(Button)(({ theme, variant, color = 'primary' }
   textTransform: 'none',
   fontSize: '0.95rem',
   letterSpacing: '0.025em',
-  boxShadow: variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
-  '&:hover': {
-    transform: 'translateY(-2px)',
-    boxShadow: variant === 'contained' ? '0 6px 20px rgba(254, 249, 225, 0.35)' : 'none',
-  },
-  '&:active': {
-    transform: 'translateY(0)',
-  },
+  boxShadow:
+    variant === 'contained' ? '0 4px 14px rgba(254,249,225,0.25)' : 'none',
+  '&:hover': { transform: 'translateY(-2px)' },
+  '&:active': { transform: 'translateY(0)' },
 }));
 
-const ModernTextField = styled(TextField)(({ theme }) => ({
+const ModernTextField = styled(TextField)(() => ({
   '& .MuiOutlinedInput-root': {
     borderRadius: 12,
     transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    backgroundColor: 'rgba(255,255,255,0.8)',
     '&:hover': {
       transform: 'translateY(-1px)',
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      backgroundColor: 'rgba(255,255,255,0.95)',
     },
     '&.Mui-focused': {
       transform: 'translateY(-1px)',
-      boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
-      backgroundColor: 'rgba(255, 255, 255, 1)',
+      backgroundColor: 'rgba(255,255,255,1)',
     },
   },
-  '& .MuiInputLabel-root': {
-    fontWeight: 500,
-  },
+  '& .MuiInputLabel-root': { fontWeight: 500 },
 }));
 
-const PremiumTableContainer = styled(TableContainer)(({ theme }) => ({
-  borderRadius: 16,
-  overflow: 'auto', // Enable both horizontal and vertical scrolling
-  boxShadow: '0 4px 24px rgba(109, 35, 35, 0.06)',
-  border: '1px solid rgba(109, 35, 35, 0.08)',
-  maxHeight: '600px', // Set max height for vertical scrolling
-  '&::-webkit-scrollbar': {
-    width: '8px',
-    height: '8px',
-  },
-  '&::-webkit-scrollbar-track': {
-    background: 'rgba(254, 249, 225, 0.3)',
-    borderRadius: '4px',
-  },
-  '&::-webkit-scrollbar-thumb': {
-    background: 'rgba(109, 35, 35, 0.4)',
-    borderRadius: '4px',
-    '&:hover': {
-      background: 'rgba(109, 35, 35, 0.6)',
-    },
-  },
-}));
+const PremiumTableCell = styled(TableCell)(
+  ({ isHeader = false, bgColor = null }) => ({
+    fontWeight: isHeader ? 600 : 500,
+    padding: '12px 14px',
+    borderBottom: isHeader
+      ? '2px solid rgba(254,249,225,0.5)'
+      : '1px solid rgba(109,35,35,0.06)',
+    fontSize: '0.83rem',
+    letterSpacing: '0.025em',
+    backgroundColor: bgColor ? bgColor : 'transparent',
+    whiteSpace: 'nowrap',
+  }),
+);
 
-const PremiumTableCell = styled(TableCell)(({ theme, isHeader = false }) => ({
-  fontWeight: isHeader ? 600 : 500,
-  padding: '18px 20px',
-  borderBottom: isHeader ? '2px solid rgba(254, 249, 225, 0.5)' : '1px solid rgba(109, 35, 35, 0.06)',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-  minWidth: '120px', // Ensure minimum width for cells
-  whiteSpace: 'nowrap', // Prevent text wrapping
-}));
-
-// Styled Modal Component - professional look
+// ─────────────────────────────────────────────
+// STYLED MODAL
+// ─────────────────────────────────────────────
 const StyledModal = ({
   open,
   onClose,
@@ -164,23 +327,56 @@ const StyledModal = ({
   type = 'info',
   onConfirm,
   showCancel = false,
+  accentColor = '#6D2323',
+  accentDark = '#8B3333',
+  primaryColor = '#FEF9E1',
+  secondaryColor = '#FFF8E7',
+  textPrimaryColor = '#6D2323',
 }) => {
-  const getIcon = () => {
-    const baseStyles = {
-      fontSize: 40,
-    };
-
-    switch (type) {
-      case 'success':
-        return <CheckCircleIcon sx={{ ...baseStyles, color: '#2e7d32' }} />;
-      case 'warning':
-        return <WarningIcon sx={{ ...baseStyles, color: '#ed6c02' }} />;
-      case 'error':
-        return <ErrorIcon sx={{ ...baseStyles, color: '#d32f2f' }} />;
-      default:
-        return <InfoIcon sx={{ ...baseStyles, color: '#1976d2' }} />;
-    }
+  const typeConfig = {
+    success: {
+      icon: <CheckCircleIcon sx={{ fontSize: 30, color: '#2e7d32' }} />,
+      avatarBg: 'rgba(46,125,50,0.15)',
+      chipColor: '#2e7d32',
+      chipBg: 'rgba(46,125,50,0.1)',
+      label: 'Success',
+    },
+    warning: {
+      icon: <WarningIcon sx={{ fontSize: 30, color: '#92400e' }} />,
+      avatarBg: 'rgba(146,64,14,0.15)',
+      chipColor: '#92400e',
+      chipBg: 'rgba(146,64,14,0.1)',
+      label: 'Warning',
+    },
+    error: {
+      icon: <ErrorIcon sx={{ fontSize: 30, color: '#991b1b' }} />,
+      avatarBg: 'rgba(153,27,27,0.15)',
+      chipColor: '#991b1b',
+      chipBg: 'rgba(153,27,27,0.1)',
+      label: 'Error',
+    },
+    info: {
+      icon: <InfoIcon sx={{ fontSize: 30, color: textPrimaryColor }} />,
+      avatarBg: alpha(accentColor, 0.14),
+      chipColor: accentColor,
+      chipBg: alpha(accentColor, 0.1),
+      label: 'Notice',
+    },
   };
+  const cfg = typeConfig[type] || typeConfig.info;
+
+  // Smart message parser
+  const lines = message
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const isListItem = (l) =>
+    l.startsWith('•') ||
+    l.startsWith('-') ||
+    /^\d{5,}/.test(l) ||
+    /^Employee\s+\d/.test(l);
+  const isNote = (l) =>
+    /^(contact|please|this action|note:|important)/i.test(l);
 
   return (
     <Dialog
@@ -190,99 +386,277 @@ const StyledModal = ({
       fullWidth
       PaperProps={{
         sx: {
-          borderRadius: 3,
-          boxShadow: '0px 10px 40px rgba(0,0,0,0.18)',
-          border: '1px solid rgba(109, 35, 35, 0.12)',
+          borderRadius: '24px',
           overflow: 'hidden',
+          boxShadow: `0 32px 80px ${alpha(accentColor, 0.25)}, 0 8px 24px ${alpha(accentColor, 0.12)}`,
+          border: `1px solid ${alpha(accentColor, 0.14)}`,
+          bgcolor: primaryColor,
         },
       }}
     >
-      <DialogTitle
+      {/* ── Full gradient header ── */}
+      <Box
         sx={{
-          px: 3,
-          pt: 2.5,
-          pb: 1.5,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          borderBottom: '1px solid rgba(0,0,0,0.08)',
-          backgroundColor: '#FFFFFF',
+          px: 4,
+          pt: 4,
+          pb: 3.5,
+          background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+          position: 'relative',
+          overflow: 'hidden',
         }}
       >
-        <Typography
-          variant="subtitle1"
-          sx={{ fontWeight: 700, color: '#6D2323', letterSpacing: 0.3 }}
-        >
-          {title}
-        </Typography>
+        {/* Decorative blobs */}
+        <Box
+          sx={{
+            position: 'absolute',
+            top: -50,
+            right: -50,
+            width: 200,
+            height: 200,
+            borderRadius: '50%',
+            background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, transparent 70%)`,
+            pointerEvents: 'none',
+          }}
+        />
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: -30,
+            left: '25%',
+            width: 150,
+            height: 150,
+            borderRadius: '50%',
+            background: `radial-gradient(circle, ${alpha(accentColor, 0.07)} 0%, transparent 70%)`,
+            pointerEvents: 'none',
+          }}
+        />
+
+        {/* Close button top-right */}
         <IconButton
           size="small"
           onClick={onClose}
           sx={{
-            color: '#6D2323',
-            '&:hover': {
-              backgroundColor: 'rgba(109, 35, 35, 0.06)',
-            },
+            position: 'absolute',
+            top: 16,
+            right: 16,
+            zIndex: 2,
+            color: textPrimaryColor,
+            opacity: 0.45,
+            '&:hover': { opacity: 1, bgcolor: alpha(accentColor, 0.1) },
           }}
         >
           <CloseIcon fontSize="small" />
         </IconButton>
-      </DialogTitle>
 
-      <DialogContent
-        sx={{
-          px: 4,
-          pt: 3,
-          pb: 2,
-          backgroundColor: '#FFFFFF',
-          minHeight: 320,
-        }}
-      >
+        {/* Avatar + title */}
         <Box
           sx={{
             display: 'flex',
-            flexDirection: 'column',
             alignItems: 'center',
-            textAlign: 'center',
-                gap: 2.5,
+            gap: 2.5,
+            position: 'relative',
+            zIndex: 1,
           }}
         >
-          <Box
+          <Avatar
             sx={{
-              width: 72,
-              height: 72,
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-                  backgroundColor: 'rgba(109,35,35,0.06)',
+              bgcolor: cfg.avatarBg,
+              width: 60,
+              height: 60,
+              boxShadow: `0 8px 24px ${alpha(accentColor, 0.18)}`,
+              border: `2px solid ${alpha(accentColor, 0.1)}`,
             }}
           >
-            {getIcon()}
+            {cfg.icon}
+          </Avatar>
+          <Box>
+            <Box
+              sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}
+            >
+              <Typography
+                sx={{
+                  fontWeight: 800,
+                  fontSize: '1.2rem',
+                  color: textPrimaryColor,
+                  lineHeight: 1.2,
+                  letterSpacing: '-0.01em',
+                }}
+              >
+                {title}
+              </Typography>
+              <Chip
+                label={cfg.label}
+                size="small"
+                sx={{
+                  bgcolor: cfg.chipBg,
+                  color: cfg.chipColor,
+                  fontWeight: 700,
+                  fontSize: '0.65rem',
+                  letterSpacing: '0.07em',
+                  textTransform: 'uppercase',
+                  height: 20,
+                  borderRadius: '6px',
+                  border: `1px solid ${alpha(cfg.chipColor, 0.2)}`,
+                }}
+              />
+            </Box>
+            <Typography
+              sx={{
+                fontSize: '0.78rem',
+                color: alpha(textPrimaryColor, 0.5),
+                fontWeight: 500,
+              }}
+            >
+              {new Date().toLocaleDateString('en-US', {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </Typography>
           </Box>
-
-          <Typography
-            sx={{
-              color: '#4b1717',
-              fontSize: 15,
-              whiteSpace: 'pre-line',
-              lineHeight: 1.7,
-            }}
-          >
-            {message}
-          </Typography>
         </Box>
-      </DialogContent>
+      </Box>
 
-      <DialogActions
+      {/* ── Body — same primaryColor background, not white ── */}
+      <Box
         sx={{
           px: 4,
           py: 3,
-          backgroundColor: '#FFFFFF',
-          borderTop: '1px solid rgba(0,0,0,0.04)',
+          bgcolor: alpha(primaryColor, 0.6),
+          borderTop: `1px solid ${alpha(accentColor, 0.08)}`,
+          borderBottom: `1px solid ${alpha(accentColor, 0.08)}`,
+        }}
+      >
+        {lines.map((line, i) => {
+          if (isListItem(line)) {
+            const clean = line.replace(/^[•\-]\s*/, '');
+            const [empPart, ...rest] = clean.split(':');
+            return (
+              <Box
+                key={i}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  mb: 1,
+                  px: 2,
+                  py: 1.25,
+                  borderRadius: '12px',
+                  bgcolor: 'rgba(255,255,255,0.75)',
+                  border: `1px solid ${alpha(accentColor, 0.1)}`,
+                  backdropFilter: 'blur(4px)',
+                  boxShadow: `0 2px 8px ${alpha(accentColor, 0.06)}`,
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: '8px',
+                    flexShrink: 0,
+                    bgcolor: alpha(accentColor, 0.1),
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Person
+                    sx={{ fontSize: 16, color: accentColor, opacity: 0.7 }}
+                  />
+                </Box>
+                <Box>
+                  <Typography
+                    sx={{
+                      fontSize: '0.82rem',
+                      fontWeight: 700,
+                      color: textPrimaryColor,
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {empPart?.trim()}
+                  </Typography>
+                  {rest.length > 0 && (
+                    <Typography
+                      sx={{
+                        fontSize: '0.75rem',
+                        color: alpha(textPrimaryColor, 0.55),
+                        fontWeight: 500,
+                        mt: 0.15,
+                      }}
+                    >
+                      {rest.join(':').trim()}
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+            );
+          }
+          if (isNote(line)) {
+            return (
+              <Box
+                key={i}
+                sx={{
+                  mt: 1.5,
+                  px: 2,
+                  py: 1.5,
+                  borderRadius: '12px',
+                  bgcolor: alpha(accentColor, 0.06),
+                  border: `1px solid ${alpha(accentColor, 0.14)}`,
+                  borderLeft: `4px solid ${alpha(accentColor, 0.5)}`,
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 1.25,
+                }}
+              >
+                <InfoIcon
+                  sx={{
+                    fontSize: 15,
+                    color: accentColor,
+                    opacity: 0.6,
+                    mt: 0.2,
+                    flexShrink: 0,
+                  }}
+                />
+                <Typography
+                  sx={{
+                    fontSize: '0.82rem',
+                    color: alpha(textPrimaryColor, 0.75),
+                    fontWeight: 600,
+                    lineHeight: 1.65,
+                  }}
+                >
+                  {line}
+                </Typography>
+              </Box>
+            );
+          }
+          return (
+            <Typography
+              key={i}
+              sx={{
+                fontSize: '0.9rem',
+                color: alpha(textPrimaryColor, 0.8),
+                lineHeight: 1.8,
+                fontWeight: 500,
+                mb: i < lines.length - 1 ? 1.25 : 0,
+              }}
+            >
+              {line}
+            </Typography>
+          );
+        })}
+      </Box>
+
+      {/* ── Footer ── */}
+      <Box
+        sx={{
+          px: 4,
+          py: 2.5,
+          bgcolor: alpha(primaryColor, 0.8),
           display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'stretch',
+          justifyContent: 'flex-end',
+          alignItems: 'center',
           gap: 1.5,
         }}
       >
@@ -291,10 +665,13 @@ const StyledModal = ({
             onClick={onClose}
             variant="outlined"
             sx={{
-              width: '100%',
-              borderColor: 'rgba(109,35,35,0.6)',
-              color: '#6D2323',
-              fontWeight: 600,
+              borderColor: alpha(accentColor, 0.3),
+              color: textPrimaryColor,
+              bgcolor: 'rgba(255,255,255,0.6)',
+              '&:hover': {
+                borderColor: accentColor,
+                bgcolor: 'rgba(255,255,255,0.9)',
+              },
             }}
           >
             Cancel
@@ -304,73 +681,73 @@ const StyledModal = ({
           onClick={onConfirm || onClose}
           variant="contained"
           sx={{
-            width: '100%',
-            bgcolor: '#6D2323',
-            color: '#FEF9E1',
-            fontWeight: 600,
+            bgcolor: accentColor,
+            color: primaryColor,
+            boxShadow: `0 4px 16px ${alpha(accentColor, 0.4)}`,
             '&:hover': {
-              bgcolor: '#8B3333',
+              bgcolor: accentDark,
+              boxShadow: `0 6px 20px ${alpha(accentColor, 0.5)}`,
             },
           }}
         >
           {showCancel ? 'Confirm' : 'OK'}
         </ProfessionalButton>
-      </DialogActions>
+      </Box>
     </Dialog>
   );
 };
 
+// ─────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────
 const OverallAttendance = () => {
   const { socket, connected } = useSocket();
   const { settings } = useSystemSettings();
   const saveButtonStyles = useCRUDButtonStyles('save');
   const editButtonStyles = useCRUDButtonStyles('edit');
   const deleteButtonStyles = useCRUDButtonStylesOutlined('delete');
-  const [employeeNumber, setEmployeeNumber] = useState('');
-  const [startDate, setStartDate] = useState('');
   const fetchAttendanceDataRef = useRef(null);
-  
-  // Get colors from system settings
-  const primaryColor = settings.accentColor || '#FEF9E1'; // Cards color
-  const secondaryColor = settings.backgroundColor || '#FFF8E7'; // Background
-  const accentColor = settings.primaryColor || '#6D2323'; // Primary accent
-  const accentDark = settings.secondaryColor || '#8B3333'; // Darker accent
+  const navigate = useNavigate();
+
+  // Colors
+  const primaryColor = settings.accentColor || '#FEF9E1';
+  const secondaryColor = settings.backgroundColor || '#FFF8E7';
+  const accentColor = settings.primaryColor || '#6D2323';
+  const accentDark = settings.secondaryColor || '#8B3333';
   const textPrimaryColor = settings.textPrimaryColor || '#6D2323';
   const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
-  const hoverColor = settings.hoverColor || '#6D2323';
-  const blackColor = '#1a1a1a';
-  const whiteColor = '#FFFFFF';
-  const grayColor = '#6c757d';
 
-  //ACCESSING
-  // Dynamic page access control using component identifier
-  // The identifier 'attendance-summary' should match the component_identifier in the pages table
+  const [showJOConfirm, setShowJOConfirm] = useState(false);
+  const [confirmJOChecked, setConfirmJOChecked] = useState(false);
+
+  // Access control
   const {
     hasAccess,
     loading: accessLoading,
     error: accessError,
   } = usePageAccess('attendance-summary');
-  
-  // Debug logging (remove in production)
+
   useEffect(() => {
     if (!accessLoading) {
       console.log('AttendanceSummary Access Check:', {
         hasAccess,
         accessLoading,
         accessError,
-        identifier: 'attendance-summary'
+        identifier: 'attendance-summary',
       });
     }
   }, [hasAccess, accessLoading, accessError]);
-  // ACCESSING END
 
+  // State
+  const [employeeNumber, setEmployeeNumber] = useState('');
+  const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [attendanceData, setAttendanceData] = useState([]);
   const [editRecord, setEditRecord] = useState(null);
-  const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmittingJO, setIsSubmittingJO] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [showRegularConfirm, setShowRegularConfirm] = useState(false);
   const [confirmRegularChecked, setConfirmRegularChecked] = useState(false);
   const [processingOverlay, setProcessingOverlay] = useState(false);
@@ -378,8 +755,28 @@ const OverallAttendance = () => {
   const [successOverlay, setSuccessOverlay] = useState(false);
   const [successRedirect, setSuccessRedirect] = useState('');
   const [successAction, setSuccessAction] = useState('send');
+  const resultsRef = useRef(null);
 
-  // Modal state
+  // Month picker state
+  const currentYear = new Date().getFullYear();
+  const months = [
+    'JAN',
+    'FEB',
+    'MAR',
+    'APR',
+    'MAY',
+    'JUN',
+    'JUL',
+    'AUG',
+    'SEP',
+    'OCT',
+    'NOV',
+    'DEC',
+  ];
+  const [selectedMonth, setSelectedMonth] = useState(null);
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
+
   const [modal, setModal] = useState({
     open: false,
     title: '',
@@ -388,27 +785,24 @@ const OverallAttendance = () => {
     onConfirm: null,
     showCancel: false,
   });
+  const showModal = (
+    title,
+    message,
+    type = 'info',
+    onConfirm = null,
+    showCancel = false,
+  ) => setModal({ open: true, title, message, type, onConfirm, showCancel });
+  const closeModal = () => setModal((p) => ({ ...p, open: false }));
 
-  const showModal = (title, message, type = 'info', onConfirm = null, showCancel = false) => {
-    setModal({
-      open: true,
-      title,
-      message,
-      type,
-      onConfirm,
-      showCancel,
-    });
-  };
-
-  const closeModal = () => {
-    setModal({ ...modal, open: false });
-  };
+  useEffect(() => {
+    if (!accessLoading) setPageLoading(false);
+  }, [accessLoading]);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
     console.log(
       'Token from localStorage:',
-      token ? 'Token exists' : 'No token found'
+      token ? 'Token exists' : 'No token found',
     );
     if (token) {
       console.log('Token length:', token.length);
@@ -422,102 +816,112 @@ const OverallAttendance = () => {
     };
   };
 
+  // Restore persisted inputs
   useEffect(() => {
     const storedEmployeeNumber = localStorage.getItem('employeeNumber');
     const storedStartDate = localStorage.getItem('startDate');
     const storedEndDate = localStorage.getItem('endDate');
-
     if (storedEmployeeNumber) setEmployeeNumber(storedEmployeeNumber);
     if (storedStartDate) setStartDate(storedStartDate);
     if (storedEndDate) setEndDate(storedEndDate);
   }, []);
 
+  // ── Month picker handler ──────────────────────────────────────────────────
+  const handleMonthClick = (monthIndex) => {
+    const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
+    const end = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
+    setStartDate(start.toISOString().substring(0, 10));
+    setEndDate(end.toISOString().substring(0, 10));
+    setSelectedMonth(monthIndex);
+  };
+
+  // ── Fetch ─────────────────────────────────────────────────────────────────
   const fetchAttendanceData = async () => {
     console.log('Sending request with params: ', {
       personID: employeeNumber,
       startDate,
       endDate,
     });
-
     setLoading(true);
-
     try {
       const response = await axios.get(
         `${API_BASE_URL}/attendance/api/overall_attendance_record`,
         {
-          params: {
-            personID: employeeNumber,
-            startDate,
-            endDate,
-          },
+          params: { personID: employeeNumber, startDate, endDate },
           ...getAuthHeaders(),
-        }
+        },
       );
-
-      if (response.status === 200) {
-        setAttendanceData(response.data.data);
-      } else {
-        console.error('Error: ', response.status);
-      }
+     if (response.status === 200) {
+  setAttendanceData(response.data.data);
+  setTimeout(() => {
+    resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 150);
+} else {
+  console.error('Error: ', response.status);
+}
     } catch (error) {
       console.error('Error fetching data:', error);
-      showModal('Data Retrieval Error', 'Unable to retrieve attendance records. Please try again.', 'error');
+      showModal(
+        'Data Retrieval Error',
+        'Unable to retrieve attendance records. Please try again.',
+        'error',
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  // Keep latest fetch function for Socket.IO handler
   useEffect(() => {
     fetchAttendanceDataRef.current = fetchAttendanceData;
   });
 
-  // Realtime: refresh when attendance data changes
+  // Realtime refresh
   useEffect(() => {
     if (!socket || !connected) return;
-
     const handleAttendanceChanged = (payload) => {
       const changedPersonIDs = Array.isArray(payload?.personIDs)
         ? payload.personIDs
         : payload?.personID
           ? [payload.personID]
           : [];
-
-      if (employeeNumber && changedPersonIDs.length > 0 && !changedPersonIDs.includes(employeeNumber)) {
+      if (
+        employeeNumber &&
+        changedPersonIDs.length > 0 &&
+        !changedPersonIDs.includes(employeeNumber)
+      )
         return;
-      }
-
-      if (employeeNumber && startDate && endDate) {
+      if (employeeNumber && startDate && endDate)
         fetchAttendanceDataRef.current?.();
-      }
     };
-
     socket.on('attendanceChanged', handleAttendanceChanged);
     return () => {
       socket.off('attendanceChanged', handleAttendanceChanged);
     };
   }, [socket, connected, employeeNumber, startDate, endDate]);
 
+  // ── CRUD ──────────────────────────────────────────────────────────────────
   const updateRecord = async () => {
     if (!editRecord || !editRecord.totalRenderedTimeMorning) return;
-
     try {
       await axios.put(
         `${API_BASE_URL}/attendance/api/overall_attendance_record/${editRecord.id}`,
         editRecord,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
-      
-      showModal('Update Successful', 'Record updated successfully.', 'success', () => {
-        fetchAttendanceData();
-        window.location.reload();
-        closeModal();
-      });
+      showModal(
+        'Update Successful',
+        'Record updated successfully.',
+        'success',
+        () => {
+          fetchAttendanceData();
+          window.location.reload();
+          closeModal();
+        },
+      );
     } catch (error) {
       console.error('Error updating record:', error);
       showModal('Update Failed', 'Unable to update record.', 'error');
     }
-
     setEditRecord(null);
   };
 
@@ -530,32 +934,39 @@ const OverallAttendance = () => {
         try {
           await axios.delete(
             `${API_BASE_URL}/attendance/api/overall_attendance_record/${id}/${personID}`,
-            getAuthHeaders()
+            getAuthHeaders(),
           );
           fetchAttendanceData();
-          showModal('Deleted Successfully', 'Record removed from system.', 'success');
+          showModal(
+            'Deleted Successfully',
+            'Record removed from system.',
+            'success',
+          );
         } catch (error) {
           console.error('Delete failed:', error);
           const status = error.response?.status;
           const message =
-            error.response?.data?.message || error.response?.data?.error || 'Error';
-          
-          if (status === 404) {
-            showModal('Not Found', 'Record not found or already deleted.', 'error');
-          } else if (status === 401 || status === 403) {
+            error.response?.data?.message ||
+            error.response?.data?.error ||
+            'Error';
+          if (status === 404)
+            showModal(
+              'Not Found',
+              'Record not found or already deleted.',
+              'error',
+            );
+          else if (status === 401 || status === 403)
             showModal('Session Expired', 'Please log in again.', 'error');
-          } else {
-            showModal('Deletion Failed', `${message}`, 'error');
-          }
+          else showModal('Deletion Failed', `${message}`, 'error');
         }
       },
-      true
+      true,
     );
   };
 
+  // ── Payroll Regular ───────────────────────────────────────────────────────
   const submitToPayroll = async () => {
     if (isSubmitting) return;
-
     if (!attendanceData || attendanceData.length === 0) {
       showModal('No Data', 'No attendance records available.', 'warning');
       return;
@@ -566,47 +977,50 @@ const OverallAttendance = () => {
     setProcessingMessage('Submitting Regular payroll...');
 
     try {
-      const filteredRecords = [];
-      const invalidRecords = [];
-
+      const filteredRecords = [],
+        invalidRecords = [];
       for (const record of attendanceData) {
-        const employeeNumber = record.personID || record.employeeNumber;
-        const employmentCategory = await fetchEmploymentCategory(employeeNumber);
-
+        const empNum = record.personID || record.employeeNumber;
+        const employmentCategory = await fetchEmploymentCategory(empNum);
         if (employmentCategory === null) {
           invalidRecords.push({
-            employeeNumber,
+            employeeNumber: empNum,
             reason: 'Employment category not found in system',
           });
           continue;
         }
-
-        if (employmentCategory === 1) {
+        if (
+          employmentCategory === 2 ||
+          employmentCategory === 3 ||
+          employmentCategory === 4
+        )
           filteredRecords.push(record);
-        } else if (employmentCategory === 0) {
+        else if (employmentCategory === 0 || employmentCategory === 1)
           invalidRecords.push({
-            employeeNumber,
+            employeeNumber: empNum,
             reason: 'Job Order (JO)',
           });
-        }
+        else
+          invalidRecords.push({
+            employeeNumber: empNum,
+            reason: `Unknown employment category (${employmentCategory})`,
+          });
       }
 
       if (invalidRecords.length > 0) {
         const invalidList = invalidRecords
           .map((r) => `${r.employeeNumber}: ${r.reason}`)
           .join('\n');
-
         if (filteredRecords.length === 0) {
-          showModal(
-            'Submission Blocked',
-            `Employee(s) not eligible for Regular payroll:\n\n${invalidList}\n\nContact HR Department to update employment category.`,
-            'warning'
-          );
+         showModal(
+  'Submission Blocked — Regular Payroll',
+  `The following employee(s) could not be processed for Regular Payroll submission:\n\n${invalidRecords.map(r => `• Employee ${r.employeeNumber}: ${r.reason}`).join('\n')}\n\nPlease verify and update the employment category on record before resubmitting.`,
+  'warning',
+);
           setProcessingOverlay(false);
           setIsSubmitting(false);
           return;
         }
-
         showModal(
           'Confirm Submission',
           `${filteredRecords.length} eligible record(s)\n${invalidRecords.length} excluded\n\nProceed with submission?`,
@@ -615,7 +1029,7 @@ const OverallAttendance = () => {
             closeModal();
             await continuePayrollSubmission(filteredRecords);
           },
-          true
+          true,
         );
         setProcessingOverlay(false);
         return;
@@ -637,19 +1051,19 @@ const OverallAttendance = () => {
         employeeNumber: record.personID,
         startDate: record.startDate,
         endDate: record.endDate,
-        overallRenderedOfficialTimeTardiness: record.overallRenderedOfficialTimeTardiness,
+        overallRenderedOfficialTimeTardiness:
+          record.overallRenderedOfficialTimeTardiness,
         department: record.code,
       }));
 
       const missingFields = payload.filter(
-        (record) => !record.employeeNumber || !record.startDate || !record.endDate
+        (r) => !r.employeeNumber || !r.startDate || !r.endDate,
       );
-
       if (missingFields.length > 0) {
         showModal(
           'Validation Error',
           'Required fields missing. Check Employee Number, Start Date, and End Date.',
-          'error'
+          'error',
         );
         setProcessingOverlay(false);
         return;
@@ -657,27 +1071,29 @@ const OverallAttendance = () => {
 
       for (const payloadRecord of payload) {
         const { employeeNumber, startDate, endDate } = payloadRecord;
-
         try {
           const response = await axios.get(
             `${API_BASE_URL}/PayrollRoute/payroll-with-remittance`,
             {
               ...getAuthHeaders(),
               params: { employeeNumber, startDate, endDate },
-            }
+            },
           );
-
           if (response.data.exists) {
             showModal(
               'Duplicate Entry',
               `Payroll entry exists for Employee ${employeeNumber} (${startDate} to ${endDate}).`,
-              'warning'
+              'warning',
             );
             return;
           }
         } catch (duplicateCheckError) {
           console.error('Error checking for duplicates:', duplicateCheckError);
-          showModal('Validation Error', 'Unable to verify existing records.', 'error');
+          showModal(
+            'Validation Error',
+            'Unable to verify existing records.',
+            'error',
+          );
           return;
         }
       }
@@ -685,14 +1101,22 @@ const OverallAttendance = () => {
       const submitResponse = await axios.post(
         `${API_BASE_URL}/PayrollRoute/add-rendered-time`,
         payload,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
-
       if (submitResponse.status === 200 || submitResponse.status === 201) {
-        setProcessingOverlay(false);
-        setSuccessAction('send');
-        setSuccessRedirect('/payroll-table');
-        setSuccessOverlay(true);
+        if (submitResponse.data.newCount === 0) {
+          setProcessingOverlay(false);
+          showModal(
+            'Already Exists',
+            'All records already exist in payroll processing. No new entries were added.',
+            'warning',
+          );
+        } else {
+          setProcessingOverlay(false);
+          setSuccessAction('send');
+          setSuccessRedirect('/payroll-table');
+          setSuccessOverlay(true);
+        }
       } else {
         throw new Error(`Unexpected response status: ${submitResponse.status}`);
       }
@@ -708,24 +1132,28 @@ const OverallAttendance = () => {
         error.response.data?.message ||
         error.response.data?.error ||
         'Server error occurred';
-
-      if (status === 409) {
-        showModal('Duplicate Entry', 'Record already exists in payroll.', 'warning');
-      } else if (status === 400) {
-        showModal('Invalid Data', message, 'error');
-      } else {
-        showModal('Server Error', `Error ${status}: ${message}`, 'error');
-      }
+      if (status === 409)
+        showModal(
+  'Duplicate Entries — Job Order Payroll',
+  `The system has detected existing Job Order Payroll records for the specified period:\n\n${duplicateRecords.map(r => `• Employee ${r.employeeNumber}: ${r.startDate} → ${r.endDate}`).join('\n')}\n\nPlease verify and review the existing entries before resubmitting.`,
+  'warning',
+);
+      else if (status === 400) showModal('Invalid Data', message, 'error');
+      else showModal('Server Error', `Error ${status}: ${message}`, 'error');
     } else if (error.request) {
-      showModal('Network Error', 'Connection failed. Check internet connection.', 'error');
+      showModal(
+        'Network Error',
+        'Connection failed. Check internet connection.',
+        'error',
+      );
     } else {
       showModal('Submission Error', 'An unexpected error occurred.', 'error');
     }
   };
 
+  // ── Payroll JO ────────────────────────────────────────────────────────────
   const submitPayrollJO = async () => {
     if (isSubmittingJO) return;
-
     if (!attendanceData || attendanceData.length === 0) {
       showModal('No Data', 'No attendance records available.', 'warning');
       return;
@@ -736,47 +1164,50 @@ const OverallAttendance = () => {
     setProcessingMessage('Submitting JO payroll...');
 
     try {
-      const filteredRecords = [];
-      const invalidRecords = [];
-
+      const filteredRecords = [],
+        invalidRecords = [];
       for (const record of attendanceData) {
-        const employeeNumber = record.personID || record.employeeNumber;
-        const employmentCategory = await fetchEmploymentCategory(employeeNumber);
-
+        const empNum = record.personID || record.employeeNumber;
+        const employmentCategory = await fetchEmploymentCategory(empNum);
         if (employmentCategory === null) {
           invalidRecords.push({
-            employeeNumber,
+            employeeNumber: empNum,
             reason: 'Employment category not found in system',
           });
           continue;
         }
-
-        if (employmentCategory === 0) {
+        if (employmentCategory === 0 || employmentCategory === 1)
           filteredRecords.push(record);
-        } else if (employmentCategory === 1) {
+        else if (
+          employmentCategory === 2 ||
+          employmentCategory === 3 ||
+          employmentCategory === 4
+        )
           invalidRecords.push({
-            employeeNumber,
+            employeeNumber: empNum,
             reason: 'Employment category is Regular',
           });
-        }
+        else
+          invalidRecords.push({
+            employeeNumber: empNum,
+            reason: `Unknown employment category (${employmentCategory})`,
+          });
       }
 
       if (invalidRecords.length > 0) {
         const invalidList = invalidRecords
           .map((r) => `• Employee ${r.employeeNumber}: ${r.reason}`)
           .join('\n');
-
         if (filteredRecords.length === 0) {
           showModal(
-            'Submission Blocked',
-            `Employees not eligible for JO payroll:\n\n${invalidList}\n\nContact HR to update employment status.`,
-            'warning'
-          );
+  'Submission Blocked — Job Order Payroll',
+  `The following employee(s) could not be processed for Job Order (JO) Payroll submission:\n\n${invalidRecords.map(r => `• Employee ${r.employeeNumber}: ${r.reason}`).join('\n')}\n\nPlease verify and update the employment status on record before resubmitting.`,
+  'warning',
+);
           setProcessingOverlay(false);
           setIsSubmittingJO(false);
           return;
         }
-
         showModal(
           'Confirm Submission',
           `${filteredRecords.length} eligible record(s)\n${invalidRecords.length} excluded\n\nProceed with submission?`,
@@ -785,7 +1216,7 @@ const OverallAttendance = () => {
             closeModal();
             await continuePayrollJOSubmission(filteredRecords);
           },
-          true
+          true,
         );
         setProcessingOverlay(false);
         return;
@@ -804,52 +1235,41 @@ const OverallAttendance = () => {
   const continuePayrollJOSubmission = async (filteredRecords) => {
     try {
       const duplicateRecords = [];
-      
       for (const record of filteredRecords) {
-        const employeeNumber = record.personID || record.employeeNumber;
+        const empNum = record.personID || record.employeeNumber;
         const { startDate, endDate } = record;
-
         try {
           const checkResponse = await axios.get(
             `${API_BASE_URL}/PayrollJORoutes/payroll-jo`,
             {
               ...getAuthHeaders(),
-              params: { employeeNumber, startDate, endDate },
-            }
+              params: { employeeNumber: empNum, startDate, endDate },
+            },
           );
-
-          if (checkResponse.data && checkResponse.data.length > 0) {
+          if (checkResponse.data && checkResponse.data.length > 0)
             duplicateRecords.push({
-              employeeNumber,
+              employeeNumber: empNum,
               startDate,
               endDate,
             });
-          }
         } catch (checkError) {
-          if (checkError.response?.status === 404) {
-            continue;
-          }
-          console.warn(`Could not check duplicate for ${employeeNumber}:`, checkError);
+          if (checkError.response?.status === 404) continue;
+          console.warn(`Could not check duplicate for ${empNum}:`, checkError);
         }
       }
 
       if (duplicateRecords.length > 0) {
-        const duplicateList = duplicateRecords
-          .map((r) => `• Employee ${r.employeeNumber} (${r.startDate} to ${r.endDate})`)
-          .join('\n');
-
-        showModal(
-          'Duplicate Entries',
-          `Records already exist:\n\n${duplicateList}`,
-          'warning'
-        );
+      showModal(
+  'Duplicate Entries — Job Order Payroll',
+  `The system has detected existing Job Order Payroll records for the specified period:\n\n${duplicateRecords.map(r => `• Employee ${r.employeeNumber}: ${r.startDate} → ${r.endDate}`).join('\n')}\n\nPlease verify and review the existing entries before resubmitting.`,
+  'warning',
+);
         setProcessingOverlay(false);
         return;
       }
 
-      let successCount = 0;
-      let failedRecords = [];
-
+      let successCount = 0,
+        failedRecords = [];
       for (const record of filteredRecords) {
         try {
           let rhHours = 0;
@@ -857,10 +1277,12 @@ const OverallAttendance = () => {
             const parts = record.overallRenderedOfficialTime.split(':');
             rhHours = parseInt(parts[0], 10) || 0;
           }
-
-          let h = 0, m = 0, s = 0;
+          let h = 0,
+            m = 0,
+            s = 0;
           if (record.overallRenderedOfficialTimeTardiness) {
-            const tParts = record.overallRenderedOfficialTimeTardiness.split(':');
+            const tParts =
+              record.overallRenderedOfficialTimeTardiness.split(':');
             h = parseInt(tParts[0], 10) || 0;
             m = parseInt(tParts[1], 10) || 0;
             s = parseInt(tParts[2], 10) || 0;
@@ -876,24 +1298,22 @@ const OverallAttendance = () => {
             rh: rhHours,
             department: record.code,
           };
-
           console.log('Submitting JO payload:', payload);
-
           await axios.post(
             `${API_BASE_URL}/PayrollJORoutes/payroll-jo`,
             payload,
-            getAuthHeaders()
+            getAuthHeaders(),
           );
-
           successCount++;
         } catch (recordError) {
-          console.error(`Failed to submit record for ${record.personID}:`, recordError);
-
+          console.error(
+            `Failed to submit record for ${record.personID}:`,
+            recordError,
+          );
           const errorMsg =
             recordError.response?.data?.message ||
             recordError.response?.data?.error ||
             'Unknown error';
-
           failedRecords.push({
             employeeNumber: record.personID || record.employeeNumber,
             error: errorMsg,
@@ -905,20 +1325,18 @@ const OverallAttendance = () => {
         const failedList = failedRecords
           .map((r) => `• Employee ${r.employeeNumber}: ${r.error}`)
           .join('\n');
-
-        if (successCount > 0) {
+        if (successCount > 0)
           showModal(
             'Partial Success',
             `Submitted: ${successCount}\nFailed: ${failedRecords.length}\n\n${failedList}`,
-            'warning'
+            'warning',
           );
-        } else {
+        else
           showModal(
             'Submission Failed',
             `All submissions failed:\n\n${failedList}`,
-            'error'
+            'error',
           );
-        }
         setProcessingOverlay(false);
       } else {
         setProcessingOverlay(false);
@@ -933,33 +1351,26 @@ const OverallAttendance = () => {
 
   const handlePayrollJOError = (error) => {
     let errorMessage = 'Payroll JO submission failed.';
-
     if (error.response) {
       const status = error.response.status;
       const message =
         error.response.data?.message ||
         error.response.data?.error ||
         'Server error occurred';
-
-      if (status === 409) {
-        errorMessage = `Duplicate entry: ${message}`;
-      } else if (status === 400) {
-        errorMessage = `Invalid data: ${message}`;
-      } else {
-        errorMessage = `Error ${status}: ${message}`;
-      }
+      if (status === 409) errorMessage = `Duplicate entry: ${message}`;
+      else if (status === 400) errorMessage = `Invalid data: ${message}`;
+      else errorMessage = `Error ${status}: ${message}`;
     } else if (error.request) {
       errorMessage = 'Connection failed. Check internet connection.';
     }
-
     showModal('Submission Error', errorMessage, 'error');
   };
 
-  const fetchEmploymentCategory = async (employeeNumber) => {
+  const fetchEmploymentCategory = async (empNumber) => {
     try {
       const response = await axios.get(
-        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${employeeNumber}`,
-        getAuthHeaders()
+        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${empNumber}`,
+        getAuthHeaders(),
       );
       return response.data.employmentCategory;
     } catch (error) {
@@ -968,29 +1379,17 @@ const OverallAttendance = () => {
     }
   };
 
-  // ACCESSING 2
-  // Loading state
-  if (accessLoading) {
+  // ── Access guards / wireframe ─────────────────────────────────────────────
+  if (pageLoading || accessLoading)
     return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
-          <CircularProgress sx={{ color: '#6d2323', mb: 2 }} />
-          <Typography variant="h6" sx={{ color: '#6d2323' }}>
-            Loading access information...
-          </Typography>
-        </Box>
-      </Container>
+      <OverallAttendanceWireframe
+        accentColor={accentColor}
+        primaryColor={primaryColor}
+        secondaryColor={secondaryColor}
+      />
     );
-  }
-  // Access denied state - Now using the reusable component
-  // Check for both false and null (when not loading and no access)
-  if (!accessLoading && hasAccess !== true) {
+
+  if (!accessLoading && hasAccess !== true)
     return (
       <AccessDenied
         title="Access Denied"
@@ -999,44 +1398,99 @@ const OverallAttendance = () => {
         returnButtonText="Return to Home"
       />
     );
-  }
-  //ACCESSING END2
 
+  // Table column definitions
+  const TABLE_COLUMNS = [
+    { label: 'Department', key: 'code' },
+    { label: 'Employee No.', key: 'personID' },
+    { label: 'Start Date', key: 'startDate' },
+    { label: 'End Date', key: 'endDate' },
+    { label: 'Morning Hours', key: 'totalRenderedTimeMorning', accent: true },
+    {
+      label: 'Morning Tardiness',
+      key: 'totalRenderedTimeMorningTardiness',
+      accentDark: true,
+    },
+    {
+      label: 'Afternoon Hours',
+      key: 'totalRenderedTimeAfternoon',
+      accent: true,
+    },
+    {
+      label: 'Afternoon Tardiness',
+      key: 'totalRenderedTimeAfternoonTardiness',
+      accentDark: true,
+    },
+    { label: 'Honorarium', key: 'totalRenderedHonorarium', accent: true },
+    {
+      label: 'HN Tardiness',
+      key: 'totalRenderedHonorariumTardiness',
+      accentDark: true,
+    },
+    {
+      label: 'Service Credit',
+      key: 'totalRenderedServiceCredit',
+      accent: true,
+    },
+    {
+      label: 'SC Tardiness',
+      key: 'totalRenderedServiceCreditTardiness',
+      accentDark: true,
+    },
+    { label: 'Overtime', key: 'totalRenderedOvertime', accent: true },
+    {
+      label: 'OT Tardiness',
+      key: 'totalRenderedOvertimeTardiness',
+      accentDark: true,
+    },
+    {
+      label: 'Overall Rendered',
+      key: 'overallRenderedOfficialTime',
+      highlight: true,
+    },
+    {
+      label: 'Overall Tardiness',
+      key: 'overallRenderedOfficialTimeTardiness',
+      highlightDark: true,
+    },
+  ];
+
+  // ─────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────
   return (
-    <Box sx={{ 
-      py: 4,
-      borderRadius: '14px',
-      width: '100vw', // Full viewport width
-      mx: 'auto', // Center horizontally
-      maxWidth: '100%', // Ensure it doesn't exceed viewport
-      overflow: 'hidden', // Prevent horizontal scroll
-      position: 'relative',
-      left: '50%',
-      transform: 'translateX(-50%)', // Center element
-    }}>
-      {/* Wider Container */}
-      <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
-        {/* Header */}
+    <Fade in timeout={500}>
+      <Box
+        sx={{
+          py: { xs: 2, md: 4 },
+          width: '100vw',
+          mx: 'auto',
+          maxWidth: '100%',
+          overflow: 'hidden',
+          position: 'relative',
+          left: '53%',
+          transform: 'translateX(-51%)',
+          px: { xs: 2, sm: 3, md: 6 },
+        }}
+      >
+        {/* ── Hero Header ── */}
         <Fade in timeout={500}>
           <Box sx={{ mb: 4 }}>
-            <GlassCard sx={{
-              background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-              boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-              border: `1px solid ${alpha(accentColor, 0.1)}`,
-              '&:hover': {
-                boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-              },
-            }}>
+            <GlassCard
+              sx={{
+                background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
+                boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
+                border: `1px solid ${alpha(accentColor, 0.1)}`,
+              }}
+            >
               <Box
                 sx={{
                   p: 5,
                   background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  color: textPrimaryColor,
                   position: 'relative',
                   overflow: 'hidden',
                 }}
               >
-                {/* Decorative elements */}
                 <Box
                   sx={{
                     position: 'absolute',
@@ -1044,7 +1498,7 @@ const OverallAttendance = () => {
                     right: -50,
                     width: 200,
                     height: 200,
-                    background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, ${alpha(accentColor, 0)} 70%)`,
+                    background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, transparent 70%)`,
                   }}
                 />
                 <Box
@@ -1054,57 +1508,72 @@ const OverallAttendance = () => {
                     left: '30%',
                     width: 150,
                     height: 150,
-                    background: `radial-gradient(circle, ${alpha(accentColor, 0.08)} 0%, ${alpha(accentColor, 0)} 70%)`,
+                    background: `radial-gradient(circle, ${alpha(accentColor, 0.08)} 0%, transparent 70%)`,
                   }}
                 />
-                
-                <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
+                <Box
+                  display="flex"
+                  alignItems="center"
+                  justifyContent="space-between"
+                  position="relative"
+                  zIndex={1}
+                >
                   <Box display="flex" alignItems="center">
-                    <Avatar 
-                      sx={{ 
-                        bgcolor: alpha(accentColor, 0.15), 
-                        mr: 4, 
-                        width: 64, 
+                    <Avatar
+                      sx={{
+                        bgcolor: alpha(accentColor, 0.15),
+                        mr: 4,
+                        width: 64,
                         height: 64,
-                        boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`
+                        boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`,
                       }}
                     >
-                      <SummarizeOutlined sx={{ fontSize: 32 }} />
+                      <SummarizeOutlined
+                        sx={{ fontSize: 32, color: textPrimaryColor }}
+                      />
                     </Avatar>
                     <Box>
-                      <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}>
+                      <Typography
+                        variant="h4"
+                        component="h1"
+                        sx={{
+                          fontWeight: 700,
+                          mb: 1,
+                          lineHeight: 1.2,
+                          color: textPrimaryColor,
+                        }}
+                      >
                         Overall Attendance Report
                       </Typography>
-                      <Typography variant="body1" sx={{ opacity: 0.8, fontWeight: 400, color: textPrimaryColor }}>
-                        Generate and review summary of overall attendance records
+                      <Typography
+                        variant="body1"
+                        sx={{ opacity: 0.8, color: textPrimaryColor }}
+                      >
+                        Generate and review summary of overall attendance
+                        records
                       </Typography>
                     </Box>
                   </Box>
                   <Box display="flex" alignItems="center" gap={2}>
-                    <Chip 
-                      label="System Generated" 
-                      size="small" 
-                      sx={{ 
-                        bgcolor: alpha(accentColor, 0.15), 
+                    <Chip
+                      label="System Generated"
+                      size="small"
+                      sx={{
+                        bgcolor: alpha(accentColor, 0.15),
                         color: textPrimaryColor,
                         fontWeight: 500,
-                        '& .MuiChip-label': { px: 1 }
-                      }} 
+                      }}
                     />
                     <Tooltip title="Refresh Data">
-                      <IconButton 
+                      <IconButton
                         onClick={fetchAttendanceData}
                         disabled={!employeeNumber || !startDate || !endDate}
-                        sx={{ 
-                          bgcolor: alpha(accentColor, 0.1), 
+                        sx={{
+                          bgcolor: alpha(accentColor, 0.1),
                           '&:hover': { bgcolor: alpha(accentColor, 0.2) },
                           color: textPrimaryColor,
                           width: 48,
                           height: 48,
-                          '&:disabled': { 
-                            bgcolor: alpha(accentColor, 0.05),
-                            color: alpha(accentColor, 0.3)
-                          }
                         }}
                       >
                         <Refresh />
@@ -1117,123 +1586,197 @@ const OverallAttendance = () => {
           </Box>
         </Fade>
 
-        {/* Controls */}
+        {/* ── Controls Card ── */}
         <Fade in timeout={700}>
-          <GlassCard sx={{ 
-            mb: 4,
-            background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-            boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-            border: `1px solid ${alpha(accentColor, 0.1)}`,
-            '&:hover': {
-              boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-            },
-          }}>
-           <CardHeader
-              title={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Avatar sx={{ bgcolor: alpha(primaryColor, 0.8), color: textPrimaryColor }}>
-                    <FilterList />
-                  </Avatar>
-                  <Box>
-                    <Typography variant="body2" color="text.secondary" sx={{ color: accentDark }}>
-                      Configure your attendance record search criteria
+          <GlassCard
+            sx={{
+              mb: 4,
+              background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
+              boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
+              border: `1px solid ${alpha(accentColor, 0.1)}`,
+            }}
+          >
+            <CardContent sx={{ p: 4, '&:last-child': { pb: 4 } }}>
+              {/* ── Input Fields ── */}
+              <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+                {[
+                  {
+                    label: 'Employee Number',
+                    value: employeeNumber,
+                    onChange: (e) => setEmployeeNumber(e.target.value),
+                    type: 'text',
+                    icon: <Person sx={{ color: textPrimaryColor }} />,
+                  },
+                  {
+                    label: 'Start Date',
+                    value: startDate,
+                    onChange: (e) => setStartDate(e.target.value),
+                    type: 'date',
+                    icon: <CalendarToday sx={{ color: textPrimaryColor }} />,
+                  },
+                  {
+                    label: 'End Date',
+                    value: endDate,
+                    onChange: (e) => setEndDate(e.target.value),
+                    type: 'date',
+                    icon: <CalendarToday sx={{ color: textPrimaryColor }} />,
+                  },
+                ].map(({ label, value, onChange, type, icon }) => (
+                  <Box key={label} sx={{ flex: 1, minWidth: 160 }}>
+                    <Typography
+                      variant="body2"
+                      sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}
+                    >
+                      {label}
                     </Typography>
+                    <ModernTextField
+                      type={type}
+                      value={value}
+                      onChange={onChange}
+                      required
+                      InputLabelProps={type === 'date' ? { shrink: true } : {}}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            {icon}
+                          </InputAdornment>
+                        ),
+                      }}
+                      fullWidth
+                    />
                   </Box>
-                </Box>
-              }
-              sx={{ 
-                bgcolor: alpha(primaryColor, 0.5),
-                borderBottom: `1px solid ${alpha(accentColor, 0.1)}`, 
-                pb: 2,
-                borderBottom: '1px solid rgba(109,35,35,0.1)'
-              }}
-            />  
-            <CardContent sx={{ p: 4 }}>
-              <Box component="form">
-                <Grid container spacing={4}>
-                  <Grid item xs={12} md={4}>
-                    <ModernTextField
-                      fullWidth
-                      label="Employee Number"
-                      value={employeeNumber}
-                      onChange={(e) => setEmployeeNumber(e.target.value)}
-                      required
-                      variant="outlined"
-                      placeholder="Enter employee ID"
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <Person sx={{ color: textPrimaryColor }} />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={4}>
-                    <ModernTextField
-                      fullWidth
-                      label="Start Date"
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      required
-                      InputLabelProps={{ shrink: true }}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <CalendarToday sx={{ color: textPrimaryColor }} />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={4}>
-                    <ModernTextField
-                      fullWidth
-                      label="End Date"
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      required
-                      InputLabelProps={{ shrink: true }}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <CalendarToday sx={{ color: textPrimaryColor }} />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                  </Grid>
-                </Grid>
+                ))}
+              </Box>
 
-                <Box sx={{ mt: 4, display: 'flex', justifyContent: 'center' }}>
-                  <ProfessionalButton
-                    variant="contained"
-                    onClick={fetchAttendanceData}
-                    disabled={!employeeNumber || !startDate || !endDate}
+              <Divider sx={{ my: 3, borderColor: alpha(accentColor, 0.1) }} />
+
+              {/* ── Month Picker ── */}
+              <Box sx={{ mb: 4 }}>
+                <Box
+                  sx={{
+                    p: 3,
+                    borderRadius: 2,
+                    border: `2px dashed ${alpha(accentColor, 0.2)}`,
+                    backgroundColor: alpha(primaryColor, 0.3),
+                  }}
+                >
+                  <Box
                     sx={{
-                      py: 2,
-                      px: 6,
-                      bgcolor: accentColor,
-                      color: primaryColor,
-                      fontSize: '1rem',
-                      '&:hover': {
-                        bgcolor: accentDark,
-                      }
+                      display: 'flex',
+                      flexDirection: { xs: 'column', sm: 'row' },
+                      alignItems: { xs: 'flex-start', sm: 'center' },
+                      justifyContent: 'space-between',
+                      gap: 2,
+                      mb: 2,
                     }}
                   >
-                    Fetch Attendance Records
-                  </ProfessionalButton>
+                    <Box>
+                      <Typography
+                        variant="subtitle1"
+                        sx={{
+                          color: textPrimaryColor,
+                          fontWeight: 600,
+                          mb: 0.5,
+                        }}
+                      >
+                        Select Entire Month
+                      </Typography>
+                      <Typography
+                        variant="body2"
+                        sx={{ color: alpha(textPrimaryColor, 0.7) }}
+                      >
+                        Choose a year, then click any month to auto-fill the
+                        date range
+                      </Typography>
+                    </Box>
+                    <FormControl sx={{ minWidth: 140 }}>
+                      <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>
+                      <Select
+                        value={selectedYear}
+                        label="Year"
+                        onChange={(e) => {
+                          setSelectedYear(e.target.value);
+                          setSelectedMonth(null);
+                        }}
+                        sx={{
+                          backgroundColor: 'white',
+                          borderRadius: 2,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {yearOptions.map((y) => (
+                          <MenuItem key={y} value={y}>
+                            {y}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Box>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 1,
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {months.map((month, index) => {
+                      const sel = selectedMonth === index;
+                      return (
+                        <ProfessionalButton
+                          key={month}
+                          variant={sel ? 'contained' : 'outlined'}
+                          size="medium"
+                          onClick={() => handleMonthClick(index)}
+                          sx={{
+                            borderColor: accentColor,
+                            backgroundColor: sel ? accentColor : 'transparent',
+                            color: sel ? textSecondaryColor : textPrimaryColor,
+                            py: 1.5,
+                            px: 4.5,
+                            fontWeight: 600,
+                            boxShadow: sel
+                              ? `0 4px 12px ${alpha(accentColor, 0.3)}`
+                              : 'none',
+                          }}
+                        >
+                          {month}
+                        </ProfessionalButton>
+                      );
+                    })}
+                  </Box>
                 </Box>
+              </Box>
+
+              {/* ── Fetch Button ── */}
+              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                <ProfessionalButton
+                  variant="contained"
+                  onClick={fetchAttendanceData}
+                  disabled={!employeeNumber || !startDate || !endDate}
+                  startIcon={<Refresh />}
+                  sx={{
+                    py: 1.5,
+                    px: 6,
+                    bgcolor: accentColor,
+                    color: primaryColor,
+                    fontSize: '1rem',
+                    '&:hover': { bgcolor: accentDark },
+                  }}
+                >
+                  Fetch Attendance Records
+                </ProfessionalButton>
               </Box>
             </CardContent>
           </GlassCard>
         </Fade>
 
-        {/* Loading Backdrop */}
+        {/* ── Loading Backdrop ── */}
         <Backdrop
-          sx={{ color: accentColor, zIndex: (theme) => theme.zIndex.drawer + 1 }}
+          sx={{
+            color: accentColor,
+            zIndex: (theme) => theme.zIndex.drawer + 1,
+          }}
           open={loading}
         >
           <Box sx={{ textAlign: 'center' }}>
@@ -1244,575 +1787,963 @@ const OverallAttendance = () => {
           </Box>
         </Backdrop>
 
-        {/* Results */}
+        {/* ── Results Table ── */}
         {attendanceData.length > 0 && (
           <Fade in={!loading} timeout={500}>
-            <GlassCard sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}>
-              <Box sx={{ 
-                p: 4, 
-                background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`, 
-                color: accentColor,
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}>
+            <GlassCard
+            ref={resultsRef}
+              sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}
+            >
+              {/* Banner */}
+              <Box
+                sx={{
+                  p: 4,
+                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
                 <Box>
-                  <Typography variant="body2" sx={{ opacity: 0.8, mb: 1, textTransform: 'uppercase', letterSpacing: '0.1em', color: accentDark }}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      opacity: 0.8,
+                      mb: 1,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.1em',
+                      color: accentDark,
+                    }}
+                  >
                     Attendance Record Summary
                   </Typography>
-                  <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: accentColor }}>
-                    {attendanceData.length} Records Found
+                  <Typography
+                    variant="h4"
+                    sx={{ fontWeight: 600, mb: 1, color: accentColor }}
+                  >
+                    <b>{attendanceData.length}</b> Records Found
                   </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
-                    <Chip 
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 2,
+                      mt: 2,
+                    }}
+                  >
+                    <Chip
                       icon={<CalendarToday />}
                       label={`${startDate} to ${endDate}`}
                       size="small"
-                      sx={{ 
-                        bgcolor: 'rgba(109,35,35,0.15)', 
+                      sx={{
+                        bgcolor: alpha(accentColor, 0.15),
                         color: accentColor,
-                        fontWeight: 500
-                      }} 
+                        fontWeight: 500,
+                      }}
                     />
                   </Box>
                 </Box>
-                <Avatar 
-                  sx={{ 
-                    bgcolor: 'rgba(109,35,35,0.15)', 
-                    width: 80, 
+                <Avatar
+                  sx={{
+                    bgcolor: alpha(accentColor, 0.15),
+                    width: 80,
                     height: 80,
-                    fontSize: '2rem',
-                    fontWeight: 600,
-                    color: accentColor
+                    color: accentColor,
                   }}
                 >
-                  <Summarize />
+                  <Summarize sx={{ fontSize: 36 }} />
                 </Avatar>
               </Box>
 
-              <PremiumTableContainer>
-                <Table 
-                  stickyHeader 
-                  sx={{ 
-                    minWidth: '2000px', // Set minimum width to ensure horizontal scrolling
+              {/* Table */}
+              <Box sx={{ px: 2, pb: 1.5, pt: 1.5 }}>
+                <Box
+                  sx={{
+                    position: 'relative',
+                    borderRadius: 2,
+                    border: `1px solid ${alpha(accentColor, 0.1)}`,
+                    overflow: 'hidden',
                   }}
                 >
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: 'rgba(254, 249, 225, 0.7)' }}>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Department</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Employee Number</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Start Date</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>End Date</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Morning Hours</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Morning Tardiness</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Afternoon Hours</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Afternoon Tardiness</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Honorarium</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Honorarium Tardiness</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Service Credit</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Service Credit Tardiness</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Overtime</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Overtime Tardiness</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Overall Official Rendered Time</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Overall Official Tardiness Time</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Action</PremiumTableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {attendanceData.map((record, index) => (
-                      <TableRow 
-                        key={index}
-                        sx={{ 
-                          '&:nth-of-type(even)': { bgcolor: 'rgba(254, 249, 225, 0.3)' },
-                          '&:hover': { bgcolor: 'rgba(109, 35, 35, 0.05)' },
-                          transition: 'all 0.2s ease'
-                        }}
-                      >
-                        <PremiumTableCell>{record.code}</PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.personID} 
-                              onChange={(e) => setEditRecord({ ...editRecord, personID: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.personID
+                  <Box
+                    sx={{
+                      overflowX: 'auto',
+                      overflowY: 'auto',
+                      maxHeight: 420,
+                      scrollbarWidth: 'thin',
+                      '&::-webkit-scrollbar': { height: 6, width: 6 },
+                      '&::-webkit-scrollbar-track': {
+                        background: 'rgba(254,249,225,0.3)',
+                        borderRadius: 4,
+                      },
+                      '&::-webkit-scrollbar-thumb': {
+                        background: 'rgba(109,35,35,0.4)',
+                        borderRadius: 4,
+                      },
+                    }}
+                  >
+                    <Table
+                      size="small"
+                      sx={{
+                        minWidth: TABLE_COLUMNS.reduce((s) => s + 140, 0) + 160,
+                      }}
+                    >
+                      <TableHead>
+                        <TableRow sx={{ height: 38 }}>
+                          {TABLE_COLUMNS.map(
+                            ({
+                              label,
+                              accent,
+                              accentDark: adk,
+                              highlight,
+                              highlightDark,
+                            }) => {
+                              const bg = highlight
+                                ? alpha(accentColor, 0.3)
+                                : highlightDark
+                                  ? alpha(accentColor, 0.4)
+                                  : accent
+                                    ? alpha(accentColor, 0.22)
+                                    : adk
+                                      ? alpha(accentColor, 0.32)
+                                      : alpha(primaryColor, 0.92);
+                              return (
+                                <PremiumTableCell
+                                  key={label}
+                                  isHeader
+                                  bgColor={bg}
+                                  sx={{
+                                    color: accentColor,
+                                    minWidth: 140,
+                                    position: 'sticky',
+                                    top: 0,
+                                    zIndex: 2,
+                                    py: 0.6,
+                                    px: 1,
+                                    fontSize: 14,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {label}
+                                </PremiumTableCell>
+                              );
+                            },
                           )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.startDate} 
-                              onChange={(e) => setEditRecord({ ...editRecord, startDate: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.startDate
-                          )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.endDate} 
-                              onChange={(e) => setEditRecord({ ...editRecord, endDate: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.endDate
-                          )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.totalRenderedTimeMorning} 
-                              onChange={(e) => setEditRecord({ ...editRecord, totalRenderedTimeMorning: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.totalRenderedTimeMorning
-                          )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.totalRenderedTimeMorningTardiness} 
-                              onChange={(e) => setEditRecord({ ...editRecord, totalTardAM: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.totalRenderedTimeMorningTardiness
-                          )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.totalRenderedTimeAfternoon} 
-                              onChange={(e) => setEditRecord({ ...editRecord, totalRenderedTimeAfternoon: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.totalRenderedTimeAfternoon
-                          )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.totalRenderedTimeAfternoonTardiness} 
-                              onChange={(e) => setEditRecord({ ...editRecord, totalRenderedTimeAfternoonTardiness: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.totalRenderedTimeAfternoonTardiness
-                          )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.totalRenderedHonorarium} 
-                              onChange={(e) => setEditRecord({ ...editRecord, totalRenderedHonorarium: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.totalRenderedHonorarium
-                          )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.totalRenderedHonorariumTardiness} 
-                              onChange={(e) => setEditRecord({ ...editRecord, TotalTatotalRenderedHonorariumTardinessrdHR: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.totalRenderedHonorariumTardiness
-                          )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.totalRenderedServiceCredit} 
-                              onChange={(e) => setEditRecord({ ...editRecord, totalRenderedServiceCredit: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.totalRenderedServiceCredit
-                          )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.totalRenderedServiceCreditTardiness} 
-                              onChange={(e) => setEditRecord({ ...editRecord, totalRenderedServiceCreditTardiness: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.totalRenderedServiceCreditTardiness
-                          )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.totalRenderedOvertime} 
-                              onChange={(e) => setEditRecord({ ...editRecord, totalRenderedOvertime: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.totalRenderedOvertime
-                          )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.totalRenderedOvertimeTardiness} 
-                              onChange={(e) => setEditRecord({ ...editRecord, totalRenderedOvertimeTardiness: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.totalRenderedOvertimeTardiness
-                          )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.overallRenderedOfficialTime} 
-                              onChange={(e) => setEditRecord({ ...editRecord, overallRenderedOfficialTime: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.overallRenderedOfficialTime
-                          )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <ModernTextField 
-                              value={editRecord.overallRenderedOfficialTimeTardiness} 
-                              onChange={(e) => setEditRecord({ ...editRecord, overallRenderedOfficialTimeTardiness: e.target.value })} 
-                              size="small"
-                            />
-                          ) : (
-                            record.overallRenderedOfficialTimeTardiness
-                          )}
-                        </PremiumTableCell>
-                        <PremiumTableCell>
-                          {editRecord && editRecord.id === record.id ? (
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                              <ProfessionalButton 
-                                onClick={updateRecord} 
-                                variant="contained" 
-                                size="small"
-                                sx={saveButtonStyles}
-                                startIcon={<SaveIcon />}
-                              >
-                                Save
-                              </ProfessionalButton>
-                              <ProfessionalButton 
-                                onClick={() => setEditRecord(null)} 
-                                variant="outlined" 
-                                size="small"
-                                sx={{ 
-                                  borderColor: accentColor,
-                                  color: accentColor,
-                                  '&:hover': {
-                                    backgroundColor: 'rgba(109, 35, 35, 0.1)',
-                                  }
-                                }} 
-                                startIcon={<CancelIcon />}
-                              >
-                                Cancel
-                              </ProfessionalButton>
-                            </Box>
-                          ) : (
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                              <ProfessionalButton 
-                                onClick={() => { setEditRecord(record); }} 
-                                variant="contained" 
-                                size="small"
-                                sx={editButtonStyles}
-                                startIcon={<EditIcon />}
-                              >
-                                Edit
-                              </ProfessionalButton>
-                              <ProfessionalButton 
-                                onClick={() => deleteRecord(record.id, record.personID)} 
-                                variant="outlined" 
-                                size="small"
-                                sx={deleteButtonStyles}
-                                startIcon={<DeleteIcon />}
-                              >
-                                Delete
-                              </ProfessionalButton>
-                            </Box>
-                          )}
-                        </PremiumTableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </PremiumTableContainer>
+                          <PremiumTableCell
+                            isHeader
+                            bgColor={alpha(primaryColor, 0.92)}
+                            sx={{
+                              color: accentColor,
+                              position: 'sticky',
+                              top: 0,
+                              zIndex: 2,
+                              minWidth: 140,
+                              py: 0.6,
+                              px: 1,
+                              fontSize: 14,
+                              fontWeight: 700,
+                            }}
+                          >
+                            Action
+                          </PremiumTableCell>
+                        </TableRow>
+                      </TableHead>
+
+                      <TableBody>
+                        {attendanceData.map((record, index) => (
+                          <TableRow
+                            key={index}
+                            sx={{
+                              height: 36,
+                              '&:nth-of-type(even)': {
+                                bgcolor: alpha(primaryColor, 0.3),
+                              },
+                              '&:hover': { bgcolor: alpha(accentColor, 0.05) },
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            {TABLE_COLUMNS.map(
+                              ({
+                                key,
+                                accent,
+                                accentDark: adk,
+                                highlight,
+                                highlightDark,
+                              }) => {
+                                const cellBg = highlight
+                                  ? alpha(accentColor, 0.12)
+                                  : highlightDark
+                                    ? alpha(accentColor, 0.2)
+                                    : accent
+                                      ? alpha(accentColor, 0.07)
+                                      : adk
+                                        ? alpha(accentColor, 0.13)
+                                        : null;
+                                const isEditableKey = key !== 'code';
+                                return (
+                                  <PremiumTableCell
+                                    key={key}
+                                    bgColor={cellBg}
+                                    sx={{
+                                      py: 0.4,
+                                      px: 1,
+                                      fontSize: 15, // bigger data text
+                                      fontWeight:
+                                        highlight || highlightDark ? 700 : 500,
+                                      textAlign:
+                                        accent ||
+                                        adk ||
+                                        highlight ||
+                                        highlightDark
+                                          ? 'center'
+                                          : 'left',
+                                      fontFamily:
+                                        accent ||
+                                        adk ||
+                                        highlight ||
+                                        highlightDark
+                                          ? 'monospace'
+                                          : 'inherit',
+                                      color:
+                                        highlight || highlightDark
+                                          ? accentColor
+                                          : 'inherit',
+                                    }}
+                                  >
+                                    {editRecord &&
+                                    editRecord.id === record.id &&
+                                    isEditableKey ? (
+                                      <ModernTextField
+                                        value={editRecord[key] ?? ''}
+                                        onChange={(e) =>
+                                          setEditRecord({
+                                            ...editRecord,
+                                            [key]: e.target.value,
+                                          })
+                                        }
+                                        size="small"
+                                        sx={{
+                                          minWidth: 100,
+                                          '& .MuiInputBase-root': {
+                                            height: 30,
+                                            fontSize: 14,
+                                          },
+                                        }}
+                                      />
+                                    ) : (
+                                      record[key]
+                                    )}
+                                  </PremiumTableCell>
+                                );
+                              },
+                            )}
+
+                            <PremiumTableCell sx={{ py: 0.4, px: 1 }}>
+                              {editRecord && editRecord.id === record.id ? (
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 0.5,
+                                  }}
+                                >
+                                  <ProfessionalButton
+                                    onClick={updateRecord}
+                                    variant="contained"
+                                    size="small"
+                                    sx={{
+                                      ...saveButtonStyles,
+                                      py: 0.4,
+                                      px: 1.2,
+                                      fontSize: 12,
+                                    }}
+                                    startIcon={<SaveIcon />}
+                                  >
+                                    Save
+                                  </ProfessionalButton>
+
+                                  <ProfessionalButton
+                                    onClick={() => setEditRecord(null)}
+                                    variant="outlined"
+                                    size="small"
+                                    sx={{
+                                      borderColor: accentColor,
+                                      color: accentColor,
+                                      py: 0.4,
+                                      px: 1.2,
+                                      fontSize: 12,
+                                      '&:hover': {
+                                        backgroundColor: alpha(
+                                          accentColor,
+                                          0.08,
+                                        ),
+                                      },
+                                    }}
+                                    startIcon={<CancelIcon />}
+                                  >
+                                    Cancel
+                                  </ProfessionalButton>
+                                </Box>
+                              ) : (
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 0.5,
+                                  }}
+                                >
+                                  <ProfessionalButton
+                                    onClick={() => setEditRecord(record)}
+                                    variant="contained"
+                                    size="small"
+                                    sx={{
+                                      ...editButtonStyles,
+                                      py: 0.4,
+                                      px: 1.2,
+                                      fontSize: 12,
+                                    }}
+                                    startIcon={<EditIcon />}
+                                  >
+                                    Edit
+                                  </ProfessionalButton>
+
+                                  <ProfessionalButton
+                                    onClick={() =>
+                                      deleteRecord(record.id, record.personID)
+                                    }
+                                    variant="outlined"
+                                    size="small"
+                                    sx={{
+                                      ...deleteButtonStyles,
+                                      py: 0.4,
+                                      px: 1.2,
+                                      fontSize: 12,
+                                    }}
+                                    startIcon={<DeleteIcon />}
+                                  >
+                                    Delete
+                                  </ProfessionalButton>
+                                </Box>
+                              )}
+                            </PremiumTableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </Box>
+                </Box>
+              </Box>
             </GlassCard>
           </Fade>
         )}
 
+        {/* ── Empty state ── */}
         {attendanceData.length === 0 && !loading && (
           <Fade in timeout={500}>
-            <GlassCard sx={{ mb: 4 }}>
-              <Box sx={{ 
-                p: 8, 
-                textAlign: 'center',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <Info sx={{ fontSize: 80, color: 'rgba(109, 35, 35, 0.3)', mb: 3 }} />
-                <Typography variant="h5" color="rgba(109, 35, 35, 0.6)" gutterBottom sx={{ fontWeight: 600 }}>
+            <GlassCard
+              sx={{
+                mb: 2,
+                background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
+                border: `1px solid ${alpha(accentColor, 0.1)}`,
+              }}
+            >
+              <Box
+                sx={{
+                  p: 8,
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Avatar
+                  sx={{
+                    bgcolor: alpha(accentColor, 0.1),
+                    width: 96,
+                    height: 96,
+                    mb: 3,
+                  }}
+                >
+                  <Info sx={{ fontSize: 52, color: alpha(accentColor, 0.5) }} />
+                </Avatar>
+                <Typography
+                  variant="h5"
+                  sx={{
+                    fontWeight: 700,
+                    color: alpha(accentColor, 0.7),
+                    mb: 1,
+                  }}
+                >
                   No Records Found
                 </Typography>
-                <Typography variant="body1" color="rgba(109, 35, 35, 0.4)">
-                  Try adjusting your date range or search for a different employee
+                <Typography
+                  variant="body1"
+                  sx={{ color: alpha(accentColor, 0.45) }}
+                >
+                  Try adjusting your date range or search for a different
+                  employee
                 </Typography>
               </Box>
             </GlassCard>
           </Fade>
         )}
 
-        {/* Action Buttons */}
+        {/* ── Action Buttons ── */}
         {attendanceData.length > 0 && (
           <Fade in timeout={900}>
-            <GlassCard sx={{border: `1px solid ${alpha(accentColor, 0.1)}`}}>
-              <CardContent sx={{ p: 4 }}>
-                <Grid container spacing={3}>
-                  <Grid item xs={12} md={6}>
-                    <ProfessionalButton
-                      variant="contained"
-                      fullWidth
-                      startIcon={<Assignment />}
-                      onClick={() => setShowRegularConfirm(true)}
-                      disabled={isSubmitting}
+            <Box>
+              {/* Section label */}
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  mb: 2.5,
+                  px: 0.5,
+                }}
+              >
+                <Box
+                  sx={{
+                    flex: 1,
+                    height: '1px',
+                    bgcolor: alpha(accentColor, 0.15),
+                  }}
+                />
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontWeight: 700,
+                    color: alpha(textPrimaryColor, 0.5),
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.14em',
+                    fontSize: '0.7rem',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Submit to Payroll
+                </Typography>
+                <Box
+                  sx={{
+                    flex: 1,
+                    height: '1px',
+                    bgcolor: alpha(accentColor, 0.15),
+                  }}
+                />
+              </Box>
+
+              <Grid container spacing={3}>
+                {/* ── Regular Payroll Card ── */}
+                <Grid item xs={12} md={6}>
+                  <Box
+                    onClick={
+                      !isSubmitting
+                        ? () => setShowRegularConfirm(true)
+                        : undefined
+                    }
+                    sx={{
+                      position: 'relative',
+                      borderRadius: '20px',
+                      overflow: 'hidden',
+                      cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                      opacity: isSubmitting ? 0.65 : 1,
+                      border: `2px solid ${alpha(accentColor, 0.25)}`,
+                      background: `linear-gradient(135deg, ${accentColor} 0%, ${accentDark} 100%)`,
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                      boxShadow: `0 8px 32px ${alpha(accentColor, 0.3)}`,
+                      '&:hover': !isSubmitting
+                        ? {
+                            transform: 'translateY(-3px)',
+                            boxShadow: `0 14px 40px ${alpha(accentColor, 0.45)}`,
+                            border: `2px solid ${alpha(accentColor, 0.55)}`,
+                          }
+                        : {},
+                      '&:active': !isSubmitting
+                        ? { transform: 'translateY(-1px)' }
+                        : {},
+                    }}
+                  >
+                    {/* Decorative background circles */}
+                    <Box
                       sx={{
-                        py: 2,
-                        bgcolor: accentColor,
-                        color: primaryColor,
-                        fontSize: '1rem',
-                        '&:hover': {
-                          bgcolor: accentDark,
-                        }
+                        position: 'absolute',
+                        top: -30,
+                        right: -30,
+                        width: 130,
+                        height: 130,
+                        borderRadius: '50%',
+                        bgcolor: 'rgba(255,255,255,0.06)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        bottom: -20,
+                        left: -20,
+                        width: 90,
+                        height: 90,
+                        borderRadius: '50%',
+                        bgcolor: 'rgba(255,255,255,0.04)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+
+                    <Box
+                      sx={{
+                        p: 3.5,
+                        position: 'relative',
+                        zIndex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 3,
                       }}
                     >
-                      {isSubmitting ? 'Submitting to Payroll...' : 'Submit Payroll Regular'}
-                    </ProfessionalButton>
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <ProfessionalButton
-                      variant="contained"
-                      fullWidth
-                      startIcon={<Assignment />}
-                      onClick={submitPayrollJO}
-                      disabled={isSubmittingJO}
+                      <Avatar
+                        sx={{
+                          bgcolor: 'rgba(255,255,255,0.15)',
+                          width: 56,
+                          height: 56,
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {isSubmitting ? (
+                          <CircularProgress
+                            size={24}
+                            sx={{ color: primaryColor }}
+                          />
+                        ) : (
+                          <Assignment
+                            sx={{ fontSize: 28, color: primaryColor }}
+                          />
+                        )}
+                      </Avatar>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography
+                          sx={{
+                            color: 'rgba(255,255,255,0.7)',
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.12em',
+                            mb: 0.4,
+                          }}
+                        >
+                          Regular Employees
+                        </Typography>
+                        <Typography
+                          sx={{
+                            color: '#fff',
+                            fontSize: '1.1rem',
+                            fontWeight: 800,
+                            lineHeight: 1.2,
+                            mb: 0.5,
+                          }}
+                        >
+                          {isSubmitting
+                            ? 'Submitting...'
+                            : 'Submit Payroll Regular'}
+                        </Typography>
+                        <Typography
+                          sx={{
+                            color: 'rgba(255,255,255,0.55)',
+                            fontSize: '0.76rem',
+                            fontWeight: 500,
+                          }}
+                        >
+                          Permanent & contractual staff
+                        </Typography>
+                      </Box>
+                      <Box
+                        sx={{
+                          color: 'rgba(255,255,255,0.4)',
+                          fontSize: '1.6rem',
+                          fontWeight: 300,
+                          flexShrink: 0,
+                          lineHeight: 1,
+                        }}
+                      >
+                        →
+                      </Box>
+                    </Box>
+
+                    {/* Bottom accent strip */}
+                    <Box
                       sx={{
-                        py: 2,
-                        bgcolor: accentColor,
-                        color: primaryColor,
-                        fontSize: '1rem',
-                        '&:hover': {
-                          bgcolor: accentDark,
-                        }
+                        height: 4,
+                        background: `linear-gradient(90deg, rgba(255,255,255,0.15), rgba(255,255,255,0.35), rgba(255,255,255,0.15))`,
                       }}
-                    >
-                      {isSubmittingJO ? 'Submitting to Payroll JO...' : 'Submit Payroll JO'}
-                    </ProfessionalButton>
-                  </Grid>
+                    />
+                  </Box>
                 </Grid>
-              </CardContent>
-            </GlassCard>
+
+                {/* ── JO Payroll Card ── */}
+                <Grid item xs={12} md={6}>
+                  <Box
+                    onClick={!isSubmittingJO ? () => setShowJOConfirm(true) : undefined}
+                    sx={{
+                      position: 'relative',
+                      borderRadius: '20px',
+                      overflow: 'hidden',
+                      cursor: isSubmittingJO ? 'not-allowed' : 'pointer',
+                      opacity: isSubmittingJO ? 0.65 : 1,
+                      border: `2px solid ${alpha(accentColor, 0.35)}`,
+                      background: `rgba(${hexToRgb(primaryColor)}, 0.97)`,
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                      boxShadow: `0 8px 32px ${alpha(accentColor, 0.12)}`,
+                      '&:hover': !isSubmittingJO
+                        ? {
+                            transform: 'translateY(-3px)',
+                            boxShadow: `0 14px 40px ${alpha(accentColor, 0.22)}`,
+                            border: `2px solid ${alpha(accentColor, 0.6)}`,
+                            background: `rgba(${hexToRgb(secondaryColor)}, 0.98)`,
+                          }
+                        : {},
+                      '&:active': !isSubmittingJO
+                        ? { transform: 'translateY(-1px)' }
+                        : {},
+                    }}
+                  >
+                    {/* Decorative background circles */}
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        top: -30,
+                        right: -30,
+                        width: 130,
+                        height: 130,
+                        borderRadius: '50%',
+                        bgcolor: alpha(accentColor, 0.05),
+                        pointerEvents: 'none',
+                      }}
+                    />
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        bottom: -20,
+                        left: -20,
+                        width: 90,
+                        height: 90,
+                        borderRadius: '50%',
+                        bgcolor: alpha(accentColor, 0.04),
+                        pointerEvents: 'none',
+                      }}
+                    />
+
+                    <Box
+                      sx={{
+                        p: 3.5,
+                        position: 'relative',
+                        zIndex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 3,
+                      }}
+                    >
+                      <Avatar
+                        sx={{
+                          bgcolor: alpha(accentColor, 0.12),
+                          width: 56,
+                          height: 56,
+                          border: `2px solid ${alpha(accentColor, 0.2)}`,
+                          boxShadow: `0 4px 16px ${alpha(accentColor, 0.15)}`,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {isSubmittingJO ? (
+                          <CircularProgress
+                            size={24}
+                            sx={{ color: accentColor }}
+                          />
+                        ) : (
+                          <Assignment
+                            sx={{ fontSize: 28, color: accentColor }}
+                          />
+                        )}
+                      </Avatar>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography
+                          sx={{
+                            color: alpha(textPrimaryColor, 0.55),
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.12em',
+                            mb: 0.4,
+                          }}
+                        >
+                          Job Order Employees
+                        </Typography>
+                        <Typography
+                          sx={{
+                            color: textPrimaryColor,
+                            fontSize: '1.1rem',
+                            fontWeight: 800,
+                            lineHeight: 1.2,
+                            mb: 0.5,
+                          }}
+                        >
+                          {isSubmittingJO
+                            ? 'Submitting...'
+                            : 'Submit Payroll JO'}
+                        </Typography>
+                        <Typography
+                          sx={{
+                            color: alpha(textPrimaryColor, 0.45),
+                            fontSize: '0.76rem',
+                            fontWeight: 500,
+                          }}
+                        >
+                          Job order & project-based staff
+                        </Typography>
+                      </Box>
+                      <Box
+                        sx={{
+                          color: alpha(accentColor, 0.3),
+                          fontSize: '1.6rem',
+                          fontWeight: 300,
+                          flexShrink: 0,
+                          lineHeight: 1,
+                        }}
+                      >
+                        →
+                      </Box>
+                    </Box>
+
+                    {/* Bottom accent strip */}
+                    <Box
+                      sx={{
+                        height: 4,
+                        background: `linear-gradient(90deg, ${alpha(accentColor, 0.08)}, ${alpha(accentColor, 0.28)}, ${alpha(accentColor, 0.08)})`,
+                      }}
+                    />
+                  </Box>
+                </Grid>
+              </Grid>
+            </Box>
           </Fade>
         )}
 
-        {/* Modal */}
-       {/* Confirmation Modal for Regular Payroll Submission */}
-       <Dialog
-         open={showRegularConfirm}
-         onClose={() => {
-           setShowRegularConfirm(false);
-           setConfirmRegularChecked(false);
-         }}
-         maxWidth="sm"
-         fullWidth
-         PaperProps={{
-           sx: {
-             borderRadius: 3,
-             boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-             border: '2px solid #6D2323',
-             overflow: 'hidden',
-           },
-         }}
-       >
-         <DialogTitle
-           sx={{
-             px: 3,
-           pt: 2.5,
-           pb: 2,
-             display: 'flex',
-             alignItems: 'center',
-             gap: 2,
-             borderBottom: '3px solid #6D2323',
-             backgroundColor: '#FFFFFF',
-           }}
-         >
-           <Avatar
-             sx={{
-               bgcolor: 'rgba(109,35,35,0.08)',
-               color: '#6D2323',
-               width: 52,
-               height: 52,
-             }}
-           >
-             <Assignment sx={{ fontSize: 26 }} />
-           </Avatar>
-           <Box>
-             <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#333' }}>
-               Confirm Regular Payroll Submission
-             </Typography>
-             <Typography variant="body2" sx={{ color: '#666' }}>
-               Final confirmation required before submitting to Regular payroll.
-             </Typography>
-           </Box>
-         </DialogTitle>
+{/* ── Regular Payroll Confirmation Dialog ── */}
+<Dialog
+  open={showRegularConfirm}
+  onClose={() => { setShowRegularConfirm(false); setConfirmRegularChecked(false); }}
+  maxWidth="sm"
+  fullWidth
+  PaperProps={{
+    sx: {
+      borderRadius: '24px', overflow: 'hidden',
+      boxShadow: `0 32px 80px ${alpha(accentColor, 0.25)}, 0 8px 24px ${alpha(accentColor, 0.12)}`,
+      border: `1px solid ${alpha(accentColor, 0.14)}`,
+      bgcolor: primaryColor,
+    },
+  }}
+>
+  {/* Header */}
+  <Box sx={{
+    px: 4, pt: 4, pb: 3.5,
+    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+    position: 'relative', overflow: 'hidden',
+  }}>
+    <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
+    <Box sx={{ position: 'absolute', bottom: -30, left: '25%', width: 150, height: 150, borderRadius: '50%', background: `radial-gradient(circle, ${alpha(accentColor, 0.07)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
+    <IconButton size="small" onClick={() => { setShowRegularConfirm(false); setConfirmRegularChecked(false); }}
+      sx={{ position: 'absolute', top: 16, right: 16, zIndex: 2, color: textPrimaryColor, opacity: 0.45, '&:hover': { opacity: 1, bgcolor: alpha(accentColor, 0.1) } }}>
+      <CloseIcon fontSize="small" />
+    </IconButton>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
+      <Avatar sx={{ bgcolor: alpha(accentColor, 0.14), width: 60, height: 60, boxShadow: `0 8px 24px ${alpha(accentColor, 0.18)}`, border: `2px solid ${alpha(accentColor, 0.1)}` }}>
+        <Assignment sx={{ fontSize: 28, color: accentColor }} />
+      </Avatar>
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
+          <Typography sx={{ fontWeight: 800, fontSize: '1.2rem', color: textPrimaryColor, lineHeight: 1.2, letterSpacing: '-0.01em' }}>
+            Regular Payroll Submission
+          </Typography>
+          <Chip label="Confirmation" size="small" sx={{ bgcolor: alpha(accentColor, 0.1), color: accentColor, fontWeight: 700, fontSize: '0.65rem', letterSpacing: '0.07em', textTransform: 'uppercase', height: 20, borderRadius: '6px', border: `1px solid ${alpha(accentColor, 0.2)}` }} />
+        </Box>
+        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.5), fontWeight: 500 }}>
+          {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+        </Typography>
+      </Box>
+    </Box>
+  </Box>
 
-         <DialogContent
-           sx={{
-             px: 4,
-             pt: 5,
-             pb: 3,
-             backgroundColor: '#FFFFFF',
-           }}
-         >
-           <Alert
-             severity="info"
-             icon={<InfoIcon />}
-             sx={{
-              mt: 2,
-              mb: 3.5,
-               borderRadius: 2,
-               bgcolor: 'rgba(109,35,35,0.04)',
-               border: '1px solid rgba(109,35,35,0.2)',
-               '& .MuiAlert-icon': {
-                 color: '#6D2323',
-                 fontSize: 24,
-               },
-             }}
-           >
-             <Typography
-               variant="body1"
-               sx={{ fontWeight: 600, mb: 0.5, color: '#333' }}
-             >
-               {attendanceData.length} record(s) will be validated and submitted.
-             </Typography>
-             <Typography variant="body2" sx={{ color: '#555' }}>
-               Please ensure all attendance records are complete and accurate
-               before continuing. This action will forward data to Regular
-               payroll processing.
-             </Typography>
-           </Alert>
+  {/* Body */}
+  <Box sx={{ px: 4, py: 3, bgcolor: alpha(primaryColor, 0.6), borderTop: `1px solid ${alpha(accentColor, 0.08)}`, borderBottom: `1px solid ${alpha(accentColor, 0.08)}` }}>
+    <Typography sx={{ fontSize: '0.9rem', color: alpha(textPrimaryColor, 0.8), lineHeight: 1.8, fontWeight: 500, mb: 2 }}>
+      The following records are pending submission to Regular Payroll. Verify all entries are accurate before proceeding.
+    </Typography>
 
-           <Box
-             sx={{
-               p: 2.5,
-               bgcolor: '#f9f9f9',
-               borderRadius: 2,
-               border: `2px solid ${
-                 confirmRegularChecked ? '#6D2323' : '#e0e0e0'
-               }`,
-               display: 'flex',
-               alignItems: 'flex-start',
-               gap: 1.5,
-               transition: 'all 0.2s ease',
-               ...(confirmRegularChecked && {
-                 bgcolor: 'rgba(109,35,35,0.04)',
-               }),
-             }}
-           >
-             <Checkbox
-               checked={confirmRegularChecked}
-               onChange={(e) => setConfirmRegularChecked(e.target.checked)}
-               sx={{
-                 color: '#6D2323',
-                 '&.Mui-checked': {
-                   color: '#6D2323',
-                 },
-                 mt: -0.5,
-               }}
-             />
-             <Box>
-               <Typography
-                 variant="body1"
-                 sx={{ fontWeight: 600, color: '#333', mb: 0.5 }}
-               >
-                 I confirm that I have reviewed all Regular payroll records.
-               </Typography>
-               <Typography variant="body2" sx={{ color: '#666' }}>
-                 All information for Regular employees is accurate and ready for
-                 submission to payroll. I understand this action cannot be
-                 undone.
-               </Typography>
-             </Box>
-           </Box>
-         </DialogContent>
+    {/* Record count card */}
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, px: 2, py: 1.5, borderRadius: '12px', bgcolor: 'rgba(255,255,255,0.75)', border: `1px solid ${alpha(accentColor, 0.1)}`, backdropFilter: 'blur(4px)', boxShadow: `0 2px 8px ${alpha(accentColor, 0.06)}` }}>
+      <Box sx={{ width: 36, height: 36, borderRadius: '8px', flexShrink: 0, bgcolor: alpha(accentColor, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Assignment sx={{ fontSize: 18, color: accentColor }} />
+      </Box>
+      <Box>
+        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.5), fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Records for Submission</Typography>
+        <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: textPrimaryColor, lineHeight: 1.2 }}>
+          {attendanceData.length} {attendanceData.length === 1 ? 'Record' : 'Records'} — Regular Payroll
+        </Typography>
+      </Box>
+    </Box>
 
-         <DialogActions
-           sx={{
-             px: 4,
-             py: 3,
-             backgroundColor: '#FFFFFF',
-             borderTop: '1px solid rgba(0,0,0,0.06)',
-             display: 'flex',
-             justifyContent: 'flex-end',
-             gap: 1.5,
-           }}
-         >
-           <ProfessionalButton
-             variant="outlined"
-             onClick={() => {
-               setShowRegularConfirm(false);
-               setConfirmRegularChecked(false);
-             }}
-             sx={{
-               minWidth: 120,
-               borderColor: '#6D2323',
-               color: '#6D2323',
-               fontWeight: 600,
-             }}
-           >
-             Cancel
-           </ProfessionalButton>
-           <ProfessionalButton
-             variant="contained"
-             disabled={!confirmRegularChecked || isSubmitting}
-             onClick={async () => {
-               setShowRegularConfirm(false);
-               setConfirmRegularChecked(false);
-               await submitToPayroll();
-             }}
-             sx={{
-               minWidth: 160,
-               bgcolor: '#6D2323',
-               color: '#FEF9E1',
-               fontWeight: 600,
-               '&:hover': {
-                 bgcolor: '#8B3333',
-               },
-               '&:disabled': {
-                 bgcolor: 'rgba(0,0,0,0.12)',
-                 color: 'rgba(0,0,0,0.4)',
-               },
-             }}
-           >
-             {isSubmitting ? 'Submitting...' : 'Confirm & Submit'}
-           </ProfessionalButton>
-         </DialogActions>
-       </Dialog>
+    {/* Confirmation checkbox */}
+    <Box sx={{
+      p: 2.5, borderRadius: '12px',
+      border: `2px solid ${confirmRegularChecked ? accentColor : alpha(accentColor, 0.15)}`,
+      bgcolor: confirmRegularChecked ? alpha(accentColor, 0.05) : 'rgba(255,255,255,0.5)',
+      display: 'flex', alignItems: 'flex-start', gap: 1.5,
+      transition: 'all 0.2s ease', cursor: 'pointer',
+    }} onClick={() => setConfirmRegularChecked(p => !p)}>
+      <Checkbox
+        checked={confirmRegularChecked}
+        onChange={(e) => setConfirmRegularChecked(e.target.checked)}
+        onClick={(e) => e.stopPropagation()}
+        sx={{ color: alpha(accentColor, 0.4), '&.Mui-checked': { color: accentColor }, mt: -0.5, p: 0.5 }}
+      />
+      <Box>
+        <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: textPrimaryColor, mb: 0.4, lineHeight: 1.3 }}>
+          I confirm all records have been reviewed and are accurate.
+        </Typography>
+        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.55), fontWeight: 500, lineHeight: 1.6 }}>
+          This action will submit the records to Regular payroll processing and cannot be undone.
+        </Typography>
+      </Box>
+    </Box>
+  </Box>
 
+  {/* Footer */}
+  <Box sx={{ px: 4, py: 2.5, bgcolor: alpha(primaryColor, 0.8), display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1.5 }}>
+    <ProfessionalButton
+      onClick={() => { setShowRegularConfirm(false); setConfirmRegularChecked(false); }}
+      variant="outlined"
+      sx={{ borderColor: alpha(accentColor, 0.3), color: textPrimaryColor, bgcolor: 'rgba(255,255,255,0.6)', '&:hover': { borderColor: accentColor, bgcolor: 'rgba(255,255,255,0.9)' } }}
+    >
+      Cancel
+    </ProfessionalButton>
+    <ProfessionalButton
+      variant="contained"
+      disabled={!confirmRegularChecked || isSubmitting}
+      onClick={async () => { setShowRegularConfirm(false); setConfirmRegularChecked(false); await submitToPayroll(); }}
+      sx={{ bgcolor: accentColor, color: primaryColor, boxShadow: `0 4px 16px ${alpha(accentColor, 0.4)}`, '&:hover': { bgcolor: accentDark, boxShadow: `0 6px 20px ${alpha(accentColor, 0.5)}` }, '&:disabled': { bgcolor: alpha(accentColor, 0.25), color: alpha(primaryColor, 0.5) } }}
+    >
+      {isSubmitting ? 'Submitting…' : 'Submit'}
+    </ProfessionalButton>
+  </Box>
+</Dialog>
+
+{/* ── JO Payroll Confirmation Dialog ── */}
+<Dialog
+  open={showJOConfirm}
+  onClose={() => { setShowJOConfirm(false); setConfirmJOChecked(false); }}
+  maxWidth="sm"
+  fullWidth
+  PaperProps={{
+    sx: {
+      borderRadius: '24px', overflow: 'hidden',
+      boxShadow: `0 32px 80px ${alpha(accentColor, 0.25)}, 0 8px 24px ${alpha(accentColor, 0.12)}`,
+      border: `1px solid ${alpha(accentColor, 0.14)}`,
+      bgcolor: primaryColor,
+    },
+  }}
+>
+  {/* Header */}
+  <Box sx={{
+    px: 4, pt: 4, pb: 3.5,
+    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+    position: 'relative', overflow: 'hidden',
+  }}>
+    <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
+    <Box sx={{ position: 'absolute', bottom: -30, left: '25%', width: 150, height: 150, borderRadius: '50%', background: `radial-gradient(circle, ${alpha(accentColor, 0.07)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
+    <IconButton size="small" onClick={() => { setShowJOConfirm(false); setConfirmJOChecked(false); }}
+      sx={{ position: 'absolute', top: 16, right: 16, zIndex: 2, color: textPrimaryColor, opacity: 0.45, '&:hover': { opacity: 1, bgcolor: alpha(accentColor, 0.1) } }}>
+      <CloseIcon fontSize="small" />
+    </IconButton>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
+      <Avatar sx={{ bgcolor: alpha(accentColor, 0.14), width: 60, height: 60, boxShadow: `0 8px 24px ${alpha(accentColor, 0.18)}`, border: `2px solid ${alpha(accentColor, 0.1)}` }}>
+        <Assignment sx={{ fontSize: 28, color: accentColor }} />
+      </Avatar>
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
+          <Typography sx={{ fontWeight: 800, fontSize: '1.2rem', color: textPrimaryColor, lineHeight: 1.2, letterSpacing: '-0.01em' }}>
+            Job Order Payroll Submission
+          </Typography>
+          <Chip label="Confirmation" size="small" sx={{ bgcolor: alpha(accentColor, 0.1), color: accentColor, fontWeight: 700, fontSize: '0.65rem', letterSpacing: '0.07em', textTransform: 'uppercase', height: 20, borderRadius: '6px', border: `1px solid ${alpha(accentColor, 0.2)}` }} />
+        </Box>
+        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.5), fontWeight: 500 }}>
+          {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+        </Typography>
+      </Box>
+    </Box>
+  </Box>
+
+  {/* Body */}
+  <Box sx={{ px: 4, py: 3, bgcolor: alpha(primaryColor, 0.6), borderTop: `1px solid ${alpha(accentColor, 0.08)}`, borderBottom: `1px solid ${alpha(accentColor, 0.08)}` }}>
+    <Typography sx={{ fontSize: '0.9rem', color: alpha(textPrimaryColor, 0.8), lineHeight: 1.8, fontWeight: 500, mb: 2 }}>
+      The following records are pending submission to Job Order Payroll. Verify all entries are accurate before proceeding.
+    </Typography>
+
+    {/* Record count card */}
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, px: 2, py: 1.5, borderRadius: '12px', bgcolor: 'rgba(255,255,255,0.75)', border: `1px solid ${alpha(accentColor, 0.1)}`, backdropFilter: 'blur(4px)', boxShadow: `0 2px 8px ${alpha(accentColor, 0.06)}` }}>
+      <Box sx={{ width: 36, height: 36, borderRadius: '8px', flexShrink: 0, bgcolor: alpha(accentColor, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Assignment sx={{ fontSize: 18, color: accentColor }} />
+      </Box>
+      <Box>
+        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.5), fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Records for Submission</Typography>
+        <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: textPrimaryColor, lineHeight: 1.2 }}>
+          {attendanceData.length} {attendanceData.length === 1 ? 'Record' : 'Records'} — Job Order Payroll
+        </Typography>
+      </Box>
+    </Box>
+
+    {/* Confirmation checkbox */}
+    <Box sx={{
+      p: 2.5, borderRadius: '12px',
+      border: `2px solid ${confirmJOChecked ? accentColor : alpha(accentColor, 0.15)}`,
+      bgcolor: confirmJOChecked ? alpha(accentColor, 0.05) : 'rgba(255,255,255,0.5)',
+      display: 'flex', alignItems: 'flex-start', gap: 1.5,
+      transition: 'all 0.2s ease', cursor: 'pointer',
+    }} onClick={() => setConfirmJOChecked(p => !p)}>
+      <Checkbox
+        checked={confirmJOChecked}
+        onChange={(e) => setConfirmJOChecked(e.target.checked)}
+        onClick={(e) => e.stopPropagation()}
+        sx={{ color: alpha(accentColor, 0.4), '&.Mui-checked': { color: accentColor }, mt: -0.5, p: 0.5 }}
+      />
+      <Box>
+        <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: textPrimaryColor, mb: 0.4, lineHeight: 1.3 }}>
+          I confirm all records have been reviewed and are accurate.
+        </Typography>
+        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.55), fontWeight: 500, lineHeight: 1.6 }}>
+          This action will submit the records to Job Order payroll processing and cannot be undone.
+        </Typography>
+      </Box>
+    </Box>
+  </Box>
+
+  {/* Footer */}
+  <Box sx={{ px: 4, py: 2.5, bgcolor: alpha(primaryColor, 0.8), display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1.5 }}>
+    <ProfessionalButton
+      onClick={() => { setShowJOConfirm(false); setConfirmJOChecked(false); }}
+      variant="outlined"
+      sx={{ borderColor: alpha(accentColor, 0.3), color: textPrimaryColor, bgcolor: 'rgba(255,255,255,0.6)', '&:hover': { borderColor: accentColor, bgcolor: 'rgba(255,255,255,0.9)' } }}
+    >
+      Cancel
+    </ProfessionalButton>
+    <ProfessionalButton
+      variant="contained"
+      disabled={!confirmJOChecked || isSubmittingJO}
+      onClick={async () => { setShowJOConfirm(false); setConfirmJOChecked(false); await submitPayrollJO(); }}
+      sx={{ bgcolor: accentColor, color: primaryColor, boxShadow: `0 4px 16px ${alpha(accentColor, 0.4)}`, '&:hover': { bgcolor: accentDark, boxShadow: `0 6px 20px ${alpha(accentColor, 0.5)}` }, '&:disabled': { bgcolor: alpha(accentColor, 0.25), color: alpha(primaryColor, 0.5) } }}
+    >
+      {isSubmittingJO ? 'Submitting…' : 'Submit'}
+    </ProfessionalButton>
+  </Box>
+</Dialog>
+
+        {/* ── StyledModal ── */}
         <StyledModal
           open={modal.open}
           onClose={closeModal}
@@ -1821,22 +2752,29 @@ const OverallAttendance = () => {
           type={modal.type}
           onConfirm={modal.onConfirm}
           showCancel={modal.showCancel}
+          accentColor={accentColor}
+          accentDark={accentDark}
+          primaryColor={primaryColor}
+          secondaryColor={secondaryColor}
+          textPrimaryColor={textPrimaryColor}
         />
 
-        <LoadingOverlay open={processingOverlay} message={processingMessage || 'Processing...'} />
+        {/* ── Overlays ── */}
+        <LoadingOverlay
+          open={processingOverlay}
+          message={processingMessage || 'Processing...'}
+        />
         <SuccessfulOverlay
           open={successOverlay}
           action={successAction}
           showOkButton
           onClose={() => {
             setSuccessOverlay(false);
-            if (successRedirect) {
-              navigate(successRedirect);
-            }
+            if (successRedirect) navigate(successRedirect);
           }}
         />
       </Box>
-    </Box>
+    </Fade>
   );
 };
 

@@ -19,9 +19,10 @@ const DEFAULT_SETTINGS = {
   institutionLogo:             '',
   hrisLogo:                    '',
   institutionName:             'Institution Name',
-  systemName:                  'Human Resource Information System',
-  institutionAbbreviation:     'INST',
-  footerText:                  '© 2026 - HUMAN RESOURCE INFORMATION SYSTEM.  ALL RIGHTS RESERVED.',
+  institutionAddress:          'Institute Address',
+  systemName:                  'Human Resources Information System',
+  institutionAbbreviation:     'INST ABBREV',
+  footerText:                  '© 2026 - HUMAN RESOURCES INFORMATION SYSTEM.  ALL RIGHTS RESERVED.',
   copyrightSymbol:             '©',
   enableWatermark:             'true',
   actionButtonColor:           '#6d2323',
@@ -36,6 +37,9 @@ const DEFAULT_SETTINGS = {
   modalBorderColor:            '#894444',
   // Footer contact
   adminEmail:                  'hrinformationsystemhris@gmail.com',
+  // Payslip certifier
+  certifierName:               'Default Certifier',
+  certifierPosition:           'Default Position',
 };
 
 // ── Helper: convert DB rows array → settings object ──────────────────────────
@@ -71,9 +75,12 @@ router.get('/api/system-settings', (req, res) => {
     if (err) {
       console.error('Error checking table:', err);
       return res.status(500).json({ error: 'Database error', details: err.message });
+      return res.status(500).json({ error: 'Database error', details: err.message });
     }
 
     if (tables.length === 0) {
+      console.warn('system_settings table does not exist — returning defaults');
+      return res.json(DEFAULT_SETTINGS);
       console.warn('system_settings table does not exist — returning defaults');
       return res.json(DEFAULT_SETTINGS);
     }
@@ -82,9 +89,12 @@ router.get('/api/system-settings', (req, res) => {
       if (err) {
         console.error('Error fetching system settings:', err);
         return res.status(500).json({ error: 'Failed to fetch system settings', details: err.message });
+        return res.status(500).json({ error: 'Failed to fetch system settings', details: err.message });
       }
 
       if (rows.length === 0) {
+        console.log('No settings rows found — returning defaults');
+        return res.json(DEFAULT_SETTINGS);
         console.log('No settings rows found — returning defaults');
         return res.json(DEFAULT_SETTINGS);
       }
@@ -110,9 +120,6 @@ router.get('/api/system-settings/:key', (req, res) => {
       }
 
       if (rows.length === 0) {
-        if (DEFAULT_SETTINGS[key] !== undefined) {
-          return res.json({ setting_key: key, setting_value: DEFAULT_SETTINGS[key] });
-        }
         return res.status(404).json({ error: 'Setting not found' });
       }
 
@@ -249,6 +256,7 @@ router.post('/api/system-settings/reset', (req, res) => {
         return res.status(500).json({ error: 'Transaction error', details: err.message });
       }
 
+      // Delete all existing settings
       connection.query('DELETE FROM system_settings', (err) => {
         if (err) {
           return connection.rollback(() => {
@@ -258,7 +266,34 @@ router.post('/api/system-settings/reset', (req, res) => {
           });
         }
 
-        const defaultEntries = Object.entries(DEFAULT_SETTINGS);
+        console.log('Deleted all existing settings');
+
+        // Insert default values
+        const defaultSettings = [
+          ['primaryColor', '#894444'],
+          ['secondaryColor', '#6d2323'],
+          ['accentColor', '#FEF9E1'],
+          ['textColor', '#FFFFFF'],
+          ['textPrimaryColor', '#6D2323'], // Added textPrimaryColor
+          ['textSecondaryColor', '#FEF9E1'], // Added textSecondaryColor
+          ['hoverColor', '#6D2323'],
+          ['backgroundColor', '#FFFFFF'],
+          ['institutionLogo', ''],
+          ['hrisLogo', ''],
+          [
+            'institutionName',
+            'Eulogio "Amang" Rodriguez Institute of Science and Technology',
+          ],
+          ['systemName', 'Human Resources Information System'],
+          ['institutionAbbreviation', 'EARIST'],
+          [
+            'footerText',
+            '© 2025 EARIST Manila - Human Resources Information System. All rights Reserved.',
+          ],
+          ['copyrightSymbol', '©'], // Added copyrightSymbol
+          ['enableWatermark', 'true'],
+        ];
+
         let completed = 0;
         let hasError = false;
 
@@ -307,6 +342,7 @@ router.post('/api/system-settings/reset', (req, res) => {
 // LEGACY SETTINGS ROUTES (settings table)
 // ============================================
 
+// GET settings
 router.get('/api/settings', (req, res) => {
   db.query('SELECT * FROM settings WHERE id = 1', (err, result) => {
     if (err) throw err;
@@ -314,6 +350,7 @@ router.get('/api/settings', (req, res) => {
   });
 });
 
+// Helper function to delete old logo
 const deleteOldLogo = (logoUrl) => {
   if (!logoUrl) return;
   const logoPath = path.join(__dirname, logoUrl);
@@ -326,6 +363,7 @@ const deleteOldLogo = (logoUrl) => {
   });
 };
 
+// Update settings
 router.post('/api/settings', upload.single('logo'), (req, res) => {
   const companyName  = req.body.company_name  || '';
   const headerColor  = req.body.header_color  || '#ffffff';
@@ -361,5 +399,6 @@ router.post('/api/settings', upload.single('logo'), (req, res) => {
     }
   });
 });
+
 
 module.exports = router;

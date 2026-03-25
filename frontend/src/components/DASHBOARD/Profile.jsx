@@ -6,4928 +6,1399 @@ import useProfileSections from '../../hooks/useProfileSections';
 import useProfileMutations from '../../hooks/useProfileMutations';
 import { getUserInfo, getAuthHeaders } from '../../utils/auth';
 import {
-  Avatar,
-  Typography,
-  Box,
-  CircularProgress,
-  Paper,
-  Grid,
-  Container,
-  Button,
-  Modal,
-  TextField,
-  Chip,
-  IconButton,
-  Card,
-  CardContent,
-  Tooltip,
-  useTheme,
-  alpha,
-  Backdrop,
-  Tabs,
-  Tab,
-  Fab,
-  Snackbar,
-  SnackbarContent,
-  useScrollTrigger,
-  Menu,
-  MenuItem,
-  ListItemIcon,
-  ListItemText,
-  List,
-  ListItem,
-  ListItemText as MuiListItemText,
-  ListItemIcon as MuiListItemIcon,
-  Divider,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem as MuiMenuItem,
-  InputAdornment,
-  AppBar,
-  Toolbar,
-  Stack,
+  Avatar, Typography, Box, Grid, Button, Modal, TextField,
+  Chip, IconButton, Tooltip, alpha, Backdrop, InputAdornment,
+  FormControl, Select, MenuItem as MuiMenuItem, LinearProgress,
 } from '@mui/material';
-import { styled } from '@mui/material/styles';
-import PersonIcon from '@mui/icons-material/Person';
-import CloseIcon from '@mui/icons-material/Close';
-import BadgeIcon from '@mui/icons-material/Badge';
-import HomeIcon from '@mui/icons-material/Home';
-import CallIcon from '@mui/icons-material/Call';
-import GroupIcon from '@mui/icons-material/Group';
-import SchoolIcon from '@mui/icons-material/School';
-import EditIcon from '@mui/icons-material/Edit';
-import SaveIcon from '@mui/icons-material/Save';
-import DeleteIcon from '@mui/icons-material/Delete';
-import EmailIcon from '@mui/icons-material/Email';
-import PhoneIcon from '@mui/icons-material/Phone';
-import LocationOnIcon from '@mui/icons-material/LocationOn';
-import CakeIcon from '@mui/icons-material/Cake';
-import WorkIcon from '@mui/icons-material/Work';
-import CloudUploadIcon from '@mui/icons-material/CloudUpload';
-import RefreshIcon from '@mui/icons-material/Refresh';
-import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
-import DownloadIcon from '@mui/icons-material/Download';
-import ShareIcon from '@mui/icons-material/Share';
-import SettingsIcon from '@mui/icons-material/Settings';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
+import PersonIcon            from '@mui/icons-material/Person';
+import CloseIcon             from '@mui/icons-material/Close';
+import BadgeIcon             from '@mui/icons-material/Badge';
+import HomeIcon              from '@mui/icons-material/Home';
+import CallIcon              from '@mui/icons-material/Call';
+import GroupIcon             from '@mui/icons-material/Group';
+import SchoolIcon            from '@mui/icons-material/School';
+import EditIcon              from '@mui/icons-material/Edit';
+import SaveIcon              from '@mui/icons-material/Save';
+import DeleteIcon            from '@mui/icons-material/Delete';
+import EmailIcon             from '@mui/icons-material/Email';
+import WorkIcon              from '@mui/icons-material/Work';
+import CloudUploadIcon       from '@mui/icons-material/CloudUpload';
+import RefreshIcon           from '@mui/icons-material/Refresh';
+import DownloadIcon          from '@mui/icons-material/Download';
+import ShareIcon             from '@mui/icons-material/Share';
+import ChildCareIcon         from '@mui/icons-material/ChildCare';
+import AddIcon               from '@mui/icons-material/Add';
+import FactCheckIcon         from '@mui/icons-material/FactCheck';
+import PercentIcon           from '@mui/icons-material/Percent';
+import PsychologyIcon        from '@mui/icons-material/Psychology';
+import BookIcon              from '@mui/icons-material/Book';
+import InfoIcon              from '@mui/icons-material/Info';
+import ConstructionIcon      from '@mui/icons-material/Construction';
+import ArrowBackIosIcon      from '@mui/icons-material/ArrowBackIos';
+import ArrowForwardIosIcon   from '@mui/icons-material/ArrowForwardIos';
+import CameraAltIcon         from '@mui/icons-material/CameraAlt';
+import VolunteerActivismIcon from '@mui/icons-material/VolunteerActivism';
+import AccountCircleIcon     from '@mui/icons-material/AccountCircle';
+import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import PhotoSizeSelectActualIcon from '@mui/icons-material/PhotoSizeSelectActual';
-import CropOriginalIcon from '@mui/icons-material/CropOriginal';
-import { ExitToApp } from '@mui/icons-material';
-import ChildCareIcon from '@mui/icons-material/ChildCare';
-import FamilyRestroomIcon from '@mui/icons-material/FamilyRestroom';
-import AddIcon from '@mui/icons-material/Add';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import SchoolRoundedIcon from '@mui/icons-material/SchoolRounded';
-import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
-import FactCheckIcon from '@mui/icons-material/FactCheck';
-import PercentIcon from '@mui/icons-material/Percent';
-import PsychologyIcon from '@mui/icons-material/Psychology';
-import BookIcon from '@mui/icons-material/Book';
-import LightbulbIcon from '@mui/icons-material/Lightbulb';
-import InfoIcon from '@mui/icons-material/Info';
-import ConstructionIcon from '@mui/icons-material/Construction';
-import AccountCircleIcon from '@mui/icons-material/AccountCircle';
-import BusinessIcon from '@mui/icons-material/Business';
-import DescriptionIcon from '@mui/icons-material/Description';
-import TimelineIcon from '@mui/icons-material/Timeline';
-import ArrowBackIosIcon from '@mui/icons-material/ArrowBackIos';
-import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
-import CameraAltIcon from '@mui/icons-material/CameraAlt';
+import CropOriginalIcon      from '@mui/icons-material/CropOriginal';
+import SchoolRoundedIcon     from '@mui/icons-material/SchoolRounded';
+import VerifiedUserIcon      from '@mui/icons-material/VerifiedUser';
+import FingerprintIcon       from '@mui/icons-material/Fingerprint';
+import AssignmentIndIcon     from '@mui/icons-material/AssignmentInd';
+import LockIcon              from '@mui/icons-material/Lock';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 
-const colors = {
-  primary: '#6D2323',
-  primaryLight: '#A31D1D',
-  primaryDark: '#4a1818',
-  secondary: '#FEF9E1',
-  textPrimary: '#000000',
-  textSecondary: '#555555',
-  textLight: '#FFFFFF',
-  background: '#FFFFFF',
-  surface: '#FFFFFF',
-  border: '#6D2323',
-  success: '#4caf50',
-  warning: '#ff9800',
-  error: '#f44336',
-  info: '#2196f3',
-  gradientPrimary: 'linear-gradient(135deg, #6D2323 0%, #A31D1D 100%)',
-};
-
-const shadows = {
-  light: '0 2px 8px rgba(0,0,0,0.08)',
-  medium: '0 4px 16px rgba(0,0,0,0.12)',
-  heavy: '0 8px 24px rgba(0,0,0,0.16)',
-  colored: '0 4px 16px rgba(109, 35, 35, 0.2)',
-};
-
-// --- NEW LAYOUT STYLES ---
-
-export const ProfileWrapper = styled(Box)`
-  width: 100%;
-  max-width: 1200px; /* center it like a website */
-  min-height: 8vh;
-  margin: 20px auto; /* center and add spacing */
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-
-  /* Glass + Shadow */
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(15px);
-  border-radius: 16px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-  transition: all 0.3s ease;
-
-  /* Optional glare hover */
-  position: relative;
-  &:hover::before {
-    transform: rotate(25deg) translateX(100%);
+/* ─────────────────────────────────────────────────────────────────────────────
+   GLOBAL CSS
+───────────────────────────────────────────────────────────────────────────── */
+const GLOBAL_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse-ring {
+    0%   { box-shadow: 0 0 0 0 rgba(109,35,35,0.4); }
+    70%  { box-shadow: 0 0 0 8px rgba(109,35,35,0); }
+    100% { box-shadow: 0 0 0 0 rgba(109,35,35,0); }
   }
-  &::before {
-    content: '';
-    position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: linear-gradient(
-      60deg,
-      rgba(255, 255, 255, 0.05) 0%,
-      rgba(255, 255, 255, 0.1) 50%,
-      rgba(255, 255, 255, 0.05) 100%
-    );
-    transform: rotate(25deg) translateX(-100%);
-    transition: transform 0.7s ease;
-    border-radius: 16px;
+  @keyframes shimmer {
+    0%   { background-position: -900px 0; }
+    100% { background-position:  900px 0; }
   }
+  @keyframes wfPulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.5; }
+  }
+  @keyframes sectionIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes bannerSlide {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  * { font-family: 'IBM Plex Sans', sans-serif; box-sizing: border-box; }
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: #f0f0f0; }
+  ::-webkit-scrollbar-thumb { background: rgba(109,35,35,0.25); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(109,35,35,0.5); }
 `;
 
-// Top Navigation Bar Container
-const ProfileAppBar = styled(AppBar)(({ theme }) => ({
-  backgroundColor: colors.surface,
-  color: colors.textPrimary,
-  boxShadow: '0 2px 10px rgba(0,0,0,0.05)',
-  borderBottom: '1px solid #E5E5E5',
-  padding: '0 24px',
-  position: 'relative',
-  zIndex: 1100,
-}));
-
-export const ProfileToolbar = styled(Toolbar)`
-  min-height: 80px; /* ← increase this (64 default) */
-  padding-top: 12px;
-  padding-bottom: 12px;
-
-  display: flex;
-  align-items: center;
-`;
-
-const BrandSection = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  gap: theme.spacing(2),
-  flex: 1,
-}));
-
-const ProfileInfoCompact = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  flexDirection: 'column',
-  marginLeft: theme.spacing(1),
-}));
-
-const NavTabsContainer = styled(Box)(({ theme }) => ({
-  backgroundColor: colors.background,
-  borderBottom: '1px solid #E5E5E5',
-  width: '100%',
-  zIndex: 1090,
-}));
-
-const NavTabs = styled(Tabs)(({ theme }) => ({
-  minHeight: '50px',
-  '& .MuiTabs-indicator': {
-    backgroundColor: colors.primary,
-    height: '3px',
-    borderRadius: '3px 3px 0 0',
-  },
-  '& .MuiTab-root': {
-    textTransform: 'none',
-    fontWeight: 600,
-    fontSize: '0.9rem',
-    color: colors.textSecondary,
-    minHeight: '50px',
-    minWidth: 'auto',
-    padding: '12px 20px',
-    transition: 'color 0.2s ease',
-    '&:hover': {
-      color: colors.primary,
-      backgroundColor: alpha(colors.primary, 0.04),
-    },
-    '&.Mui-selected': {
-      color: colors.primary,
-    },
-  },
-}));
-
-// Main Content Area (replaces MainContent, adjusted for no sidebar)
-export const MainContent = styled(Box)`
-  flex: 1;
-  width: 100%;
-  max-width: 1600px; /* adjust if you want */
-  margin: 0 auto; /* center */
-
-  padding: 24px;
-
-  box-sizing: border-box;
-`;
-
-// --- EXISTING STYLES (Kept for content consistency) ---
-
-const ProfileHeader = styled(Paper)(({ theme }) => ({
-  padding: theme.spacing(4),
-  marginBottom: theme.spacing(4),
-  borderRadius: theme.spacing(3),
-  boxShadow: shadows.medium,
-
-  display: 'flex',
-  alignItems: 'center',
-  position: 'relative',
-  overflow: 'hidden',
-  background: colors.surface,
-  [theme.breakpoints.down('md')]: {
-    flexDirection: 'column',
-    textAlign: 'center',
-    padding: theme.spacing(3),
-  },
-}));
-
-const ProfileInfo = styled(Box)(({ theme }) => ({
-  flex: 1,
-}));
-
-const ProfileName = styled(Typography)(({ theme }) => ({
-  fontWeight: 700,
-  fontSize: '1.8rem',
-  color: colors.textPrimary,
-  marginBottom: theme.spacing(0.5),
-  transition: 'color 0.3s ease',
-  '&:hover': {
-    color: colors.primary,
-  },
-}));
-
-const ProfileSubtitle = styled(Typography)(({ theme }) => ({
-  color: colors.textSecondary,
-  marginBottom: theme.spacing(2),
-  fontSize: '1rem',
-}));
-
-const ProfileActions = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  gap: theme.spacing(1.5),
-  [theme.breakpoints.down('md')]: {
-    justifyContent: 'center',
-    marginTop: theme.spacing(2),
-    flexWrap: 'wrap',
-  },
-}));
-
-const GlassCard = styled(Card)(({ theme }) => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  '&:hover': {
-    transform: 'translateY(-4px)',
-  },
-}));
-
-const SectionPaper = styled(Paper)(({ theme }) => ({
-  padding: 0,
-  marginBottom: theme.spacing(3),
-  borderRadius: theme.spacing(3),
-  boxShadow: shadows.light,
-  transition: 'box-shadow 0.3s ease, transform 0.3s ease',
-  position: 'relative',
-  overflow: 'hidden',
-  '&:hover': {
-    boxShadow: shadows.medium,
-    transform: 'translateY(-2px)',
-  },
-}));
-
-const SectionTitle = styled(Typography)(({ theme }) => ({
-  fontWeight: 700,
-  fontSize: '1.3rem',
-  color: colors.textPrimary,
-  marginBottom: theme.spacing(2),
-  display: 'flex',
-  alignItems: 'center',
-  gap: theme.spacing(1),
-}));
-
-const InfoItem = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  marginBottom: theme.spacing(2),
-  alignItems: 'flex-start',
-  padding: theme.spacing(1),
-  borderRadius: theme.spacing(1),
-  transition: 'background-color 0.2s ease',
-  '&:hover': {
-    backgroundColor: alpha(colors.primary, 0.05),
-  },
-}));
-
-const PageHeaderBox = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  background: colors.surface,
-  border: '1px solid #E5E5E5',
-  borderRadius: '12px',
-  padding: '20px 30px',
-  marginBottom: '30px',
-  boxShadow: '0 2px 10px rgba(0,0,0,0.02)',
-  [theme.breakpoints.down('sm')]: {
-    flexDirection: 'column',
-    gap: theme.spacing(2),
-    alignItems: 'flex-start',
-  },
-}));
-
-const HeaderTitles = styled(Box)(({ theme }) => ({}));
-
-const HeaderTitle = styled(Typography)(({ theme }) => ({
-  fontSize: '1.6rem',
-  color: colors.primary,
-  fontWeight: 800,
-  marginBottom: '4px',
-  letterSpacing: '-0.5px',
-}));
-
-const HeaderSubtitle = styled(Typography)(({ theme }) => ({
-  fontSize: '0.9rem',
-  color: colors.textSecondary,
-  fontWeight: 500,
-}));
-
-const NavControls = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  gap: '10px',
-}));
-
-const NavButton = styled(IconButton)(({ theme }) => ({
-  background: 'rgba(255, 255, 255, 0.2)', // semi-transparent glass
-  backdropFilter: 'blur(8px)', // glass blur effect
-  border: '1px solid rgba(255, 255, 255, 0.3)',
-  color: colors.textPrimary,
-  width: '44px',
-  height: '44px',
-  borderRadius: '12px', // rounded for modern look
-  boxShadow: '0 4px 12px rgba(0,0,0,0.08)', // soft shadow
-  position: 'relative',
-  overflow: 'hidden',
-  transition: 'all 0.3s ease',
-
-  '&:hover': {
-    color: colors.primary,
-    transform: 'translateY(-2px)',
-    boxShadow: '0 6px 18px rgba(0,0,0,0.2)',
-  },
-
-  '&:disabled': {
-    opacity: 0.4,
-    cursor: 'not-allowed',
-    transform: 'none',
-    boxShadow: 'none',
-  },
-
-  // Glare hover effect
-  '&::before': {
-    content: '""',
-    position: 'absolute',
-    top: '-50%',
-    left: '-50%',
-    width: '200%',
-    height: '200%',
-    background:
-      'linear-gradient(60deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.2) 50%, rgba(255,255,255,0.1) 100%)',
-    transform: 'rotate(25deg) translateX(-100%)',
-    transition: 'transform 0.7s ease',
-  },
-  '&:hover::before': {
-    transform: 'rotate(25deg) translateX(100%)',
-  },
-}));
-
-const DataCard = styled(Box, {
-  shouldForwardProp: (prop) => prop !== 'mouseX' && prop !== 'mouseY',
-})(({ theme, mouseX, mouseY }) => ({
-  background: colors.surface,
-  border: '1px solid #f0f0f0',
-  borderRadius: '12px',
-  padding: '30px',
-  marginBottom: '20px',
-  position: 'relative',
-  boxShadow: '0 4px 20px rgba(0,0,0,0.02)',
-  overflow: 'hidden',
-  transition: 'transform 0.1s ease',
-  '&::before': {
-    content: '""',
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: '12px',
-    padding: '1px',
-    background:
-      mouseX && mouseY
-        ? `radial-gradient(800px circle at ${mouseX}px ${mouseY}px, ${colors.primaryLight}, transparent 40%)`
-        : 'transparent',
-    WebkitMask:
-      'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-    mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-    WebkitMaskComposite: 'xor',
-    maskComposite: 'exclude',
-    pointerEvents: 'none',
-    zIndex: 2,
-    opacity: mouseX ? 1 : 0,
-    transition: 'opacity 0.3s ease',
-  },
-  '&::after': {
-    content: '""',
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: '12px',
-    background:
-      mouseX && mouseY
-        ? `radial-gradient(800px circle at ${mouseX}px ${mouseY}px, rgba(109, 35, 35, 0.05), transparent 50%)`
-        : 'transparent',
-    pointerEvents: 'none',
-    zIndex: 1,
-    opacity: mouseX ? 1 : 0,
-    transition: 'opacity 0.3s ease',
-  },
-}));
-
-const CardInner = styled(Box)(({ theme }) => ({
-  position: 'relative',
-  zIndex: 2,
-}));
-
-const InfoGrid = styled(Box)(({ theme }) => ({
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-  gap: '30px',
-  [theme.breakpoints.down('sm')]: {
-    gridTemplateColumns: '1fr',
-    gap: '20px',
-  },
-}));
-
-const InfoGroup = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  flexDirection: 'column',
-}));
-
-const InfoLabel = styled(Typography)(({ theme }) => ({
-  fontSize: '0.75rem',
-  textTransform: 'uppercase',
-  letterSpacing: '1px',
-  color: colors.textSecondary,
-  fontWeight: 700,
-  marginBottom: '6px',
-}));
-
-const InfoValue = styled(Typography)(({ theme }) => ({
-  fontSize: '1rem',
-  color: colors.textPrimary,
-  fontWeight: 500,
-}));
-
-const Timeline = styled(Box)(({ theme }) => ({
-  position: 'relative',
-  paddingLeft: '20px',
-  '&::before': {
-    content: '""',
-    position: 'absolute',
-    left: 0,
-    top: '5px',
-    bottom: 0,
-    width: '2px',
-    background: '#eee',
-  },
-}));
-
-const TimelineItem = styled(Box)(({ theme }) => ({
-  position: 'relative',
-  paddingBottom: '30px',
-  '&::before': {
-    content: '""',
-    position: 'absolute',
-    left: '-25px',
-    top: '6px',
-    width: '12px',
-    height: '12px',
-    background: colors.surface,
-    border: `3px solid ${colors.primary}`,
-    borderRadius: '50%',
-    zIndex: 1,
-  },
-}));
-
-const TimelineDate = styled(Typography)(({ theme }) => ({
-  fontSize: '0.85rem',
-  color: colors.primary,
-  fontWeight: 700,
-  marginBottom: '5px',
-}));
-
-const TimelineTitle = styled(Typography)(({ theme }) => ({
-  fontSize: '1.1rem',
-  fontWeight: 700,
-  marginBottom: '2px',
-  color: colors.textPrimary,
-}));
-
-const TimelineOrg = styled(Typography)(({ theme }) => ({
-  fontSize: '0.95rem',
-  color: colors.textSecondary,
-}));
-
-const ContentSection = styled(Box)(({ theme, active }) => ({
-  display: active ? 'block' : 'none',
-  animation: active ? 'fade 0.3s ease' : 'none',
-  '@keyframes fade': {
-    from: {
-      opacity: 0,
-      transform: 'translateY(10px)',
-    },
-    to: {
-      opacity: 1,
-      transform: 'translateY(0)',
-    },
-  },
-}));
-
-const TabContainer = styled(Box)(({ theme }) => ({
-  marginBottom: theme.spacing(3),
-  position: 'relative',
-}));
-
-const CustomTab = styled(Tab)(({ theme }) => ({
-  textTransform: 'none',
-  fontWeight: 600,
-  fontSize: '0.9rem',
-  minWidth: 'auto',
-  padding: theme.spacing(1, 2),
-  borderRadius: theme.spacing(2),
-  transition: 'all 0.3s ease',
-  '&.Mui-selected': {
-    color: colors.textLight,
-    backgroundColor: colors.primary,
-  },
-  '&:not(.Mui-selected)': {
-    color: colors.textSecondary,
-    '&:hover': {
-      backgroundColor: alpha(colors.primary, 0.1),
-      color: colors.primary,
-    },
-  },
-}));
-
-const CustomTabs = styled(Tabs)(({ theme }) => ({
-  backgroundColor: alpha(colors.secondary, 0.7),
-  borderRadius: theme.spacing(3),
-  padding: theme.spacing(0.5),
-  '& .MuiTabs-indicator': {
-    display: 'none',
-  },
-  marginBottom: theme.spacing(3),
-}));
-
-const ActionButton = styled(Button)(({ theme, variant = 'contained' }) => ({
-  borderRadius: theme.spacing(2),
-  textTransform: 'none',
-  fontWeight: 600,
-  padding: theme.spacing(1, 2),
-  transition: 'all 0.3s ease',
-  boxShadow: shadows.light,
-  ...(variant === 'contained' && {
-    background: colors.gradientPrimary,
-    color: colors.textLight,
-    '&:hover': {
-      background: colors.primaryDark,
-      transform: 'translateY(-2px)',
-      boxShadow: shadows.medium,
-    },
-  }),
-  ...(variant === 'outlined' && {
-    color: colors.primary,
-    borderColor: colors.primary,
-    borderWidth: '2px',
-    '&:hover': {
-      backgroundColor: alpha(colors.primary, 0.1),
-      borderColor: colors.primaryDark,
-      transform: 'translateY(-2px)',
-    },
-  }),
-}));
-
-const ModalContainer = styled(Box)(({ theme }) => ({
-  position: 'absolute',
-  top: '50%',
-  left: '50%',
-  transform: 'translate(-50%, -50%)',
-  width: '90%',
-  maxWidth: '900px',
-  backgroundColor: colors.surface,
-  borderRadius: theme.spacing(3),
-  boxShadow: shadows.heavy,
-  padding: 0,
-  maxHeight: '90vh',
-  overflow: 'hidden',
-  display: 'flex',
-  flexDirection: 'column',
-}));
-
-const ModalHeader = styled(AppBar)(({ theme }) => ({
-  background: colors.gradientPrimary,
-  padding: theme.spacing(2, 3),
-  color: colors.textLight,
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  position: 'relative',
-  boxShadow: 'none',
-}));
-
-const ModalTitle = styled(Typography)(({ theme }) => ({
-  fontWeight: 700,
-  fontSize: '1.3rem',
-}));
-
-const ModalBody = styled(Box)(({ theme }) => ({
-  padding: theme.spacing(3),
-  overflowY: 'auto',
-  flex: 1,
-}));
-
-const FormField = styled(TextField)(({ theme }) => ({
-  marginBottom: theme.spacing(2),
-  '& .MuiOutlinedInput-root': {
-    borderRadius: theme.spacing(2),
-    transition: 'all 0.3s ease',
-    '& fieldset': {
-      borderColor: colors.border,
-    },
-    '&:hover fieldset': {
-      borderColor: colors.primaryLight,
-    },
-    '&.Mui-focused fieldset': {
-      borderColor: colors.primary,
-      borderWidth: '2px',
-    },
-  },
-  '& .MuiInputLabel-root': {
-    fontWeight: 500,
-    '&.Mui-focused': {
-      color: colors.primary,
-    },
-  },
-}));
-
-const ImagePreviewModal = styled(Modal)(({ theme }) => ({
-  '& .MuiModal-backdrop': {
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-  },
-}));
-
-const ImagePreviewContainer = styled(Box)(({ theme }) => ({
-  position: 'absolute',
-  top: '50%',
-  left: '50%',
-  transform: 'translate(-50%, -50%)',
-  maxWidth: '90vw',
-  maxHeight: '90vh',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  justifyContent: 'center',
-  outline: 'none',
-}));
-
-const ImagePreviewContent = styled(Box)(({ theme }) => ({
-  position: 'relative',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  maxWidth: '100%',
-  maxHeight: '80vh',
-}));
-
-const PreviewImage = styled('img')(({ theme }) => ({
-  maxWidth: '100%',
-  maxHeight: '80vh',
-  borderRadius: theme.spacing(2),
-  boxShadow: shadows.heavy,
-  objectFit: 'contain',
-}));
-
-const ImagePreviewActions = styled(Box)(({ theme }) => ({
-  position: 'absolute',
-  top: theme.spacing(2),
-  right: theme.spacing(2),
-  display: 'flex',
-  gap: theme.spacing(1),
-  backgroundColor: alpha(colors.surface, 0.9),
-  borderRadius: theme.spacing(2),
-  padding: theme.spacing(0.5),
-}));
-
-const ImagePreviewButton = styled(IconButton)(({ theme }) => ({
-  backgroundColor: colors.surface,
-  color: colors.textPrimary,
-  '&:hover': {
-    backgroundColor: colors.primary,
-    color: colors.textLight,
-  },
-}));
-
-const EditModalPictureSection = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  gap: theme.spacing(3),
-  padding: theme.spacing(2),
-  backgroundColor: alpha(colors.secondary, 0.3),
-  borderRadius: theme.spacing(2),
-  marginBottom: theme.spacing(2),
-  position: 'relative',
-  [theme.breakpoints.down('sm')]: {
-    flexDirection: 'column',
-    textAlign: 'center',
-  },
-}));
-
-const EditModalAvatar = styled(Avatar)(({ theme }) => ({
-  width: theme.spacing(16),
-  height: theme.spacing(16),
-  border: `3px solid ${colors.surface}`,
-  boxShadow: shadows.medium,
-  cursor: 'pointer',
-  transition: 'transform 0.3s ease',
-  '&:hover': {
-    transform: 'scale(1.05)',
-  },
-}));
-
-const EditModalPictureInfo = styled(Box)(({ theme }) => ({
-  flex: 1,
-}));
-
-const EditModalPictureActions = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: theme.spacing(1),
-}));
-
-const Notification = styled(SnackbarContent)(({ theme, variant }) => ({
-  backgroundColor:
-    variant === 'success'
-      ? colors.success
-      : variant === 'error'
-      ? colors.error
-      : variant === 'warning'
-      ? colors.warning
-      : colors.info,
-  color: colors.textLight,
-  fontWeight: 500,
-  borderRadius: theme.spacing(2),
-  boxShadow: shadows.medium,
-}));
-
-const FloatingButton = styled(Fab)(({ theme }) => ({
-  position: 'fixed',
-  bottom: theme.spacing(4),
-  right: theme.spacing(4),
-  background: colors.gradientPrimary,
-  color: colors.textLight,
-  boxShadow: shadows.medium,
-  transition: 'all 0.3s ease',
-  '&:hover': {
-    transform: 'scale(1.1)',
-    boxShadow: shadows.colored,
-  },
-}));
-
-const ChildCard = styled(Card)(({ theme }) => ({
-  border: '1px solid #e0e0e0',
-  height: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-  '&:hover': {
-    borderColor: colors.primary,
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-    boxShadow: shadows.medium,
-  },
-}));
-
-const ChildListItem = styled(ListItem)(({ theme }) => ({
-  border: `1px solid ${colors.primary}`,
-  borderRadius: theme.spacing(2),
-  marginBottom: theme.spacing(2),
-  backgroundColor: colors.secondary,
-  padding: theme.spacing(2),
-  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  '&:hover': {
-    borderColor: colors.primaryLight,
-    boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-  },
-}));
-
-const CollegeCard = styled(Card)(({ theme }) => ({
-  border: '1px solid #e0e0e0',
-  height: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-  '&:hover': {
-    borderColor: colors.primary,
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-    boxShadow: shadows.medium,
-  },
-}));
-
-const CollegeListItem = styled(ListItem)(({ theme }) => ({
-  border: `1px solid ${colors.primary}`,
-  borderRadius: theme.spacing(2),
-  marginBottom: theme.spacing(2),
-  backgroundColor: colors.secondary,
-  padding: theme.spacing(2),
-  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  '&:hover': {
-    borderColor: colors.primaryLight,
-    boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-  },
-}));
-
-const GraduateCard = styled(Card)(({ theme }) => ({
-  border: '1px solid #e0e0e0',
-  height: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-  '&:hover': {
-    borderColor: colors.primary,
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-    boxShadow: shadows.medium,
-  },
-}));
-
-const GraduateListItem = styled(ListItem)(({ theme }) => ({
-  border: `1px solid ${colors.primary}`,
-  borderRadius: theme.spacing(2),
-  marginBottom: theme.spacing(2),
-  backgroundColor: colors.secondary,
-  padding: theme.spacing(2),
-  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  '&:hover': {
-    borderColor: colors.primaryLight,
-    boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-  },
-}));
-
-const ScrollableContainer = styled(Box)(({ theme }) => ({
-  maxHeight: '500px',
-  overflowY: 'auto',
-  paddingRight: theme.spacing(1),
-  backgroundColor: colors.background,
-  '&::-webkit-scrollbar': {
-    width: '6px',
-  },
-  '&::-webkit-scrollbar-track': {
-    background: '#f1f1f1',
-    borderRadius: '3px',
-  },
-  '&::-webkit-scrollbar-thumb': {
-    background: colors.primary,
-    borderRadius: '3px',
-    '&:hover': {
-      background: colors.primaryLight,
-    },
-  },
-}));
-
-const EducationSubTabs = styled(Tabs)(({ theme }) => ({
-  backgroundColor: alpha(colors.secondary, 0.5),
-  borderRadius: theme.spacing(2),
-  padding: theme.spacing(0.5),
-  marginBottom: theme.spacing(2),
-  '& .MuiTabs-indicator': {
-    display: 'none',
-  },
-}));
-
-const EducationSubTab = styled(Tab)(({ theme }) => ({
-  textTransform: 'none',
-  fontWeight: 600,
-  fontSize: '0.85rem',
-  minWidth: 'auto',
-  padding: theme.spacing(1, 1.5),
-  borderRadius: theme.spacing(1.5),
-  transition: 'all 0.3s ease',
-  '&.Mui-selected': {
-    color: colors.textLight,
-    backgroundColor: colors.primary,
-  },
-  '&:not(.Mui-selected)': {
-    color: colors.textSecondary,
-    '&:hover': {
-      backgroundColor: alpha(colors.primary, 0.1),
-      color: colors.primary,
-    },
-  },
-}));
-
-const EligibilityCard = styled(Card)(({ theme }) => ({
-  border: '1px solid #e0e0e0',
-  height: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-  '&:hover': {
-    borderColor: colors.primary,
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-    boxShadow: shadows.medium,
-  },
-}));
-
-const EligibilityListItem = styled(ListItem)(({ theme }) => ({
-  border: `1px solid ${colors.primary}`,
-  borderRadius: theme.spacing(2),
-  marginBottom: theme.spacing(2),
-  backgroundColor: colors.secondary,
-  padding: theme.spacing(2),
-  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  '&:hover': {
-    borderColor: colors.primaryLight,
-    boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-  },
-}));
-
-const LearningDevelopmentCard = styled(Card)(({ theme }) => ({
-  border: '1px solid #e0e0e0',
-  height: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-  '&:hover': {
-    borderColor: colors.primary,
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-    boxShadow: shadows.medium,
-  },
-}));
-
-const LearningDevelopmentListItem = styled(ListItem)(({ theme }) => ({
-  border: `1px solid ${colors.primary}`,
-  borderRadius: theme.spacing(2),
-  marginBottom: theme.spacing(2),
-  backgroundColor: colors.secondary,
-  padding: theme.spacing(2),
-  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  '&:hover': {
-    borderColor: colors.primaryLight,
-    boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-  },
-}));
-
-const OtherInformationCard = styled(Card)(({ theme }) => ({
-  border: '1px solid #e0e0e0',
-  height: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-  '&:hover': {
-    borderColor: colors.primary,
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-    boxShadow: shadows.medium,
-  },
-}));
-
-const OtherInformationListItem = styled(ListItem)(({ theme }) => ({
-  border: `1px solid ${colors.primary}`,
-  borderRadius: theme.spacing(2),
-  marginBottom: theme.spacing(2),
-  backgroundColor: colors.secondary,
-  padding: theme.spacing(2),
-  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  '&:hover': {
-    borderColor: colors.primaryLight,
-    boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-  },
-}));
-
-const VocationalCard = styled(Card)(({ theme }) => ({
-  border: '1px solid #e0e0e0',
-  height: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-  '&:hover': {
-    borderColor: colors.primary,
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-    boxShadow: shadows.medium,
-  },
-}));
-
-const VocationalListItem = styled(ListItem)(({ theme }) => ({
-  border: `1px solid ${colors.primary}`,
-  borderRadius: theme.spacing(2),
-  marginBottom: theme.spacing(2),
-  backgroundColor: colors.secondary,
-  padding: theme.spacing(2),
-  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  '&:hover': {
-    borderColor: colors.primaryLight,
-    boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-  },
-}));
-
-const WorkExperienceCard = styled(Card)(({ theme }) => ({
-  border: '1px solid #e0e0e0',
-  height: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-  '&:hover': {
-    borderColor: colors.primary,
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-    boxShadow: shadows.medium,
-  },
-}));
-
-const WorkExperienceListItem = styled(ListItem)(({ theme }) => ({
-  border: `1px solid ${colors.primary}`,
-  borderRadius: theme.spacing(2),
-  marginBottom: theme.spacing(2),
-  backgroundColor: colors.secondary,
-  padding: theme.spacing(2),
-  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  '&:hover': {
-    borderColor: colors.primaryLight,
-    boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
-    transform: 'translateY(-2px)',
-    transition: 'all 0.2s ease',
-  },
-}));
-
-const StickyActionBar = styled(Box)(({ theme }) => ({
-  position: 'sticky',
-  top: 0,
-  backgroundColor: colors.surface,
-  padding: theme.spacing(2),
-  borderBottom: `1px solid ${colors.border}`,
-  zIndex: 10,
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-}));
-
-const TabPanel = styled(Box)(({ theme }) => ({
-  padding: theme.spacing(2),
-  borderRadius: theme.spacing(2),
-  backgroundColor: colors.surface,
-}));
-
-const PercentageInput = ({
-  value,
-  onChange,
-  label,
-  disabled = false,
-  error = false,
-  helperText = '',
-}) => {
-  const [inputValue, setInputValue] = useState(value || '');
-
-  useEffect(() => {
-    setInputValue(value || '');
-  }, [value]);
-
-  const handleInputChange = (e) => {
-    let newValue = e.target.value;
-
-    // Remove any non-digit characters except for decimal point
-    newValue = newValue.replace(/[^\d.]/g, '');
-
-    // Ensure only one decimal point
-    const parts = newValue.split('.');
-    if (parts.length > 2) {
-      newValue = parts[0] + '.' + parts.slice(1).join('');
-    }
-
-    // Limit to 2 decimal places
-    if (parts.length === 2 && parts[1].length > 2) {
-      newValue = parts[0] + '.' + parts[1].substring(0, 2);
-    }
-
-    // Ensure value is between 0 and 100
-    const numValue = parseFloat(newValue);
-    if (!isNaN(numValue) && numValue > 100) {
-      newValue = '100';
-    }
-
-    setInputValue(newValue);
-    onChange(newValue);
+/* ─────────────────────────────────────────────────────────────────────────────
+   DESIGN TOKENS
+───────────────────────────────────────────────────────────────────────────── */
+const P         = '#6D2323';
+const S         = '#8B4545';
+const P_DARK    = '#4a1515';
+const PAGE_BG   = 'transparent';
+const PANEL     = '#ffffff';
+const BD        = '#e2e4e8';
+const TXT       = '#111827';
+const MUTED     = '#6b7280';
+const SUBTLE    = '#f7f8fa';
+const SIDEBAR_W = 280;
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SKELETON ATOM
+───────────────────────────────────────────────────────────────────────────── */
+const SK = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
+  <Box sx={{
+    width: w, height: h, borderRadius: `${r}px`, flexShrink: 0,
+    background: 'linear-gradient(90deg,rgba(109,35,35,0.06) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.06) 75%)',
+    backgroundSize: '900px 100%',
+    animation: 'shimmer 1.7s infinite linear',
+    ...sx,
+  }} />
+);
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   PROFILE WIREFRAME
+───────────────────────────────────────────────────────────────────────────── */
+const ProfileWireframe = () => {
+  const mainSx = {
+    width: '100vw', maxWidth: '100%', position: 'relative',
+    left: '63%', transform: 'translateX(-61%)', boxSizing: 'border-box',
+    pl: { xs: 2, sm: 3, md: 6 },
+    pr: `${SIDEBAR_W + 16}px`,
+    py: { xs: 2, md: 4 },
+    height: '100vh',
+    overflowY: 'auto',
+    overflowX: 'hidden',
+    '&::-webkit-scrollbar': { width: 5 },
+    '&::-webkit-scrollbar-track': { background: '#f0f0f0' },
+    '&::-webkit-scrollbar-thumb': { background: alpha(P, 0.2), borderRadius: 4 },
   };
 
   return (
-    <Box>
-      <Typography
-        variant="caption"
-        sx={{ fontWeight: 'bold', mb: 0.5, color: '#333', display: 'block' }}
-      >
-        {label}
-      </Typography>
-      <TextField
-        value={inputValue}
-        onChange={handleInputChange}
-        placeholder="0.00"
-        fullWidth
-        size="small"
-        disabled={disabled}
-        error={error}
-        helperText={helperText}
-        InputProps={{
-          endAdornment: (
-            <InputAdornment position="end">
-              <PercentIcon sx={{ color: '#6D2323' }} />
-            </InputAdornment>
-          ),
-        }}
-        sx={{
-          '& .MuiOutlinedInput-root': {
-            '& fieldset': {
-              borderColor: error ? 'red' : '#6D2323',
-              borderWidth: '1.5px',
-            },
-            '&:hover fieldset': {
-              borderColor: error ? 'red' : '#6D2323',
-            },
-            '&.Mui-focused fieldset': {
-              borderColor: error ? 'red' : '#6D2323',
-            },
-          },
-        }}
-      />
+    <Box sx={{ position: 'relative', height: '100vh', overflow: 'hidden', bgcolor: PAGE_BG }}>
+      <style>{GLOBAL_CSS}</style>
+      <Box sx={{
+        width: SIDEBAR_W, bgcolor: PANEL,
+        borderLeft: `2px solid ${alpha(P, 0.25)}`,
+        position: 'fixed', right: 0, top: 0, height: '100vh',
+        zIndex: 100, display: 'flex', flexDirection: 'column',
+        animation: 'wfPulse 2.2s ease-in-out infinite',
+      }}>
+        <Box sx={{ px: 3, py: 2.5, borderBottom: `1px solid ${alpha(P, 0.1)}`, display: 'flex', alignItems: 'center', gap: 2, background: `linear-gradient(135deg,${alpha(P, 0.06)} 0%,${alpha(P, 0.01)} 100%)` }}>
+          <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: alpha(P, 0.15), flexShrink: 0 }} />
+          <Box sx={{ flex: 1 }}>
+            <SK w="58%" h={11} r={4} sx={{ mb: 0.75 }} />
+            <SK w="40%" h={8}  r={3} />
+          </Box>
+        </Box>
+        <Box sx={{ mx: 2.5, my: 2, p: 2, bgcolor: alpha(P, 0.04), borderRadius: 2, border: `1px solid ${alpha(P, 0.1)}` }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Box sx={{ width: 42, height: 42, borderRadius: '50%', bgcolor: alpha(P, 0.13), flexShrink: 0 }} />
+            <Box sx={{ flex: 1 }}>
+              <SK w="68%" h={11} r={4} sx={{ mb: 0.6 }} />
+              <SK w="46%" h={8}  r={3} />
+            </Box>
+          </Box>
+        </Box>
+        <Box sx={{ mx: 2.5, mb: 2, p: 1.75, bgcolor: alpha(P, 0.06), borderRadius: 1.5, border: `1px solid ${alpha(P, 0.15)}` }}>
+          <SK w="42%" h={8}  r={3} sx={{ mb: 0.6 }} />
+          <SK w="72%" h={12} r={4} />
+        </Box>
+        <Box sx={{ px: 3, mb: 0.75 }}><SK w="55%" h={8} r={3} /></Box>
+        {[0,1,2,3,4,5,6,7,8,9,10].map(i => (
+          <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.75, px: 3, py: 1.3, borderLeft: i === 0 ? `3px solid ${alpha(P, 0.5)}` : '3px solid transparent', bgcolor: i === 0 ? alpha(P, 0.06) : 'transparent' }}>
+            <Box sx={{ width: 15, height: 15, borderRadius: '50%', bgcolor: alpha(P, i === 0 ? 0.22 : 0.07), flexShrink: 0 }} />
+            <SK w={`${44 + i * 4}%`} h={10} r={3} />
+          </Box>
+        ))}
+      </Box>
+      <Box sx={mainSx}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 4 }}>
+          <SK w={60}  h={9} r={3} />
+          <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: BD }} />
+          <SK w={140} h={9} r={3} />
+          <Box sx={{ flex: 1 }} />
+          <Box sx={{ display: 'flex', gap: 0.75 }}>
+            {[0, 1].map(i => <Box key={i} sx={{ width: 30, height: 30, borderRadius: 1.5, border: `1px solid ${BD}`, bgcolor: SUBTLE }} />)}
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 0.75, bgcolor: PANEL, border: `1px solid ${BD}`, borderRadius: '20px' }}>
+            <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: alpha('#22c55e', 0.5) }} />
+            <SK w={140} h={8} r={3} />
+          </Box>
+        </Box>
+        <Box sx={{ mb: 3.5, borderRadius: 3, overflow: 'hidden', border: `1px solid ${alpha(P, 0.09)}`, bgcolor: PANEL, boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+          <Box sx={{ height: 8, background: `linear-gradient(90deg, ${P} 0%, ${S} 100%)` }} />
+          <Box sx={{ px: { xs: 3, md: 5 }, py: { xs: 3, md: 4 }, display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap' }}>
+            <Box sx={{ position: 'relative', flexShrink: 0 }}>
+              <Box sx={{ width: 90, height: 90, borderRadius: '50%', bgcolor: alpha(P, 0.1), border: `4px solid ${PANEL}`, boxShadow: `0 4px 16px ${alpha(P, 0.18)}` }} />
+              <Box sx={{ position: 'absolute', bottom: 2, right: 2, width: 24, height: 24, borderRadius: '50%', bgcolor: alpha(P, 0.18) }} />
+            </Box>
+            <Box sx={{ flex: 1, minWidth: 200 }}>
+              <SK w="55%" h={26} r={5} sx={{ mb: 1.2 }} />
+              <SK w="38%" h={10} r={3} sx={{ mb: 2 }} />
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                {[80, 100, 72].map((w, i) => <Box key={i} sx={{ width: w, height: 22, borderRadius: '20px', bgcolor: alpha(P, 0.07), border: `1px solid ${alpha(P, 0.12)}` }} />)}
+              </Box>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1.25 }}>
+              <Box sx={{ width: 36, height: 36, borderRadius: 1.5, border: `1px solid ${BD}`, bgcolor: SUBTLE }} />
+              <Box sx={{ width: 130, height: 36, borderRadius: 1.5, bgcolor: alpha(P, 0.18) }} />
+            </Box>
+          </Box>
+          <Box sx={{ borderTop: `1px solid ${BD}`, px: 5, py: 2, display: 'flex', gap: 4, bgcolor: alpha(P, 0.015) }}>
+            {[0, 1, 2, 3].map(i => (
+              <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Box sx={{ width: 32, height: 32, borderRadius: 1.5, bgcolor: alpha(P, 0.08) }} />
+                <Box>
+                  <SK w={60} h={16} r={4} sx={{ mb: 0.4 }} />
+                  <SK w={80} h={8}  r={3} />
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+        <Box sx={{ borderRadius: 3, border: `1px solid ${alpha(P, 0.09)}`, bgcolor: PANEL, boxShadow: '0 4px 20px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+          <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#ffffff 0%,#f5f5f5 100%)', display: 'flex', alignItems: 'center', gap: 2, borderBottom: `1px solid ${BD}` }}>
+            <Box sx={{ width: 52, height: 52, borderRadius: '50%', bgcolor: alpha(P, 0.1) }} />
+            <Box>
+              <SK w={170} h={14} r={4} sx={{ mb: 0.75 }} />
+              <SK w={240} h={9}  r={3} />
+            </Box>
+          </Box>
+          <Box sx={{ p: 4, display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: '28px' }}>
+            {[0,1,2,3,4,5,6,7,8,9,10,11].map(i => (
+              <Box key={i}>
+                <SK w="42%" h={8}  r={3} sx={{ mb: 0.7 }} />
+                <Box sx={{ pl: 1.5, borderLeft: `2px solid ${alpha(P, 0.15)}` }}>
+                  <SK w={`${55 + (i % 4) * 10}%`} h={13} r={4} />
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      </Box>
     </Box>
   );
 };
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   SHARED ATOMS
+───────────────────────────────────────────────────────────────────────────── */
+const GlassCard = ({ children, sx = {} }) => (
+  <Box sx={{
+    background: PANEL, borderRadius: 3,
+    border: `1px solid ${alpha(P, 0.09)}`,
+    boxShadow: '0 4px 24px rgba(0,0,0,0.06)',
+    overflow: 'hidden',
+    ...sx,
+  }}>{children}</Box>
+);
+
+const CardBanner = () => (
+  <Box sx={{ height: 6, background: `linear-gradient(90deg, ${P} 0%, ${S} 60%, ${alpha(P, 0.4)} 100%)` }} />
+);
+
+const SectionHeader = ({ icon: Icon, title, subtitle, action }) => (
+  <Box sx={{
+    px: 4, py: 3,
+    background: 'linear-gradient(135deg,#ffffff 0%,#f6f6f6 100%)',
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    gap: 2, flexWrap: 'wrap',
+    borderBottom: `1px solid ${BD}`,
+  }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+      <Avatar sx={{ bgcolor: alpha(P, 0.1), width: 52, height: 52, boxShadow: `0 4px 16px ${alpha(P, 0.12)}` }}>
+        <Icon sx={{ color: P, fontSize: 26 }} />
+      </Avatar>
+      <Box>
+        <Typography sx={{ fontWeight: 900, fontSize: '1rem', color: P, lineHeight: 1.2 }}>{title}</Typography>
+        {subtitle && <Typography sx={{ fontSize: '0.78rem', color: MUTED, fontWeight: 600, mt: 0.2 }}>{subtitle}</Typography>}
+      </Box>
+    </Box>
+    {action && <Box>{action}</Box>}
+  </Box>
+);
+
+const Btn = ({ children, danger, outline, sm, fullWidth, ...p }) => (
+  <Button disableElevation fullWidth={fullWidth} variant={outline ? 'outlined' : 'contained'}
+    sx={{
+      borderRadius: 2, textTransform: 'none', fontWeight: 900,
+      fontSize: sm ? '0.78rem' : '0.875rem',
+      py: sm ? 0.75 : 1.1, px: sm ? 2 : 3,
+      boxShadow: outline ? 'none' : `0 4px 12px ${alpha(P, 0.28)}`,
+      ...(outline
+        ? { borderColor: alpha(P, 0.45), color: P, '&:hover': { borderColor: P, bgcolor: alpha(P, 0.04) } }
+        : danger
+          ? { bgcolor: '#b91c1c', color: '#fff', '&:hover': { bgcolor: '#991b1b' }, '&:disabled': { bgcolor: '#e5e7eb', color: '#9ca3af', boxShadow: 'none' } }
+          : { bgcolor: P, color: '#fff', '&:hover': { bgcolor: P_DARK }, '&:disabled': { bgcolor: '#e5e7eb', color: '#9ca3af', boxShadow: 'none' } }),
+    }} {...p}>{children}
+  </Button>
+);
+
+/* ── Field Label — refined, subtle uppercase style ── */
+const FL = ({ children, req }) => (
+  <Typography component="label" sx={{
+    fontSize: '0.68rem', fontWeight: 700, color: alpha(TXT, 0.5),
+    mb: 0.55, display: 'flex', alignItems: 'center', gap: 0.4,
+    letterSpacing: '0.06em', textTransform: 'uppercase', lineHeight: 1,
+  }}>
+    {children}{req && <span style={{ color: '#c0392b', marginLeft: 2, fontSize: '0.62rem' }}>*</span>}
+  </Typography>
+);
+
+/* ── Shared input chrome
+     Surface is white. Inputs use #f4f5f7 so they read as
+     recessed/inset — part of the form, not floating cards on top of it. ── */
+const INPUT_CHROME = {
+  borderRadius: '8px',
+  bgcolor: '#f4f5f7',
+  fontSize: '0.875rem',
+  color: TXT,
+  transition: 'background-color 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease',
+  '& fieldset': {
+    borderColor: 'transparent',
+    borderWidth: '1.5px',
+    transition: 'border-color 0.15s ease',
+  },
+  '&:hover': { bgcolor: '#eef0f3' },
+  '&:hover fieldset': { borderColor: alpha(P, 0.22) },
+  '&.Mui-focused': {
+    bgcolor: '#ffffff',
+    boxShadow: `0 0 0 2px ${alpha(P, 0.18)}, inset 0 1px 3px rgba(0,0,0,0.04)`,
+  },
+  '&.Mui-focused fieldset': { borderColor: P, borderWidth: '1.5px' },
+  '&.Mui-disabled': {
+    bgcolor: '#f0f1f3',
+    '& fieldset': { borderColor: 'transparent' },
+    '& .MuiInputBase-input': {
+      color: '#9ca3af',
+      WebkitTextFillColor: '#9ca3af',
+      cursor: 'not-allowed',
+    },
+  },
+};
+
+const FX = {
+  '& .MuiOutlinedInput-root': INPUT_CHROME,
+  '& .MuiInputBase-input': { py: '9px', px: '12px', fontWeight: 500 },
+};
+
+const MFX = {
+  '& .MuiOutlinedInput-root': {
+    ...INPUT_CHROME,
+    '& .MuiInputBase-inputMultiline': { fontWeight: 500, lineHeight: 1.65 },
+  },
+};
+
+/* ── Select chrome — matches INPUT_CHROME exactly ── */
+const SELECT_SX = {
+  borderRadius: '8px',
+  bgcolor: '#f4f5f7',
+  fontSize: '0.875rem',
+  fontWeight: 500,
+  transition: 'background-color 0.15s ease, box-shadow 0.15s ease',
+  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'transparent', borderWidth: '1.5px' },
+  '&:hover': { bgcolor: '#eef0f3' },
+  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: alpha(P, 0.22) },
+  '&.Mui-focused': {
+    bgcolor: '#ffffff',
+    boxShadow: `0 0 0 2px ${alpha(P, 0.18)}, inset 0 1px 3px rgba(0,0,0,0.04)`,
+  },
+  '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: P, borderWidth: '1.5px' },
+  '& .MuiSelect-select': { py: '9px', px: '12px' },
+};
+
+/* ── Info group — institutional style ── */
+const InfoGroup = ({ label, value }) => (
+  <Box>
+    <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: MUTED, fontWeight: 700, mb: 0.55 }}>{label}</Typography>
+    <Box sx={{ pl: 1.5, borderLeft: `2px solid ${alpha(P, 0.22)}` }}>
+      <Typography sx={{ fontSize: '0.88rem', color: TXT, fontWeight: 600, lineHeight: 1.5 }}>{value || '—'}</Typography>
+    </Box>
+  </Box>
+);
+
+const InfoGrid = ({ children, sx = {} }) => (
+  <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: '26px', ...sx }}>{children}</Box>
+);
+
+const Div = ({ label }) => (
+  <Box sx={{ display: 'flex', alignItems: 'center', my: 3 }}>
+    <Box sx={{ width: 24, height: 3, bgcolor: P, borderRadius: 2, mr: 1.5, flexShrink: 0 }} />
+    <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.65rem', fontWeight: 700, color: P, textTransform: 'uppercase', letterSpacing: '0.14em', mr: 1.5 }}>{label}</Typography>
+    <Box sx={{ flex: 1, height: '1px', bgcolor: alpha(P, 0.12) }} />
+  </Box>
+);
+
+const TLWrap = ({ children }) => (
+  <Box sx={{ position: 'relative', pl: '22px', '&::before': { content: '""', position: 'absolute', left: 0, top: '8px', bottom: 0, width: '2px', bgcolor: alpha(P, 0.15) } }}>{children}</Box>
+);
+const TLItem = ({ date, title, sub, tags = [], last }) => (
+  <Box sx={{ position: 'relative', pb: last ? 0 : '28px', '&::before': { content: '""', position: 'absolute', left: '-27px', top: '7px', width: '10px', height: '10px', bgcolor: P, border: `2px solid ${PANEL}`, borderRadius: '50%', zIndex: 1, boxShadow: `0 0 0 3px ${alpha(P, 0.15)}` } }}>
+    <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.68rem', color: P, fontWeight: 700, mb: 0.3 }}>{date}</Typography>
+    <Typography sx={{ fontSize: '0.95rem', fontWeight: 800, color: TXT, mb: '2px', lineHeight: 1.4 }}>{title || '—'}</Typography>
+    <Typography sx={{ fontSize: '0.82rem', color: MUTED, mb: tags.length ? 1 : 0 }}>{sub || '—'}</Typography>
+    {tags.length > 0 && (
+      <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+        {tags.map((t, i) => <Box key={i} sx={{ px: 1.25, py: 0.2, bgcolor: alpha(P, 0.07), border: `1px solid ${alpha(P, 0.18)}`, borderRadius: '20px' }}><Typography sx={{ fontSize: '0.62rem', fontWeight: 900, color: P }}>{t}</Typography></Box>)}
+      </Box>
+    )}
+  </Box>
+);
+
+const ListCard = ({ children }) => (
+  <Box sx={{ border: `1px solid ${alpha(P, 0.12)}`, borderRadius: 2, mb: 1.5, bgcolor: SUBTLE, overflow: 'hidden', transition: 'all 0.2s', '&:hover': { borderColor: P, boxShadow: `0 4px 16px ${alpha(P, 0.1)}`, transform: 'translateY(-1px)' } }}>
+    <Box sx={{ height: 3, background: `linear-gradient(90deg, ${P} 0%, ${alpha(P, 0.3)} 100%)` }} />
+    <Box sx={{ p: 2.5 }}>{children}</Box>
+  </Box>
+);
+
+const GovIdNotice = () => (
+  <Box sx={{
+    mb: 3,
+    borderRadius: '10px',
+    overflow: 'hidden',
+    border: `1px solid ${alpha(P, 0.25)}`,
+    bgcolor: alpha(P, 0.03),
+    boxShadow: `0 1px 4px ${alpha(P, 0.06)}`,
+  }}>
+    <Box sx={{
+      px: 3, py: 2,
+      display: 'flex', alignItems: 'flex-start', gap: 2,
+      borderLeft: `3px solid ${P}`,
+    }}>
+      <Box sx={{
+        width: 32, height: 32, borderRadius: '8px', flexShrink: 0,
+        bgcolor: alpha(P, 0.1),
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <LockIcon sx={{ fontSize: 16, color: P }} />
+      </Box>
+      <Box>
+        <Typography sx={{ fontWeight: 700, fontSize: '0.82rem', color: P, mb: 0.4, lineHeight: 1.3 }}>
+          Restricted Field | Administrators Only — Read Only
+        </Typography>
+        <Typography sx={{ fontSize: '0.78rem', color: MUTED, lineHeight: 1.65 }}>
+          Government ID numbers are protected records managed by the system. To request a correction, contact your Administrator.
+        </Typography>
+      </Box>
+    </Box>
+  </Box>
+);
+/* ── Education sub-tabs ── */
+const EDU_TABS = ['Elem & Secondary', 'College', 'Graduate Studies', 'Vocational'];
+const EduSubTabs = ({ value, onChange }) => (
+  <Box sx={{ display: 'flex', gap: 0.5, mb: 2.5, p: 0.5, bgcolor: alpha(P, 0.04), borderRadius: 2, border: `1px solid ${alpha(P, 0.08)}`, flexWrap: 'wrap' }}>
+    {EDU_TABS.map((tab, i) => (
+      <Box key={i} onClick={() => onChange(i)} sx={{ px: 2, py: 0.75, borderRadius: 1.5, cursor: 'pointer', fontSize: '0.78rem', fontWeight: value === i ? 900 : 600, color: value === i ? '#fff' : MUTED, bgcolor: value === i ? P : 'transparent', transition: 'all 0.18s', '&:hover': { bgcolor: value === i ? P : alpha(P, 0.07), color: value === i ? '#fff' : P } }}>
+        {tab}
+      </Box>
+    ))}
+  </Box>
+);
+
+/* ── Percentage input ── */
+const PctInput = ({ value, onChange, label }) => {
+  const [v, setV] = useState(value || '');
+  useEffect(() => setV(value || ''), [value]);
+  const onCh = (e) => {
+    let val = e.target.value.replace(/[^\d.]/g, '');
+    const pts = val.split('.');
+    if (pts.length > 2) val = pts[0] + '.' + pts.slice(1).join('');
+    if (pts.length === 2 && pts[1].length > 2) val = pts[0] + '.' + pts[1].substring(0, 2);
+    if (!isNaN(parseFloat(val)) && parseFloat(val) > 100) val = '100';
+    setV(val); onChange(val);
+  };
+  return <Box><FL>{label}</FL><TextField value={v} onChange={onCh} placeholder="0.00" fullWidth size="small" InputProps={{ endAdornment: <InputAdornment position="end"><PercentIcon sx={{ color: P, fontSize: 16 }} /></InputAdornment> }} sx={FX} /></Box>;
+};
+
+/* ── Repeating block ── */
+const RepBlock = ({ title, items, onAdd, onRemove, addLabel, children: renderItem }) => (
+  <Box>
+    {items.map((item, i) => (
+      <Box key={i} sx={{ mb: 2, p: 2.5, bgcolor: alpha(P, 0.03), border: `1px solid ${alpha(P, 0.09)}`, borderRadius: 2, overflow: 'hidden' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, pb: 1.5, borderBottom: `1px solid ${alpha(P, 0.1)}` }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ width: 3, height: 18, bgcolor: P, borderRadius: 2, flexShrink: 0 }} />
+            <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.67rem', fontWeight: 900, color: P, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{title} #{i + 1}</Typography>
+          </Box>
+          <IconButton onClick={() => onRemove(i)} size="small" sx={{ color: '#b91c1c', border: `1px solid ${alpha('#b91c1c', 0.25)}`, borderRadius: 1.5, p: 0.5, '&:hover': { bgcolor: alpha('#b91c1c', 0.06) } }}><DeleteIcon sx={{ fontSize: 14 }} /></IconButton>
+        </Box>
+        <Grid container spacing={2}>{renderItem(item, i)}</Grid>
+      </Box>
+    ))}
+    {items.length === 0 && (
+      <Box sx={{ py: 5, textAlign: 'center', border: `1px dashed ${alpha(P, 0.18)}`, borderRadius: 2, bgcolor: alpha(P, 0.01) }}>
+        <Typography sx={{ color: MUTED, fontSize: '0.85rem', fontWeight: 600 }}>No {title.toLowerCase()} records found</Typography>
+      </Box>
+    )}
+    <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}>
+      <Btn sm startIcon={<AddIcon sx={{ fontSize: 14 }} />} onClick={onAdd}>{addLabel}</Btn>
+    </Box>
+  </Box>
+);
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   MAIN PROFILE COMPONENT
+───────────────────────────────────────────────────────────────────────────── */
 const Profile = () => {
-  const theme = useTheme();
-
-  const {
-    person,
-    profilePicture,
-    loading,
-    refresh: refreshPerson,
-  } = useProfileData();
-  const {
-    sections,
-    loading: sectionsLoading,
-    refresh: refreshSections,
-  } = useProfileSections();
+  const { person, profilePicture, loading, refresh: refreshPerson } = useProfileData();
+  const { sections, loading: sectionsLoading, refresh: refreshSections } = useProfileSections();
   const { saveProfile, saving } = useProfileMutations();
+  const userInfo       = getUserInfo();
+  const employeeNumber = userInfo.employeeNumber || localStorage.getItem('employeeNumber');
 
-  const userInfo = getUserInfo();
-  const employeeNumber =
-    userInfo.employeeNumber || localStorage.getItem('employeeNumber');
+  const [activeSection,   setActiveSection]   = useState(0);
+  const [editOpen,        setEditOpen]        = useState(false);
+  const [formData,        setFormData]        = useState({});
+  const [imageZoomOpen,   setImageZoomOpen]   = useState(false);
+  const [editImgZoom,     setEditImgZoom]     = useState(false);
+  const [eduTab,          setEduTab]          = useState(0);
+  const [toast,           setToast]           = useState({ open: false, message: '', severity: 'success' });
 
-  const [uploadStatus, setUploadStatus] = useState({ message: '', type: '' });
-  const [editOpen, setEditOpen] = useState(false);
-  const [formData, setFormData] = useState({});
-  const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
-  const [notificationOpen, setNotificationOpen] = useState(false);
-  const [imageZoomOpen, setImageZoomOpen] = useState(false);
-  const [editImageZoomOpen, setEditImageZoomOpen] = useState(false);
-  const [moreMenuAnchorEl, setMoreMenuAnchorEl] = useState(null);
-  const [educationSubTabValue, setEducationSubTabValue] = useState(0);
-  const profileRef = useRef(null);
-  const [cardMousePos, setCardMousePos] = useState({});
-
-  const [childrenFormData, setChildrenFormData] = useState([]);
-  const [collegesFormData, setCollegesFormData] = useState([]);
-  const [graduatesFormData, setGraduatesFormData] = useState([]);
-  const [eligibilitiesFormData, setEligibilitiesFormData] = useState([]);
-  const [learningDevelopmentFormData, setLearningDevelopmentFormData] =
-    useState([]);
-  const [otherInformationFormData, setOtherInformationFormData] = useState([]);
-  const [vocationalFormData, setVocationalFormData] = useState([]);
-  const [workExperiencesFormData, setWorkExperiencesFormData] = useState([]);
+  const [childrenFD,  setChildrenFD]  = useState([]);
+  const [collegesFD,  setCollegesFD]  = useState([]);
+  const [graduatesFD, setGraduatesFD] = useState([]);
+  const [eligFD,      setEligFD]      = useState([]);
+  const [ldFD,        setLdFD]        = useState([]);
+  const [oiFD,        setOiFD]        = useState([]);
+  const [vocFD,       setVocFD]       = useState([]);
+  const [weFD,        setWeFD]        = useState([]);
+  const [vwFD,        setVwFD]        = useState([]);
 
   useEffect(() => {
     if (!sectionsLoading) {
-      if (sections.children.length > 0 && childrenFormData.length === 0) {
-        setChildrenFormData(sections.children);
-      }
-      if (sections.colleges.length > 0 && collegesFormData.length === 0) {
-        setCollegesFormData(sections.colleges);
-      }
-      if (sections.graduates.length > 0 && graduatesFormData.length === 0) {
-        setGraduatesFormData(sections.graduates);
-      }
-      if (
-        sections.eligibilities.length > 0 &&
-        eligibilitiesFormData.length === 0
-      ) {
-        setEligibilitiesFormData(sections.eligibilities);
-      }
-      if (
-        sections.learningDevelopment.length > 0 &&
-        learningDevelopmentFormData.length === 0
-      ) {
-        setLearningDevelopmentFormData(sections.learningDevelopment);
-      }
-      if (
-        sections.otherInformation.length > 0 &&
-        otherInformationFormData.length === 0
-      ) {
-        setOtherInformationFormData(sections.otherInformation);
-      }
-      if (sections.vocational.length > 0 && vocationalFormData.length === 0) {
-        setVocationalFormData(sections.vocational);
-      }
-      if (
-        sections.workExperiences.length > 0 &&
-        workExperiencesFormData.length === 0
-      ) {
-        setWorkExperiencesFormData(sections.workExperiences);
-      }
+      if (sections.children.length      > 0 && !childrenFD.length)  setChildrenFD(sections.children);
+      if (sections.colleges.length      > 0 && !collegesFD.length)  setCollegesFD(sections.colleges);
+      if (sections.graduates.length     > 0 && !graduatesFD.length) setGraduatesFD(sections.graduates);
+      if (sections.eligibilities.length > 0 && !eligFD.length)      setEligFD(sections.eligibilities);
+      if (sections.learningDevelopment.length > 0 && !ldFD.length)  setLdFD(sections.learningDevelopment);
+      if (sections.otherInformation.length    > 0 && !oiFD.length)  setOiFD(sections.otherInformation);
+      if (sections.vocational.length          > 0 && !vocFD.length) setVocFD(sections.vocational);
+      if (sections.workExperiences.length     > 0 && !weFD.length)  setWeFD(sections.workExperiences);
     }
   }, [sections, sectionsLoading]);
 
   useEffect(() => {
-    if (person && Object.keys(formData).length === 0) {
-      const formattedData = { ...person };
-      if (person.birthDate) {
-        const date = new Date(person.birthDate);
-        if (!isNaN(date.getTime())) {
-          formattedData.birthDate = date.toISOString().split('T')[0];
-        }
-      }
-      setFormData(formattedData);
+    if (!employeeNumber) return;
+    axios.get(`${API_BASE_URL}/VoluntaryRoute/voluntary-work`, getAuthHeaders())
+      .then(res => setVwFD((res.data || []).filter(r => String(r.person_id) === String(employeeNumber))))
+      .catch(err => console.error(err));
+  }, [employeeNumber]);
+
+  useEffect(() => {
+    if (person && !Object.keys(formData).length) {
+      const d = { ...person };
+      if (person.birthDate) { const dt = new Date(person.birthDate); if (!isNaN(dt.getTime())) d.birthDate = dt.toISOString().split('T')[0]; }
+      setFormData(d);
     }
   }, [person]);
 
-  const children = sections.children;
-  const colleges = sections.colleges;
-  const graduates = sections.graduates;
-  const eligibilities = sections.eligibilities;
-  const learningDevelopment = sections.learningDevelopment;
-  const otherInformation = sections.otherInformation;
-  const vocational = sections.vocational;
-  const workExperiences = sections.workExperiences;
+  const { children, colleges, graduates, eligibilities, learningDevelopment: learningDev, otherInformation: otherInfo, vocational, workExperiences } = sections;
 
-  const navigationSections = [
-    {
-      key: 0,
-      label: 'Personal Info',
-      icon: <PersonIcon />,
-      title: 'Personal Information',
-      subtitle: 'Manage your basic personal details and identifiers.',
-    },
-    {
-      key: 1,
-      label: 'Gov. IDs',
-      icon: <BadgeIcon />,
-      title: 'Government IDs',
-      subtitle: 'Official government identification numbers.',
-    },
-    {
-      key: 2,
-      label: 'Contact & Address',
-      icon: <CallIcon />,
-      title: 'Contact & Address',
-      subtitle: 'Contact details and permanent residence information.',
-    },
-    {
-      key: 3,
-      label: 'Family',
-      icon: <GroupIcon />,
-      title: 'Family Background',
-      subtitle: 'Spouse and parents information.',
-    },
-    {
-      key: 4,
-      label: 'Education',
-      icon: <SchoolIcon />,
-      title: 'Education History',
-      subtitle: 'Academic records and degrees earned.',
-    },
-    {
-      key: 5,
-      label: 'Children',
-      icon: <ChildCareIcon />,
-      title: 'Children',
-      subtitle: 'Children information.',
-    },
-    {
-      key: 6,
-      label: 'Work Experience',
-      icon: <WorkIcon />,
-      title: 'Work Experience',
-      subtitle: 'Professional history and appointments.',
-    },
-    {
-      key: 7,
-      label: 'Eligibility',
-      icon: <FactCheckIcon />,
-      title: 'Eligibility',
-      subtitle: 'Civil service examination results and ratings.',
-    },
-    {
-      key: 8,
-      label: 'Learning & Dev',
-      icon: <BookIcon />,
-      title: 'Learning & Development',
-      subtitle: 'Training and development programs.',
-    },
-    {
-      key: 9,
-      label: 'Other Info',
-      icon: <InfoIcon />,
-      title: 'Other Information',
-      subtitle: 'Additional skills and associations.',
-    },
+  const NAV = [
+    { key:0,  label:'Personal Info',    icon:PersonIcon,            title:'Personal Information',   subtitle:'Basic details, physical attributes, and civil status.' },
+    { key:1,  label:'Government IDs',   icon:BadgeIcon,          title:'Government Identification', subtitle:'Official government identification numbers.' },
+    { key:2,  label:'Contact & Address',icon:CallIcon,              title:'Contact & Address',      subtitle:'Contact details, permanent and residential address.' },
+    { key:3,  label:'Family',           icon:GroupIcon,             title:'Family Background',      subtitle:'Spouse, father, and mother information.' },
+    { key:4,  label:'Education',        icon:SchoolIcon,            title:'Education History',      subtitle:'Academic records, degrees earned.' },
+    { key:5,  label:'Children',         icon:ChildCareIcon,         title:'Children',               subtitle:'Children information and date of birth.' },
+    { key:6,  label:'Work Experience',  icon:WorkIcon,              title:'Work Experience',        subtitle:'Professional history and appointments.' },
+    { key:7,  label:'Eligibility',      icon:FactCheckIcon,         title:'Eligibility',            subtitle:'Civil service examination results and ratings.' },
+    { key:8,  label:'Voluntary Work',   icon:VolunteerActivismIcon, title:'Voluntary Work',         subtitle:'Involvement in civic/NGO/voluntary organizations.' },
+    { key:9,  label:'Learning and Development',   icon:BookIcon,         title:'Learning and Development', subtitle:'Seminars | Interventions | Training programs attended.' },
+    { key:10, label:'Other Information',       icon:InfoIcon,              title:'Other Information',      subtitle:'Special skills, distinctions, and associations.' },
   ];
 
-  const handleEditOpen = () => {
-    setEditOpen(true);
-  };
+  const notify     = (msg, sev = 'success') => setToast({ open: true, message: msg, severity: sev });
+  const fmt        = (v) => { if (!v) return ''; const d = new Date(v); return isNaN(d.getTime()) ? v : d.toLocaleDateString('en-PH'); };
+  const getAge     = (dob) => { if (!dob) return 'N/A'; const t = new Date(), b = new Date(dob); let a = t.getFullYear() - b.getFullYear(); const m = t.getMonth() - b.getMonth(); if (m < 0 || (m === 0 && t.getDate() < b.getDate())) a--; return a; };
+  const fmtR       = (r) => { const n = parseFloat(r); return isNaN(n) ? 'N/A' : `${n}%`; };
 
-  const handleEditClose = () => {
-    setEditOpen(false);
-  };
+  const mk = (get, set) => ({
+    change: (i, e) => { const u = [...get]; u[i] = { ...u[i], [e.target.name]: e.target.value }; set(u); },
+    add:    (blank) => set([...get, { ...blank, person_id: employeeNumber }]),
+    remove: (i) => { const u = [...get]; u.splice(i, 1); set(u); },
+  });
+  const childH  = mk(childrenFD,  setChildrenFD);
+  const colH    = mk(collegesFD,  setCollegesFD);
+  const gradH   = mk(graduatesFD, setGraduatesFD);
+  const eligH   = mk(eligFD,      setEligFD);
+  const ldH     = mk(ldFD,        setLdFD);
+  const oiH     = mk(oiFD,        setOiFD);
+  const vocH    = mk(vocFD,       setVocFD);
+  const weH     = mk(weFD,        setWeFD);
+  const vwH     = mk(vwFD,        setVwFD);
 
-  const handleFormChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
+  const onFD = (e) => setFormData(p => ({ ...p, [e.target.name]: e.target.value }));
 
   const handleSave = async () => {
     try {
-      await saveProfile({
-        personalInfo: formData,
-        children: childrenFormData,
-        colleges: collegesFormData,
-        graduates: graduatesFormData,
-        eligibilities: eligibilitiesFormData,
-        learningDevelopment: learningDevelopmentFormData,
-        otherInformation: otherInformationFormData,
-        vocational: vocationalFormData,
-        workExperiences: workExperiencesFormData,
-      });
-
-      setEditOpen(false);
-      setUploadStatus({
-        message: 'Profile updated successfully!',
-        type: 'success',
-      });
-      setNotificationOpen(true);
-
-      // Refresh data
-      refreshPerson();
-      refreshSections();
-    } catch (err) {
-      console.error('Update failed:', err);
-      setUploadStatus({
-        message: err.message || 'Failed to update profile',
-        type: 'error',
-      });
-      setNotificationOpen(true);
-    }
+      await saveProfile({ personalInfo: formData, children: childrenFD, colleges: collegesFD, graduates: graduatesFD, eligibilities: eligFD, learningDevelopment: ldFD, otherInformation: oiFD, vocational: vocFD, workExperiences: weFD, voluntaryWork: vwFD });
+      setEditOpen(false); notify('Profile updated successfully!'); refreshPerson(); refreshSections();
+    } catch (err) { notify(err.message || 'Update failed', 'error'); }
   };
 
-  const handlePictureChange = async (e) => {
-    const file = e.target.files[0];
-    if (!file || !employeeNumber) return;
-
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
-    if (!allowedTypes.includes(file.type)) {
-      setUploadStatus({
-        message: 'Please upload a valid image file (JPEG, PNG, GIF)',
-        type: 'error',
-      });
-      setNotificationOpen(true);
-      return;
-    }
-
-    const maxSize = 5 * 1024 * 1024;
-    if (file.size > maxSize) {
-      setUploadStatus({
-        message: 'File size must be less than 5MB',
-        type: 'error',
-      });
-      setNotificationOpen(true);
-      return;
-    }
-
-    const fd = new FormData();
-    fd.append('profile', file);
-
+  const handlePicture = async (e) => {
+    const file = e.target.files[0]; if (!file || !employeeNumber) return;
+    if (!['image/jpeg','image/jpg','image/png','image/gif'].includes(file.type)) { notify('JPEG, PNG, or GIF only', 'error'); return; }
+    if (file.size > 5 * 1024 * 1024) { notify('Max 5MB', 'error'); return; }
+    const fd = new FormData(); fd.append('profile', file);
     try {
-      setUploadStatus({ message: 'Uploading...', type: 'info' });
-      setNotificationOpen(true);
-
-      const authHeaders = getAuthHeaders({ includeContentType: false });
-      const res = await axios.post(
-        `${API_BASE_URL}/upload-profile-picture/${employeeNumber}`,
-        fd,
-        {
-          headers: {
-            ...authHeaders.headers,
-            'Content-Type': 'multipart/form-data',
-          },
-          timeout: 30000,
-        }
-      );
-
-      const newPicturePath = res.data.filePath;
-      refreshPerson();
-
-      setUploadStatus({
-        message: 'Profile picture updated successfully!',
-        type: 'success',
-      });
-      setNotificationOpen(true);
-    } catch (err) {
-      console.error('Image upload failed:', err);
-      const errorMessage =
-        err.response?.data?.message ||
-        'Failed to upload image. Please try again.';
-      setUploadStatus({ message: errorMessage, type: 'error' });
-      setNotificationOpen(true);
-    }
+      notify('Uploading…', 'info');
+      const ah = getAuthHeaders({ includeContentType: false });
+      await axios.post(`${API_BASE_URL}/upload-profile-picture/${employeeNumber}`, fd, { headers: { ...ah.headers, 'Content-Type': 'multipart/form-data' }, timeout: 30000 });
+      refreshPerson(); notify('Profile picture updated!');
+    } catch (err) { notify(err.response?.data?.message || 'Upload failed', 'error'); }
   };
 
-  const handleRemovePicture = async () => {
+  const handleRemovePic = async () => {
     if (!person?.id) return;
-
-    try {
-      await axios.delete(
-        `${API_BASE_URL}/personalinfo/remove-profile-picture/${person.id}`,
-        getAuthHeaders()
-      );
-      refreshPerson();
-      setUploadStatus({
-        message: 'Profile picture removed successfully!',
-        type: 'success',
-      });
-      setNotificationOpen(true);
-    } catch (err) {
-      console.error('Remove picture failed:', err);
-      setUploadStatus({ message: 'Failed to remove picture.', type: 'error' });
-      setNotificationOpen(true);
-    }
+    try { await axios.delete(`${API_BASE_URL}/personalinfo/remove-profile-picture/${person.id}`, getAuthHeaders()); refreshPerson(); notify('Picture removed.'); }
+    catch { notify('Failed to remove.', 'error'); }
   };
 
-  const handleTabChange = (event, newValue) => {
-    setCurrentSectionIndex(newValue);
-  };
-
-  const handleSectionChange = (index) => {
-    setCurrentSectionIndex(index);
-  };
-
-  const handleNextSection = () => {
-    if (currentSectionIndex < navigationSections.length - 1) {
-      setCurrentSectionIndex(currentSectionIndex + 1);
-    }
-  };
-
-  const handlePrevSection = () => {
-    if (currentSectionIndex > 0) {
-      setCurrentSectionIndex(currentSectionIndex - 1);
-    }
-  };
-
-  const handleCardMouseMove = (cardId, e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    setCardMousePos({ [cardId]: { x, y } });
-  };
-
-  const handleCardMouseLeave = (cardId) => {
-    setCardMousePos({ [cardId]: null });
-  };
-
-  const handleImageZoom = () => {
-    setImageZoomOpen(true);
-  };
-
-  const handleImageZoomClose = () => {
-    setImageZoomOpen(false);
-  };
-
-  const handleEditImageZoom = () => {
-    setEditImageZoomOpen(true);
-  };
-
-  const handleEditImageZoomClose = () => {
-    setEditImageZoomOpen(false);
-  };
-
-  const handleNotificationClose = () => {
-    setNotificationOpen(false);
-  };
-
-  const handleRefresh = () => {
-    refreshPerson();
-    refreshSections();
-  };
-
-  const handleMoreMenuOpen = (event) => {
-    setMoreMenuAnchorEl(event.currentTarget);
-  };
-
-  const trigger = useScrollTrigger({
-    threshold: 100,
-    disableHysteresis: true,
-  });
-
-  const scrollToTop = () => {
-    profileRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  const handleChildrenFormChange = (index, e) => {
-    const { name, value } = e.target;
-    const updatedChildren = [...childrenFormData];
-    updatedChildren[index] = { ...updatedChildren[index], [name]: value };
-    setChildrenFormData(updatedChildren);
-  };
-
-  const handleAddChild = () => {
-    setChildrenFormData([
-      ...childrenFormData,
-      {
-        childrenFirstName: '',
-        childrenMiddleName: '',
-        childrenLastName: '',
-        childrenNameExtension: '',
-        dateOfBirth: '',
-        person_id: employeeNumber,
-      },
-    ]);
-  };
-
-  const handleRemoveChild = (index) => {
-    const updatedChildren = [...childrenFormData];
-    updatedChildren.splice(index, 1);
-    setChildrenFormData(updatedChildren);
-  };
-
-  const handleCollegeFormChange = (index, e) => {
-    const { name, value } = e.target;
-    const updatedColleges = [...collegesFormData];
-    updatedColleges[index] = { ...updatedColleges[index], [name]: value };
-    setCollegesFormData(updatedColleges);
-  };
-
-  const handleAddCollege = () => {
-    setCollegesFormData([
-      ...collegesFormData,
-      {
-        collegeNameOfSchool: '',
-        collegeDegree: '',
-        collegePeriodFrom: '',
-        collegePeriodTo: '',
-        collegeHighestAttained: '',
-        collegeYearGraduated: '',
-        collegeScholarshipAcademicHonorsReceived: '',
-        person_id: employeeNumber,
-      },
-    ]);
-  };
-
-  const handleRemoveCollege = (index) => {
-    const updatedColleges = [...collegesFormData];
-    updatedColleges.splice(index, 1);
-    setCollegesFormData(updatedColleges);
-  };
-
-  const handleGraduateFormChange = (index, e) => {
-    const { name, value } = e.target;
-    const updatedGraduates = [...graduatesFormData];
-    updatedGraduates[index] = { ...updatedGraduates[index], [name]: value };
-    setGraduatesFormData(updatedGraduates);
-  };
-
-  const handleAddGraduate = () => {
-    setGraduatesFormData([
-      ...graduatesFormData,
-      {
-        graduateNameOfSchool: '',
-        graduateDegree: '',
-        graduatePeriodFrom: '',
-        graduatePeriodTo: '',
-        graduateHighestLevel: '',
-        graduateYearGraduated: '',
-        graduateScholarshipAcademicHonorsReceived: '',
-        person_id: employeeNumber,
-      },
-    ]);
-  };
-
-  const handleRemoveGraduate = (index) => {
-    const updatedGraduates = [...graduatesFormData];
-    updatedGraduates.splice(index, 1);
-    setGraduatesFormData(updatedGraduates);
-  };
-
-  const handleEligibilityFormChange = (index, e) => {
-    const { name, value } = e.target;
-    const updatedEligibilities = [...eligibilitiesFormData];
-    updatedEligibilities[index] = {
-      ...updatedEligibilities[index],
-      [name]: value,
-    };
-    setEligibilitiesFormData(updatedEligibilities);
-  };
-
-  const handleAddEligibility = () => {
-    setEligibilitiesFormData([
-      ...eligibilitiesFormData,
-      {
-        eligibilityName: '',
-        eligibilityRating: '',
-        eligibilityDateOfExam: '',
-        eligibilityPlaceOfExam: '',
-        licenseNumber: '',
-        DateOfValidity: '',
-        person_id: employeeNumber,
-      },
-    ]);
-  };
-
-  const handleRemoveEligibility = (index) => {
-    const updatedEligibilities = [...eligibilitiesFormData];
-    updatedEligibilities.splice(index, 1);
-    setEligibilitiesFormData(updatedEligibilities);
-  };
-
-  const handleLearningDevelopmentFormChange = (index, e) => {
-    const { name, value } = e.target;
-    const updatedLearningDevelopment = [...learningDevelopmentFormData];
-    updatedLearningDevelopment[index] = {
-      ...updatedLearningDevelopment[index],
-      [name]: value,
-    };
-    setLearningDevelopmentFormData(updatedLearningDevelopment);
-  };
-
-  const handleAddLearningDevelopment = () => {
-    setLearningDevelopmentFormData([
-      ...learningDevelopmentFormData,
-      {
-        titleOfProgram: '',
-        dateFrom: '',
-        dateTo: '',
-        numberOfHours: '',
-        typeOfLearningDevelopment: '',
-        conductedSponsored: '',
-        person_id: employeeNumber,
-      },
-    ]);
-  };
-
-  const handleRemoveLearningDevelopment = (index) => {
-    const updatedLearningDevelopment = [...learningDevelopmentFormData];
-    updatedLearningDevelopment.splice(index, 1);
-    setLearningDevelopmentFormData(updatedLearningDevelopment);
-  };
-
-  const handleOtherInformationFormChange = (index, e) => {
-    const { name, value } = e.target;
-    const updatedOtherInformation = [...otherInformationFormData];
-    updatedOtherInformation[index] = {
-      ...updatedOtherInformation[index],
-      [name]: value,
-    };
-    setOtherInformationFormData(updatedOtherInformation);
-  };
-
-  const handleAddOtherInformation = () => {
-    setOtherInformationFormData([
-      ...otherInformationFormData,
-      {
-        specialSkills: '',
-        nonAcademicDistinctions: '',
-        membershipInAssociation: '',
-        person_id: employeeNumber,
-      },
-    ]);
-  };
-
-  const handleRemoveOtherInformation = (index) => {
-    const updatedOtherInformation = [...otherInformationFormData];
-    updatedOtherInformation.splice(index, 1);
-    setOtherInformationFormData(updatedOtherInformation);
-  };
-
-  const handleVocationalFormChange = (index, e) => {
-    const { name, value } = e.target;
-    const updatedVocational = [...vocationalFormData];
-    updatedVocational[index] = { ...updatedVocational[index], [name]: value };
-    setVocationalFormData(updatedVocational);
-  };
-
-  const handleAddVocational = () => {
-    setVocationalFormData([
-      ...vocationalFormData,
-      {
-        vocationalNameOfSchool: '',
-        vocationalDegree: '',
-        vocationalPeriodFrom: '',
-        vocationalPeriodTo: '',
-        vocationalHighestAttained: '',
-        vocationalYearGraduated: '',
-        vocationalScholarshipAcademicHonorsReceived: '',
-        person_id: employeeNumber,
-      },
-    ]);
-  };
-
-  const handleRemoveVocational = (index) => {
-    const updatedVocational = [...vocationalFormData];
-    updatedVocational.splice(index, 1);
-    setVocationalFormData(updatedVocational);
-  };
-
-  const handleWorkExperienceFormChange = (index, e) => {
-    const { name, value } = e.target;
-    const updatedWorkExperiences = [...workExperiencesFormData];
-    updatedWorkExperiences[index] = {
-      ...updatedWorkExperiences[index],
-      [name]: value,
-    };
-    setWorkExperiencesFormData(updatedWorkExperiences);
-  };
-
-  const handleAddWorkExperience = () => {
-    setWorkExperiencesFormData([
-      ...workExperiencesFormData,
-      {
-        workDateFrom: '',
-        workDateTo: '',
-        workPositionTitle: '',
-        workCompany: '',
-        workMonthlySalary: '',
-        SalaryJobOrPayGrade: '',
-        StatusOfAppointment: '',
-        isGovtService: 'No',
-        person_id: employeeNumber,
-      },
-    ]);
-  };
-
-  const handleRemoveWorkExperience = (index) => {
-    const updatedWorkExperiences = [...workExperiencesFormData];
-    updatedWorkExperiences.splice(index, 1);
-    setWorkExperiencesFormData(updatedWorkExperiences);
-  };
-
-  const getAge = (dateOfBirth) => {
-    if (!dateOfBirth) return 'N/A';
-
-    const today = new Date();
-    const birthDate = new Date(dateOfBirth);
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
-    if (
-      monthDiff < 0 ||
-      (monthDiff === 0 && today.getDate() < birthDate.getDate())
-    ) {
-      age--;
-    }
-    return age;
-  };
-
-  const formatDate = (value) => {
-    if (!value) return '';
-    const date = new Date(value);
-    return isNaN(date.getTime()) ? value : date.toLocaleDateString();
-  };
-
-  const formatRating = (rating) => {
-    if (!rating) return 'N/A';
-    const numRating = parseFloat(rating);
-    if (isNaN(numRating)) return 'N/A';
-    return `${numRating}%`;
-  };
-
-  const tabs = navigationSections;
-
-  const formFields = {
-    0: [
-      {
-        label: 'First Name',
-        name: 'firstName',
-        icon: <PersonIcon fontSize="small" />,
-      },
-      {
-        label: 'Middle Name',
-        name: 'middleName',
-        icon: <PersonIcon fontSize="small" />,
-      },
-      {
-        label: 'Last Name',
-        name: 'lastName',
-        icon: <PersonIcon fontSize="small" />,
-      },
-      {
-        label: 'Name Extension',
-        name: 'nameExtension',
-        icon: <PersonIcon fontSize="small" />,
-      },
-      {
-        label: 'Date of Birth',
-        name: 'birthDate',
-        type: 'date',
-        icon: <CakeIcon fontSize="small" />,
-      },
-      {
-        label: 'Place of Birth',
-        name: 'placeOfBirth',
-        icon: <LocationOnIcon fontSize="small" />,
-      },
-    ],
-    1: [
-      {
-        label: 'GSIS Number',
-        name: 'gsisNum',
-        disabled: true,
-        icon: <BadgeIcon fontSize="small" />,
-      },
-      {
-        label: 'Pag-IBIG Number',
-        name: 'pagibigNum',
-        disabled: true,
-        icon: <BadgeIcon fontSize="small" />,
-      },
-      {
-        label: 'PhilHealth Number',
-        name: 'philhealthNum',
-        disabled: true,
-        icon: <BadgeIcon fontSize="small" />,
-      },
-      {
-        label: 'SSS Number',
-        name: 'sssNum',
-        disabled: true,
-        icon: <BadgeIcon fontSize="small" />,
-      },
-      {
-        label: 'TIN Number',
-        name: 'tinNum',
-        disabled: true,
-        icon: <BadgeIcon fontSize="small" />,
-      },
-      {
-        label: 'Agency Employee Number',
-        name: 'agencyEmployeeNum',
-        disabled: true,
-        icon: <BadgeIcon fontSize="small" />,
-      },
-    ],
-    2: [
-      {
-        label: 'House & Lot Number',
-        name: 'permanent_houseBlockLotNum',
-        icon: <HomeIcon fontSize="small" />,
-      },
-      {
-        label: 'Street',
-        name: 'permanent_streetName',
-        icon: <HomeIcon fontSize="small" />,
-      },
-      {
-        label: 'Subdivision',
-        name: 'permanent_subdivisionOrVillage',
-        icon: <HomeIcon fontSize="small" />,
-      },
-      {
-        label: 'Barangay',
-        name: 'permanent_barangay',
-        icon: <HomeIcon fontSize="small" />,
-      },
-      {
-        label: 'City/Municipality',
-        name: 'permanent_cityOrMunicipality',
-        icon: <HomeIcon fontSize="small" />,
-      },
-      {
-        label: 'Province',
-        name: 'permanent_provinceName',
-        icon: <HomeIcon fontSize="small" />,
-      },
-      {
-        label: 'Zip Code',
-        name: 'permanent_zipcode',
-        icon: <HomeIcon fontSize="small" />,
-      },
-    ],
-    3: [
-      {
-        label: 'Telephone',
-        name: 'telephone',
-        icon: <CallIcon fontSize="small" />,
-      },
-      {
-        label: 'Mobile',
-        name: 'mobileNum',
-        icon: <PhoneIcon fontSize="small" />,
-      },
-      {
-        label: 'Email',
-        name: 'emailAddress',
-        icon: <EmailIcon fontSize="small" />,
-      },
-    ],
-    4: [
-      {
-        label: 'Spouse First Name',
-        name: 'spouseFirstName',
-        icon: <GroupIcon fontSize="small" />,
-      },
-      {
-        label: 'Spouse Middle Name',
-        name: 'spouseMiddleName',
-        icon: <GroupIcon fontSize="small" />,
-      },
-      {
-        label: 'Spouse Last Name',
-        name: 'spouseLastName',
-        icon: <GroupIcon fontSize="small" />,
-      },
-      {
-        label: 'Spouse Occupation',
-        name: 'spouseOccupation',
-        icon: <WorkIcon fontSize="small" />,
-      },
-    ],
-    5: [],
-    6: [],
-    7: [],
-    8: [],
-    9: [],
-    10: [],
-  };
-
-  const isLoading = loading || sectionsLoading;
-
-  if (isLoading) {
-    return (
-      <ProfileWrapper ref={profileRef}>
-        <Box
-          display="flex"
-          justifyContent="center"
-          alignItems="center"
-          height="100vh"
-          width="100%"
-        >
-          <Box textAlign="center">
-            <CircularProgress
-              size={64}
-              thickness={4}
-              sx={{ color: colors.primary, mb: 3 }}
-            />
-            <Typography
-              variant="h6"
-              color={colors.textPrimary}
-              fontWeight={600}
-            >
-              Loading Profile...
-            </Typography>
-            <Typography variant="body2" color={colors.textSecondary} mt={1}>
-              Fetching data securely — this may take a moment.
-            </Typography>
-          </Box>
-        </Box>
-      </ProfileWrapper>
+  /* ── Field renderer ── */
+  const FF = (field) => {
+    if (field.type === 'select') return (
+      <Box key={field.name}><FL>{field.label}</FL>
+        <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+          <Select
+            name={field.name}
+            value={formData[field.name] || ''}
+            onChange={onFD}
+            disabled={field.disabled}
+            sx={SELECT_SX}
+          >
+            <MuiMenuItem value=""><em style={{ color: '#9ca3af' }}>— Select —</em></MuiMenuItem>
+            {(field.options || []).map(o => <MuiMenuItem key={o} value={o}>{o}</MuiMenuItem>)}
+          </Select>
+        </FormControl>
+      </Box>
     );
-  }
-
-  const renderTabContentGrid = (tabIndex) => {
-    return renderTabContentList(tabIndex);
-  };
-
-  const renderContentSection = (sectionIndex) => {
-    const section = navigationSections[sectionIndex];
-    if (!section) return null;
-
-    switch (sectionIndex) {
-      case 0: // Personal Info
-        return (
-          <DataCard
-            onMouseMove={(e) => handleCardMouseMove('personal', e)}
-            onMouseLeave={() => handleCardMouseLeave('personal')}
-            mouseX={cardMousePos.personal?.x}
-            mouseY={cardMousePos.personal?.y}
-          >
-            <CardInner>
-              <InfoGrid>
-                <InfoGroup>
-                  <InfoLabel>First Name</InfoLabel>
-                  <InfoValue>{person?.firstName || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Middle Name</InfoLabel>
-                  <InfoValue>{person?.middleName || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Last Name</InfoLabel>
-                  <InfoValue>{person?.lastName || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Name Extension</InfoLabel>
-                  <InfoValue>{person?.nameExtension || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Date of Birth</InfoLabel>
-                  <InfoValue>
-                    {person?.birthDate ? formatDate(person.birthDate) : '—'}
-                  </InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Place of Birth</InfoLabel>
-                  <InfoValue>{person?.placeOfBirth || '—'}</InfoValue>
-                </InfoGroup>
-              </InfoGrid>
-            </CardInner>
-          </DataCard>
-        );
-      case 1: // Gov. IDs
-        return (
-          <DataCard
-            onMouseMove={(e) => handleCardMouseMove('govids', e)}
-            onMouseLeave={() => handleCardMouseLeave('govids')}
-            mouseX={cardMousePos.govids?.x}
-            mouseY={cardMousePos.govids?.y}
-          >
-            <CardInner>
-              <InfoGrid>
-                <InfoGroup>
-                  <InfoLabel>GSIS No.</InfoLabel>
-                  <InfoValue>{person?.gsisNum || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Pag-IBIG No.</InfoLabel>
-                  <InfoValue>{person?.pagibigNum || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>PhilHealth No.</InfoLabel>
-                  <InfoValue>{person?.philhealthNum || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>SSS No.</InfoLabel>
-                  <InfoValue>{person?.sssNum || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>TIN No.</InfoLabel>
-                  <InfoValue>{person?.tinNum || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Agency Employee No.</InfoLabel>
-                  <InfoValue>{person?.agencyEmployeeNum || '—'}</InfoValue>
-                </InfoGroup>
-              </InfoGrid>
-            </CardInner>
-          </DataCard>
-        );
-      case 2: // Contact & Address
-        return (
-          <DataCard
-            onMouseMove={(e) => handleCardMouseMove('contact', e)}
-            onMouseLeave={() => handleCardMouseLeave('contact')}
-            mouseX={cardMousePos.contact?.x}
-            mouseY={cardMousePos.contact?.y}
-          >
-            <CardInner>
-              <InfoGrid>
-                <InfoGroup>
-                  <InfoLabel>Mobile Number</InfoLabel>
-                  <InfoValue>{person?.mobileNum || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Telephone</InfoLabel>
-                  <InfoValue>{person?.telephone || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Email Address</InfoLabel>
-                  <InfoValue>{person?.emailAddress || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>House/Block/Lot</InfoLabel>
-                  <InfoValue>
-                    {person?.permanent_houseBlockLotNum || '—'}
-                  </InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Street</InfoLabel>
-                  <InfoValue>{person?.permanent_streetName || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Subdivision</InfoLabel>
-                  <InfoValue>
-                    {person?.permanent_subdivisionOrVillage || '—'}
-                  </InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Barangay</InfoLabel>
-                  <InfoValue>{person?.permanent_barangay || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>City/Municipality</InfoLabel>
-                  <InfoValue>
-                    {person?.permanent_cityOrMunicipality || '—'}
-                  </InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Province</InfoLabel>
-                  <InfoValue>{person?.permanent_provinceName || '—'}</InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Zip Code</InfoLabel>
-                  <InfoValue>{person?.permanent_zipcode || '—'}</InfoValue>
-                </InfoGroup>
-              </InfoGrid>
-            </CardInner>
-          </DataCard>
-        );
-      case 3: // Family
-        return (
-          <DataCard
-            onMouseMove={(e) => handleCardMouseMove('family', e)}
-            onMouseLeave={() => handleCardMouseLeave('family')}
-            mouseX={cardMousePos.family?.x}
-            mouseY={cardMousePos.family?.y}
-          >
-            <CardInner>
-              <Typography
-                variant="h6"
-                sx={{
-                  marginBottom: '15px',
-                  color: colors.primary,
-                  fontSize: '1.1rem',
-                }}
-              >
-                Spouse
-              </Typography>
-              <InfoGrid sx={{ marginBottom: '25px' }}>
-                <InfoGroup>
-                  <InfoLabel>Name</InfoLabel>
-                  <InfoValue>
-                    {person?.spouseFirstName ||
-                    person?.spouseMiddleName ||
-                    person?.spouseLastName
-                      ? `${person.spouseFirstName || ''} ${
-                          person.spouseMiddleName || ''
-                        } ${person.spouseLastName || ''}`.trim()
-                      : '—'}
-                  </InfoValue>
-                </InfoGroup>
-                <InfoGroup>
-                  <InfoLabel>Occupation</InfoLabel>
-                  <InfoValue>{person?.spouseOccupation || '—'}</InfoValue>
-                </InfoGroup>
-              </InfoGrid>
-            </CardInner>
-          </DataCard>
-        );
-      case 4: // Education
-        return (
-          <DataCard
-            onMouseMove={(e) => handleCardMouseMove('education', e)}
-            onMouseLeave={() => handleCardMouseLeave('education')}
-            mouseX={cardMousePos.education?.x}
-            mouseY={cardMousePos.education?.y}
-          >
-            <CardInner>
-              <Timeline>
-                {colleges.length > 0 &&
-                  colleges.map((college, idx) => (
-                    <TimelineItem key={college.id || idx}>
-                      <TimelineDate>
-                        {college.collegePeriodFrom || 'N/A'} -{' '}
-                        {college.collegePeriodTo || 'Present'}
-                      </TimelineDate>
-                      <TimelineTitle>
-                        {college.collegeDegree || '—'}
-                      </TimelineTitle>
-                      <TimelineOrg>
-                        {college.collegeNameOfSchool || '—'}
-                      </TimelineOrg>
-                    </TimelineItem>
-                  ))}
-                {person?.secondaryNameOfSchool && (
-                  <TimelineItem>
-                    <TimelineDate>Secondary</TimelineDate>
-                    <TimelineTitle>
-                      {person.secondaryDegree || 'High School'}
-                    </TimelineTitle>
-                    <TimelineOrg>{person.secondaryNameOfSchool}</TimelineOrg>
-                  </TimelineItem>
-                )}
-                {person?.elementaryNameOfSchool && (
-                  <TimelineItem sx={{ paddingBottom: 0 }}>
-                    <TimelineDate>Elementary</TimelineDate>
-                    <TimelineTitle>
-                      {person.elementaryDegree || 'Elementary'}
-                    </TimelineTitle>
-                    <TimelineOrg>{person.elementaryNameOfSchool}</TimelineOrg>
-                  </TimelineItem>
-                )}
-              </Timeline>
-            </CardInner>
-          </DataCard>
-        );
-      case 5: // Children
-        return (
-          <DataCard
-            onMouseMove={(e) => handleCardMouseMove('children', e)}
-            onMouseLeave={() => handleCardMouseLeave('children')}
-            mouseX={cardMousePos.children?.x}
-            mouseY={cardMousePos.children?.y}
-          >
-            <CardInner>
-              {children.length > 0 ? (
-                <InfoGrid>
-                  {children.map((child, idx) => (
-                    <InfoGroup key={child.id || idx}>
-                      <InfoLabel>Child {idx + 1}</InfoLabel>
-                      <InfoValue>
-                        {`${child.childrenFirstName || ''} ${
-                          child.childrenMiddleName || ''
-                        } ${child.childrenLastName || ''} ${
-                          child.childrenNameExtension || ''
-                        }`.trim() || '—'}
-                        {child.dateOfBirth &&
-                          ` (Age: ${getAge(child.dateOfBirth)})`}
-                      </InfoValue>
-                    </InfoGroup>
-                  ))}
-                </InfoGrid>
-              ) : (
-                <Typography
-                  variant="body2"
-                  color={colors.textSecondary}
-                  textAlign="center"
-                  py={2}
-                >
-                  No children records found
-                </Typography>
-              )}
-            </CardInner>
-          </DataCard>
-        );
-      case 6: // Work Experience
-        return (
-          <DataCard
-            onMouseMove={(e) => handleCardMouseMove('work', e)}
-            onMouseLeave={() => handleCardMouseLeave('work')}
-            mouseX={cardMousePos.work?.x}
-            mouseY={cardMousePos.work?.y}
-          >
-            <CardInner>
-              {workExperiences.length > 0 ? (
-                <Timeline>
-                  {workExperiences.map((workExp, idx) => (
-                    <TimelineItem
-                      key={workExp.id || idx}
-                      sx={
-                        idx === workExperiences.length - 1
-                          ? { paddingBottom: 0 }
-                          : {}
-                      }
-                    >
-                      <TimelineDate>
-                        {workExp.workDateFrom
-                          ? formatDate(workExp.workDateFrom)
-                          : 'N/A'}{' '}
-                        -{' '}
-                        {workExp.workDateTo
-                          ? formatDate(workExp.workDateTo)
-                          : 'Present'}
-                      </TimelineDate>
-                      <TimelineTitle>
-                        {workExp.workPositionTitle || '—'}
-                      </TimelineTitle>
-                      <TimelineOrg>{workExp.workCompany || '—'}</TimelineOrg>
-                    </TimelineItem>
-                  ))}
-                </Timeline>
-              ) : (
-                <Typography
-                  variant="body2"
-                  color={colors.textSecondary}
-                  textAlign="center"
-                  py={2}
-                >
-                  No work experience records found
-                </Typography>
-              )}
-            </CardInner>
-          </DataCard>
-        );
-      case 7: // Eligibility
-        return (
-          <DataCard
-            onMouseMove={(e) => handleCardMouseMove('eligibility', e)}
-            onMouseLeave={() => handleCardMouseLeave('eligibility')}
-            mouseX={cardMousePos.eligibility?.x}
-            mouseY={cardMousePos.eligibility?.y}
-          >
-            <CardInner>
-              {eligibilities.length > 0 ? (
-                <InfoGrid>
-                  {eligibilities.map((eligibility, idx) => (
-                    <React.Fragment key={eligibility.id || idx}>
-                      <InfoGroup>
-                        <InfoLabel>Eligibility</InfoLabel>
-                        <InfoValue
-                          sx={{ color: colors.primary, fontWeight: 700 }}
-                        >
-                          {eligibility.eligibilityName || '—'}
-                        </InfoValue>
-                      </InfoGroup>
-                      <InfoGroup>
-                        <InfoLabel>Rating</InfoLabel>
-                        <InfoValue>
-                          {formatRating(eligibility.eligibilityRating)}
-                        </InfoValue>
-                      </InfoGroup>
-                      <InfoGroup>
-                        <InfoLabel>Date of Exam</InfoLabel>
-                        <InfoValue>
-                          {eligibility.eligibilityDateOfExam
-                            ? formatDate(eligibility.eligibilityDateOfExam)
-                            : '—'}
-                        </InfoValue>
-                      </InfoGroup>
-                      <InfoGroup>
-                        <InfoLabel>Place of Exam</InfoLabel>
-                        <InfoValue>
-                          {eligibility.eligibilityPlaceOfExam || '—'}
-                        </InfoValue>
-                      </InfoGroup>
-                    </React.Fragment>
-                  ))}
-                </InfoGrid>
-              ) : (
-                <Typography
-                  variant="body2"
-                  color={colors.textSecondary}
-                  textAlign="center"
-                  py={2}
-                >
-                  No eligibility records found
-                </Typography>
-              )}
-            </CardInner>
-          </DataCard>
-        );
-      case 8: // Learning & Development
-        return (
-          <DataCard
-            onMouseMove={(e) => handleCardMouseMove('learning', e)}
-            onMouseLeave={() => handleCardMouseLeave('learning')}
-            mouseX={cardMousePos.learning?.x}
-            mouseY={cardMousePos.learning?.y}
-          >
-            <CardInner>
-              {learningDevelopment.length > 0 ? (
-                <Timeline>
-                  {learningDevelopment.map((learning, idx) => (
-                    <TimelineItem
-                      key={learning.id || idx}
-                      sx={
-                        idx === learningDevelopment.length - 1
-                          ? { paddingBottom: 0 }
-                          : {}
-                      }
-                    >
-                      <TimelineDate>
-                        {learning.dateFrom
-                          ? formatDate(learning.dateFrom)
-                          : 'N/A'}{' '}
-                        -{' '}
-                        {learning.dateTo
-                          ? formatDate(learning.dateTo)
-                          : 'Present'}
-                      </TimelineDate>
-                      <TimelineTitle>
-                        {learning.titleOfProgram || '—'}
-                      </TimelineTitle>
-                      <TimelineOrg>
-                        {learning.typeOfLearningDevelopment || '—'}{' '}
-                        {learning.numberOfHours &&
-                          `• ${learning.numberOfHours} hours`}
-                      </TimelineOrg>
-                    </TimelineItem>
-                  ))}
-                </Timeline>
-              ) : (
-                <Typography
-                  variant="body2"
-                  color={colors.textSecondary}
-                  textAlign="center"
-                  py={2}
-                >
-                  No learning and development records found
-                </Typography>
-              )}
-            </CardInner>
-          </DataCard>
-        );
-      case 9: // Other Information
-        return (
-          <DataCard
-            onMouseMove={(e) => handleCardMouseMove('other', e)}
-            onMouseLeave={() => handleCardMouseLeave('other')}
-            mouseX={cardMousePos.other?.x}
-            mouseY={cardMousePos.other?.y}
-          >
-            <CardInner>
-              {otherInformation.length > 0 ? (
-                <InfoGrid>
-                  {otherInformation.map((info, idx) => (
-                    <React.Fragment key={info.id || idx}>
-                      {info.specialSkills && (
-                        <InfoGroup>
-                          <InfoLabel>Special Skills</InfoLabel>
-                          <InfoValue>{info.specialSkills}</InfoValue>
-                        </InfoGroup>
-                      )}
-                      {info.nonAcademicDistinctions && (
-                        <InfoGroup>
-                          <InfoLabel>Non-Academic Distinctions</InfoLabel>
-                          <InfoValue>{info.nonAcademicDistinctions}</InfoValue>
-                        </InfoGroup>
-                      )}
-                      {info.membershipInAssociation && (
-                        <InfoGroup>
-                          <InfoLabel>Membership in Association</InfoLabel>
-                          <InfoValue>{info.membershipInAssociation}</InfoValue>
-                        </InfoGroup>
-                      )}
-                    </React.Fragment>
-                  ))}
-                </InfoGrid>
-              ) : (
-                <Typography
-                  variant="body2"
-                  color={colors.textSecondary}
-                  textAlign="center"
-                  py={2}
-                >
-                  No other information records found
-                </Typography>
-              )}
-            </CardInner>
-          </DataCard>
-        );
-      default:
-        return null;
-    }
-  };
-
-  const renderTabContentList = (tabIndex) => {
-    if (tabIndex === 4) {
-      return (
-        <Box>
-          <EducationSubTabs
-            value={educationSubTabValue}
-            onChange={(e, newValue) => setEducationSubTabValue(newValue)}
-            variant="fullWidth"
-          >
-            <EducationSubTab
-              label="Elementary & Secondary"
-              icon={<SchoolIcon />}
-            />
-            <EducationSubTab label="College" icon={<SchoolRoundedIcon />} />
-            <EducationSubTab
-              label="Graduate Studies"
-              icon={<PsychologyIcon />}
-            />
-            <EducationSubTab label="Vocational" icon={<ConstructionIcon />} />
-          </EducationSubTabs>
-
-          {educationSubTabValue === 0 && (
-            <TabPanel>
-              <Box>
-                <InfoItem>
-                  <InfoLabel variant="body2">
-                    <SchoolIcon fontSize="small" />
-                    Elementary School:
-                  </InfoLabel>
-                  <InfoValue variant="body1">
-                    {person?.elementaryNameOfSchool || '—'}
-                  </InfoValue>
-                </InfoItem>
-                <InfoItem>
-                  <InfoLabel variant="body2">
-                    <SchoolIcon fontSize="small" />
-                    Elementary Degree:
-                  </InfoLabel>
-                  <InfoValue variant="body1">
-                    {person?.elementaryDegree || '—'}
-                  </InfoValue>
-                </InfoItem>
-                <InfoItem>
-                  <InfoLabel variant="body2">
-                    <SchoolIcon fontSize="small" />
-                    Secondary School:
-                  </InfoLabel>
-                  <InfoValue variant="body1">
-                    {person?.secondaryNameOfSchool || '—'}
-                  </InfoValue>
-                </InfoItem>
-                <InfoItem>
-                  <InfoLabel variant="body2">
-                    <SchoolIcon fontSize="small" />
-                    Secondary Degree:
-                  </InfoLabel>
-                  <InfoValue variant="body1">
-                    {person?.secondaryDegree || '—'}
-                  </InfoValue>
-                </InfoItem>
-              </Box>
-            </TabPanel>
-          )}
-
-          {educationSubTabValue === 1 && (
-            <TabPanel>
-              <ScrollableContainer>
-                {colleges.length > 0 ? (
-                  <List>
-                    {colleges.map((college) => (
-                      <React.Fragment key={college.id}>
-                        <CollegeListItem>
-                          <MuiListItemIcon>
-                            <Box
-                              sx={{
-                                width: 40,
-                                height: 40,
-                                borderRadius: 1.5,
-                                backgroundColor: colors.primary,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                mr: 2,
-                              }}
-                            >
-                              <SchoolRoundedIcon
-                                sx={{ color: colors.textLight, fontSize: 20 }}
-                              />
-                            </Box>
-                          </MuiListItemIcon>
-                          <MuiListItemText
-                            primary={
-                              <Typography
-                                variant="h6"
-                                sx={{
-                                  fontWeight: 600,
-                                  color: colors.textPrimary,
-                                  mb: 0.5,
-                                }}
-                              >
-                                {college.collegeNameOfSchool}
-                              </Typography>
-                            }
-                            secondary={
-                              college.collegeDegree ? (
-                                <Typography
-                                  component="span"
-                                  sx={{
-                                    display: 'block',
-                                    color: colors.textPrimary,
-                                  }}
-                                >
-                                  {college.collegeDegree} (
-                                  {college.collegePeriodFrom || 'N/A'} -{' '}
-                                  {college.collegePeriodTo || 'N/A'})
-                                </Typography>
-                              ) : (
-                                'No degree information'
-                              )
-                            }
-                          />
-                        </CollegeListItem>
-                      </React.Fragment>
-                    ))}
-                  </List>
-                ) : (
-                  <Box textAlign="center" py={4}>
-                    <Typography variant="h6" color={colors.textSecondary}>
-                      No college records found
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      color={colors.textSecondary}
-                      mt={1}
-                    >
-                      Click "Edit Profile" to add college records
-                    </Typography>
-                  </Box>
-                )}
-              </ScrollableContainer>
-            </TabPanel>
-          )}
-
-          {educationSubTabValue === 2 && (
-            <TabPanel>
-              <ScrollableContainer>
-                {graduates.length > 0 ? (
-                  <List>
-                    {graduates.map((graduate) => (
-                      <React.Fragment key={graduate.id}>
-                        <GraduateListItem>
-                          <MuiListItemIcon>
-                            <Box
-                              sx={{
-                                width: 40,
-                                height: 40,
-                                borderRadius: 1.5,
-                                backgroundColor: colors.primary,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                mr: 2,
-                              }}
-                            >
-                              <PsychologyIcon
-                                sx={{ color: colors.textLight, fontSize: 20 }}
-                              />
-                            </Box>
-                          </MuiListItemIcon>
-                          <MuiListItemText
-                            primary={
-                              <Typography
-                                variant="h6"
-                                sx={{
-                                  fontWeight: 600,
-                                  color: colors.textPrimary,
-                                  mb: 0.5,
-                                }}
-                              >
-                                {graduate.graduateNameOfSchool}
-                              </Typography>
-                            }
-                            secondary={
-                              graduate.graduateDegree ? (
-                                <Typography
-                                  component="span"
-                                  sx={{
-                                    display: 'block',
-                                    color: colors.textPrimary,
-                                  }}
-                                >
-                                  {graduate.graduateDegree} (
-                                  {graduate.graduatePeriodFrom || 'N/A'} -{' '}
-                                  {graduate.graduatePeriodTo || 'N/A'})
-                                </Typography>
-                              ) : (
-                                'No degree information'
-                              )
-                            }
-                          />
-                        </GraduateListItem>
-                      </React.Fragment>
-                    ))}
-                  </List>
-                ) : (
-                  <Box textAlign="center" py={4}>
-                    <Typography variant="h6" color={colors.textSecondary}>
-                      No graduate studies records found
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      color={colors.textSecondary}
-                      mt={1}
-                    >
-                      Click "Edit Profile" to add graduate studies records
-                    </Typography>
-                  </Box>
-                )}
-              </ScrollableContainer>
-            </TabPanel>
-          )}
-
-          {educationSubTabValue === 3 && (
-            <TabPanel>
-              <ScrollableContainer>
-                {vocational.length > 0 ? (
-                  <List>
-                    {vocational.map((voc) => (
-                      <React.Fragment key={voc.id}>
-                        <VocationalListItem>
-                          <MuiListItemIcon>
-                            <Box
-                              sx={{
-                                width: 40,
-                                height: 40,
-                                borderRadius: 1.5,
-                                backgroundColor: colors.primary,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                mr: 2,
-                              }}
-                            >
-                              <ConstructionIcon
-                                sx={{ color: colors.textLight, fontSize: 20 }}
-                              />
-                            </Box>
-                          </MuiListItemIcon>
-                          <MuiListItemText
-                            primary={
-                              <Typography
-                                variant="h6"
-                                sx={{
-                                  fontWeight: 600,
-                                  color: colors.textPrimary,
-                                  mb: 0.5,
-                                }}
-                              >
-                                {voc.vocationalNameOfSchool}
-                              </Typography>
-                            }
-                            secondary={
-                              voc.vocationalDegree ? (
-                                <Typography
-                                  component="span"
-                                  sx={{
-                                    display: 'block',
-                                    color: colors.textPrimary,
-                                  }}
-                                >
-                                  {voc.vocationalDegree} (
-                                  {voc.vocationalPeriodFrom || 'N/A'} -{' '}
-                                  {voc.vocationalPeriodTo || 'N/A'})
-                                </Typography>
-                              ) : (
-                                'No degree information'
-                              )
-                            }
-                          />
-                        </VocationalListItem>
-                      </React.Fragment>
-                    ))}
-                  </List>
-                ) : (
-                  <Box textAlign="center" py={4}>
-                    <Typography variant="h6" color={colors.textSecondary}>
-                      No vocational records found
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      color={colors.textSecondary}
-                      mt={1}
-                    >
-                      Click "Edit Profile" to add vocational records
-                    </Typography>
-                  </Box>
-                )}
-              </ScrollableContainer>
-            </TabPanel>
-          )}
-        </Box>
-      );
-    }
-
-    if (tabIndex === 5) {
-      if (!children || children.length === 0) {
-        return (
-          <Box py={2} textAlign="center">
-            <Typography variant="body2" color={colors.textSecondary}>
-              No children records found
-            </Typography>
-          </Box>
-        );
-      }
-
-      const formatChildName = (child) =>
-        [
-          child.childrenFirstName,
-          child.childrenMiddleName,
-          child.childrenLastName,
-          child.childrenNameExtension,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .trim();
-
-      return (
-        <Box>
-          {children.map((child, index) => (
-            <ChildListItem key={child.id || index}>
-              <MuiListItemText
-                primary={
-                  <Typography
-                    variant="subtitle1"
-                    sx={{
-                      fontWeight: 600,
-                      color: colors.textPrimary,
-                      mb: 0.5,
-                    }}
-                  >
-                    {formatChildName(child) || `Child ${index + 1}`}
-                  </Typography>
-                }
-                secondary={
-                  <Box>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 140 }}>Full Name</InfoLabel>
-                      <InfoValue>{formatChildName(child) || '—'}</InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 140 }}>
-                        Date of Birth
-                      </InfoLabel>
-                      <InfoValue>
-                        {child.dateOfBirth
-                          ? `${formatDate(child.dateOfBirth)} (Age: ${getAge(
-                              child.dateOfBirth
-                            )})`
-                          : '—'}
-                      </InfoValue>
-                    </InfoItem>
-                  </Box>
-                }
-              />
-            </ChildListItem>
-          ))}
-        </Box>
-      );
-    }
-
-    if (tabIndex === 7) {
-      if (!eligibilities || eligibilities.length === 0) {
-        return (
-          <Box py={2} textAlign="center">
-            <Typography variant="body2" color={colors.textSecondary}>
-              No eligibility records found
-            </Typography>
-          </Box>
-        );
-      }
-
-      return (
-        <Box>
-          {eligibilities.map((eligibility, index) => (
-            <EligibilityListItem key={eligibility.id || index}>
-              <MuiListItemText
-                primary={
-                  <Typography
-                    variant="subtitle1"
-                    sx={{
-                      fontWeight: 600,
-                      color: colors.textPrimary,
-                      mb: 0.5,
-                    }}
-                  >
-                    {eligibility.eligibilityName || `Eligibility ${index + 1}`}
-                  </Typography>
-                }
-                secondary={
-                  <Box sx={{ ml: { xs: 0, md: 0 } }}>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 120 }}>Rating</InfoLabel>
-                      <InfoValue>
-                        {eligibility.eligibilityRating
-                          ? formatRating(eligibility.eligibilityRating)
-                          : '—'}
-                      </InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 120 }}>Date of Exam</InfoLabel>
-                      <InfoValue>
-                        {eligibility.eligibilityDateOfExam
-                          ? formatDate(eligibility.eligibilityDateOfExam)
-                          : '—'}
-                      </InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 120 }}>
-                        Place of Exam
-                      </InfoLabel>
-                      <InfoValue>
-                        {eligibility.eligibilityPlaceOfExam || '—'}
-                      </InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 120 }}>
-                        License Number
-                      </InfoLabel>
-                      <InfoValue>{eligibility.licenseNumber || '—'}</InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 120 }}>Valid Until</InfoLabel>
-                      <InfoValue>
-                        {eligibility.DateOfValidity
-                          ? formatDate(eligibility.DateOfValidity)
-                          : '—'}
-                      </InfoValue>
-                    </InfoItem>
-                  </Box>
-                }
-              />
-            </EligibilityListItem>
-          ))}
-        </Box>
-      );
-    }
-
-    if (tabIndex === 8) {
-      if (!learningDevelopment || learningDevelopment.length === 0) {
-        return (
-          <Box py={2} textAlign="center">
-            <Typography variant="body2" color={colors.textSecondary}>
-              No learning and development records found
-            </Typography>
-          </Box>
-        );
-      }
-
-      return (
-        <Box>
-          {learningDevelopment.map((learning, index) => (
-            <LearningDevelopmentListItem key={learning.id || index}>
-              <MuiListItemText
-                primary={
-                  <Typography
-                    variant="subtitle1"
-                    sx={{
-                      fontWeight: 600,
-                      color: colors.textPrimary,
-                      mb: 0.5,
-                    }}
-                  >
-                    {learning.titleOfProgram || `Program ${index + 1}`}
-                  </Typography>
-                }
-                secondary={
-                  <Box>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 160 }}>Type</InfoLabel>
-                      <InfoValue>
-                        {learning.typeOfLearningDevelopment || '—'}
-                      </InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 160 }}>
-                        Number of Hours
-                      </InfoLabel>
-                      <InfoValue>{learning.numberOfHours || '—'}</InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 160 }}>Period</InfoLabel>
-                      <InfoValue>
-                        {learning.dateFrom && learning.dateTo
-                          ? `${formatDate(learning.dateFrom)} - ${formatDate(
-                              learning.dateTo
-                            )}`
-                          : '—'}
-                      </InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 160 }}>
-                        Conducted / Sponsored by
-                      </InfoLabel>
-                      <InfoValue>
-                        {learning.conductedSponsored || '—'}
-                      </InfoValue>
-                    </InfoItem>
-                  </Box>
-                }
-              />
-            </LearningDevelopmentListItem>
-          ))}
-        </Box>
-      );
-    }
-
-    if (tabIndex === 9) {
-      if (!otherInformation || otherInformation.length === 0) {
-        return (
-          <Box py={2} textAlign="center">
-            <Typography variant="body2" color={colors.textSecondary}>
-              No other information records found
-            </Typography>
-          </Box>
-        );
-      }
-
-      return (
-        <Box>
-          {otherInformation.map((info, index) => (
-            <OtherInformationListItem key={info.id || index}>
-              <MuiListItemText
-                primary={
-                  <Typography
-                    variant="subtitle1"
-                    sx={{
-                      fontWeight: 600,
-                      color: colors.textPrimary,
-                      mb: 0.5,
-                    }}
-                  >
-                    {`Entry ${index + 1}`}
-                  </Typography>
-                }
-                secondary={
-                  <Box>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 180 }}>
-                        Special Skills
-                      </InfoLabel>
-                      <InfoValue>{info.specialSkills || '—'}</InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 180 }}>
-                        Non-Academic Distinctions
-                      </InfoLabel>
-                      <InfoValue>
-                        {info.nonAcademicDistinctions || '—'}
-                      </InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 180 }}>
-                        Membership in Association
-                      </InfoLabel>
-                      <InfoValue>
-                        {info.membershipInAssociation || '—'}
-                      </InfoValue>
-                    </InfoItem>
-                  </Box>
-                }
-              />
-            </OtherInformationListItem>
-          ))}
-        </Box>
-      );
-    }
-
-    if (tabIndex === 6) {
-      if (!workExperiences || workExperiences.length === 0) {
-        return (
-          <Box py={2} textAlign="center">
-            <Typography variant="body2" color={colors.textSecondary}>
-              No work experience records found
-            </Typography>
-          </Box>
-        );
-      }
-
-      return (
-        <Box>
-          {workExperiences.map((workExp, index) => (
-            <WorkExperienceListItem key={workExp.id || index}>
-              <MuiListItemText
-                primary={
-                  <Typography
-                    variant="subtitle1"
-                    sx={{
-                      fontWeight: 600,
-                      color: colors.textPrimary,
-                      mb: 0.5,
-                    }}
-                  >
-                    {workExp.workPositionTitle ||
-                      `Work Experience ${index + 1}`}
-                  </Typography>
-                }
-                secondary={
-                  <Box>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 160 }}>Company</InfoLabel>
-                      <InfoValue>{workExp.workCompany || '—'}</InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 160 }}>Duration</InfoLabel>
-                      <InfoValue>
-                        {workExp.workDateFrom && workExp.workDateTo
-                          ? `${formatDate(workExp.workDateFrom)} - ${formatDate(
-                              workExp.workDateTo
-                            )}`
-                          : '—'}
-                      </InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 160 }}>
-                        Monthly Salary
-                      </InfoLabel>
-                      <InfoValue>
-                        {workExp.workMonthlySalary
-                          ? `₱${parseFloat(
-                              workExp.workMonthlySalary
-                            ).toLocaleString()}`
-                          : '—'}
-                      </InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 160 }}>
-                        Salary Job / Pay Grade
-                      </InfoLabel>
-                      <InfoValue>
-                        {workExp.SalaryJobOrPayGrade || '—'}
-                      </InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 160 }}>
-                        Status of Appointment
-                      </InfoLabel>
-                      <InfoValue>
-                        {workExp.StatusOfAppointment || '—'}
-                      </InfoValue>
-                    </InfoItem>
-                    <InfoItem sx={{ mb: 0, p: 0 }}>
-                      <InfoLabel sx={{ minWidth: 160 }}>Service Type</InfoLabel>
-                      <InfoValue>
-                        {workExp.isGovtService
-                          ? workExp.isGovtService === 'Yes'
-                            ? 'Government'
-                            : 'Private'
-                          : '—'}
-                      </InfoValue>
-                    </InfoItem>
-                  </Box>
-                }
-              />
-            </WorkExperienceListItem>
-          ))}
-        </Box>
-      );
-    }
-
-    const fields = formFields[tabIndex] || [];
-
     return (
-      <EligibilityCard>
-        <List disablePadding>
-          <EligibilityListItem
-            sx={{
-              border: 'none',
-              boxShadow: 'none',
-              backgroundColor: colors.secondary,
-            }}
-          >
-            <MuiListItemText
-              primary={
-                <Typography
-                  variant="subtitle1"
-                  sx={{
-                    fontWeight: 600,
-                    color: colors.textPrimary,
-                    mb: 1,
-                  }}
-                >
-                  {tabs[currentSectionIndex]?.label || 'Details'}
-                </Typography>
-              }
-              secondary={
-                <Box>
-                  {fields.map((field, idx) => (
-                    <InfoItem key={idx} sx={{ mb: 0.5, p: 0 }}>
-                      <InfoLabel variant="body2" sx={{ minWidth: 160 }}>
-                        {field.icon}
-                        {field.label}:
-                      </InfoLabel>
-                      <InfoValue variant="body1">
-                        {person?.[field.name] || '—'}
-                      </InfoValue>
-                    </InfoItem>
-                  ))}
-                </Box>
-              }
-            />
-          </EligibilityListItem>
-        </List>
-      </EligibilityCard>
+      <Box key={field.name}><FL>{field.label}</FL>
+        <TextField
+          fullWidth size="small"
+          sx={{ ...FX, mb: 2 }}
+          name={field.name}
+          value={formData[field.name] || ''}
+          onChange={onFD}
+          disabled={field.disabled}
+          type={field.type || 'text'}
+          InputLabelProps={field.type === 'date' ? { shrink: true } : {}}
+        />
+      </Box>
     );
   };
 
-  const renderFormFields = () => {
-    if (currentSectionIndex === 4) {
-      return (
-        <Box>
-          <Typography variant="h6" gutterBottom>
-            Education Information
-          </Typography>
+  /* ─────────────────────────────────────────────────────────────────────────
+     VIEW CONTENT
+  ───────────────────────────────────────────────────────────────────────── */
+  const renderView = (idx) => {
+    const anim = { animation: 'sectionIn 0.28s ease' };
 
-          <EducationSubTabs
-            value={educationSubTabValue}
-            onChange={(e, newValue) => setEducationSubTabValue(newValue)}
-            variant="fullWidth"
-          >
-            <EducationSubTab
-              label="Elementary & Secondary"
-              icon={<SchoolIcon />}
-            />
-            <EducationSubTab label="College" icon={<SchoolRoundedIcon />} />
-            <EducationSubTab
-              label="Graduate Studies"
-              icon={<PsychologyIcon />}
-            />
-            <EducationSubTab label="Vocational" icon={<ConstructionIcon />} />
-          </EducationSubTabs>
+    switch (idx) {
+      case 0: return <Box sx={anim}><InfoGrid>
+        <InfoGroup label="First Name"     value={person?.firstName} />
+        <InfoGroup label="Middle Name"    value={person?.middleName} />
+        <InfoGroup label="Last Name"      value={person?.lastName} />
+        <InfoGroup label="Name Extension" value={person?.nameExtension} />
+        <InfoGroup label="Date of Birth"  value={person?.birthDate ? fmt(person.birthDate) : null} />
+        <InfoGroup label="Place of Birth" value={person?.placeOfBirth} />
+        <InfoGroup label="Sex"            value={person?.sex} />
+        <InfoGroup label="Civil Status"   value={person?.civilStatus} />
+        <InfoGroup label="Height (m)"     value={person?.heightCm} />
+        <InfoGroup label="Weight (kg)"    value={person?.weightKg} />
+        <InfoGroup label="Blood Type"     value={person?.bloodType} />
+        <InfoGroup label="Citizenship"    value={person?.citizenship} />
+      </InfoGrid></Box>;
 
-          {educationSubTabValue === 0 && (
-            <Box>
-              <Typography variant="h6" gutterBottom>
-                Elementary & Secondary Education
-              </Typography>
-              <Typography variant="body2" color="textSecondary" gutterBottom>
-                This section displays your elementary and secondary education
-                information.
-              </Typography>
+      case 1: return <Box sx={anim}><InfoGrid>
+        <InfoGroup label="GSIS No."            value={person?.gsisNum} />
+        <InfoGroup label="Pag-IBIG No."        value={person?.pagibigNum} />
+        <InfoGroup label="PhilHealth No."      value={person?.philhealthNum} />
+        <InfoGroup label="SSS No."             value={person?.sssNum} />
+        <InfoGroup label="TIN No."             value={person?.tinNum} />
+        <InfoGroup label="Agency Employee No." value={person?.agencyEmployeeNum} />
+      </InfoGrid></Box>;
 
-              <Grid container spacing={3}>
-                <Grid item xs={12} sm={6}>
-                  <FormField
-                    fullWidth
-                    label="Elementary School"
-                    name="elementaryNameOfSchool"
-                    value={formData.elementaryNameOfSchool || ''}
-                    onChange={handleFormChange}
-                    variant="outlined"
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <FormField
-                    fullWidth
-                    label="Elementary Degree"
-                    name="elementaryDegree"
-                    value={formData.elementaryDegree || ''}
-                    onChange={handleFormChange}
-                    variant="outlined"
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <FormField
-                    fullWidth
-                    label="Secondary School"
-                    name="secondaryNameOfSchool"
-                    value={formData.secondaryNameOfSchool || ''}
-                    onChange={handleFormChange}
-                    variant="outlined"
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <FormField
-                    fullWidth
-                    label="Secondary Degree"
-                    name="secondaryDegree"
-                    value={formData.secondaryDegree || ''}
-                    onChange={handleFormChange}
-                    variant="outlined"
-                  />
-                </Grid>
-              </Grid>
+      case 2: return <Box sx={anim}>
+        <Div label="Contact Information" />
+        <InfoGrid sx={{ mb: 3.5 }}>
+          <InfoGroup label="Mobile Number" value={person?.mobileNum} />
+          <InfoGroup label="Telephone"     value={person?.telephone} />
+          <InfoGroup label="Email Address" value={person?.emailAddress} />
+        </InfoGrid>
+        <Div label="Permanent Address" />
+        <InfoGrid sx={{ mb: 3.5 }}>
+          <InfoGroup label="House/Block/Lot"     value={person?.permanent_houseBlockLotNum} />
+          <InfoGroup label="Street"              value={person?.permanent_streetName} />
+          <InfoGroup label="Subdivision/Village" value={person?.permanent_subdivisionOrVillage} />
+          <InfoGroup label="Barangay"            value={person?.permanent_barangay} />
+          <InfoGroup label="City/Municipality"   value={person?.permanent_cityOrMunicipality} />
+          <InfoGroup label="Province"            value={person?.permanent_provinceName} />
+          <InfoGroup label="Zip Code"            value={person?.permanent_zipcode} />
+        </InfoGrid>
+        <Div label="Residential Address" />
+        <InfoGrid>
+          <InfoGroup label="House/Block/Lot"     value={person?.residential_houseBlockLotNum} />
+          <InfoGroup label="Street"              value={person?.residential_streetName} />
+          <InfoGroup label="Subdivision/Village" value={person?.residential_subdivisionOrVillage} />
+          <InfoGroup label="Barangay"            value={person?.residential_barangayName} />
+          <InfoGroup label="City/Municipality"   value={person?.residential_cityOrMunicipality} />
+          <InfoGroup label="Province"            value={person?.residential_provinceName} />
+          <InfoGroup label="Zip Code"            value={person?.residential_zipcode} />
+        </InfoGrid>
+      </Box>;
+
+      case 3: return <Box sx={anim}>
+        <Div label="Spouse" />
+        <InfoGrid sx={{ mb: 3.5 }}>
+          <InfoGroup label="Full Name"          value={[person?.spouseFirstName, person?.spouseMiddleName, person?.spouseLastName, person?.spouseNameExtension].filter(Boolean).join(' ')} />
+          <InfoGroup label="Occupation"         value={person?.spouseOccupation} />
+          <InfoGroup label="Employer/Business"  value={person?.spouseEmployerBusinessName} />
+          <InfoGroup label="Business Address"   value={person?.spouseBusinessAddress} />
+          <InfoGroup label="Telephone"          value={person?.spouseTelephone} />
+        </InfoGrid>
+        <Div label="Father" />
+        <InfoGrid sx={{ mb: 3.5 }}>
+          <InfoGroup label="Full Name" value={[person?.fatherFirstName, person?.fatherMiddleName, person?.fatherLastName, person?.fatherNameExtension].filter(Boolean).join(' ')} />
+        </InfoGrid>
+        <Div label="Mother (Maiden Name)" />
+        <InfoGrid>
+          <InfoGroup label="Full Name" value={[person?.motherMaidenFirstName, person?.motherMaidenMiddleName, person?.motherMaidenLastName].filter(Boolean).join(' ')} />
+        </InfoGrid>
+      </Box>;
+
+      case 4: return <Box sx={anim}>
+        <EduSubTabs value={eduTab} onChange={setEduTab} />
+        {eduTab === 0 && <>
+          <Div label="Elementary" />
+          <InfoGrid sx={{ mb: 3.5 }}>
+            <InfoGroup label="School Name"      value={person?.elementaryNameOfSchool} />
+            <InfoGroup label="Degree/Course"    value={person?.elementaryDegree} />
+            <InfoGroup label="Period From"      value={person?.elementaryPeriodFrom} />
+            <InfoGroup label="Period To"        value={person?.elementaryPeriodTo} />
+            <InfoGroup label="Highest Attained" value={person?.elementaryHighestAttained} />
+            <InfoGroup label="Year Graduated"   value={person?.elementaryYearGraduated} />
+          </InfoGrid>
+          <Div label="Secondary" />
+          <InfoGrid>
+            <InfoGroup label="School Name"      value={person?.secondaryNameOfSchool} />
+            <InfoGroup label="Degree/Course"    value={person?.secondaryDegree} />
+            <InfoGroup label="Period From"      value={person?.secondaryPeriodFrom} />
+            <InfoGroup label="Period To"        value={person?.secondaryPeriodTo} />
+            <InfoGroup label="Highest Attained" value={person?.secondaryHighestAttained} />
+            <InfoGroup label="Year Graduated"   value={person?.secondaryYearGraduated} />
+          </InfoGrid>
+        </>}
+        {eduTab === 1 && (colleges.length > 0
+          ? <TLWrap>{colleges.map((c, i) => <TLItem key={c.id || i} date={`${c.collegePeriodFrom || 'N/A'} – ${c.collegePeriodTo || 'Present'}`} title={c.collegeDegree} sub={c.collegeNameOfSchool} last={i === colleges.length - 1} />)}</TLWrap>
+          : <Box sx={{ py: 5, textAlign: 'center' }}><Typography sx={{ color: MUTED }}>No college records</Typography></Box>)}
+        {eduTab === 2 && (graduates.length > 0
+          ? <TLWrap>{graduates.map((g, i) => <TLItem key={g.id || i} date={`${g.graduatePeriodFrom || 'N/A'} – ${g.graduatePeriodTo || 'Present'}`} title={g.graduateDegree} sub={g.graduateNameOfSchool} last={i === graduates.length - 1} />)}</TLWrap>
+          : <Box sx={{ py: 5, textAlign: 'center' }}><Typography sx={{ color: MUTED }}>No graduate studies records</Typography></Box>)}
+        {eduTab === 3 && (vocational.length > 0
+          ? <TLWrap>{vocational.map((v, i) => <TLItem key={v.id || i} date={`${v.vocationalPeriodFrom || 'N/A'} – ${v.vocationalPeriodTo || 'Present'}`} title={v.vocationalDegree} sub={v.vocationalNameOfSchool} last={i === vocational.length - 1} />)}</TLWrap>
+          : <Box sx={{ py: 5, textAlign: 'center' }}><Typography sx={{ color: MUTED }}>No vocational records</Typography></Box>)}
+      </Box>;
+
+      case 5: return <Box sx={anim}>
+        {children.length > 0 ? children.map((c, i) => (
+          <ListCard key={c.id || i}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+              <ChildCareIcon sx={{ fontSize: 14, color: P }} />
+              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', color: P, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Child {i + 1}</Typography>
             </Box>
-          )}
+            <InfoGrid>
+              <InfoGroup label="Full Name"     value={[c.childrenFirstName, c.childrenMiddleName, c.childrenLastName, c.childrenNameExtension].filter(Boolean).join(' ')} />
+              <InfoGroup label="Date of Birth" value={c.dateOfBirth ? `${fmt(c.dateOfBirth)} (Age ${getAge(c.dateOfBirth)})` : null} />
+            </InfoGrid>
+          </ListCard>
+        )) : <Box sx={{ py: 5, textAlign: 'center' }}><Typography sx={{ color: MUTED }}>No children records</Typography></Box>}
+      </Box>;
 
-          {educationSubTabValue === 1 && (
-            <Box>
-              <Typography variant="h6" gutterBottom>
-                College Information
-              </Typography>
+      case 6: return <Box sx={anim}>
+        {workExperiences.length > 0 ? (
+          <TLWrap>{workExperiences.map((w, i) => <TLItem key={w.id || i}
+            date={`${w.workDateFrom ? fmt(w.workDateFrom) : 'N/A'} – ${w.workDateTo ? fmt(w.workDateTo) : 'Present'}`}
+            title={w.workPositionTitle}
+            sub={w.workCompany}
+            last={i === workExperiences.length - 1}
+            tags={[w.workMonthlySalary && `₱${parseFloat(w.workMonthlySalary).toLocaleString()}/mo`, w.StatusOfAppointment, w.isGovtService && (w.isGovtService === 'Yes' ? 'Government' : 'Private')].filter(Boolean)}
+          />)}</TLWrap>
+        ) : <Box sx={{ py: 5, textAlign: 'center' }}><Typography sx={{ color: MUTED }}>No work experience records</Typography></Box>}
+      </Box>;
 
-              {collegesFormData.length > 0 ? (
-                <Box>
-                  {collegesFormData.map((college, index) => (
-                    <Box
-                      key={index}
-                      mb={3}
-                      p={2}
-                      sx={{
-                        backgroundColor: alpha(colors.secondary, 0.3),
-                        borderRadius: 2,
-                      }}
-                    >
-                      <Box
-                        display="flex"
-                        justifyContent="space-between"
-                        alignItems="center"
-                        mb={2}
-                      >
-                        <Typography variant="h6">
-                          College {index + 1}
-                        </Typography>
-                        <IconButton
-                          onClick={() => handleRemoveCollege(index)}
-                          color="error"
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </Box>
-                      <Grid container spacing={2}>
-                        <Grid item xs={12}>
-                          <FormField
-                            fullWidth
-                            label="College Name"
-                            name="collegeNameOfSchool"
-                            value={college.collegeNameOfSchool || ''}
-                            onChange={(e) => handleCollegeFormChange(index, e)}
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12}>
-                          <FormField
-                            fullWidth
-                            label="Degree"
-                            name="collegeDegree"
-                            value={college.collegeDegree || ''}
-                            onChange={(e) => handleCollegeFormChange(index, e)}
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <FormField
-                            fullWidth
-                            label="Period From"
-                            name="collegePeriodFrom"
-                            value={college.collegePeriodFrom || ''}
-                            onChange={(e) => handleCollegeFormChange(index, e)}
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <FormField
-                            fullWidth
-                            label="Period To"
-                            name="collegePeriodTo"
-                            value={college.collegePeriodTo || ''}
-                            onChange={(e) => handleCollegeFormChange(index, e)}
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <FormField
-                            fullWidth
-                            label="Highest Attained"
-                            name="collegeHighestAttained"
-                            value={college.collegeHighestAttained || ''}
-                            onChange={(e) => handleCollegeFormChange(index, e)}
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <FormField
-                            fullWidth
-                            label="Year Graduated"
-                            name="collegeYearGraduated"
-                            value={college.collegeYearGraduated || ''}
-                            onChange={(e) => handleCollegeFormChange(index, e)}
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12}>
-                          <FormField
-                            fullWidth
-                            label="Honors Received"
-                            name="collegeScholarshipAcademicHonorsReceived"
-                            value={
-                              college.collegeScholarshipAcademicHonorsReceived ||
-                              ''
-                            }
-                            onChange={(e) => handleCollegeFormChange(index, e)}
-                            variant="outlined"
-                          />
-                        </Grid>
-                      </Grid>
-                    </Box>
-                  ))}
-                </Box>
-              ) : (
-                <Box textAlign="center" py={4}>
-                  <Typography variant="h6" color={colors.textSecondary}>
-                    No college records found
-                  </Typography>
-                </Box>
-              )}
-
-              <Box mt={2} display="flex" justifyContent="center">
-                <ActionButton
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={handleAddCollege}
-                >
-                  Add College
-                </ActionButton>
-              </Box>
+      case 7: return <Box sx={anim}>
+        {eligibilities.length > 0 ? eligibilities.map((e, i) => (
+          <ListCard key={e.id || i}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+              <VerifiedUserIcon sx={{ fontSize: 14, color: P }} />
+              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', color: P, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Eligibility {i + 1}</Typography>
             </Box>
-          )}
+            <Typography sx={{ fontSize: '0.95rem', fontWeight: 800, color: TXT, mb: 1.5, lineHeight: 1.4 }}>{e.eligibilityName || '—'}</Typography>
+            <InfoGrid>
+              <InfoGroup label="Rating"        value={fmtR(e.eligibilityRating)} />
+              <InfoGroup label="Date of Exam"  value={e.eligibilityDateOfExam ? fmt(e.eligibilityDateOfExam) : null} />
+              <InfoGroup label="Place of Exam" value={e.eligibilityPlaceOfExam} />
+              <InfoGroup label="License No."   value={e.licenseNumber} />
+              <InfoGroup label="Valid Until"   value={e.DateOfValidity ? fmt(e.DateOfValidity) : null} />
+            </InfoGrid>
+          </ListCard>
+        )) : <Box sx={{ py: 5, textAlign: 'center' }}><Typography sx={{ color: MUTED }}>No eligibility records</Typography></Box>}
+      </Box>;
 
-          {educationSubTabValue === 2 && (
-            <Box>
-              <Typography variant="h6" gutterBottom>
-                Graduate Studies Information
-              </Typography>
+      case 8: return <Box sx={anim}>
+        {vwFD.length > 0
+          ? <TLWrap>{vwFD.map((vw, i) => <TLItem key={vw.id || i} date={`${vw.dateFrom ? fmt(vw.dateFrom) : 'N/A'} – ${vw.dateTo ? fmt(vw.dateTo) : 'Present'}`} title={vw.natureOfWork} sub={vw.nameAndAddress} tags={vw.numberOfHours ? [`${vw.numberOfHours} hrs`] : []} last={i === vwFD.length - 1} />)}</TLWrap>
+          : <Box sx={{ py: 5, textAlign: 'center' }}><Typography sx={{ color: MUTED }}>No voluntary work records</Typography></Box>}
+      </Box>;
 
-              {graduatesFormData.length > 0 ? (
-                <Box>
-                  {graduatesFormData.map((graduate, index) => (
-                    <Box
-                      key={index}
-                      mb={3}
-                      p={2}
-                      sx={{
-                        backgroundColor: alpha(colors.secondary, 0.3),
-                        borderRadius: 2,
-                      }}
-                    >
-                      <Box
-                        display="flex"
-                        justifyContent="space-between"
-                        alignItems="center"
-                        mb={2}
-                      >
-                        <Typography variant="h6">
-                          Graduate Studies {index + 1}
-                        </Typography>
-                        <IconButton
-                          onClick={() => handleRemoveGraduate(index)}
-                          color="error"
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </Box>
-                      <Grid container spacing={2}>
-                        <Grid item xs={12}>
-                          <FormField
-                            fullWidth
-                            label="School Name"
-                            name="graduateNameOfSchool"
-                            value={graduate.graduateNameOfSchool || ''}
-                            onChange={(e) => handleGraduateFormChange(index, e)}
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12}>
-                          <FormField
-                            fullWidth
-                            label="Degree"
-                            name="graduateDegree"
-                            value={graduate.graduateDegree || ''}
-                            onChange={(e) => handleGraduateFormChange(index, e)}
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <FormField
-                            fullWidth
-                            label="Period From"
-                            name="graduatePeriodFrom"
-                            value={graduate.graduatePeriodFrom || ''}
-                            onChange={(e) => handleGraduateFormChange(index, e)}
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <FormField
-                            fullWidth
-                            label="Period To"
-                            name="graduatePeriodTo"
-                            value={graduate.graduatePeriodTo || ''}
-                            onChange={(e) => handleGraduateFormChange(index, e)}
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <FormField
-                            fullWidth
-                            label="Highest Level"
-                            name="graduateHighestLevel"
-                            value={graduate.graduateHighestLevel || ''}
-                            onChange={(e) => handleGraduateFormChange(index, e)}
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <FormField
-                            fullWidth
-                            label="Year Graduated"
-                            name="graduateYearGraduated"
-                            value={graduate.graduateYearGraduated || ''}
-                            onChange={(e) => handleGraduateFormChange(index, e)}
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12}>
-                          <FormField
-                            fullWidth
-                            label="Honors Received"
-                            name="graduateScholarshipAcademicHonorsReceived"
-                            value={
-                              graduate.graduateScholarshipAcademicHonorsReceived ||
-                              ''
-                            }
-                            onChange={(e) => handleGraduateFormChange(index, e)}
-                            variant="outlined"
-                          />
-                        </Grid>
-                      </Grid>
-                    </Box>
-                  ))}
-                </Box>
-              ) : (
-                <Box textAlign="center" py={4}>
-                  <Typography variant="h6" color={colors.textSecondary}>
-                    No graduate studies records found
-                  </Typography>
-                </Box>
-              )}
+      case 9: return <Box sx={anim}>
+        {learningDev.length > 0
+          ? <TLWrap>{learningDev.map((l, i) => <TLItem key={l.id || i} date={`${l.dateFrom ? fmt(l.dateFrom) : 'N/A'} – ${l.dateTo ? fmt(l.dateTo) : 'Present'}`} title={l.titleOfProgram} sub={l.conductedSponsored} tags={[l.typeOfLearningDevelopment, l.numberOfHours ? `${l.numberOfHours} hrs` : null].filter(Boolean)} last={i === learningDev.length - 1} />)}</TLWrap>
+          : <Box sx={{ py: 5, textAlign: 'center' }}><Typography sx={{ color: MUTED }}>No learning and development records</Typography></Box>}
+      </Box>;
 
-              <Box mt={2} display="flex" justifyContent="center">
-                <ActionButton
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={handleAddGraduate}
-                >
-                  Add Graduate Studies
-                </ActionButton>
-              </Box>
+      case 10: return <Box sx={anim}>
+        {otherInfo.length > 0 ? otherInfo.map((info, i) => (
+          <ListCard key={info.id || i}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+              <InfoIcon sx={{ fontSize: 14, color: P }} />
+              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', color: P, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Entry {i + 1}</Typography>
             </Box>
-          )}
+            <InfoGrid>
+              <InfoGroup label="Special Skills"            value={info.specialSkills} />
+              <InfoGroup label="Non-Academic Distinctions" value={info.nonAcademicDistinctions} />
+              <InfoGroup label="Membership in Association" value={info.membershipInAssociation} />
+            </InfoGrid>
+          </ListCard>
+        )) : <Box sx={{ py: 5, textAlign: 'center' }}><Typography sx={{ color: MUTED }}>No other information records</Typography></Box>}
+      </Box>;
 
-          {educationSubTabValue === 3 && (
-            <Box>
-              <Typography variant="h6" gutterBottom>
-                Vocational Information
-              </Typography>
-
-              {vocationalFormData.length > 0 ? (
-                <Box>
-                  {vocationalFormData.map((voc, index) => (
-                    <Box
-                      key={index}
-                      mb={3}
-                      p={2}
-                      sx={{
-                        backgroundColor: alpha(colors.secondary, 0.3),
-                        borderRadius: 2,
-                      }}
-                    >
-                      <Box
-                        display="flex"
-                        justifyContent="space-between"
-                        alignItems="center"
-                        mb={2}
-                      >
-                        <Typography variant="h6">
-                          Vocational {index + 1}
-                        </Typography>
-                        <IconButton
-                          onClick={() => handleRemoveVocational(index)}
-                          color="error"
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </Box>
-                      <Grid container spacing={2}>
-                        <Grid item xs={12}>
-                          <FormField
-                            fullWidth
-                            label="School Name"
-                            name="vocationalNameOfSchool"
-                            value={voc.vocationalNameOfSchool || ''}
-                            onChange={(e) =>
-                              handleVocationalFormChange(index, e)
-                            }
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12}>
-                          <FormField
-                            fullWidth
-                            label="Degree"
-                            name="vocationalDegree"
-                            value={voc.vocationalDegree || ''}
-                            onChange={(e) =>
-                              handleVocationalFormChange(index, e)
-                            }
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <FormField
-                            fullWidth
-                            label="Period From"
-                            name="vocationalPeriodFrom"
-                            value={voc.vocationalPeriodFrom || ''}
-                            onChange={(e) =>
-                              handleVocationalFormChange(index, e)
-                            }
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <FormField
-                            fullWidth
-                            label="Period To"
-                            name="vocationalPeriodTo"
-                            value={voc.vocationalPeriodTo || ''}
-                            onChange={(e) =>
-                              handleVocationalFormChange(index, e)
-                            }
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <FormField
-                            fullWidth
-                            label="Highest Attained"
-                            name="vocationalHighestAttained"
-                            value={voc.vocationalHighestAttained || ''}
-                            onChange={(e) =>
-                              handleVocationalFormChange(index, e)
-                            }
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <FormField
-                            fullWidth
-                            label="Year Graduated"
-                            name="vocationalYearGraduated"
-                            value={voc.vocationalYearGraduated || ''}
-                            onChange={(e) =>
-                              handleVocationalFormChange(index, e)
-                            }
-                            variant="outlined"
-                          />
-                        </Grid>
-                        <Grid item xs={12}>
-                          <FormField
-                            fullWidth
-                            label="Honors Received"
-                            name="vocationalScholarshipAcademicHonorsReceived"
-                            value={
-                              voc.vocationalScholarshipAcademicHonorsReceived ||
-                              ''
-                            }
-                            onChange={(e) =>
-                              handleVocationalFormChange(index, e)
-                            }
-                            variant="outlined"
-                          />
-                        </Grid>
-                      </Grid>
-                    </Box>
-                  ))}
-                </Box>
-              ) : (
-                <Box textAlign="center" py={4}>
-                  <Typography variant="h6" color={colors.textSecondary}>
-                    No vocational records found
-                  </Typography>
-                </Box>
-              )}
-
-              <Box mt={2} display="flex" justifyContent="center">
-                <ActionButton
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={handleAddVocational}
-                >
-                  Add Vocational
-                </ActionButton>
-              </Box>
-            </Box>
-          )}
-        </Box>
-      );
+      default: return null;
     }
+  };
 
-    if (currentSectionIndex === 5) {
-      return (
-        <Box>
-          <Typography variant="h6" gutterBottom>
-            Children Information
-          </Typography>
+  /* ─────────────────────────────────────────────────────────────────────────
+     EDIT FORM CONTENT
+  ───────────────────────────────────────────────────────────────────────── */
+  const renderEdit = () => {
+    if (activeSection === 0) return <Grid container spacing={2.5}>
+      {[{ label:'First Name', name:'firstName' }, { label:'Middle Name', name:'middleName' }, { label:'Last Name', name:'lastName' }, { label:'Name Extension', name:'nameExtension' }, { label:'Date of Birth', name:'birthDate', type:'date' }, { label:'Place of Birth', name:'placeOfBirth' }, { label:'Sex', name:'sex', type:'select', options:['Male','Female'] }, { label:'Civil Status', name:'civilStatus', type:'select', options:['Single','Married','Widowed','Separated','Divorced','Annulled'] }, { label:'Height (m)', name:'heightCm' }, { label:'Weight (kg)', name:'weightKg' }, { label:'Blood Type', name:'bloodType', type:'select', options:['A+','A-','B+','B-','AB+','AB-','O+','O-'] }, { label:'Citizenship', name:'citizenship' }]
+        .map(f => <Grid item xs={12} sm={6} key={f.name}>{FF(f)}</Grid>)}
+    </Grid>;
 
-          {childrenFormData.length > 0 ? (
-            <Box>
-              {childrenFormData.map((child, index) => (
-                <Box
-                  key={index}
-                  mb={3}
-                  p={2}
-                  sx={{
-                    backgroundColor: alpha(colors.secondary, 0.3),
-                    borderRadius: 2,
-                  }}
-                >
-                  <Box
-                    display="flex"
-                    justifyContent="space-between"
-                    alignItems="center"
-                    mb={2}
-                  >
-                    <Typography variant="h6">Child {index + 1}</Typography>
-                    <IconButton
-                      onClick={() => handleRemoveChild(index)}
-                      color="error"
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </Box>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="First Name"
-                        name="childrenFirstName"
-                        value={child.childrenFirstName || ''}
-                        onChange={(e) => handleChildrenFormChange(index, e)}
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Middle Name"
-                        name="childrenMiddleName"
-                        value={child.childrenMiddleName || ''}
-                        onChange={(e) => handleChildrenFormChange(index, e)}
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Last Name"
-                        name="childrenLastName"
-                        value={child.childrenLastName || ''}
-                        onChange={(e) => handleChildrenFormChange(index, e)}
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Name Extension"
-                        name="childrenNameExtension"
-                        value={child.childrenNameExtension || ''}
-                        onChange={(e) => handleChildrenFormChange(index, e)}
-                        variant="outlined"
-                        placeholder="e.g., Jr., Sr., III"
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <FormField
-                        fullWidth
-                        label="Date of Birth"
-                        name="dateOfBirth"
-                        type="date"
-                        value={child.dateOfBirth || ''}
-                        onChange={(e) => handleChildrenFormChange(index, e)}
-                        variant="outlined"
-                        InputLabelProps={{ shrink: true }}
-                      />
-                    </Grid>
-                  </Grid>
-                </Box>
-              ))}
-            </Box>
-          ) : (
-            <Box textAlign="center" py={4}>
-              <Typography variant="h6" color={colors.textSecondary}>
-                No children records found
-              </Typography>
-            </Box>
-          )}
-
-          <Box mt={2} display="flex" justifyContent="center">
-            <ActionButton
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={handleAddChild}
-            >
-              Add Child
-            </ActionButton>
-          </Box>
-        </Box>
-      );
-    }
-
-    if (currentSectionIndex === 7) {
-      return (
-        <Box>
-          <Typography variant="h6" gutterBottom>
-            Eligibility Information
-          </Typography>
-
-          {eligibilitiesFormData.length > 0 ? (
-            <Box>
-              {eligibilitiesFormData.map((eligibility, index) => (
-                <Box
-                  key={index}
-                  mb={3}
-                  p={2}
-                  sx={{
-                    backgroundColor: alpha(colors.secondary, 0.3),
-                    borderRadius: 2,
-                  }}
-                >
-                  <Box
-                    display="flex"
-                    justifyContent="space-between"
-                    alignItems="center"
-                    mb={2}
-                  >
-                    <Typography variant="h6">
-                      Eligibility {index + 1}
-                    </Typography>
-                    <IconButton
-                      onClick={() => handleRemoveEligibility(index)}
-                      color="error"
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </Box>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12}>
-                      <FormField
-                        fullWidth
-                        label="Eligibility Name"
-                        name="eligibilityName"
-                        value={eligibility.eligibilityName || ''}
-                        onChange={(e) => handleEligibilityFormChange(index, e)}
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <Box sx={{ mb: 1 }}>
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            fontWeight: 'bold',
-                            mb: 0.5,
-                            color: '#333',
-                            display: 'block',
-                          }}
-                        >
-                          Rating
-                        </Typography>
-                        <PercentageInput
-                          value={eligibility.eligibilityRating || ''}
-                          onChange={(value) =>
-                            handleEligibilityFormChange(index, {
-                              target: { name: 'eligibilityRating', value },
-                            })
-                          }
-                        />
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Date of Exam"
-                        name="eligibilityDateOfExam"
-                        type="date"
-                        value={eligibility.eligibilityDateOfExam || ''}
-                        onChange={(e) => handleEligibilityFormChange(index, e)}
-                        variant="outlined"
-                        InputLabelProps={{ shrink: true }}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Place of Exam"
-                        name="eligibilityPlaceOfExam"
-                        value={eligibility.eligibilityPlaceOfExam || ''}
-                        onChange={(e) => handleEligibilityFormChange(index, e)}
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="License Number"
-                        name="licenseNumber"
-                        value={eligibility.licenseNumber || ''}
-                        onChange={(e) => handleEligibilityFormChange(index, e)}
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Date of Validity"
-                        name="DateOfValidity"
-                        type="date"
-                        value={eligibility.DateOfValidity || ''}
-                        onChange={(e) => handleEligibilityFormChange(index, e)}
-                        variant="outlined"
-                        InputLabelProps={{ shrink: true }}
-                      />
-                    </Grid>
-                  </Grid>
-                </Box>
-              ))}
-            </Box>
-          ) : (
-            <Box textAlign="center" py={4}>
-              <Typography variant="h6" color={colors.textSecondary}>
-                No eligibility records found
-              </Typography>
-            </Box>
-          )}
-
-          <Box mt={2} display="flex" justifyContent="center">
-            <ActionButton
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={handleAddEligibility}
-            >
-              Add Eligibility
-            </ActionButton>
-          </Box>
-        </Box>
-      );
-    }
-
-    if (currentSectionIndex === 8) {
-      return (
-        <Box>
-          <Typography variant="h6" gutterBottom>
-            Learning and Development Information
-          </Typography>
-
-          {learningDevelopmentFormData.length > 0 ? (
-            <Box>
-              {learningDevelopmentFormData.map((learning, index) => (
-                <Box
-                  key={index}
-                  mb={3}
-                  p={2}
-                  sx={{
-                    backgroundColor: alpha(colors.secondary, 0.3),
-                    borderRadius: 2,
-                  }}
-                >
-                  <Box
-                    display="flex"
-                    justifyContent="space-between"
-                    alignItems="center"
-                    mb={2}
-                  >
-                    <Typography variant="h6">
-                      Learning Program {index + 1}
-                    </Typography>
-                    <IconButton
-                      onClick={() => handleRemoveLearningDevelopment(index)}
-                      color="error"
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </Box>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12}>
-                      <FormField
-                        fullWidth
-                        label="Title of Program"
-                        name="titleOfProgram"
-                        value={learning.titleOfProgram || ''}
-                        onChange={(e) =>
-                          handleLearningDevelopmentFormChange(index, e)
-                        }
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Date From"
-                        name="dateFrom"
-                        type="date"
-                        value={learning.dateFrom || ''}
-                        onChange={(e) =>
-                          handleLearningDevelopmentFormChange(index, e)
-                        }
-                        variant="outlined"
-                        InputLabelProps={{ shrink: true }}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Date To"
-                        name="dateTo"
-                        type="date"
-                        value={learning.dateTo || ''}
-                        onChange={(e) =>
-                          handleLearningDevelopmentFormChange(index, e)
-                        }
-                        variant="outlined"
-                        InputLabelProps={{ shrink: true }}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Number of Hours"
-                        name="numberOfHours"
-                        value={learning.numberOfHours || ''}
-                        onChange={(e) =>
-                          handleLearningDevelopmentFormChange(index, e)
-                        }
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Type of Learning Development"
-                        name="typeOfLearningDevelopment"
-                        value={learning.typeOfLearningDevelopment || ''}
-                        onChange={(e) =>
-                          handleLearningDevelopmentFormChange(index, e)
-                        }
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <FormField
-                        fullWidth
-                        label="Conducted/Sponsored"
-                        name="conductedSponsored"
-                        value={learning.conductedSponsored || ''}
-                        onChange={(e) =>
-                          handleLearningDevelopmentFormChange(index, e)
-                        }
-                        variant="outlined"
-                      />
-                    </Grid>
-                  </Grid>
-                </Box>
-              ))}
-            </Box>
-          ) : (
-            <Box textAlign="center" py={4}>
-              <Typography variant="h6" color={colors.textSecondary}>
-                No learning and development records found
-              </Typography>
-            </Box>
-          )}
-
-          <Box mt={2} display="flex" justifyContent="center">
-            <ActionButton
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={handleAddLearningDevelopment}
-            >
-              Add Learning Program
-            </ActionButton>
-          </Box>
-        </Box>
-      );
-    }
-
-    if (currentSectionIndex === 9) {
-      return (
-        <Box>
-          <Typography variant="h6" gutterBottom>
-            Other Information
-          </Typography>
-
-          {otherInformationFormData.length > 0 ? (
-            <Box>
-              {otherInformationFormData.map((info, index) => (
-                <Box
-                  key={index}
-                  mb={3}
-                  p={2}
-                  sx={{
-                    backgroundColor: alpha(colors.secondary, 0.3),
-                    borderRadius: 2,
-                  }}
-                >
-                  <Box
-                    display="flex"
-                    justifyContent="space-between"
-                    alignItems="center"
-                    mb={2}
-                  >
-                    <Typography variant="h6">
-                      Information {index + 1}
-                    </Typography>
-                    <IconButton
-                      onClick={() => handleRemoveOtherInformation(index)}
-                      color="error"
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </Box>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12}>
-                      <FormField
-                        fullWidth
-                        label="Special Skills"
-                        name="specialSkills"
-                        value={info.specialSkills || ''}
-                        onChange={(e) =>
-                          handleOtherInformationFormChange(index, e)
-                        }
-                        variant="outlined"
-                        multiline
-                        rows={2}
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <FormField
-                        fullWidth
-                        label="Non-Academic Distinctions"
-                        name="nonAcademicDistinctions"
-                        value={info.nonAcademicDistinctions || ''}
-                        onChange={(e) =>
-                          handleOtherInformationFormChange(index, e)
-                        }
-                        variant="outlined"
-                        multiline
-                        rows={2}
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <FormField
-                        fullWidth
-                        label="Membership in Association"
-                        name="membershipInAssociation"
-                        value={info.membershipInAssociation || ''}
-                        onChange={(e) =>
-                          handleOtherInformationFormChange(index, e)
-                        }
-                        variant="outlined"
-                        multiline
-                        rows={2}
-                      />
-                    </Grid>
-                  </Grid>
-                </Box>
-              ))}
-            </Box>
-          ) : (
-            <Box textAlign="center" py={4}>
-              <Typography variant="h6" color={colors.textSecondary}>
-                No other information records found
-              </Typography>
-            </Box>
-          )}
-
-          <Box mt={2} display="flex" justifyContent="center">
-            <ActionButton
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={handleAddOtherInformation}
-            >
-              Add Other Information
-            </ActionButton>
-          </Box>
-        </Box>
-      );
-    }
-
-    if (currentSectionIndex === 6) {
-      return (
-        <Box>
-          <Typography variant="h6" gutterBottom>
-            Work Experience Information
-          </Typography>
-
-          {workExperiencesFormData.length > 0 ? (
-            <Box>
-              {workExperiencesFormData.map((workExp, index) => (
-                <Box
-                  key={index}
-                  mb={3}
-                  p={2}
-                  sx={{
-                    backgroundColor: alpha(colors.secondary, 0.3),
-                    borderRadius: 2,
-                  }}
-                >
-                  <Box
-                    display="flex"
-                    justifyContent="space-between"
-                    alignItems="center"
-                    mb={2}
-                  >
-                    <Typography variant="h6">
-                      Work Experience {index + 1}
-                    </Typography>
-                    <IconButton
-                      onClick={() => handleRemoveWorkExperience(index)}
-                      color="error"
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </Box>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Date From"
-                        name="workDateFrom"
-                        type="date"
-                        value={workExp.workDateFrom || ''}
-                        onChange={(e) =>
-                          handleWorkExperienceFormChange(index, e)
-                        }
-                        variant="outlined"
-                        InputLabelProps={{ shrink: true }}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Date To"
-                        name="workDateTo"
-                        type="date"
-                        value={workExp.workDateTo || ''}
-                        onChange={(e) =>
-                          handleWorkExperienceFormChange(index, e)
-                        }
-                        variant="outlined"
-                        InputLabelProps={{ shrink: true }}
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <FormField
-                        fullWidth
-                        label="Position Title"
-                        name="workPositionTitle"
-                        value={workExp.workPositionTitle || ''}
-                        onChange={(e) =>
-                          handleWorkExperienceFormChange(index, e)
-                        }
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <FormField
-                        fullWidth
-                        label="Company"
-                        name="workCompany"
-                        value={workExp.workCompany || ''}
-                        onChange={(e) =>
-                          handleWorkExperienceFormChange(index, e)
-                        }
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Monthly Salary"
-                        name="workMonthlySalary"
-                        value={workExp.workMonthlySalary || ''}
-                        onChange={(e) =>
-                          handleWorkExperienceFormChange(index, e)
-                        }
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Salary Job/Pay Grade"
-                        name="SalaryJobOrPayGrade"
-                        value={workExp.SalaryJobOrPayGrade || ''}
-                        onChange={(e) =>
-                          handleWorkExperienceFormChange(index, e)
-                        }
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormField
-                        fullWidth
-                        label="Status of Appointment"
-                        name="StatusOfAppointment"
-                        value={workExp.StatusOfAppointment || ''}
-                        onChange={(e) =>
-                          handleWorkExperienceFormChange(index, e)
-                        }
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <FormControl fullWidth>
-                        <InputLabel>Government Service</InputLabel>
-                        <Select
-                          name="isGovtService"
-                          value={workExp.isGovtService || 'No'}
-                          onChange={(e) =>
-                            handleWorkExperienceFormChange(index, e)
-                          }
-                          label="Government Service"
-                        >
-                          <MuiMenuItem value="Yes">Yes</MuiMenuItem>
-                          <MuiMenuItem value="No">No</MuiMenuItem>
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                  </Grid>
-                </Box>
-              ))}
-            </Box>
-          ) : (
-            <Box textAlign="center" py={4}>
-              <Typography variant="h6" color={colors.textSecondary}>
-                No work experience records found
-              </Typography>
-            </Box>
-          )}
-
-          <Box mt={2} display="flex" justifyContent="center">
-            <ActionButton
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={handleAddWorkExperience}
-            >
-              Add Work Experience
-            </ActionButton>
-          </Box>
-        </Box>
-      );
-    }
-
-    const sectionToFormFieldMap = {
-      0: 0,
-      1: 1,
-      2: 2,
-      3: 4,
-      4: 5,
-      5: 6,
-      6: 10,
-      7: 7,
-      8: 8,
-      9: 9,
-    };
-    const formFieldIndex =
-      sectionToFormFieldMap[currentSectionIndex] ?? currentSectionIndex;
-    const fields = formFields[formFieldIndex] || [];
-
-    return (
-      <Grid container spacing={3}>
-        {fields.map((field, idx) => (
-          <Grid item xs={12} sm={6} key={idx}>
-            <FormField
-              fullWidth
-              label={field.label}
-              name={field.name}
-              value={formData[field.name] || ''}
-              onChange={handleFormChange}
-              variant="outlined"
-              disabled={field.disabled}
-              type={field.type || 'text'}
-              InputLabelProps={field.type === 'date' ? { shrink: true } : {}}
-            />
-          </Grid>
-        ))}
+    /* ── Government IDs — read-only with notice ── */
+    if (activeSection === 1) return <Box>
+      <GovIdNotice />
+      <Grid container spacing={2.5}>
+{[
+  { label:'GSIS Number',           name:'gsisNum'           },
+  { label:'Pag-IBIG Number',       name:'pagibigNum'        },
+  { label:'PhilHealth Number',     name:'philhealthNum'     },
+  { label:'SSS Number',            name:'sssNum'            },
+  { label:'TIN Number',            name:'tinNum'            },
+  { label:'Agency Employee Number',name:'agencyEmployeeNum' },
+].map(f => (
+  <Grid item xs={12} sm={6} key={f.name}>
+    <Box><FL>{f.label}</FL>
+      <TextField
+        fullWidth size="small"
+        sx={{ ...FX, mb: 2,
+          '& .MuiOutlinedInput-root.Mui-disabled': {
+            bgcolor: SUBTLE,
+            '& fieldset': { borderColor: BD },
+            '& .MuiInputBase-input': {
+              color: MUTED,
+              WebkitTextFillColor: MUTED,
+              cursor: 'not-allowed',
+            },
+          },
+        }}
+        name={f.name}
+        value={formData[f.name] || ''}
+        disabled
+        InputProps={{
+          endAdornment: (
+            <InputAdornment position="end">
+              <LockIcon sx={{ fontSize: 13, color: alpha(TXT, 0.18) }} />
+            </InputAdornment>
+          ),
+        }}
+      />
+    </Box>
+  </Grid>
+))}
       </Grid>
-    );
+    </Box>;
+
+    if (activeSection === 2) return <Box>
+      <Div label="Contact" />
+      <Grid container spacing={2.5} sx={{ mb: 1 }}>
+        {[{ label:'Telephone', name:'telephone' }, { label:'Mobile Number', name:'mobileNum' }, { label:'Email Address', name:'emailAddress' }]
+          .map(f => <Grid item xs={12} sm={6} key={f.name}>{FF(f)}</Grid>)}
+      </Grid>
+      <Div label="Permanent Address" />
+      <Grid container spacing={2.5} sx={{ mb: 1 }}>
+        {[{ label:'House/Block/Lot No.', name:'permanent_houseBlockLotNum' }, { label:'Street', name:'permanent_streetName' }, { label:'Subdivision/Village', name:'permanent_subdivisionOrVillage' }, { label:'Barangay', name:'permanent_barangay' }, { label:'City/Municipality', name:'permanent_cityOrMunicipality' }, { label:'Province', name:'permanent_provinceName' }, { label:'Zip Code', name:'permanent_zipcode' }]
+          .map(f => <Grid item xs={12} sm={6} key={f.name}>{FF(f)}</Grid>)}
+      </Grid>
+      <Div label="Residential Address" />
+      <Grid container spacing={2.5}>
+        {[{ label:'House/Block/Lot No.', name:'residential_houseBlockLotNum' }, { label:'Street', name:'residential_streetName' }, { label:'Subdivision/Village', name:'residential_subdivisionOrVillage' }, { label:'Barangay', name:'residential_barangayName' }, { label:'City/Municipality', name:'residential_cityOrMunicipality' }, { label:'Province', name:'residential_provinceName' }, { label:'Zip Code', name:'residential_zipcode' }]
+          .map(f => <Grid item xs={12} sm={6} key={f.name}>{FF(f)}</Grid>)}
+      </Grid>
+    </Box>;
+
+    if (activeSection === 3) return <Box>
+      <Div label="Spouse" />
+      <Grid container spacing={2.5} sx={{ mb: 1 }}>
+        {[{ label:'Last Name', name:'spouseLastName' }, { label:'First Name', name:'spouseFirstName' }, { label:'Middle Name', name:'spouseMiddleName' }, { label:'Name Extension', name:'spouseNameExtension' }, { label:'Occupation', name:'spouseOccupation' }, { label:'Employer/Business Name', name:'spouseEmployerBusinessName' }, { label:'Business Address', name:'spouseBusinessAddress' }, { label:'Telephone No.', name:'spouseTelephone' }]
+          .map(f => <Grid item xs={12} sm={6} key={f.name}>{FF(f)}</Grid>)}
+      </Grid>
+      <Div label="Father" />
+      <Grid container spacing={2.5} sx={{ mb: 1 }}>
+        {[{ label:'Last Name', name:'fatherLastName' }, { label:'First Name', name:'fatherFirstName' }, { label:'Middle Name', name:'fatherMiddleName' }, { label:'Name Extension', name:'fatherNameExtension' }]
+          .map(f => <Grid item xs={12} sm={6} key={f.name}>{FF(f)}</Grid>)}
+      </Grid>
+      <Div label="Mother (Maiden Name)" />
+      <Grid container spacing={2.5}>
+        {[{ label:'Maiden Last Name', name:'motherMaidenLastName' }, { label:'Maiden First Name', name:'motherMaidenFirstName' }, { label:'Maiden Middle Name', name:'motherMaidenMiddleName' }]
+          .map(f => <Grid item xs={12} sm={6} key={f.name}>{FF(f)}</Grid>)}
+      </Grid>
+    </Box>;
+
+    if (activeSection === 4) return <Box>
+      <EduSubTabs value={eduTab} onChange={setEduTab} />
+      {eduTab === 0 && <Box>
+        <Div label="Elementary" />
+        <Grid container spacing={2.5} sx={{ mb: 1 }}>
+          {[{ label:'School Name', name:'elementaryNameOfSchool' }, { label:'Degree/Course', name:'elementaryDegree' }, { label:'Period From', name:'elementaryPeriodFrom' }, { label:'Period To', name:'elementaryPeriodTo' }, { label:'Highest Level/Units Earned', name:'elementaryHighestAttained' }, { label:'Year Graduated', name:'elementaryYearGraduated' }, { label:'Honors Received', name:'elementaryScholarshipAcademicHonorsReceived' }]
+            .map(f => <Grid item xs={12} sm={6} key={f.name}>{FF(f)}</Grid>)}
+        </Grid>
+        <Div label="Secondary" />
+        <Grid container spacing={2.5}>
+          {[{ label:'School Name', name:'secondaryNameOfSchool' }, { label:'Degree/Course', name:'secondaryDegree' }, { label:'Period From', name:'secondaryPeriodFrom' }, { label:'Period To', name:'secondaryPeriodTo' }, { label:'Highest Level/Units Earned', name:'secondaryHighestAttained' }, { label:'Year Graduated', name:'secondaryYearGraduated' }, { label:'Honors Received', name:'secondaryScholarshipAcademicHonorsReceived' }]
+            .map(f => <Grid item xs={12} sm={6} key={f.name}>{FF(f)}</Grid>)}
+        </Grid>
+      </Box>}
+      {eduTab === 1 && <RepBlock title="College" items={collegesFD} onAdd={() => colH.add({ collegeNameOfSchool:'', collegeDegree:'', collegePeriodFrom:'', collegePeriodTo:'', collegeHighestAttained:'', collegeYearGraduated:'', collegeScholarshipAcademicHonorsReceived:'' })} onRemove={i => colH.remove(i)} addLabel="Add College">
+        {(c, i) => <>
+          <Grid item xs={12}><FL>School Name</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="collegeNameOfSchool" value={c.collegeNameOfSchool || ''} onChange={e => colH.change(i, e)} /></Grid>
+          <Grid item xs={12}><FL>Degree/Course</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="collegeDegree" value={c.collegeDegree || ''} onChange={e => colH.change(i, e)} /></Grid>
+          {[['Period From','collegePeriodFrom'],['Period To','collegePeriodTo'],['Highest Level','collegeHighestAttained'],['Year Graduated','collegeYearGraduated']].map(([l,n]) => <Grid item xs={12} sm={6} key={n}><FL>{l}</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name={n} value={c[n] || ''} onChange={e => colH.change(i, e)} /></Grid>)}
+          <Grid item xs={12}><FL>Honors Received</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="collegeScholarshipAcademicHonorsReceived" value={c.collegeScholarshipAcademicHonorsReceived || ''} onChange={e => colH.change(i, e)} /></Grid>
+        </>}
+      </RepBlock>}
+      {eduTab === 2 && <RepBlock title="Graduate Studies" items={graduatesFD} onAdd={() => gradH.add({ graduateNameOfSchool:'', graduateDegree:'', graduatePeriodFrom:'', graduatePeriodTo:'', graduateHighestLevel:'', graduateYearGraduated:'', graduateScholarshipAcademicHonorsReceived:'' })} onRemove={i => gradH.remove(i)} addLabel="Add Graduate Studies">
+        {(g, i) => <>
+          <Grid item xs={12}><FL>School Name</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="graduateNameOfSchool" value={g.graduateNameOfSchool || ''} onChange={e => gradH.change(i, e)} /></Grid>
+          <Grid item xs={12}><FL>Degree/Course</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="graduateDegree" value={g.graduateDegree || ''} onChange={e => gradH.change(i, e)} /></Grid>
+          {[['Period From','graduatePeriodFrom'],['Period To','graduatePeriodTo'],['Highest Level','graduateHighestLevel'],['Year Graduated','graduateYearGraduated']].map(([l,n]) => <Grid item xs={12} sm={6} key={n}><FL>{l}</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name={n} value={g[n] || ''} onChange={e => gradH.change(i, e)} /></Grid>)}
+          <Grid item xs={12}><FL>Honors Received</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="graduateScholarshipAcademicHonorsReceived" value={g.graduateScholarshipAcademicHonorsReceived || ''} onChange={e => gradH.change(i, e)} /></Grid>
+        </>}
+      </RepBlock>}
+      {eduTab === 3 && <RepBlock title="Vocational" items={vocFD} onAdd={() => vocH.add({ vocationalNameOfSchool:'', vocationalDegree:'', vocationalPeriodFrom:'', vocationalPeriodTo:'', vocationalHighestAttained:'', vocationalYearGraduated:'', vocationalScholarshipAcademicHonorsReceived:'' })} onRemove={i => vocH.remove(i)} addLabel="Add Vocational">
+        {(v, i) => <>
+          <Grid item xs={12}><FL>School Name</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="vocationalNameOfSchool" value={v.vocationalNameOfSchool || ''} onChange={e => vocH.change(i, e)} /></Grid>
+          <Grid item xs={12}><FL>Degree/Course</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="vocationalDegree" value={v.vocationalDegree || ''} onChange={e => vocH.change(i, e)} /></Grid>
+          {[['Period From','vocationalPeriodFrom'],['Period To','vocationalPeriodTo'],['Highest Level','vocationalHighestAttained'],['Year Graduated','vocationalYearGraduated']].map(([l,n]) => <Grid item xs={12} sm={6} key={n}><FL>{l}</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name={n} value={v[n] || ''} onChange={e => vocH.change(i, e)} /></Grid>)}
+          <Grid item xs={12}><FL>Honors Received</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="vocationalScholarshipAcademicHonorsReceived" value={v.vocationalScholarshipAcademicHonorsReceived || ''} onChange={e => vocH.change(i, e)} /></Grid>
+        </>}
+      </RepBlock>}
+    </Box>;
+
+    if (activeSection === 5) return <RepBlock title="Child" items={childrenFD} onAdd={() => childH.add({ childrenFirstName:'', childrenMiddleName:'', childrenLastName:'', childrenNameExtension:'', dateOfBirth:'' })} onRemove={i => childH.remove(i)} addLabel="Add Child">
+      {(c, i) => <>
+        {[['First Name','childrenFirstName'],['Middle Name','childrenMiddleName'],['Last Name','childrenLastName'],['Name Extension','childrenNameExtension']].map(([l,n]) => <Grid item xs={12} sm={6} key={n}><FL>{l}</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name={n} value={c[n] || ''} onChange={e => childH.change(i, e)} /></Grid>)}
+        <Grid item xs={12} sm={6}><FL>Date of Birth</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="dateOfBirth" type="date" value={c.dateOfBirth || ''} onChange={e => childH.change(i, e)} InputLabelProps={{ shrink: true }} /></Grid>
+      </>}
+    </RepBlock>;
+
+    if (activeSection === 6) return <RepBlock title="Work Experience" items={weFD} onAdd={() => weH.add({ workDateFrom:'', workDateTo:'', workPositionTitle:'', workCompany:'', workMonthlySalary:'', SalaryJobOrPayGrade:'', StatusOfAppointment:'', isGovtService:'No' })} onRemove={i => weH.remove(i)} addLabel="Add Work Experience">
+      {(w, i) => <>
+        <Grid item xs={12} sm={6}><FL>Date From</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="workDateFrom" type="date" value={w.workDateFrom || ''} onChange={e => weH.change(i, e)} InputLabelProps={{ shrink: true }} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Date To</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="workDateTo" type="date" value={w.workDateTo || ''} onChange={e => weH.change(i, e)} InputLabelProps={{ shrink: true }} /></Grid>
+        <Grid item xs={12}><FL>Position Title</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="workPositionTitle" value={w.workPositionTitle || ''} onChange={e => weH.change(i, e)} /></Grid>
+        <Grid item xs={12}><FL>Department / Agency / Company</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="workCompany" value={w.workCompany || ''} onChange={e => weH.change(i, e)} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Monthly Salary</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="workMonthlySalary" value={w.workMonthlySalary || ''} onChange={e => weH.change(i, e)} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Salary/Job/Pay Grade</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="SalaryJobOrPayGrade" value={w.SalaryJobOrPayGrade || ''} onChange={e => weH.change(i, e)} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Status of Appointment</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="StatusOfAppointment" value={w.StatusOfAppointment || ''} onChange={e => weH.change(i, e)} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Government Service</FL>
+          <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+            <Select name="isGovtService" value={w.isGovtService || 'No'} onChange={e => weH.change(i, e)} sx={SELECT_SX}>
+              <MuiMenuItem value="Yes">Yes</MuiMenuItem><MuiMenuItem value="No">No</MuiMenuItem>
+            </Select>
+          </FormControl>
+        </Grid>
+      </>}
+    </RepBlock>;
+
+    if (activeSection === 7) return <RepBlock title="Eligibility" items={eligFD} onAdd={() => eligH.add({ eligibilityName:'', eligibilityRating:'', eligibilityDateOfExam:'', eligibilityPlaceOfExam:'', licenseNumber:'', DateOfValidity:'' })} onRemove={i => eligH.remove(i)} addLabel="Add Eligibility">
+      {(e, i) => <>
+        <Grid item xs={12}><FL>Career Service / Eligibility Name</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="eligibilityName" value={e.eligibilityName || ''} onChange={ev => eligH.change(i, ev)} /></Grid>
+        <Grid item xs={12}><PctInput label="Rating (if applicable)" value={e.eligibilityRating || ''} onChange={v => eligH.change(i, { target: { name: 'eligibilityRating', value: v } })} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Date of Exam</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="eligibilityDateOfExam" type="date" value={e.eligibilityDateOfExam || ''} onChange={ev => eligH.change(i, ev)} InputLabelProps={{ shrink: true }} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Place of Exam</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="eligibilityPlaceOfExam" value={e.eligibilityPlaceOfExam || ''} onChange={ev => eligH.change(i, ev)} /></Grid>
+        <Grid item xs={12} sm={6}><FL>License Number</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="licenseNumber" value={e.licenseNumber || ''} onChange={ev => eligH.change(i, ev)} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Date of Validity</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="DateOfValidity" type="date" value={e.DateOfValidity || ''} onChange={ev => eligH.change(i, ev)} InputLabelProps={{ shrink: true }} /></Grid>
+      </>}
+    </RepBlock>;
+
+    if (activeSection === 8) return <RepBlock title="Voluntary Work" items={vwFD} onAdd={() => vwH.add({ nameAndAddress:'', dateFrom:'', dateTo:'', numberOfHours:'', natureOfWork:'' })} onRemove={i => vwH.remove(i)} addLabel="Add Voluntary Work">
+      {(vw, i) => <>
+        <Grid item xs={12}><FL>Name & Address of Organization</FL><TextField fullWidth sx={{ ...MFX, mb: 1 }} name="nameAndAddress" value={vw.nameAndAddress || ''} onChange={e => vwH.change(i, e)} multiline rows={2} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Date From</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="dateFrom" type="date" value={vw.dateFrom || ''} onChange={e => vwH.change(i, e)} InputLabelProps={{ shrink: true }} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Date To</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="dateTo" type="date" value={vw.dateTo || ''} onChange={e => vwH.change(i, e)} InputLabelProps={{ shrink: true }} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Number of Hours</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="numberOfHours" value={vw.numberOfHours || ''} onChange={e => vwH.change(i, e)} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Position / Nature of Work</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="natureOfWork" value={vw.natureOfWork || ''} onChange={e => vwH.change(i, e)} /></Grid>
+      </>}
+    </RepBlock>;
+
+    if (activeSection === 9) return <RepBlock title="Training Program" items={ldFD} onAdd={() => ldH.add({ titleOfProgram:'', dateFrom:'', dateTo:'', numberOfHours:'', typeOfLearningDevelopment:'', conductedSponsored:'' })} onRemove={i => ldH.remove(i)} addLabel="Add Training Program">
+      {(l, i) => <>
+        <Grid item xs={12}><FL>Title of Program</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="titleOfProgram" value={l.titleOfProgram || ''} onChange={e => ldH.change(i, e)} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Date From</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="dateFrom" type="date" value={l.dateFrom || ''} onChange={e => ldH.change(i, e)} InputLabelProps={{ shrink: true }} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Date To</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="dateTo" type="date" value={l.dateTo || ''} onChange={e => ldH.change(i, e)} InputLabelProps={{ shrink: true }} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Number of Hours</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="numberOfHours" value={l.numberOfHours || ''} onChange={e => ldH.change(i, e)} /></Grid>
+        <Grid item xs={12} sm={6}><FL>Type of L&D</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="typeOfLearningDevelopment" value={l.typeOfLearningDevelopment || ''} onChange={e => ldH.change(i, e)} /></Grid>
+        <Grid item xs={12}><FL>Conducted / Sponsored By</FL><TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} name="conductedSponsored" value={l.conductedSponsored || ''} onChange={e => ldH.change(i, e)} /></Grid>
+      </>}
+    </RepBlock>;
+
+    if (activeSection === 10) return <RepBlock title="Entry" items={oiFD} onAdd={() => oiH.add({ specialSkills:'', nonAcademicDistinctions:'', membershipInAssociation:'' })} onRemove={i => oiH.remove(i)} addLabel="Add Other Information">
+      {(info, i) => <>
+        <Grid item xs={12}><FL>Special Skills and Hobbies</FL><TextField fullWidth sx={{ ...MFX, mb: 1 }} name="specialSkills" value={info.specialSkills || ''} onChange={e => oiH.change(i, e)} multiline rows={2} /></Grid>
+        <Grid item xs={12}><FL>Non-Academic Distinctions / Recognition</FL><TextField fullWidth sx={{ ...MFX, mb: 1 }} name="nonAcademicDistinctions" value={info.nonAcademicDistinctions || ''} onChange={e => oiH.change(i, e)} multiline rows={2} /></Grid>
+        <Grid item xs={12}><FL>Membership in Association / Organization</FL><TextField fullWidth sx={{ ...MFX, mb: 1 }} name="membershipInAssociation" value={info.membershipInAssociation || ''} onChange={e => oiH.change(i, e)} multiline rows={2} /></Grid>
+      </>}
+    </RepBlock>;
+
+    return null;
   };
 
-  const hexToRgb = (hex) => {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result
-      ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(
-          result[3],
-          16
-        )}`
-      : '109, 35, 35';
-  };
+  /* ─────────────────────────────────────────────────────────────────────────
+     LOADING GATE
+  ───────────────────────────────────────────────────────────────────────── */
+  if (loading || sectionsLoading) return <ProfileWireframe />;
 
-  const currentSection =
-    navigationSections[currentSectionIndex] || navigationSections[0];
+  const currentNav = NAV[activeSection] || NAV[0];
+  const fullName   = person ? `${person.firstName || ''} ${person.lastName || ''}`.trim() : 'Employee Profile';
+  const profileSrc = profilePicture ? `${API_BASE_URL}${profilePicture}?t=${Date.now()}` : undefined;
 
+  /* ─────────────────────────────────────────────────────────────────────────
+     MAIN RENDER
+  ───────────────────────────────────────────────────────────────────────── */
   return (
-    <ProfileWrapper ref={profileRef}>
-      {/* TOP NAVIGATION BAR */}
-      <ProfileAppBar position="static" elevation={0}>
-        <ProfileToolbar
-          sx={{
-            minHeight: 140,
-            display: 'flex',
-            alignItems: 'center',
-            py: 3,
-          }}
-        >
-          <BrandSection>
-            {/* Avatar & Name */}
-            <Box
-              sx={{ position: 'relative', cursor: 'pointer' }}
-              onClick={handleImageZoom}
-            >
-              <Avatar
-                src={
-                  profilePicture
-                    ? `${API_BASE_URL}${profilePicture}?t=${Date.now()}`
-                    : undefined
-                }
-                sx={{
-                  width: 80,
-                  height: 80,
-                  border: '3px solid #E5E5E5',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                }}
-              >
-                {!profilePicture && (
-                  <PersonIcon sx={{ color: colors.primary, fontSize: 40 }} />
-                )}
+    <Box sx={{ position: 'relative', height: '100vh', overflow: 'hidden', bgcolor: PAGE_BG }}>
+      <style>{GLOBAL_CSS}</style>
+
+      {/* ══ MAIN CONTENT ══════════════════════════════════════════════════════ */}
+      <Box sx={{
+        width: '100vw', maxWidth: '100%', position: 'relative',
+        left: '63%', transform: 'translateX(-61%)', boxSizing: 'border-box',
+        pl: { xs: 2, sm: 3, md: 6 }, pr: `${SIDEBAR_W + 16}px`,
+        py: { xs: 2, md: 4 },
+        height: '100vh',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        '&::-webkit-scrollbar': { width: 5 },
+        '&::-webkit-scrollbar-track': { background: '#f0f0f0' },
+        '&::-webkit-scrollbar-thumb': { background: alpha(P, 0.25), borderRadius: 4, '&:hover': { background: alpha(P, 0.45) } },
+      }}>
+
+        {/* ── Breadcrumb ─────────────────────────────────────────────────── */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3.5, flexWrap: 'wrap', animation: 'bannerSlide 0.4s ease' }}>
+          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', color: MUTED }}>Profile</Typography>
+          <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: BD }} />
+          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', color: P, fontWeight: 700 }}>{currentNav.title}</Typography>
+          <Box sx={{ flex: 1 }} />
+          <Box sx={{ display: 'flex', gap: 0.75 }}>
+            {[
+              { disabled: activeSection === 0, onClick: () => setActiveSection(s => s - 1), icon: <ArrowBackIosIcon sx={{ fontSize: 11 }} /> },
+              { disabled: activeSection === NAV.length - 1, onClick: () => setActiveSection(s => s + 1), icon: <ArrowForwardIosIcon sx={{ fontSize: 11 }} /> },
+            ].map((b, i) => (
+              <IconButton key={i} size="small" disabled={b.disabled} onClick={b.onClick}
+                sx={{ width: 30, height: 30, border: `1px solid ${BD}`, borderRadius: 1.5, bgcolor: PANEL, '&:hover': { borderColor: P, color: P, bgcolor: alpha(P, 0.03) }, '&:disabled': { opacity: 0.3 } }}>
+                {b.icon}
+              </IconButton>
+            ))}
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 0.75, bgcolor: PANEL, border: `1px solid ${BD}`, borderRadius: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+            <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: '#22c55e', animation: 'pulse-ring 2s infinite', flexShrink: 0 }} />
+            <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.67rem', color: MUTED }}>{fullName} · {employeeNumber}</Typography>
+          </Box>
+        </Box>
+
+        {/* ── HERO CARD ─────────────────────────────────────────────────── */}
+        <GlassCard sx={{ mb: 3, animation: 'sectionIn 0.4s ease' }}>
+          <Box sx={{ height: 6, background: `linear-gradient(90deg, ${P} 0%, ${S} 55%, ${alpha(P, 0.35)} 100%)` }} />
+          <Box sx={{ px: { xs: 3, md: 5 }, py: { xs: 3, md: 4 }, display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap' }}>
+            <Box sx={{ position: 'relative', flexShrink: 0 }}>
+              <Avatar src={profileSrc} onClick={() => setImageZoomOpen(true)}
+                sx={{ width: 90, height: 90, border: `4px solid ${PANEL}`, boxShadow: `0 6px 20px ${alpha(P, 0.22)}`, cursor: 'pointer', transition: 'transform 0.2s', '&:hover': { transform: 'scale(1.04)' } }}>
+                {!profilePicture && <PersonIcon sx={{ color: P, fontSize: 42 }} />}
               </Avatar>
-              <input
-                accept="image/*"
-                id="profile-picture-upload-nav"
-                type="file"
-                style={{ display: 'none' }}
-                onChange={handlePictureChange}
-              />
-              <IconButton
-                component="label"
-                htmlFor="profile-picture-upload-nav"
-                size="small"
-                sx={{
-                  position: 'absolute',
-                  bottom: 0,
-                  right: 0,
-                  backgroundColor: colors.primary,
-                  color: '#fff',
-                  width: 28,
-                  height: 28,
-                  padding: 0,
-                  '&:hover': { backgroundColor: colors.primaryDark },
-                  '& .MuiSvgIcon-root': { fontSize: 16 },
-                }}
-              >
+              <input accept="image/*" id="pic-hero" type="file" style={{ display: 'none' }} onChange={handlePicture} />
+              <IconButton component="label" htmlFor="pic-hero" size="small"
+                sx={{ position: 'absolute', bottom: 2, right: 2, bgcolor: P, color: '#fff', width: 26, height: 26, p: 0, border: `2px solid ${PANEL}`, '&:hover': { bgcolor: P_DARK }, '& .MuiSvgIcon-root': { fontSize: 13 } }}>
                 <CameraAltIcon />
               </IconButton>
             </Box>
-            <ProfileInfoCompact>
-              <Typography
-                variant="h4"
-                sx={{
-                  fontWeight: 700,
-                  fontSize: '1.75rem',
-                  color: colors.primary,
-                  lineHeight: 1.2,
-                  mb: 0.5,
-                }}
-              >
-                {person
-                  ? `${person.firstName} ${person.lastName}`.trim()
-                  : 'Employee Profile'}
+            <Box sx={{ flex: 1, minWidth: 180 }}>
+              <Typography sx={{ fontWeight: 900, fontSize: { xs: '1.4rem', md: '1.85rem' }, color: P, lineHeight: 1.15, mb: 0.5, letterSpacing: '-0.01em' }}>{fullName}</Typography>
+              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.8rem', color: MUTED, fontWeight: 600, mb: 1.5 }}>
+                {person?.agencyEmployeeNum ? `#${person.agencyEmployeeNum}` : '—'}
+                {person?.emailAddress ? <>&nbsp;·&nbsp;{person.emailAddress}</> : ''}
               </Typography>
-              <Typography
-                variant="body2"
-                color={colors.textSecondary}
-                sx={{
-                  fontWeight: 500,
-                  fontSize: '0.95rem',
-                }}
-              >
-                {person?.agencyEmployeeNum
-                  ? `Employee ID: ${person.agencyEmployeeNum}`
-                  : '—'}
-              </Typography>
-            </ProfileInfoCompact>
-          </BrandSection>
-
-          {/* Global Actions */}
-          <Box sx={{ display: 'flex', gap: 1.5 }}>
-            <Tooltip title="Refresh Data">
-              <IconButton
-                onClick={handleRefresh}
-                color="inherit"
-                sx={{
-                  width: 44,
-                  height: 44,
-                  border: '1px solid #E5E5E5',
-                  '&:hover': {
-                    borderColor: colors.primary,
-                    backgroundColor: alpha(colors.primary, 0.05),
-                  },
-                }}
-              >
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-            <ActionButton
-              variant="contained"
-              startIcon={<EditIcon />}
-              onClick={handleEditOpen}
-              sx={{
-                px: 3,
-                py: 1.5,
-                fontSize: '0.95rem',
-                height: 44,
-              }}
-            >
-              Edit Profile
-            </ActionButton>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                {person?.civilStatus && (
+                  <Box sx={{ px: 1.5, py: 0.3, bgcolor: alpha(P, 0.07), border: `1px solid ${alpha(P, 0.18)}`, borderRadius: '20px' }}>
+                    <Typography sx={{ fontSize: '0.65rem', fontWeight: 900, color: P }}>{person.civilStatus}</Typography>
+                  </Box>
+                )}
+                {person?.bloodType && (
+                  <Box sx={{ px: 1.5, py: 0.3, bgcolor: alpha(P, 0.07), border: `1px solid ${alpha(P, 0.18)}`, borderRadius: '20px' }}>
+                    <Typography sx={{ fontSize: '0.65rem', fontWeight: 900, color: P }}>Blood Type {person.bloodType}</Typography>
+                  </Box>
+                )}
+                {person?.citizenship && (
+                  <Box sx={{ px: 1.5, py: 0.3, bgcolor: alpha(P, 0.07), border: `1px solid ${alpha(P, 0.18)}`, borderRadius: '20px' }}>
+                    <Typography sx={{ fontSize: '0.65rem', fontWeight: 900, color: P }}>{person.citizenship}</Typography>
+                  </Box>
+                )}
+              </Box>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'center' }}>
+              <Tooltip title="Refresh data">
+                <IconButton onClick={() => { refreshPerson(); refreshSections(); }}
+                  sx={{ width: 38, height: 38, border: `1px solid ${BD}`, borderRadius: 1.5, bgcolor: PANEL, '&:hover': { borderColor: P, color: P } }}>
+                  <RefreshIcon sx={{ fontSize: 17 }} />
+                </IconButton>
+              </Tooltip>
+              <Btn startIcon={<EditIcon sx={{ fontSize: 15 }} />} onClick={() => setEditOpen(true)}>Edit Profile</Btn>
+            </Box>
           </Box>
-        </ProfileToolbar>
-      </ProfileAppBar>
+        </GlassCard>
 
-      <Container sx={{ mt: 3, mb: 2 }}>
-        <PageHeaderBox>
-          <HeaderTitles>
-            <HeaderTitle>{currentSection?.title || 'Profile'}</HeaderTitle>
-            <HeaderSubtitle>
-              {currentSection?.subtitle || 'View your profile information'}
-            </HeaderSubtitle>
-          </HeaderTitles>
-          <NavControls>
-            <NavButton
-              onClick={handlePrevSection}
-              disabled={currentSectionIndex === 0}
-              title="Previous Section"
-            >
-              <ArrowBackIosIcon fontSize="small" />
-            </NavButton>
-            <NavButton
-              onClick={handleNextSection}
-              disabled={currentSectionIndex === navigationSections.length - 1}
-              title="Next Section"
-            >
-              <ArrowForwardIosIcon fontSize="small" />
-            </NavButton>
-          </NavControls>
-        </PageHeaderBox>
-      </Container>
+        {/* ── Section content card ───────────────────────────────────────── */}
+        <GlassCard sx={{ animation: 'sectionIn 0.35s ease 0.05s both' }}>
+          <SectionHeader icon={currentNav.icon} title={currentNav.title} subtitle={currentNav.subtitle} />
+          <Box sx={{ p: { xs: 2.5, md: 4 } }}>{renderView(activeSection)}</Box>
+        </GlassCard>
+      </Box>
 
-      {/* NAVIGATION TABS BAR */}
-      <NavTabsContainer>
-        <NavTabs
-          value={currentSectionIndex}
-          onChange={(e, newValue) => handleSectionChange(newValue)}
-          variant="scrollable"
-          scrollButtons="auto"
-          aria-label="Profile Sections"
-        >
-          {navigationSections.map((section) => (
-            <Tab key={section.key} label={section.label} icon={section.icon} />
-          ))}
-        </NavTabs>
-      </NavTabsContainer>
-
-      {/* MAIN CONTENT AREA */}
-      <MainContent>
-        <Box>
-          {navigationSections.map((section, index) => (
-            <ContentSection
-              key={section.key}
-              active={currentSectionIndex === index}
-            >
-              {renderContentSection(index)}
-            </ContentSection>
-          ))}
+      {/* ══ RIGHT SIDEBAR ═════════════════════════════════════════════════ */}
+      <Box sx={{
+        width: SIDEBAR_W, bgcolor: PANEL,
+        borderLeft: `2px solid ${alpha(P, 0.28)}`,
+        boxShadow: `-3px 0 18px ${alpha(P, 0.05)}`,
+        display: 'flex', flexDirection: 'column',
+        position: 'fixed', right: 0, top: 0, height: '100vh',
+        overflowY: 'auto', zIndex: 1200,
+      }}>
+        <Box sx={{ px: 3, py: 2.5, borderBottom: `1px solid ${alpha(P, 0.1)}`, display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0, background: `linear-gradient(135deg,${alpha(P, 0.07)} 0%,${alpha(P, 0.01)} 100%)` }}>
+          <Box sx={{ width: 36, height: 36, bgcolor: P, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 1.5, flexShrink: 0, boxShadow: `0 4px 12px ${alpha(P, 0.4)}` }}>
+            <AccountCircleIcon sx={{ fontSize: 19, color: '#fff' }} />
+          </Box>
+          <Box>
+            <Typography sx={{ fontWeight: 900, fontSize: '0.88rem', color: P, lineHeight: 1.2 }}>Employee Profile</Typography>
+            <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.57rem', color: alpha(P, 0.4), letterSpacing: '0.08em', textTransform: 'uppercase' }}>Personal Data Sheet</Typography>
+          </Box>
         </Box>
-      </MainContent>
+        <Box sx={{ mx: 2.5, my: 2, p: 2, bgcolor: alpha(P, 0.04), borderRadius: 2, border: `1px solid ${alpha(P, 0.1)}`, flexShrink: 0 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Avatar src={profileSrc} sx={{ width: 40, height: 40, border: `2px solid ${PANEL}`, boxShadow: `0 3px 10px ${alpha(P, 0.2)}` }}>
+              {!profilePicture && <PersonIcon sx={{ color: P, fontSize: 20 }} />}
+            </Avatar>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontWeight: 900, fontSize: '0.8rem', color: P, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fullName}</Typography>
+              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', color: MUTED }}>
+                {person?.agencyEmployeeNum ? `#${person.agencyEmployeeNum}` : '—'}
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+        <Box sx={{ mx: 2.5, mb: 1.5, px: 2, py: 1.25, bgcolor: alpha(P, 0.06), borderRadius: 1.5, border: `1px solid ${alpha(P, 0.16)}`, flexShrink: 0 }}>
+          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.56rem', color: alpha(P, 0.45), textTransform: 'uppercase', letterSpacing: '0.1em', mb: 0.3 }}>Active Section</Typography>
+          <Typography sx={{ fontWeight: 900, fontSize: '0.8rem', color: P }}>{currentNav.title}</Typography>
+        </Box>
+        <Box sx={{ flex: 1 }}>
+          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.56rem', fontWeight: 700, color: alpha(P, 0.32), letterSpacing: '0.14em', textTransform: 'uppercase', px: 3, pb: 0.75, pt: 0.5 }}>Profile Sections</Typography>
+          {NAV.map(({ key, label, icon: Icon }) => {
+            const active = activeSection === key;
+            return (
+              <Box key={key} onClick={() => setActiveSection(key)} sx={{ display: 'flex', alignItems: 'center', gap: 1.75, px: 3, py: 1.3, cursor: 'pointer', borderLeft: active ? `3px solid ${P}` : '3px solid transparent', bgcolor: active ? alpha(P, 0.09) : 'transparent', transition: 'all 0.14s ease', '&:hover': { bgcolor: active ? alpha(P, 0.09) : alpha(P, 0.04) } }}>
+                <Icon sx={{ fontSize: 15, color: active ? P : alpha(P, 0.35), flexShrink: 0 }} />
+                <Typography sx={{ fontSize: '0.84rem', fontWeight: active ? 700 : 500, color: active ? P : MUTED, flex: 1 }}>{label}</Typography>
+                {active && <KeyboardArrowRightIcon sx={{ fontSize: 13, color: alpha(P, 0.4) }} />}
+              </Box>
+            );
+          })}
+        </Box>
+        <Box sx={{ px: 3, py: 2, borderTop: `1px solid ${alpha(P, 0.08)}`, flexShrink: 0, bgcolor: alpha(P, 0.013) }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <AssignmentIndIcon sx={{ fontSize: 13, color: alpha(P, 0.4) }} />
+            <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', color: alpha(P, 0.4) }}>Personal Data Sheet | PDS · HRIS</Typography>
+          </Box>
+        </Box>
+      </Box>
 
-      {/* Edit Profile Modal */}
-      <Modal
-        open={editOpen}
-        onClose={handleEditClose}
-        closeAfterTransition
-        BackdropComponent={Backdrop}
-        BackdropProps={{
-          timeout: 500,
-        }}
-      >
-        <Backdrop open={editOpen} onClick={handleEditClose}>
-          <ModalContainer onClick={(e) => e.stopPropagation()}>
-            <ModalHeader>
-              <ModalTitle>Edit Profile</ModalTitle>
-              <IconButton
-                onClick={handleEditClose}
-                sx={{
-                  color: colors.textLight,
-                  position: 'absolute',
-                  top: 8,
-                  right: 8,
-                }}
-              >
-                <CloseIcon />
+      {/* ══ EDIT MODAL ════════════════════════════════════════════════════ */}
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} closeAfterTransition BackdropComponent={Backdrop} BackdropProps={{ timeout: 500 }}>
+        <Backdrop open={editOpen} onClick={() => setEditOpen(false)}>
+          <Box onClick={e => e.stopPropagation()} sx={{
+            position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+            width: '92%', maxWidth: 1020, bgcolor: '#f7f8fa', borderRadius: 3,
+            boxShadow: '0 25px 60px rgba(0,0,0,0.32)', height: '88vh', maxHeight: 820,
+            overflow: 'hidden', display: 'flex', flexDirection: 'column',
+          }}>
+
+            {/* ── MODAL TITLE BAR ── */}
+            <Box sx={{
+              px: 3, py: 2.5,
+              background: `linear-gradient(135deg, ${P} 0%, ${S} 100%)`,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              flexShrink: 0,
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 38, height: 38 }}>
+                  <EditIcon sx={{ fontSize: 18, color: '#fff' }} />
+                </Avatar>
+                <Typography sx={{ fontWeight: 900, fontSize: '0.95rem', color: '#fff' }}>Edit Profile</Typography>
+              </Box>
+              <IconButton onClick={() => setEditOpen(false)} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.5, '&:hover': { color: '#fff' } }}>
+                <CloseIcon sx={{ fontSize: 17 }} />
               </IconButton>
-            </ModalHeader>
+            </Box>
 
-            <EditModalPictureSection>
-              <EditModalAvatar
-                src={
-                  profilePicture
-                    ? `${API_BASE_URL}${profilePicture}?t=${Date.now()}`
-                    : undefined
-                }
-                alt="Profile Picture"
-                onClick={handleEditImageZoom}
-              >
-                {!profilePicture && <PersonIcon sx={{ fontSize: 60 }} />}
-              </EditModalAvatar>
-              <EditModalPictureInfo>
-                <Typography
-                  variant="h6"
-                  sx={{ fontWeight: 600, color: colors.primary, mb: 1 }}
-                >
-                  Profile Picture
-                </Typography>
-                <Typography
-                  variant="body2"
-                  color={colors.textSecondary}
-                  sx={{ mb: 2 }}
-                >
-                  Click on image to preview. Upload a professional headshot (max
-                  5MB, JPEG/PNG)
-                </Typography>
-                <Box display="flex" gap={1} flexWrap="wrap">
-                  <Chip
-                    icon={<PhotoSizeSelectActualIcon fontSize="small" />}
-                    label="High Quality"
-                    size="small"
-                    sx={{
-                      backgroundColor: alpha(colors.primary, 0.1),
-                      color: colors.primary,
-                      fontWeight: 600,
-                    }}
-                  />
-                  <Chip
-                    icon={<CropOriginalIcon fontSize="small" />}
-                    label="Recommended: 400x400px"
-                    size="small"
-                    sx={{
-                      backgroundColor: alpha(colors.secondary, 0.5),
-                      color: colors.textSecondary,
-                      fontWeight: 600,
-                    }}
-                  />
+            {/* ── BODY ── */}
+            <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+
+              {/* ── LEFT SIDEBAR ── */}
+              <Box sx={{
+                width: 258, flexShrink: 0, bgcolor: PANEL,
+                borderRight: `2px solid ${alpha(P, 0.12)}`,
+                display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden',
+              }}>
+                <Box sx={{
+                  px: 3, py: 2.5,
+                  borderBottom: `1px solid ${alpha(P, 0.1)}`,
+                  background: `linear-gradient(135deg, ${alpha(P, 0.07)} 0%, ${alpha(P, 0.02)} 100%)`,
+                  flexShrink: 0,
+                }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.75 }}>
+                    <Box sx={{ position: 'relative', flexShrink: 0 }}>
+                      <Avatar src={profileSrc} onClick={() => setEditImgZoom(true)}
+                        sx={{ width: 44, height: 44, border: `2px solid ${PANEL}`, boxShadow: `0 3px 10px ${alpha(P, 0.22)}`, cursor: 'pointer', transition: 'transform 0.2s', '&:hover': { transform: 'scale(1.06)' } }}>
+                        {!profilePicture && <PersonIcon sx={{ fontSize: 22, color: P }} />}
+                      </Avatar>
+                    </Box>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography sx={{ fontWeight: 900, fontSize: '0.82rem', color: P, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fullName}</Typography>
+                      <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', color: MUTED }}>
+                        {person?.agencyEmployeeNum ? `#${person.agencyEmployeeNum}` : '—'}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                    <input accept="image/*" id="pic-modal" type="file" style={{ display: 'none' }} onChange={handlePicture} />
+                    <label htmlFor="pic-modal" style={{ display: 'block' }}>
+                      <Btn component="span" sm fullWidth startIcon={<CloudUploadIcon sx={{ fontSize: 13 }} />}>Upload Photo</Btn>
+                    </label>
+                    <Btn sm outline fullWidth startIcon={<DeleteIcon sx={{ fontSize: 13 }} />} onClick={handleRemovePic}>Remove Photo</Btn>
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 0.6, mt: 1.25, flexWrap: 'wrap' }}>
+                    <Chip icon={<PhotoSizeSelectActualIcon sx={{ fontSize: '11px !important' }} />} label="High Quality" size="small" sx={{ bgcolor: alpha(P, 0.08), color: P, fontWeight: 700, fontSize: '0.6rem', height: 18 }} />
+                    <Chip icon={<CropOriginalIcon sx={{ fontSize: '11px !important' }} />} label="400×400px" size="small" sx={{ bgcolor: SUBTLE, color: MUTED, fontWeight: 700, fontSize: '0.6rem', height: 18 }} />
+                  </Box>
                 </Box>
-              </EditModalPictureInfo>
-              <EditModalPictureActions>
-                <input
-                  accept="image/*"
-                  id="profile-picture-upload-modal"
-                  type="file"
-                  style={{ display: 'none' }}
-                  onChange={handlePictureChange}
-                />
-                <label htmlFor="profile-picture-upload-modal">
-                  <ActionButton
-                    component="span"
-                    variant="contained"
-                    startIcon={<CloudUploadIcon />}
-                    fullWidth
-                  >
-                    Upload Photo
-                  </ActionButton>
-                </label>
-                <ActionButton
-                  variant="outlined"
-                  startIcon={<DeleteIcon />}
-                  onClick={handleRemovePicture}
-                  fullWidth
-                >
-                  Remove Photo
-                </ActionButton>
-              </EditModalPictureActions>
-            </EditModalPictureSection>
-
-            <ModalBody>
-              <Box sx={{ mb: 3 }}>
-                <CustomTabs
-                  value={currentSectionIndex}
-                  onChange={handleTabChange}
-                  variant="scrollable"
-                  scrollButtons="auto"
-                >
-                  {tabs.map((tab) => (
-                    <CustomTab
-                      key={tab.key}
-                      label={tab.label}
-                      icon={tab.icon}
-                      iconPosition="start"
-                    />
-                  ))}
-                </CustomTabs>
+                <Box sx={{ mx: 2.5, my: 1.75, px: 2, py: 1.1, bgcolor: alpha(P, 0.06), borderRadius: 1.5, border: `1px solid ${alpha(P, 0.16)}`, flexShrink: 0 }}>
+                  <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.54rem', color: alpha(P, 0.45), textTransform: 'uppercase', letterSpacing: '0.1em', mb: 0.25 }}>Editing Section</Typography>
+                  <Typography sx={{ fontWeight: 900, fontSize: '0.78rem', color: P }}>{currentNav.title}</Typography>
+                </Box>
+                <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.54rem', fontWeight: 700, color: alpha(P, 0.32), letterSpacing: '0.14em', textTransform: 'uppercase', px: 3, pb: 0.5 }}>
+                  Sections
+                </Typography>
+                <Box sx={{
+                  flex: 1, overflowY: 'auto', pb: 1,
+                  '&::-webkit-scrollbar': { width: 3 },
+                  '&::-webkit-scrollbar-thumb': { bgcolor: alpha(P, 0.2), borderRadius: 2 },
+                }}>
+                  {NAV.map(({ key, label, icon: Icon }) => {
+                    const active = activeSection === key;
+                    return (
+                      <Box key={key} onClick={() => setActiveSection(key)} sx={{
+                        display: 'flex', alignItems: 'center', gap: 1.75,
+                        px: 3, py: 1.25, cursor: 'pointer',
+                        borderLeft: active ? `3px solid ${P}` : '3px solid transparent',
+                        bgcolor: active ? alpha(P, 0.09) : 'transparent',
+                        transition: 'all 0.14s ease',
+                        '&:hover': { bgcolor: active ? alpha(P, 0.09) : alpha(P, 0.04) },
+                      }}>
+                        <Icon sx={{ fontSize: 15, color: active ? P : alpha(P, 0.35), flexShrink: 0 }} />
+                        <Typography sx={{ fontSize: '0.82rem', fontWeight: active ? 700 : 500, color: active ? P : MUTED, flex: 1 }}>{label}</Typography>
+                        {active && <KeyboardArrowRightIcon sx={{ fontSize: 13, color: alpha(P, 0.4) }} />}
+                      </Box>
+                    );
+                  })}
+                </Box>
+                <Box sx={{ px: 3, py: 1.75, borderTop: `1px solid ${alpha(P, 0.08)}`, flexShrink: 0, bgcolor: alpha(P, 0.015) }}>
+                  <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.58rem', color: alpha(P, 0.38) }}>Personal Data Sheet | PDS · HRIS</Typography>
+                </Box>
               </Box>
 
-              {renderFormFields()}
-            </ModalBody>
+              {/* ── RIGHT FORM AREA ── */}
+              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: PANEL }}>
+                <Box sx={{
+                  px: 4, py: 2.5,
+                  bgcolor: PANEL,
+                  borderBottom: `1px solid ${BD}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  flexShrink: 0,
+                }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Avatar sx={{ bgcolor: alpha(P, 0.1), width: 42, height: 42 }}>
+                      {React.createElement(currentNav.icon, { sx: { color: P, fontSize: 20 } })}
+                    </Avatar>
+                    <Box>
+                      <Typography sx={{ fontWeight: 900, fontSize: '0.95rem', color: P, lineHeight: 1.2 }}>{currentNav.title}</Typography>
+                      <Typography sx={{ fontSize: '0.72rem', color: MUTED }}>{currentNav.subtitle}</Typography>
+                    </Box>
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 0.75 }}>
+                    <IconButton size="small" disabled={activeSection === 0} onClick={() => setActiveSection(s => s - 1)}
+                      sx={{ width: 30, height: 30, border: `1px solid ${BD}`, borderRadius: 1.5, bgcolor: PANEL, '&:hover': { borderColor: P, color: P }, '&:disabled': { opacity: 0.3 } }}>
+                      <ArrowBackIosIcon sx={{ fontSize: 11 }} />
+                    </IconButton>
+                    <IconButton size="small" disabled={activeSection === NAV.length - 1} onClick={() => setActiveSection(s => s + 1)}
+                      sx={{ width: 30, height: 30, border: `1px solid ${BD}`, borderRadius: 1.5, bgcolor: PANEL, '&:hover': { borderColor: P, color: P }, '&:disabled': { opacity: 0.3 } }}>
+                      <ArrowForwardIosIcon sx={{ fontSize: 11 }} />
+                    </IconButton>
+                  </Box>
+                </Box>
 
-            <Box
-              sx={{
-                position: 'sticky',
-                bottom: 0,
-                backgroundColor: colors.surface,
-                padding: theme.spacing(2),
-                borderTop: `1px solid ${colors.border}`,
-                display: 'flex',
-                justifyContent: 'flex-end',
-                gap: theme.spacing(2),
-                boxShadow: '0 -2px 8px rgba(0,0,0,0.08)',
-              }}
-            >
-              <ActionButton variant="outlined" onClick={handleEditClose}>
-                Cancel
-              </ActionButton>
-              <ActionButton
-                variant="contained"
-                onClick={handleSave}
-                startIcon={<SaveIcon />}
-              >
-                Save Changes
-              </ActionButton>
+                {/* Scrollable form body */}
+                <Box sx={{
+                  flex: 1, overflowY: 'auto', bgcolor: PANEL,
+                  px: { xs: 3, md: 4 }, py: { xs: 2.5, md: 3 },
+                  '&::-webkit-scrollbar': { width: 4 },
+                  '&::-webkit-scrollbar-thumb': { bgcolor: alpha(P, 0.15), borderRadius: 2 },
+                }}>
+                  {renderEdit()}
+                </Box>
+
+                {/* Footer actions */}
+                <Box sx={{
+                  px: 3, py: 2,
+                  borderTop: `1px solid ${BD}`,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  bgcolor: PANEL, flexShrink: 0,
+                  boxShadow: '0 -2px 8px rgba(0,0,0,0.05)',
+                }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <SaveIcon sx={{ fontSize: 14, color: alpha(P, 0.4) }} />
+                    <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', color: MUTED }}>
+                      Changes will be saved to Personal Data Sheet | PDS
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1.25 }}>
+                    <Btn outline onClick={() => setEditOpen(false)}>Cancel</Btn>
+                    <Btn onClick={handleSave} disabled={saving} startIcon={<SaveIcon sx={{ fontSize: 15 }} />}>
+                      {saving ? 'Saving…' : 'Save Changes'}
+                    </Btn>
+                  </Box>
+                </Box>
+              </Box>
             </Box>
-          </ModalContainer>
+          </Box>
         </Backdrop>
       </Modal>
 
-      {/* Image Preview Modals */}
-      <ImagePreviewModal
-        open={imageZoomOpen}
-        onClose={handleImageZoomClose}
-        closeAfterTransition
-        BackdropComponent={Backdrop}
-        BackdropProps={{
-          timeout: 500,
-        }}
-      >
-        <Backdrop open={imageZoomOpen} onClick={handleImageZoomClose}>
-          <ImagePreviewContainer onClick={(e) => e.stopPropagation()}>
-            <ImagePreviewContent>
-              <PreviewImage
-                src={
-                  profilePicture
-                    ? `${API_BASE_URL}${profilePicture}?t=${Date.now()}`
-                    : undefined
-                }
-                alt="Profile Picture Preview"
-              />
-              <ImagePreviewActions>
-                <ImagePreviewButton
-                  onClick={() => {
-                    const link = document.createElement('a');
-                    link.href = profilePicture
-                      ? `${API_BASE_URL}${profilePicture}?t=${Date.now()}`
-                      : '';
-                    link.download = 'profile-picture.jpg';
-                    link.click();
-                  }}
-                  title="Download"
-                >
-                  <DownloadIcon />
-                </ImagePreviewButton>
-                <ImagePreviewButton
-                  onClick={() => {
-                    if (navigator.share) {
-                      navigator.share({
-                        title: 'Profile Picture',
-                        url: profilePicture
-                          ? `${API_BASE_URL}${profilePicture}?t=${Date.now()}`
-                          : '',
-                      });
-                    }
-                  }}
-                  title="Share"
-                >
-                  <ShareIcon />
-                </ImagePreviewButton>
-                <ImagePreviewButton
-                  onClick={handleImageZoomClose}
-                  title="Close"
-                >
-                  <CloseIcon />
-                </ImagePreviewButton>
-              </ImagePreviewActions>
-            </ImagePreviewContent>
-          </ImagePreviewContainer>
-        </Backdrop>
-      </ImagePreviewModal>
+      {/* ══ IMAGE ZOOM MODALS ═════════════════════════════════════════════ */}
+      {[{ open: imageZoomOpen, onClose: () => setImageZoomOpen(false) }, { open: editImgZoom, onClose: () => setEditImgZoom(false) }].map(({ open, onClose }, mi) => (
+        <Modal key={mi} open={open} onClose={onClose} closeAfterTransition BackdropComponent={Backdrop} BackdropProps={{ timeout: 500, sx: { bgcolor: 'rgba(0,0,0,0.92)' } }}>
+          <Backdrop open={open} onClick={onClose}>
+            <Box onClick={e => e.stopPropagation()} sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', maxWidth: '90vw', maxHeight: '90vh', outline: 'none' }}>
+              <Box sx={{ position: 'relative' }}>
+                <Box component="img" src={profileSrc} alt="Profile" sx={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: 2, boxShadow: '0 25px 60px rgba(0,0,0,0.5)', objectFit: 'contain', display: 'block' }} />
+              
+              </Box>
+            </Box>
+          </Backdrop>
+        </Modal>
+      ))}
 
-      <ImagePreviewModal
-        open={editImageZoomOpen}
-        onClose={handleEditImageZoomClose}
-        closeAfterTransition
-        BackdropComponent={Backdrop}
-        BackdropProps={{
-          timeout: 500,
-        }}
-      >
-        <Backdrop open={editImageZoomOpen} onClick={handleEditImageZoomClose}>
-          <ImagePreviewContainer onClick={(e) => e.stopPropagation()}>
-            <ImagePreviewContent>
-              <PreviewImage
-                src={
-                  profilePicture
-                    ? `${API_BASE_URL}${profilePicture}?t=${Date.now()}`
-                    : undefined
-                }
-                alt="Profile Picture Preview"
-              />
-              <ImagePreviewActions>
-                <ImagePreviewButton
-                  onClick={() => {
-                    const link = document.createElement('a');
-                    link.href = profilePicture
-                      ? `${API_BASE_URL}${profilePicture}?t=${Date.now()}`
-                      : '';
-                    link.download = 'profile-picture.jpg';
-                    link.click();
-                  }}
-                  title="Download"
-                >
-                  <DownloadIcon />
-                </ImagePreviewButton>
-                <ImagePreviewButton
-                  onClick={() => {
-                    if (navigator.share) {
-                      navigator.share({
-                        title: 'Profile Picture',
-                        url: profilePicture
-                          ? `${API_BASE_URL}${profilePicture}?t=${Date.now()}`
-                          : '',
-                      });
-                    }
-                  }}
-                  title="Share"
-                >
-                  <ShareIcon />
-                </ImagePreviewButton>
-                <ImagePreviewButton
-                  onClick={handleEditImageZoomClose}
-                  title="Close"
-                >
-                  <CloseIcon />
-                </ImagePreviewButton>
-              </ImagePreviewActions>
-            </ImagePreviewContent>
-          </ImagePreviewContainer>
-        </Backdrop>
-      </ImagePreviewModal>
-
-      <Snackbar
-        open={notificationOpen}
-        autoHideDuration={5000}
-        onClose={handleNotificationClose}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-      >
-        <Notification
-          variant={uploadStatus.type}
-          message={uploadStatus.message}
-          action={
-            <IconButton
-              size="small"
-              color="inherit"
-              onClick={handleNotificationClose}
-            >
-              <CloseIcon fontSize="small" />
-            </IconButton>
-          }
-        />
-      </Snackbar>
-
-      {trigger && (
-        <FloatingButton onClick={scrollToTop} aria-label="scroll back to top">
-          <KeyboardArrowUpIcon />
-        </FloatingButton>
+      {/* ══ TOAST ═════════════════════════════════════════════════════════ */}
+      {toast.open && (
+        <Box sx={{ position: 'fixed', bottom: 28, right: SIDEBAR_W + 16, zIndex: 1500, animation: 'sectionIn 0.25s ease' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2.5, py: 1.75, bgcolor: '#1e1e2e', border: `1px solid ${alpha(P, 0.3)}`, borderRadius: 2.5, boxShadow: '0 8px 32px rgba(0,0,0,0.25)', minWidth: 280 }}>
+            <Box sx={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+              bgcolor: toast.severity === 'success' ? '#22c55e' : toast.severity === 'error' ? '#ef4444' : '#3b82f6',
+              boxShadow: toast.severity === 'success' ? '0 0 8px #22c55e' : toast.severity === 'error' ? '0 0 8px #ef4444' : '0 0 8px #3b82f6' }} />
+            <Typography sx={{ fontSize: '0.875rem', color: '#fff', flex: 1, fontWeight: 600 }}>{toast.message}</Typography>
+            <IconButton size="small" onClick={() => setToast(p => ({ ...p, open: false }))} sx={{ color: 'rgba(255,255,255,0.4)', p: 0.25, '&:hover': { color: '#fff' } }}><CloseIcon sx={{ fontSize: 13 }} /></IconButton>
+          </Box>
+        </Box>
       )}
-    </ProfileWrapper>
+    </Box>
   );
 };
 

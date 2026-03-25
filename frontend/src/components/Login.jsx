@@ -16,8 +16,6 @@ import {
   Dialog,
   Checkbox,
   FormControlLabel,
-  Grid,
-  Fade,
 } from "@mui/material";
 import {
   BadgeOutlined,
@@ -44,6 +42,7 @@ import logo from "../assets/logo.PNG";
 import bg from "../assets/EaristBG.PNG";
 
 // ─── Expiry helpers ───────────────────────────────────────────────────────────
+// For HOLIDAYS: true only if today falls within [date_start, date_end].
 const isHolidayActive = (date_start, date_end, fallbackDate) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -58,6 +57,7 @@ const isHolidayActive = (date_start, date_end, fallbackDate) => {
   return true;
 };
 
+// For ANNOUNCEMENTS / SUSPENSIONS: show unless date_end is explicitly set and already past.
 const isNotExpired = (date_end) => {
   if (!date_end) return true;
   const today = new Date();
@@ -71,7 +71,7 @@ const isNotExpired = (date_end) => {
 const buildCarouselItems = (announcements = [], suspensions = [], rawHolidays = []) => {
   const holidayItems = rawHolidays
     .filter((h) => (h.status || "").toLowerCase() === "active")
-    .filter((h) => isHolidayActive(h.date_start || h.date, h.date_end || h.date, h.date))
+.filter((h) => isNotExpired(h.date_end || h.date))
     .map((h) => ({
       id: `holiday-${h.id}`,
       type: "HOLIDAY",
@@ -117,158 +117,6 @@ const getTypeLabel = (type) => {
   return "Announcement";
 };
 
-// ─── Shimmer keyframes + SkeletonBox ─────────────────────────────────────────
-
-const loginShimmerKeyframes = `
-@keyframes loginShimmer {
-  0%   { background-position: -800px 0; }
-  100% { background-position:  800px 0; }
-}
-@keyframes loginPulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.55; }
-}
-@keyframes loginCardFloat {
-  0%, 100% { transform: translateY(0px); }
-  50%       { transform: translateY(-6px); }
-}
-`;
-
-const SkeletonBox = ({ width = "100%", height = 16, borderRadius = 8, sx = {}, dark = false }) => (
-  <Box
-    sx={{
-      width,
-      height,
-      borderRadius: `${borderRadius}px`,
-      background: dark
-        ? "linear-gradient(90deg,rgba(255,255,255,0.08) 25%,rgba(255,255,255,0.18) 50%,rgba(255,255,255,0.08) 75%)"
-        : "linear-gradient(90deg,rgba(128,0,32,0.10) 25%,rgba(128,0,32,0.20) 50%,rgba(128,0,32,0.10) 75%)",
-      backgroundSize: "800px 100%",
-      animation: "loginShimmer 1.6s infinite linear",
-      flexShrink: 0,
-      ...sx,
-    }}
-  />
-);
-
-// ─── LoginWireframeLoading ────────────────────────────────────────────────────
-
-const LoginWireframeLoading = () => (
-  <>
-    <style>{loginShimmerKeyframes}</style>
-
-    {/* Background shimmer layer */}
-    <Box sx={{
-      position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
-      bgcolor: "#1a0a0a", zIndex: 0,
-    }} />
-
-    <Box sx={{
-      position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      zIndex: 10, gap: 4, px: 4,
-    }}>
-
-      {/* LEFT — Carousel skeleton cards (scrolling strip) */}
-      <Box sx={{
-        width: "100%", maxWidth: 800, overflow: "hidden", position: "relative",
-        display: "flex", gap: 2, animation: "loginPulse 2s ease-in-out infinite",
-      }}>
-        {[...Array(3)].map((_, i) => (
-          <Box
-            key={i}
-            sx={{
-              flex: "0 0 650px", height: 560, borderRadius: 3, overflow: "hidden",
-              position: "relative",
-              animation: `loginCardFloat ${3 + i * 0.4}s ease-in-out ${i * 0.2}s infinite`,
-            }}
-          >
-            {/* Card image shimmer */}
-            <SkeletonBox
-              dark
-              width="100%" height="100%" borderRadius={12}
-              sx={{ background: `linear-gradient(90deg,rgba(255,255,255,0.04) 25%,rgba(255,255,255,0.10) 50%,rgba(255,255,255,0.04) 75%)`, backgroundSize: "800px 100%" }}
-            />
-            {/* Bottom overlay */}
-            <Box sx={{
-              position: "absolute", bottom: 0, left: 0, right: 0,
-              bgcolor: "rgba(0,0,0,0.55)", p: 2,
-            }}>
-              {/* Type badge */}
-              <Box sx={{ width: 80, height: 22, borderRadius: 11, bgcolor: "rgba(128,0,32,0.5)", mb: 1, animation: "loginShimmer 1.6s infinite linear", backgroundSize: "800px 100%", background: "linear-gradient(90deg,rgba(128,0,32,0.3) 25%,rgba(165,42,42,0.5) 50%,rgba(128,0,32,0.3) 75%)" }} />
-              <SkeletonBox dark width="75%" height={18} borderRadius={4} sx={{ mb: 1 }} />
-              <SkeletonBox dark width="45%" height={13} borderRadius={3} />
-            </Box>
-          </Box>
-        ))}
-      </Box>
-
-      {/* RIGHT — Login form skeleton */}
-      <Container maxWidth="sm" sx={{ position: "relative", flexShrink: 0 }}>
-        <Box sx={{
-          padding: { xs: 3, md: 3 },
-          borderRadius: 4,
-          textAlign: "center",
-          background: "rgba(255,248,231,0.85)",
-          backdropFilter: "blur(15px)",
-          boxShadow: "0 15px 40px rgba(128,0,32,0.2)",
-          border: "1px solid rgba(128,0,32,0.15)",
-          animation: "loginPulse 2s ease-in-out 0.1s infinite",
-        }}>
-          {/* Logo circle */}
-          <Box sx={{
-            width: 100, height: 100, borderRadius: "50%", margin: "0 auto",
-            mb: 2.5,
-            background: "linear-gradient(90deg,rgba(128,0,32,0.10) 25%,rgba(128,0,32,0.20) 50%,rgba(128,0,32,0.10) 75%)",
-            backgroundSize: "800px 100%",
-            animation: "loginShimmer 1.6s infinite linear",
-          }} />
-
-          {/* Title lines */}
-          <SkeletonBox width="80%" height={28} borderRadius={6} sx={{ mx: "auto", mb: 1.5 }} />
-          <SkeletonBox width="55%" height={16} borderRadius={4} sx={{ mx: "auto", mb: 3 }} />
-
-          {/* Employee number field */}
-          <Box sx={{
-            height: 56, borderRadius: 2, border: "1px solid rgba(0,0,0,0.15)",
-            bgcolor: "#fff", mb: 3, display: "flex", alignItems: "center", px: 1.5, gap: 1,
-          }}>
-            <Box sx={{ width: 22, height: 22, borderRadius: "50%", bgcolor: "rgba(163,29,29,0.15)", flexShrink: 0 }} />
-            <SkeletonBox width="60%" height={14} borderRadius={4} />
-          </Box>
-
-          {/* Password field */}
-          <Box sx={{
-            height: 56, borderRadius: 2, border: "1px solid rgba(0,0,0,0.15)",
-            bgcolor: "#fff", mb: 1, display: "flex", alignItems: "center", px: 1.5, gap: 1,
-          }}>
-            <Box sx={{ width: 22, height: 22, borderRadius: "50%", bgcolor: "rgba(163,29,29,0.15)", flexShrink: 0 }} />
-            <SkeletonBox width="40%" height={14} borderRadius={4} />
-          </Box>
-
-          {/* Password tip */}
-          <SkeletonBox width="85%" height={11} borderRadius={3} sx={{ mb: 2 }} />
-
-          {/* Forgot password link */}
-          <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
-            <SkeletonBox width={110} height={12} borderRadius={3} />
-          </Box>
-
-          {/* Sign In button */}
-          <Box sx={{
-            height: 56, borderRadius: 2, mb: 1,
-            background: "linear-gradient(135deg, rgba(128,0,32,0.5), rgba(165,42,42,0.5))",
-            animation: "loginShimmer 1.6s infinite linear",
-            backgroundSize: "800px 100%",
-          }} />
-        </Box>
-      </Container>
-    </Box>
-  </>
-);
-
-// ─── Login ────────────────────────────────────────────────────────────────────
-
 const Login = () => {
   const [showIntro, setShowIntro] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
@@ -294,9 +142,6 @@ const Login = () => {
   const [rawHolidays, setRawHolidays] = useState([]);
   const [suspensions, setSuspensions] = useState([]);
 
-  // ── Page loading (true until carousel data fetch resolves) ─────────────────
-  const [pageLoading, setPageLoading] = useState(true);
-
   const [currentSlide, setCurrentSlide] = useState(0);
   const [calendarDate, setCalendarDate] = useState(new Date());
   const year = calendarDate.getFullYear();
@@ -312,6 +157,7 @@ const Login = () => {
   const [dashWarning, setDashWarning] = useState("");
   const [dontRemindToday, setDontRemindToday] = useState(false);
 
+  // Login attempt tracking
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [isLoginLocked, setIsLoginLocked] = useState(false);
   const [loginLockTimer, setLoginLockTimer] = useState(0);
@@ -323,6 +169,7 @@ const Login = () => {
   const mediumText = "#800020";
   const placeholderGray = "rgba(0, 0, 0, 0.45)";
 
+  // ── Combined carousel items (Announcements + Holidays + Suspensions) ───────
   const carouselItems = useMemo(
     () => buildCarouselItems(announcements, suspensions, rawHolidays),
     [announcements, suspensions, rawHolidays]
@@ -338,6 +185,21 @@ const Login = () => {
     };
   }, []);
 
+  // ── Dismiss intro slide on Space or Enter key ──────────────────────────────
+  useEffect(() => {
+    if (!showIntro) return;
+    const handleKeyDown = (e) => {
+      if (e.code === "Space" || e.code === "Enter") {
+        e.preventDefault();
+        const introEl = document.getElementById("introSlide");
+        if (introEl) introEl.style.transform = "translateY(-100%)";
+        setTimeout(() => setShowIntro(false), 800);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showIntro]);
+
   const employeeNumberForRequests = useMemo(
     () => resolvedEmployeeNumber || employeeNumber,
     [resolvedEmployeeNumber, employeeNumber]
@@ -348,6 +210,7 @@ const Login = () => {
     return () => clearInterval(timer);
   }, []);
 
+  // Check for existing login lock on mount
   useEffect(() => {
     const lockData = localStorage.getItem("loginLockData");
     if (lockData) {
@@ -377,7 +240,7 @@ const Login = () => {
     }
   }, []);
 
-  // ── Fetch carousel data — reveal UI when done ─────────────────────────────
+  // ── Fetch Announcements, Holidays, and Suspensions ────────────────────────
   useEffect(() => {
     const fetchAll = async () => {
       try {
@@ -398,14 +261,12 @@ const Login = () => {
         }
       } catch (error) {
         console.error("Error fetching carousel data:", error);
-      } finally {
-        // Always reveal the page even if fetches fail
-        setTimeout(() => setPageLoading(false), 350);
       }
     };
 
     fetchAll();
 
+    // Poll every 60 seconds so new items / expirations reflect without page refresh
     const interval = setInterval(fetchAll, 60_000);
     return () => clearInterval(interval);
   }, []);
@@ -425,7 +286,12 @@ const Login = () => {
     if (isLocked && lockTimer > 0) {
       interval = setInterval(() => {
         setLockTimer((prev) => {
-          if (prev <= 1) { setIsLocked(false); setAttempts(0); setTwoFactorError(""); return 0; }
+          if (prev <= 1) {
+            setIsLocked(false);
+            setAttempts(0);
+            setTwoFactorError("");
+            return 0;
+          }
           return prev - 1;
         });
       }, 1000);
@@ -439,7 +305,13 @@ const Login = () => {
     if (isLoginLocked && loginLockTimer > 0) {
       interval = setInterval(() => {
         setLoginLockTimer((prev) => {
-          if (prev <= 1) { setIsLoginLocked(false); setLoginAttempts(0); localStorage.removeItem("loginLockData"); setErrorMessage(""); return 0; }
+          if (prev <= 1) {
+            setIsLoginLocked(false);
+            setLoginAttempts(0);
+            localStorage.removeItem("loginLockData");
+            setErrorMessage("");
+            return 0;
+          }
           return prev - 1;
         });
       }, 1000);
@@ -454,6 +326,7 @@ const Login = () => {
     return () => clearInterval(interval);
   }, [codeTimer]);
 
+  // Auto-hide login error after 3 seconds
   useEffect(() => {
     if (errMessage && !isLoginLocked) {
       const timer = setTimeout(() => setErrorMessage(""), 3000);
@@ -764,492 +637,488 @@ const Login = () => {
     />
   ));
 
-  // ── Show skeleton until carousel data is ready ────────────────────────────
-  if (pageLoading) {
-    return <LoginWireframeLoading />;
-  }
-
   return (
-    <Fade in timeout={500}>
-      <Box>
-        <Box
-          sx={{
-            position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
-            backgroundImage: `url(${bg})`, backgroundSize: "cover",
-            backgroundPosition: "center", backgroundRepeat: "no-repeat",
-            animation: "zoomPulse 20s ease-in-out infinite",
-            "@keyframes zoomPulse": {
-              "0%, 100%": { transform: "scale(1)" },
-              "50%": { transform: "scale(1.05)" },
-            },
-          }}
-        />
-        <Box
-          sx={{
-            position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
-            backgroundColor: "rgba(0, 0, 0, 0.9)",
-            animation: "subtlePulse 8s ease-in-out infinite",
-            "@keyframes subtlePulse": {
-              "0%, 100%": { opacity: 0.75 },
-              "50%": { opacity: 0.7 },
-            },
-          }}
-        />
+    <>
+      <Box
+        sx={{
+          position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
+          backgroundImage: `url(${bg})`, backgroundSize: "cover",
+          backgroundPosition: "center", backgroundRepeat: "no-repeat",
+          animation: "zoomPulse 20s ease-in-out infinite",
+          "@keyframes zoomPulse": {
+            "0%, 100%": { transform: "scale(1)" },
+            "50%": { transform: "scale(1.05)" },
+          },
+        }}
+      />
+      <Box
+        sx={{
+          position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
+          backgroundColor: "rgba(0, 0, 0, 0.9)",
+          animation: "subtlePulse 8s ease-in-out infinite",
+          "@keyframes subtlePulse": {
+            "0%, 100%": { opacity: 0.75 },
+            "50%": { opacity: 0.7 },
+          },
+        }}
+      />
 
-        <Box sx={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", overflow: "hidden", zIndex: 10 }}>
-          <LoadingOverlay open={loading} message="Please wait..." />
+      <Box sx={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", overflow: "hidden", zIndex: 10 }}>
+        <LoadingOverlay open={loading} message="Please wait..." />
 
-          <Box sx={{ height: "100vh", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+        <Box sx={{ height: "100vh", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
 
-            {/* ── LEFT SIDE — Combined Carousel ── */}
-            <Box sx={{ width: "100%", maxWidth: 800, mx: "auto", py: 2, overflow: "hidden", position: "relative" }}>
-              {carouselItems.length > 0 ? (
-                <Box
-                  sx={{
-                    display: "flex",
-                    gap: 2,
-                    width: "max-content",
-                    animation: `slide ${Math.max(carouselItems.length * 5, 15)}s linear infinite`,
-                    "&:hover": { animationPlayState: "paused" },
-                  }}
-                >
-                  {[...carouselItems, ...carouselItems].map((item, idx) => (
-                    <Box
-                      key={`${item.id}-${idx}`}
-                      sx={{
-                        flex: "0 0 650px",
-                        borderRadius: 3,
-                        overflow: "hidden",
-                        cursor: "pointer",
-                        position: "relative",
-                        boxShadow: "0 8px 20px rgba(0,0,0,0.3)",
-                        transition: "transform 0.3s, box-shadow 0.3s",
-                        "&:hover": {
-                          transform: "scale(1.05)",
-                          boxShadow: "0 12px 30px rgba(0,0,0,0.5)",
-                        },
-                      }}
-                    >
-                      <Box
-                        component="img"
-                        src={item.image ? `${API_BASE_URL}${item.image}` : "/api/placeholder/350/300"}
-                        alt={item.title || item.type}
-                        sx={{
-                          width: "100%",
-                          height: 560,
-                          objectFit: "cover",
-                          borderRadius: 2,
-                          filter: "brightness(0.65)",
-                          transition: "transform 0.3s, filter 0.3s",
-                          "&:hover": { filter: "brightness(0.55)" },
-                        }}
-                      />
-                      <Box
-                        sx={{
-                          position: "absolute",
-                          bottom: 0,
-                          width: "100%",
-                          bgcolor: "rgba(0,0,0,0.55)",
-                          color: "#fff",
-                          p: 2,
-                          textAlign: "left",
-                        }}
-                      >
-                        <Box sx={{ mb: 0.5 }}>
-                          <Chip
-                            size="small"
-                            label={getTypeLabel(item.type)}
-                            icon={
-                              item.type === "HOLIDAY" ? (
-                                <EventIcon sx={{ fontSize: "14px !important", color: "#fff !important" }} />
-                              ) : item.type === "SUSPENSION" ? (
-                                <BlockIcon sx={{ fontSize: "14px !important", color: "#fff !important" }} />
-                              ) : (
-                                <AnnouncementIcon sx={{ fontSize: "14px !important", color: "#fff !important" }} />
-                              )
-                            }
-                            sx={{
-                              bgcolor:
-                                item.type === "HOLIDAY"
-                                  ? "rgba(237,108,2,0.8)"
-                                  : item.type === "SUSPENSION"
-                                  ? "rgba(211,47,47,0.8)"
-                                  : "rgba(128,0,32,0.8)",
-                              color: "#fff",
-                              fontWeight: 700,
-                              fontSize: "0.65rem",
-                              height: 22,
-                              backdropFilter: "blur(4px)",
-                              "& .MuiChip-icon": { color: "#fff" },
-                            }}
-                          />
-                        </Box>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.3 }}>
-                          {item.title}
-                        </Typography>
-                        <Typography variant="body2" sx={{ opacity: 0.85 }}>
-                          {item.date ? new Date(item.date).toDateString() : ""}
-                        </Typography>
-                      </Box>
-                    </Box>
-                  ))}
-                </Box>
-              ) : (
-                <Typography variant="h6" sx={{ color: "rgba(255,255,255,0.5)", textAlign: "center", py: 4 }}>
-                  No announcements, holidays, or suspensions available
-                </Typography>
-              )}
-              <style>{`
-                @keyframes slide {
-                  0%   { transform: translateX(0); }
-                  100% { transform: translateX(-50%); }
-                }
-              `}</style>
-            </Box>
-
-            {/* ── RIGHT SIDE — Login Form ── */}
-            <Container maxWidth="sm" sx={{ position: "relative" }}>
-              <Paper
-                elevation={24}
+          {/* ── LEFT SIDE — Combined Carousel (Announcements + Holidays + Suspensions) ── */}
+          <Box sx={{ width: "100%", maxWidth: 800, mx: "auto", py: 2, overflow: "hidden", position: "relative" }}>
+            {carouselItems.length > 0 ? (
+              <Box
                 sx={{
-                  padding: { xs: 3, md: 3 },
-                  borderRadius: 4,
-                  textAlign: "center",
-                  background: "rgba(255,248,231,0.85)",
-                  backdropFilter: "blur(15px)",
-                  boxShadow: "0 15px 40px rgba(128,0,32,0.2)",
-                  border: "1px solid rgba(128,0,32,0.15)",
-                  transition: "transform 0.6s ease, box-shadow 0.6s ease",
-                  "&:hover": {
-                    transform: "scale(1.03)",
-                    boxShadow: "0 25px 50px rgba(128,0,32,0.35)",
-                  },
+                  display: "flex",
+                  gap: 2,
+                  width: "max-content",
+                  animation: `slide ${Math.max(carouselItems.length * 5, 15)}s linear infinite`,
+                  "&:hover": { animationPlayState: "paused" },
                 }}
               >
-                <Box sx={{ width: 100, height: 100, margin: "0 auto 20px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <img src={logo} alt="Logo" style={{ width: "90%", height: "90%", objectFit: "contain" }} />
-                </Box>
-
-                <Typography variant="h4" sx={{ color: darkText, fontWeight: 800, mb: 1 }}>
-                  Human Resource Information System
-                </Typography>
-                <Typography sx={{ mb: 3, color: mediumText }}>Sign in to access your account</Typography>
-
-                <form onSubmit={handleLogin}>
-                  <TextField
-                    name="employeeNumber"
-                    placeholder="Employee Number"
-                    fullWidth
-                    value={employeeNumber}
-                    inputProps={{ maxLength: 20 }}
-                    disabled={isLoginLocked}
+                {/* Duplicate for seamless looping */}
+                {[...carouselItems, ...carouselItems].map((item, idx) => (
+                  <Box
+                    key={`${item.id}-${idx}`}
                     sx={{
-                      mb: 3,
-                      "& .MuiInputBase-input": { color: "#000" },
-                      "& .MuiInputBase-input::placeholder": { color: placeholderGray, opacity: 1 },
-                      "& .MuiOutlinedInput-root": {
-                        borderRadius: 2,
-                        background: "#fff",
-                        "& fieldset": { borderColor: placeholderGray },
-                        "&.Mui-focused fieldset": { borderColor: placeholderGray },
+                      flex: "0 0 650px",
+                      borderRadius: 3,
+                      overflow: "hidden",
+                      cursor: "pointer",
+                      position: "relative",
+                      boxShadow: "0 8px 20px rgba(0,0,0,0.3)",
+                      transition: "transform 0.3s, box-shadow 0.3s",
+                      "&:hover": {
+                        transform: "scale(1.05)",
+                        boxShadow: "0 12px 30px rgba(0,0,0,0.5)",
                       },
-                    }}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <BadgeOutlined sx={{ color: "#a31d1d", mr: 0.75 }} />
-                        </InputAdornment>
-                      ),
-                    }}
-                    onChange={handleEmployeeNumberChange}
-                  />
-                  <TextField
-                    name="password"
-                    placeholder="Password"
-                    fullWidth
-                    type={showPassword ? "text" : "password"}
-                    disabled={isLoginLocked}
-                    sx={{
-                      mb: 1,
-                      "& .MuiInputBase-input": { color: "#000" },
-                      "& .MuiInputBase-input::placeholder": { color: placeholderGray, opacity: 1 },
-                      "& .MuiOutlinedInput-root": {
-                        borderRadius: 2,
-                        background: "#fff",
-                        "& fieldset": { borderColor: placeholderGray },
-                        "&.Mui-focused fieldset": { borderColor: placeholderGray },
-                      },
-                    }}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <LockOutlined sx={{ color: "#a31d1d" }} />
-                        </InputAdornment>
-                      ),
-                    }}
-                    onChange={handleChanges}
-                  />
-
-                  <Typography
-                    variant="caption"
-                    display="block"
-                    sx={{
-                      textAlign: "left",
-                      color: "rgba(128, 0, 32, 0.6)",
-                      mb: 2,
-                      pl: 1,
-                      fontSize: "0.75rem",
-                      fontStyle: "italic",
-                      opacity: 0.8
                     }}
                   >
-                    If using the default password, enter it in ALL CAPS with NO SPACES.
-                  </Typography>
-
-                  <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "center", mb: 2 }}>
-                    <Link href="/forgot-password" underline="hover" sx={{ color: mediumText, flexShrink: 0 }}>
-                      Forgot password?
-                    </Link>
+                    <Box
+                      component="img"
+                      src={item.image ? `${API_BASE_URL}${item.image}` : "/api/placeholder/350/300"}
+                      alt={item.title || item.type}
+                      sx={{
+                        width: "100%",
+                        height: 560,
+                        objectFit: "cover",
+                        borderRadius: 2,
+                        filter: "brightness(0.65)",
+                        transition: "transform 0.3s, filter 0.3s",
+                        "&:hover": { filter: "brightness(0.55)" },
+                      }}
+                    />
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        bottom: 0,
+                        width: "100%",
+                        bgcolor: "rgba(0,0,0,0.55)",
+                        color: "#fff",
+                        p: 2,
+                        textAlign: "left",
+                      }}
+                    >
+                      {/* Type badge */}
+                      <Box sx={{ mb: 0.5 }}>
+                        <Chip
+                          size="small"
+                          label={getTypeLabel(item.type)}
+                          icon={
+                            item.type === "HOLIDAY" ? (
+                              <EventIcon sx={{ fontSize: "14px !important", color: "#fff !important" }} />
+                            ) : item.type === "SUSPENSION" ? (
+                              <BlockIcon sx={{ fontSize: "14px !important", color: "#fff !important" }} />
+                            ) : (
+                              <AnnouncementIcon sx={{ fontSize: "14px !important", color: "#fff !important" }} />
+                            )
+                          }
+                          sx={{
+                            bgcolor:
+                              item.type === "HOLIDAY"
+                                ? "rgba(237,108,2,0.8)"
+                                : item.type === "SUSPENSION"
+                                ? "rgba(211,47,47,0.8)"
+                                : "rgba(128,0,32,0.8)",
+                            color: "#fff",
+                            fontWeight: 700,
+                            fontSize: "0.65rem",
+                            height: 22,
+                            backdropFilter: "blur(4px)",
+                            "& .MuiChip-icon": { color: "#fff" },
+                          }}
+                        />
+                      </Box>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.3 }}>
+                        {item.title}
+                      </Typography>
+                      <Typography variant="body2" sx={{ opacity: 0.85 }}>
+                        {item.date ? new Date(item.date).toDateString() : ""}
+                      </Typography>
+                    </Box>
                   </Box>
-
-                  {errMessage && <Alert severity="error" sx={{ mb: 2 }}>{errMessage}</Alert>}
-
-                  {isLoginLocked && (
-                    <Alert severity="warning" icon={<AccessTimeIcon />} sx={{ mb: 2 }}>
-                      Too many attempts. Try again in {formatTime(loginLockTimer)}
-                    </Alert>
-                  )}
-
-                  {dashWarning && (
-                    <Alert severity="warning" sx={{ mb: 3, py: 0.5, fontSize: "0.8rem" }}>
-                      {dashWarning}
-                    </Alert>
-                  )}
-
-                  <Button
-                    type="submit"
-                    fullWidth
-                    variant="contained"
-                    disabled={isLoginLocked}
-                    startIcon={<LoginOutlined />}
-                    sx={{
-                      py: 1.8,
-                      mb: 1,
-                      background: isLoginLocked ? "rgba(128,0,32,0.3)" : primaryGradient,
-                      "&:hover": { background: isLoginLocked ? "rgba(128,0,32,0.3)" : primaryHoverGradient },
-                      opacity: isLoginLocked ? 0.6 : 1,
-                    }}
-                  >
-                    {isLoginLocked ? `Locked (${formatTime(loginLockTimer)})` : loading ? "Signing in..." : "Sign In"}
-                  </Button>
-                </form>
-              </Paper>
-            </Container>
+                ))}
+              </Box>
+            ) : (
+              <Typography variant="h6" sx={{ color: "rgba(255,255,255,0.5)", textAlign: "center", py: 4 }}>
+                No announcements, holidays, or suspensions available
+              </Typography>
+            )}
+            <style>{`
+              @keyframes slide {
+                0%   { transform: translateX(0); }
+                100% { transform: translateX(-50%); }
+              }
+            `}</style>
           </Box>
 
-          {/* ── Glassy Intro Slide ── */}
-          {showIntro && (
-            <Box
-              id="introSlide"
+          {/* ── RIGHT SIDE — Login Form ── */}
+          <Container maxWidth="sm" sx={{ position: "relative" }}>
+            <Paper
+              elevation={24}
+              sx={{
+                padding: { xs: 3, md: 3 },
+                borderRadius: 4,
+                textAlign: "center",
+                background: "rgba(255,248,231,0.85)",
+                backdropFilter: "blur(15px)",
+                boxShadow: "0 15px 40px rgba(128,0,32,0.2)",
+                border: "1px solid rgba(128,0,32,0.15)",
+                transition: "transform 0.6s ease, box-shadow 0.6s ease",
+                "&:hover": {
+                  transform: "scale(1.03)",
+                  boxShadow: "0 25px 50px rgba(128,0,32,0.35)",
+                },
+              }}
+            >
+              <Box sx={{ width: 100, height: 100, margin: "0 auto 20px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <img src={logo} alt="Logo" style={{ width: "90%", height: "90%", objectFit: "contain" }} />
+              </Box>
+
+              <Typography variant="h4" sx={{ color: darkText, fontWeight: 800, mb: 1 }}>
+                Human Resources Information System
+              </Typography>
+              <Typography sx={{ mb: 3, color: mediumText }}>Sign in to access your account</Typography>
+
+              <form onSubmit={handleLogin}>
+                <TextField
+                  name="employeeNumber"
+                  placeholder="Employee Number"
+                  fullWidth
+                  value={employeeNumber}
+                  inputProps={{ maxLength: 20 }}
+                  disabled={isLoginLocked}
+                  sx={{
+                    mb: 3,
+                    "& .MuiInputBase-input": { color: "#000" },
+                    "& .MuiInputBase-input::placeholder": { color: placeholderGray, opacity: 1 },
+                    "& .MuiOutlinedInput-root": {
+                      borderRadius: 2,
+                      background: "#fff",
+                      "& fieldset": { borderColor: placeholderGray },
+                      "&.Mui-focused fieldset": { borderColor: placeholderGray },
+                    },
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <BadgeOutlined sx={{ color: "#a31d1d", mr: 0.75 }} />
+                      </InputAdornment>
+                    ),
+                  }}
+                  onChange={handleEmployeeNumberChange}
+                />
+                <TextField
+                  name="password"
+                  placeholder="Password"
+                  fullWidth
+                  type={showPassword ? "text" : "password"}
+                  disabled={isLoginLocked}
+                  sx={{
+                    mb: 1,
+                    "& .MuiInputBase-input": { color: "#000" },
+                    "& .MuiInputBase-input::placeholder": { color: placeholderGray, opacity: 1 },
+                    "& .MuiOutlinedInput-root": {
+                      borderRadius: 2,
+                      background: "#fff",
+                      "& fieldset": { borderColor: placeholderGray },
+                      "&.Mui-focused fieldset": { borderColor: placeholderGray },
+                    },
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <LockOutlined sx={{ color: "#a31d1d" }} />
+                      </InputAdornment>
+                    ),
+                  }}
+                  onChange={handleChanges}
+                />
+                
+                {/* ── Conditional Password Tip (Subtle) ── */}
+                <Typography
+                  variant="caption"
+                  display="block"
+                  sx={{ 
+                    textAlign: "left", 
+                    color: "rgba(128, 0, 32, 0.6)", 
+                    mb: 2, 
+                    pl: 1,
+                    fontSize: "0.75rem", 
+                    fontStyle: "italic",
+                    opacity: 0.8
+                  }}
+                >
+                 If using the default password, enter it in ALL CAPS with NO SPACES.
+                </Typography>
+
+                <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "center", mb: 2 }}>
+                  <Link href="/forgot-password" underline="hover" sx={{ color: mediumText, flexShrink: 0 }}>
+                    Forgot password?
+                  </Link>
+                </Box>
+
+                {errMessage && <Alert severity="error" sx={{ mb: 2 }}>{errMessage}</Alert>}
+
+                {isLoginLocked && (
+                  <Alert severity="warning" icon={<AccessTimeIcon />} sx={{ mb: 2 }}>
+                    Too many attempts. Try again in {formatTime(loginLockTimer)}
+                  </Alert>
+                )}
+
+                {dashWarning && (
+                  <Alert severity="warning" sx={{ mb: 3, py: 0.5, fontSize: "0.8rem" }}>
+                    {dashWarning}
+                  </Alert>
+                )}
+
+                <Button
+                  type="submit"
+                  fullWidth
+                  variant="contained"
+                  disabled={isLoginLocked}
+                  startIcon={<LoginOutlined />}
+                  sx={{
+                    py: 1.8,
+                    mb: 1,
+                    background: isLoginLocked ? "rgba(128,0,32,0.3)" : primaryGradient,
+                    "&:hover": { background: isLoginLocked ? "rgba(128,0,32,0.3)" : primaryHoverGradient },
+                    opacity: isLoginLocked ? 0.6 : 1,
+                  }}
+                >
+                  {isLoginLocked ? `Locked (${formatTime(loginLockTimer)})` : loading ? "Signing in..." : "Sign In"}
+                </Button>
+              </form>
+            </Paper>
+          </Container>
+        </Box>
+
+        {/* ── Glassy Intro Slide ── */}
+        {showIntro && (
+          <Box
+            id="introSlide"
+            onClick={() => {
+              document.getElementById("introSlide").style.transform = "translateY(-100%)";
+              setTimeout(() => setShowIntro(false), 800);
+            }}
+            sx={{
+              position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
+              zIndex: 9999, display: "flex", justifyContent: "center", alignItems: "center",
+              background: "rgba(0, 0, 0, 0.35)", backdropFilter: "blur(15px)",
+              borderRadius: 2, overflow: "hidden", transform: "translateY(0%)",
+              transition: "transform 0.8s ease-in-out", cursor: "pointer", flexDirection: "column",
+            }}
+          >
+            {blobs}
+
+            <Box sx={{ textAlign: "center", px: 3, mb: 2 }} onClick={(e) => e.stopPropagation()}>
+              <Typography
+                variant="h1"
+                sx={{
+                  fontWeight: 900, mb: 2,
+                  background: "linear-gradient(90deg, #bd7486ff, #e84a72ff)",
+                  WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+                  textShadow: "2px 2px 8px rgba(35, 1, 1, 0.7)",
+                }}
+              >
+                H R I S
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 600, mb: 2, color: "#FFFFFF", textShadow: "1px 1px 5px rgba(0,0,0,0.5)" }}>
+                Human Resources Information System
+              </Typography>
+            </Box>
+
+            <Box sx={{ position: "absolute", bottom: 80, right: 16, textAlign: "right", color: "#FFF8E7" }} onClick={(e) => e.stopPropagation()}>
+              <Typography sx={{ fontSize: "2.2rem", fontWeight: 500 }}>
+                {currentTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+              </Typography>
+              <Typography sx={{ fontSize: "1rem", fontWeight: 500 }}>
+                {currentTime.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+              </Typography>
+            </Box>
+
+            <Box sx={{ position: "absolute", bottom: 55, right: 16, display: "flex", justifyContent: "space-between", width: "181px", color: "#FFF8E7", fontSize: "0.9rem" }}>
+              <Link component="button" onClick={(e) => { e.stopPropagation(); setOpenPolicy(true); }} underline="hover" sx={{ color: "#FFF8E7", fontWeight: 500 }}>
+                Privacy Policy
+              </Link>
+              <Link component="button" onClick={(e) => { e.stopPropagation(); setOpenFAQ(true); }} underline="hover" sx={{ color: "#FFF8E7", fontWeight: 500 }}>
+                FAQs
+              </Link>
+            </Box>
+
+            <Dialog open={openPolicy} onClose={() => setOpenPolicy(false)} fullWidth maxWidth="md">
+              <Box p={3} position="relative">
+                <IconButton onClick={(e) => { e.stopPropagation(); setOpenPolicy(false); }} sx={{ position: "absolute", top: 8, right: 8, color: "#6d2323" }}>
+                  <CloseIcon />
+                </IconButton>
+                <Typography variant="h6" gutterBottom>Privacy Policy</Typography>
+                <Typography variant="body2">This is the Privacy Policy content.</Typography>
+              </Box>
+            </Dialog>
+
+            <Dialog open={openFAQ} onClose={() => setOpenFAQ(false)} fullWidth maxWidth="md">
+              <Box p={3} position="relative">
+                <IconButton onClick={(e) => { e.stopPropagation(); setOpenFAQ(false); }} sx={{ position: "absolute", top: 8, right: 8, color: "#6d2323" }}>
+                  <CloseIcon />
+                </IconButton>
+                <Typography variant="h6" gutterBottom>FAQs</Typography>
+                <Typography variant="body2">This is the FAQs content.</Typography>
+              </Box>
+            </Dialog>
+
+            <IconButton
               onClick={() => {
                 document.getElementById("introSlide").style.transform = "translateY(-100%)";
                 setTimeout(() => setShowIntro(false), 800);
               }}
-              sx={{
-                position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
-                zIndex: 9999, display: "flex", justifyContent: "center", alignItems: "center",
-                background: "rgba(0, 0, 0, 0.35)", backdropFilter: "blur(15px)",
-                borderRadius: 2, overflow: "hidden", transform: "translateY(0%)",
-                transition: "transform 0.8s ease-in-out", cursor: "pointer", flexDirection: "column",
-              }}
+              sx={{ color: "#FFF8E7", fontSize: "3rem", animation: "bounce 2s infinite" }}
             >
-              {blobs}
+              <KeyboardArrowDown fontSize="inherit" />
+            </IconButton>
 
-              <Box sx={{ textAlign: "center", px: 3, mb: 2 }} onClick={(e) => e.stopPropagation()}>
-                <Typography
-                  variant="h1"
-                  sx={{
-                    fontWeight: 900, mb: 2,
-                    background: "linear-gradient(90deg, #bd7486ff, #e84a72ff)",
-                    WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-                    textShadow: "2px 2px 8px rgba(35, 1, 1, 0.7)",
-                  }}
-                >
-                  H R I S
-                </Typography>
-                <Typography variant="h5" sx={{ fontWeight: 600, mb: 2, color: "#FFFFFF", textShadow: "1px 1px 5px rgba(0,0,0,0.5)" }}>
-                  Human Resource Information System
+            <style>{`@keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(15px); } }`}</style>
+          </Box>
+        )}
+
+        {/* ── 2FA Modal ── */}
+        <Modal open={show2FA} onClose={() => setShow2FA(false)}>
+          <Box sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 480, maxWidth: "90%", bgcolor: "rgba(255,248,231,0.85)", borderRadius: 4, p: 5, textAlign: "center", backdropFilter: "blur(10px)", boxShadow: "0 20px 50px rgba(128,0,32,0.3)" }}>
+            <Typography variant="h5" sx={{ color: darkText, fontWeight: "bold", mb: 3 }}>Email Verification</Typography>
+            <Typography sx={{ mb: 3, color: mediumText }}>Verification code sent to <b>{userEmail}</b></Typography>
+            {success && <Alert icon={<CheckCircleOutline />} severity="success" sx={{ mb: 2 }}>{success}</Alert>}
+            {twoFactorError && <Alert icon={<ErrorOutline />} severity="error" sx={{ mb: 2 }}>{twoFactorError}</Alert>}
+            <TextField
+              fullWidth
+              placeholder="••••••"
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+              inputProps={{ maxLength: 6, style: { letterSpacing: "0.15rem", fontSize: "1.6rem", textAlign: "center" } }}
+              sx={{
+                mb: 2,
+                "& .MuiInputBase-input": { color: "#000" },
+                "& .MuiInputBase-input::placeholder": { color: placeholderGray, opacity: 1 },
+                "& .MuiOutlinedInput-root": { borderRadius: 2, background: "#fff", "& fieldset": { borderColor: placeholderGray } },
+              }}
+            />
+            <Button fullWidth variant="contained" sx={{ mb: 2, py: 1.8, background: primaryGradient, "&:hover": { background: primaryHoverGradient, transform: "scale(1.05)" }, transition: "transform 0.2s ease-in-out" }} onClick={verify2FACode} startIcon={<VerifiedUserOutlined sx={{ fontSize: 28, color: "#FFF8E7" }} />}>
+              {twoFactorLoading ? "Verifying..." : "Verify"}
+            </Button>
+            <Button fullWidth variant="outlined" sx={{ py: 1.8, color: "#000", borderColor: "#000", "&:hover": { backgroundColor: "rgba(0,0,0,0.05)", borderColor: "#000" } }} onClick={() => send2FACode(userEmail, employeeNumberForRequests)} disabled={resendLoading || codeTimer > 0}>
+              {codeTimer > 0 ? `Resend in ${formatTime(codeTimer)}` : resendLoading ? "Sending..." : "Resend Code"}
+            </Button>
+          </Box>
+        </Modal>
+
+        {/* ── Change Default Password Prompt ── */}
+        <Modal open={showPasswordPrompt} onClose={() => {}}>
+          <Box sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 560, maxWidth: "90%", bgcolor: "rgba(255,248,231,0.98)", borderRadius: 3, p: 4, textAlign: "left", backdropFilter: "blur(10px)", boxShadow: "0 20px 50px rgba(128,0,32,0.25)", border: "1px solid rgba(128,0,32,0.15)" }}>
+            <Box sx={{ mb: 3, display: "flex", alignItems: "flex-start", gap: 2 }}>
+              <Box sx={{ width: 48, height: 48, borderRadius: 2, background: primaryGradient, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <LockOutlined sx={{ fontSize: 28, color: lightText }} />
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="h6" sx={{ color: darkText, fontWeight: 700, mb: 1 }}>Password Security Notice</Typography>
+                <Typography variant="body2" sx={{ color: mediumText, lineHeight: 1.6 }}>
+                  Your account is currently using a default password. To protect the security and integrity of your account, you are required to create a new, unique password.
                 </Typography>
               </Box>
-
-              <Box sx={{ position: "absolute", bottom: 80, right: 16, textAlign: "right", color: "#FFF8E7" }} onClick={(e) => e.stopPropagation()}>
-                <Typography sx={{ fontSize: "2.2rem", fontWeight: 500 }}>
-                  {currentTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                </Typography>
-                <Typography sx={{ fontSize: "1rem", fontWeight: 500 }}>
-                  {currentTime.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-                </Typography>
-              </Box>
-
-              <Box sx={{ position: "absolute", bottom: 55, right: 16, display: "flex", justifyContent: "space-between", width: "181px", color: "#FFF8E7", fontSize: "0.9rem" }}>
-                <Link component="button" onClick={(e) => { e.stopPropagation(); setOpenPolicy(true); }} underline="hover" sx={{ color: "#FFF8E7", fontWeight: 500 }}>
-                  Privacy Policy
-                </Link>
-                <Link component="button" onClick={(e) => { e.stopPropagation(); setOpenFAQ(true); }} underline="hover" sx={{ color: "#FFF8E7", fontWeight: 500 }}>
-                  FAQs
-                </Link>
-              </Box>
-
-              <Dialog open={openPolicy} onClose={() => setOpenPolicy(false)} fullWidth maxWidth="md">
-                <Box p={3} position="relative">
-                  <IconButton onClick={(e) => { e.stopPropagation(); setOpenPolicy(false); }} sx={{ position: "absolute", top: 8, right: 8, color: "#6d2323" }}>
-                    <CloseIcon />
-                  </IconButton>
-                  <Typography variant="h6" gutterBottom>Privacy Policy</Typography>
-                  <Typography variant="body2">This is the Privacy Policy content.</Typography>
-                </Box>
-              </Dialog>
-
-              <Dialog open={openFAQ} onClose={() => setOpenFAQ(false)} fullWidth maxWidth="md">
-                <Box p={3} position="relative">
-                  <IconButton onClick={(e) => { e.stopPropagation(); setOpenFAQ(false); }} sx={{ position: "absolute", top: 8, right: 8, color: "#6d2323" }}>
-                    <CloseIcon />
-                  </IconButton>
-                  <Typography variant="h6" gutterBottom>FAQs</Typography>
-                  <Typography variant="body2">This is the FAQs content.</Typography>
-                </Box>
-              </Dialog>
-
-              <IconButton
-                onClick={() => {
-                  document.getElementById("introSlide").style.transform = "translateY(-100%)";
-                  setTimeout(() => setShowIntro(false), 800);
-                }}
-                sx={{ color: "#FFF8E7", fontSize: "3rem", animation: "bounce 2s infinite" }}
-              >
-                <KeyboardArrowDown fontSize="inherit" />
-              </IconButton>
-
-              <style>{`@keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(15px); } }`}</style>
             </Box>
-          )}
-
-          {/* ── 2FA Modal ── */}
-          <Modal open={show2FA} onClose={() => setShow2FA(false)}>
-            <Box sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 480, maxWidth: "90%", bgcolor: "rgba(255,248,231,0.85)", borderRadius: 4, p: 5, textAlign: "center", backdropFilter: "blur(10px)", boxShadow: "0 20px 50px rgba(128,0,32,0.3)" }}>
-              <Typography variant="h5" sx={{ color: darkText, fontWeight: "bold", mb: 3 }}>Email Verification</Typography>
-              <Typography sx={{ mb: 3, color: mediumText }}>Verification code sent to <b>{userEmail}</b></Typography>
-              {success && <Alert icon={<CheckCircleOutline />} severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-              {twoFactorError && <Alert icon={<ErrorOutline />} severity="error" sx={{ mb: 2 }}>{twoFactorError}</Alert>}
-              <TextField
-                fullWidth
-                placeholder="••••••"
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                inputProps={{ maxLength: 6, style: { letterSpacing: "0.15rem", fontSize: "1.6rem", textAlign: "center" } }}
-                sx={{
-                  mb: 2,
-                  "& .MuiInputBase-input": { color: "#000" },
-                  "& .MuiInputBase-input::placeholder": { color: placeholderGray, opacity: 1 },
-                  "& .MuiOutlinedInput-root": { borderRadius: 2, background: "#fff", "& fieldset": { borderColor: placeholderGray } },
-                }}
-              />
-              <Button fullWidth variant="contained" sx={{ mb: 2, py: 1.8, background: primaryGradient, "&:hover": { background: primaryHoverGradient, transform: "scale(1.05)" }, transition: "transform 0.2s ease-in-out" }} onClick={verify2FACode} startIcon={<VerifiedUserOutlined sx={{ fontSize: 28, color: "#FFF8E7" }} />}>
-                {twoFactorLoading ? "Verifying..." : "Verify"}
-              </Button>
-              <Button fullWidth variant="outlined" sx={{ py: 1.8, color: "#000", borderColor: "#000", "&:hover": { backgroundColor: "rgba(0,0,0,0.05)", borderColor: "#000" } }} onClick={() => send2FACode(userEmail, employeeNumberForRequests)} disabled={resendLoading || codeTimer > 0}>
-                {codeTimer > 0 ? `Resend in ${formatTime(codeTimer)}` : resendLoading ? "Sending..." : "Resend Code"}
-              </Button>
-            </Box>
-          </Modal>
-
-          {/* ── Change Default Password Prompt ── */}
-          <Modal open={showPasswordPrompt} onClose={() => {}}>
-            <Box sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 560, maxWidth: "90%", bgcolor: "rgba(255,248,231,0.98)", borderRadius: 3, p: 4, textAlign: "left", backdropFilter: "blur(10px)", boxShadow: "0 20px 50px rgba(128,0,32,0.25)", border: "1px solid rgba(128,0,32,0.15)" }}>
-              <Box sx={{ mb: 3, display: "flex", alignItems: "flex-start", gap: 2 }}>
-                <Box sx={{ width: 48, height: 48, borderRadius: 2, background: primaryGradient, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <LockOutlined sx={{ fontSize: 28, color: lightText }} />
-                </Box>
-                <Box sx={{ flex: 1 }}>
-                  <Typography variant="h6" sx={{ color: darkText, fontWeight: 700, mb: 1 }}>Password Security Notice</Typography>
-                  <Typography variant="body2" sx={{ color: mediumText, lineHeight: 1.6 }}>
-                    Your account is currently using a default password. To protect the security and integrity of your account, you are required to create a new, unique password.
-                  </Typography>
-                </Box>
-              </Box>
-              <Box sx={{ bgcolor: "rgba(255, 152, 0, 0.08)", border: "1px solid rgba(255, 152, 0, 0.3)", borderRadius: 2, p: 2.5, mb: 3 }}>
-                <Typography variant="subtitle2" sx={{ color: "#e65100", fontWeight: 600, mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
-                  <LockOutlined sx={{ fontSize: 18 }} /> Password Requirements
-                </Typography>
-                <Typography variant="body2" sx={{ color: "#5d4037", lineHeight: 1.7, fontSize: "0.9rem" }}>
-                  • Must be at least 8 characters in long<br />
-                  • Must include both uppercase and lowercase letters<br />
-                  • Must contain at least one number and one special character<br />
-                  • Must not contain common words or personal information
-                </Typography>
-              </Box>
-              <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
-                <Button fullWidth variant="contained" sx={{ py: 1.5, background: primaryGradient, fontWeight: 600, textTransform: "none", fontSize: "0.95rem", "&:hover": { background: primaryHoverGradient } }} onClick={() => { window.location.href = "/settings?tab=security"; }} startIcon={<LockOutlined />}>
-                  Update Password Now
-                </Button>
-                <Button fullWidth variant="outlined" sx={{ py: 1.5, color: mediumText, borderColor: mediumText, fontWeight: 600, textTransform: "none", fontSize: "0.95rem", "&:hover": { backgroundColor: "rgba(128,0,32,0.05)", borderColor: mediumText } }} onClick={() => { setShowPasswordPrompt(false); setShowLaterModal(true); }}>
-                  Remind Me Later
-                </Button>
-              </Box>
-              <Typography variant="caption" sx={{ display: "block", color: "rgba(0,0,0,0.6)", fontSize: "0.75rem", textAlign: "center" }}>
-                You can update your password at any time via Settings → Security → Change Password.
+            <Box sx={{ bgcolor: "rgba(255, 152, 0, 0.08)", border: "1px solid rgba(255, 152, 0, 0.3)", borderRadius: 2, p: 2.5, mb: 3 }}>
+              <Typography variant="subtitle2" sx={{ color: "#e65100", fontWeight: 600, mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+                <LockOutlined sx={{ fontSize: 18 }} /> Password Requirements
+              </Typography>
+              <Typography variant="body2" sx={{ color: "#5d4037", lineHeight: 1.7, fontSize: "0.9rem" }}>
+                • Must be at least 8 characters in long<br />
+                • Must include both uppercase and lowercase letters<br />
+                • Must contain at least one number and one special character<br />
+                • Must not contain common words or personal information
               </Typography>
             </Box>
-          </Modal>
-
-          {/* ── Later Modal ── */}
-          <Modal open={showLaterModal} onClose={() => {}}>
-            <Box sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 520, maxWidth: "90%", bgcolor: "rgba(255,248,231,0.98)", borderRadius: 3, p: 4, textAlign: "left", backdropFilter: "blur(10px)", boxShadow: "0 20px 50px rgba(128,0,32,0.25)", border: "1px solid rgba(128,0,32,0.15)" }}>
-              <Box sx={{ mb: 3, display: "flex", alignItems: "flex-start", gap: 2 }}>
-                <Box sx={{ width: 48, height: 48, borderRadius: 2, background: primaryGradient, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <LockOutlined sx={{ fontSize: 28, color: lightText }} />
-                </Box>
-                <Box sx={{ flex: 1 }}>
-                  <Typography variant="h6" sx={{ color: darkText, fontWeight: 700, mb: 1 }}>Password Update Reminder</Typography>
-                  <Typography variant="body2" sx={{ color: mediumText, lineHeight: 1.6 }}>
-                    For security purposes, please update your password as soon as possible.
-                  </Typography>
-                </Box>
-              </Box>
-              <Box sx={{ bgcolor: "rgba(128,0,32,0.05)", borderRadius: 2, p: 2.5, mb: 3, border: "1px solid rgba(128,0,32,0.1)" }}>
-                <Typography variant="body2" sx={{ color: mediumText, fontWeight: 600, mb: 0.5 }}>You can update your password at:</Typography>
-                <Typography variant="body2" sx={{ color: darkText, fontWeight: 600 }}>Settings → Security → Change Password</Typography>
-              </Box>
-              <Box sx={{ mb: 3, p: 2, bgcolor: "rgba(255, 152, 0, 0.05)", borderRadius: 2, border: "1px solid rgba(255, 152, 0, 0.2)" }}>
-                <FormControlLabel
-                  control={<Checkbox checked={dontRemindToday} onChange={(e) => setDontRemindToday(e.target.checked)} sx={{ color: mediumText, "&.Mui-checked": { color: mediumText } }} />}
-                  label="Don't remind me again today"
-                  sx={{ margin: 0, "& .MuiFormControlLabel-label": { fontSize: "0.9rem", color: darkText, fontWeight: 500 } }}
-                />
-              </Box>
-              <Button
-                fullWidth variant="contained"
-                sx={{ py: 1.5, background: primaryGradient, fontWeight: 600, textTransform: "none", fontSize: "0.95rem", "&:hover": { background: primaryHoverGradient } }}
-                onClick={() => {
-                  const token = localStorage.getItem("token");
-                  if (!token) return;
-                  const decoded = JSON.parse(atob(token.split(".")[1]));
-                  if (dontRemindToday) {
-                    const reminderData = JSON.stringify({ date: new Date().toDateString(), employeeNumber: decoded.employeeNumber, timestamp: Date.now() });
-                    localStorage.setItem("passwordReminderSkipped", reminderData);
-                    sessionStorage.setItem("passwordReminderSkipped", reminderData);
-                  }
-                  setShowLaterModal(false);
-                  setTimeout(() => navigateToDashboard(decoded.role), 300);
-                }}
-              >
-                Continue to Dashboard
+            <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
+              <Button fullWidth variant="contained" sx={{ py: 1.5, background: primaryGradient, fontWeight: 600, textTransform: "none", fontSize: "0.95rem", "&:hover": { background: primaryHoverGradient } }} onClick={() => { window.location.href = "/settings?tab=security"; }} startIcon={<LockOutlined />}>
+                Update Password Now
+              </Button>
+              <Button fullWidth variant="outlined" sx={{ py: 1.5, color: mediumText, borderColor: mediumText, fontWeight: 600, textTransform: "none", fontSize: "0.95rem", "&:hover": { backgroundColor: "rgba(128,0,32,0.05)", borderColor: mediumText } }} onClick={() => { setShowPasswordPrompt(false); setShowLaterModal(true); }}>
+                Remind Me Later
               </Button>
             </Box>
-          </Modal>
-        </Box>
+            <Typography variant="caption" sx={{ display: "block", color: "rgba(0,0,0,0.6)", fontSize: "0.75rem", textAlign: "center" }}>
+              You can update your password at any time via Settings → Security → Change Password.
+            </Typography>
+          </Box>
+        </Modal>
+
+        {/* ── Later Modal ── */}
+        <Modal open={showLaterModal} onClose={() => {}}>
+          <Box sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 520, maxWidth: "90%", bgcolor: "rgba(255,248,231,0.98)", borderRadius: 3, p: 4, textAlign: "left", backdropFilter: "blur(10px)", boxShadow: "0 20px 50px rgba(128,0,32,0.25)", border: "1px solid rgba(128,0,32,0.15)" }}>
+            <Box sx={{ mb: 3, display: "flex", alignItems: "flex-start", gap: 2 }}>
+              <Box sx={{ width: 48, height: 48, borderRadius: 2, background: primaryGradient, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <LockOutlined sx={{ fontSize: 28, color: lightText }} />
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="h6" sx={{ color: darkText, fontWeight: 700, mb: 1 }}>Password Update Reminder</Typography>
+                <Typography variant="body2" sx={{ color: mediumText, lineHeight: 1.6 }}>
+                  For security purposes, please update your password as soon as possible.
+                </Typography>
+              </Box>
+            </Box>
+            <Box sx={{ bgcolor: "rgba(128,0,32,0.05)", borderRadius: 2, p: 2.5, mb: 3, border: "1px solid rgba(128,0,32,0.1)" }}>
+              <Typography variant="body2" sx={{ color: mediumText, fontWeight: 600, mb: 0.5 }}>You can update your password at:</Typography>
+              <Typography variant="body2" sx={{ color: darkText, fontWeight: 600 }}>Settings → Security → Change Password</Typography>
+            </Box>
+            <Box sx={{ mb: 3, p: 2, bgcolor: "rgba(255, 152, 0, 0.05)", borderRadius: 2, border: "1px solid rgba(255, 152, 0, 0.2)" }}>
+              <FormControlLabel
+                control={<Checkbox checked={dontRemindToday} onChange={(e) => setDontRemindToday(e.target.checked)} sx={{ color: mediumText, "&.Mui-checked": { color: mediumText } }} />}
+                label="Don't remind me again today"
+                sx={{ margin: 0, "& .MuiFormControlLabel-label": { fontSize: "0.9rem", color: darkText, fontWeight: 500 } }}
+              />
+            </Box>
+            <Button
+              fullWidth variant="contained"
+              sx={{ py: 1.5, background: primaryGradient, fontWeight: 600, textTransform: "none", fontSize: "0.95rem", "&:hover": { background: primaryHoverGradient } }}
+              onClick={() => {
+                const token = localStorage.getItem("token");
+                if (!token) return;
+                const decoded = JSON.parse(atob(token.split(".")[1]));
+                if (dontRemindToday) {
+                  const reminderData = JSON.stringify({ date: new Date().toDateString(), employeeNumber: decoded.employeeNumber, timestamp: Date.now() });
+                  localStorage.setItem("passwordReminderSkipped", reminderData);
+                  sessionStorage.setItem("passwordReminderSkipped", reminderData);
+                }
+                setShowLaterModal(false);
+                setTimeout(() => navigateToDashboard(decoded.role), 300);
+              }}
+            >
+              Continue to Dashboard
+            </Button>
+          </Box>
+        </Modal>
       </Box>
-    </Fade>
+    </>
   );
 };
 
