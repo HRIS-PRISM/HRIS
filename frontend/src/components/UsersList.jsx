@@ -1172,13 +1172,51 @@ const UsersList = () => {
                 </Box>
               )}
 
-              {/* Loading */}
-              {pwLoading && pwUsers.length === 0 ? (
-                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 1.5 }}>
-                  <CircularProgress sx={{ color: PW_P }} size={36} />
-                  <Typography sx={{ color: PW_MUTED, fontWeight: 600, fontSize: '0.875rem' }}>Loading users…</Typography>
+             {/* Loading wireframe */}
+{pwLoading && pwUsers.length === 0 ? (
+  <Box sx={{ flex: 1, overflow: 'auto' }}>
+    <Table sx={{ minWidth: 700 }} stickyHeader>
+      <TableHead>
+        <TableRow sx={{ bgcolor: PW_SUBTLE }}>
+          {['Employee #', 'Full Name', 'Email', 'Role', 'Action'].map((h, i) => (
+            <TableCell key={h} sx={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '0.6rem', fontWeight: 700, color: alpha(PW_P, 0.5), textTransform: 'uppercase', letterSpacing: '0.1em', borderBottom: `2px solid ${alpha(PW_P, 0.12)}`, py: 1.5, px: 2.5, whiteSpace: 'nowrap', textAlign: i === 4 ? 'center' : 'left', bgcolor: PW_SUBTLE }}>
+              {h}
+            </TableCell>
+          ))}
+        </TableRow>
+      </TableHead>
+      <TableBody>
+        {Array.from({ length: 7 }).map((_, idx) => (
+          <TableRow key={idx} sx={{ '&:nth-of-type(even)': { bgcolor: alpha(PW_P, 0.018) }, borderBottom: `1px solid ${alpha(PW_P, 0.06)}` }}>
+            <TableCell sx={{ px: 2.5, py: 1.75 }}>
+              <ULShim width={64} height={13} borderRadius={4} />
+            </TableCell>
+            <TableCell sx={{ px: 2.5, py: 1.75 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Box sx={{ width: 38, height: 38, borderRadius: '50%', bgcolor: alpha(PW_P, 0.08), flexShrink: 0 }} />
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                  <ULShim width={110 + (idx % 3) * 20} height={13} borderRadius={4} />
+                  <ULShim width={60} height={10} borderRadius={10} />
                 </Box>
-              ) : (
+              </Box>
+            </TableCell>
+            <TableCell sx={{ px: 2.5, py: 1.75 }}>
+              <ULShim width={140 + (idx % 2) * 30} height={13} borderRadius={4} />
+            </TableCell>
+            <TableCell sx={{ px: 2.5, py: 1.75 }}>
+              <ULShim width={72} height={22} borderRadius={11} />
+            </TableCell>
+            <TableCell sx={{ px: 2.5, py: 1.75, textAlign: 'center' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                <ULShim width={72} height={30} borderRadius={6} />
+              </Box>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  </Box>
+) : (
                 <Box sx={{ flex: 1, overflow: 'auto' }}>
                   <Table sx={{ minWidth: 700 }} stickyHeader>
                     <TableHead>
