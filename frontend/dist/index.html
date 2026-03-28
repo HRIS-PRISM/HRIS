@@ -2,11 +2,50 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/Logo.png" />
+    <link id="favicon" rel="icon" type="image/png" href="/Logo.png" />  <!-- add id="favicon" here -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>H R I S</title>
-    <script type="module" crossorigin src="/assets/index-CUa7UYX-.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DIya3mc-.css">
+
+<script>
+  (function () {
+    const hostname = window.location.hostname;
+    const isLocal = hostname === 'localhost' || hostname.startsWith('192.168.');
+    const base = isLocal
+      ? 'http://localhost:5000'
+      : window.location.origin;
+
+    fetch(base + '/api/system-settings')
+      .then(res => res.json())
+      .then(data => {
+        if (data?.institutionLogo) {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = function () {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+
+            // Draw circle clip
+            ctx.beginPath();
+            ctx.arc(32, 32, 32, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+
+            // Draw image inside the circle
+            ctx.drawImage(img, 0, 0, 64, 64);
+
+            document.getElementById('favicon').href = canvas.toDataURL('image/png');
+          };
+          img.src = data.institutionLogo;
+        }
+      })
+      .catch(() => {});
+  })();
+</script>
+
+    <script type="module" crossorigin src="/assets/index-CQW89Ad0.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-qViKvRm6.css">
   </head>
   <body>
     <style>
@@ -15,6 +54,7 @@
         display: flex;
         color: black;
         justify-content: center;
+        margin: -1.5%;       
       }
     </style>
     <div id="root"></div>

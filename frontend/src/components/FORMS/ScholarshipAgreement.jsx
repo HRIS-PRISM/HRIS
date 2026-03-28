@@ -232,8 +232,7 @@ const ScholarshipAgreement = () => {
       </div>
 
       {/* Floating Action Buttons */}
-      <Box sx={{
-        position: 'fixed', bottom: 30, right: 30,
+      <Box className="no-print forms-floating-actions" sx={{position: 'fixed', bottom: 30, right: 30,
         display: 'flex', flexDirection: 'row', gap: 2, zIndex: 1000,
       }}>
         <Zoom in={true} style={{ transitionDelay: '0ms' }}>

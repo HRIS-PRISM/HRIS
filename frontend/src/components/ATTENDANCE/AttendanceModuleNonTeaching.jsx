@@ -664,9 +664,9 @@ const closeModal = () => setModal((p) => ({ ...p, open: false }));
   useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
 
   useEffect(() => {
-    const en = localStorage.getItem("employeeNumber");
-    const sd = localStorage.getItem("startDate");
-    const ed = localStorage.getItem("endDate");
+    const en = localStorage.getItem("attendanceNonTeachingEmployeeNumber");
+    const sd = localStorage.getItem("attendanceNonTeachingStartDate");
+    const ed = localStorage.getItem("attendanceNonTeachingEndDate");
     if (en) setEmployeeNumber(en);
     if (sd) setStartDate(sd);
     if (ed) setEndDate(ed);
@@ -723,9 +723,9 @@ const closeModal = () => setModal((p) => ({ ...p, open: false }));
 
   // ── handleSubmit ──
   const handleSubmit = async () => {
-    localStorage.setItem("employeeNumber", employeeNumber);
-    localStorage.setItem("startDate", startDate);
-    localStorage.setItem("endDate", endDate);
+    localStorage.setItem("attendanceNonTeachingEmployeeNumber", employeeNumber);
+    localStorage.setItem("attendanceNonTeachingStartDate", startDate);
+    localStorage.setItem("attendanceNonTeachingEndDate", endDate);
     setLoading(true);
     setError("");
     try {
@@ -734,7 +734,25 @@ const closeModal = () => setModal((p) => ({ ...p, open: false }));
         ...getAuthHeaders(),
       });
 
-      const processedData = response.data.map((row) => {
+      const rawRows = Array.isArray(response.data) ? response.data : [];
+      if (rawRows.length === 0) {
+        setAttendanceData([]);
+        setSuspensionByDate({});
+        setLeaveByDate({});
+        setHolidayByDate({});
+        showModal(
+          "No Attendance Device Record",
+          "No saved attendance record was found in Attendance Device for this employee and date range.\n\nPlease save the Attendance Device record first, then search again.\n\nPress OK to open Attendance Device.",
+          "warning",
+          () => {
+            closeModal();
+            navigate("/view_attendance");
+          }
+        );
+        return;
+      }
+
+      const processedData = rawRows.map((row) => {
         const { timeIN, timeOUT, breaktimeIN, breaktimeOUT, officialBreaktimeIN, officialBreaktimeOUT, officialTimeIN, officialTimeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT, officialOverTimeIN, officialOverTimeOUT } = row;
 
         const am = calcSegment(timeIN, breaktimeIN, officialTimeIN, officialBreaktimeIN);

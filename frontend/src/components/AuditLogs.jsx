@@ -189,6 +189,12 @@ const AuditLogs = () => {
     loading: accessLoading,
     error: accessError,
   } = usePageAccess('audit-logs');
+
+  const canBypassPageAccess =
+    userRole === 'superadmin' || userRole === 'technical';
+  const canAdminAccessByPage =
+    userRole === 'administrator' && hasAccess === true;
+  const canAccessAuditModule = canBypassPageAccess || canAdminAccessByPage;
   // ACCESSING END
 
   // Memoized styled components
@@ -827,7 +833,7 @@ const AuditLogs = () => {
   const bottomSpacerHeight = 0;
 
   // ACCESSING 2
-  if (accessLoading) {
+  if (accessLoading || userRole === null) {
     // Shimmer keyframe injected once via a <style> tag
     const shimmerCSS = `
       @keyframes auditShimmer {
@@ -1098,11 +1104,11 @@ const AuditLogs = () => {
       </Box>
     );
   }
-  if (!accessLoading && hasAccess !== true) {
+  if (userRole && !accessLoading && !canAccessAuditModule) {
     return (
       <AccessDenied
         title="Access Denied"
-        message="You do not have permission to access PhilHealth Table. Contact your administrator to request access."
+        message="Only superadmin and technical roles can open this page by default. Administrator access requires explicit page access permission."
         returnPath="/admin-home"
         returnButtonText="Return to Home"
       />
@@ -1329,9 +1335,7 @@ const AuditLogs = () => {
   }
 
   const isAdmin =
-    userRole === 'administrator' ||
-    userRole === 'superadmin' ||
-    userRole === 'technical';
+    userRole === 'administrator' || canBypassPageAccess;
   const pageTitle = isAdmin ? 'Audit Trail (All Users)' : 'My Activity Log';
 
   return (

@@ -676,9 +676,9 @@ const closeModal = () => setModal((p) => ({ ...p, open: false }));
   useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
 
   useEffect(() => {
-    const en = localStorage.getItem("employeeNumber");
-    const sd = localStorage.getItem("startDate");
-    const ed = localStorage.getItem("endDate");
+    const en = localStorage.getItem("attendanceFaculty30EmployeeNumber");
+    const sd = localStorage.getItem("attendanceFaculty30StartDate");
+    const ed = localStorage.getItem("attendanceFaculty30EndDate");
     if (en) setEmployeeNumber(en);
     if (sd) setStartDate(sd);
     if (ed) setEndDate(ed);
@@ -700,9 +700,9 @@ const closeModal = () => setModal((p) => ({ ...p, open: false }));
     Boolean(suspMap?.[date] || leaveMap?.[date] || holidayMap?.[date]);
 
   const handleSubmit = async () => {
-    localStorage.setItem("employeeNumber", employeeNumber);
-    localStorage.setItem("startDate", startDate);
-    localStorage.setItem("endDate", endDate);
+    localStorage.setItem("attendanceFaculty30EmployeeNumber", employeeNumber);
+    localStorage.setItem("attendanceFaculty30StartDate", startDate);
+    localStorage.setItem("attendanceFaculty30EndDate", endDate);
     setLoading(true);
     setError("");
     setSuccess("");
@@ -713,8 +713,26 @@ const closeModal = () => setModal((p) => ({ ...p, open: false }));
         ...getAuthHeaders(),
       });
 
+      const rawRows = Array.isArray(response.data) ? response.data : [];
+      if (rawRows.length === 0) {
+        setAttendanceData([]);
+        setSuspensionByDate({});
+        setLeaveByDate({});
+        setHolidayByDate({});
+        showModal(
+          "No Attendance Device Record",
+          "No saved attendance record was found in Attendance Device for this employee and date range.\n\nPlease save the Attendance Device record first, then search again.\n\nPress OK to open Attendance Device.",
+          "warning",
+          () => {
+            closeModal();
+            navigate('/view_attendance');
+          }
+        );
+        return;
+      }
+
       const dateOnly = (val) => (val ? String(val).split("T")[0] : "");
-      const byDateRange = (response.data || []).filter((row) => {
+      const byDateRange = rawRows.filter((row) => {
         const d = dateOnly(row.date), start = dateOnly(row.startDate), end = dateOnly(row.endDate);
         if (!d) return true;
         if (!start || !end) return true;
@@ -733,9 +751,25 @@ const closeModal = () => setModal((p) => ({ ...p, open: false }));
                  row.officialTimeIN !== "00:00:00 AM" && row.officialTimeOUT !== "00:00:00 AM"
       );
 
-      if (!hasOfficialTime || onePerDate.length === 0) {
+      if (onePerDate.length === 0) {
+        setAttendanceData([]);
+        setSuspensionByDate({});
+        setLeaveByDate({});
+        setHolidayByDate({});
+        showModal(
+          "No Attendance Device Record",
+          "No saved attendance record was found in Attendance Device for this employee and date range.\n\nPlease save the Attendance Device record first, then search again.\n\nPress OK to open Attendance Device.",
+          "warning",
+          () => {
+            closeModal();
+            navigate('/view_attendance');
+          }
+        );
+        return;
+      }
+
+      if (!hasOfficialTime) {
         setShowNoOfficialTimeModal(true);
-        setLoading(false);
         return;
       }
 

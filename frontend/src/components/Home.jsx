@@ -21,7 +21,7 @@ import NotificationsIcon from "@mui/icons-material/Notifications";
 import {
   AccessTime, Receipt, ContactPage, Event, CalendarMonth, Logout, Settings,
   Dashboard as DashboardIcon, WorkHistory, Close, Add, Note, Flag, ArrowForward,
-  PlayArrow, Pause, AccountCircle, HelpOutline, PrivacyTip, MoreVert, Delete, Save,
+  PlayArrow, Pause, AccountCircle, HelpOutline, PrivacyTip, MoreVert, Delete, Save, ArrowDropDown,
 } from "@mui/icons-material";
 
 // ─── System Settings ──────────────────────────────────────────────────────────
@@ -156,69 +156,90 @@ const NOTIF_FILTERS = [
   { key: "suspension",   label: "Suspensions" },
 ];
 
-const NotifFilterChips = ({ activeFilter, onChange, settings, unreadCount }) => (
-  <Select
-    size="small"
-    value={activeFilter}
-    onChange={(e) => onChange(e.target.value)}
-    sx={{
-      width: "100%",
-      flex: 1,
-      fontSize: "0.72rem",
-      fontWeight: 500,
-      color: settings.primaryColor,
-      bgcolor: `${settings.textSecondaryColor}`,
-      borderRadius: "8px",
-      height: 28,
-     "& .MuiSelect-select": { py: "4px !important" },
-      "& .MuiOutlinedInput-notchedOutline": { borderColor: `${settings.primaryColor}30` },
-      "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: `${settings.textSecondaryColor}70` },
-      "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: settings.textSecondaryColor, borderWidth: "1px" },
-      "& .MuiSelect-icon": { color: settings.primaryColor, fontSize: 18 },
-    }}
-    MenuProps={{
-      PaperProps: {
-        sx: {
-          borderRadius: "10px",
-          mt: 0.5,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
-          border: `1px solid ${settings.primaryColor}20`,
-          "& .MuiMenuItem-root": {
-            fontSize: "0.75rem",
-            fontWeight: 400,
-            color: settings.textPrimaryColor,
-            py: 0.9,
-            display: "flex",
-            justifyContent: "space-between",
-            "&.Mui-selected": { bgcolor: `${settings.primaryColor}12`, fontWeight: 600, color: settings.primaryColor },
-            "&:hover": { bgcolor: `${settings.primaryColor}0A` },
-          },
-        },
-      },
-    }}
-  >
-    {NOTIF_FILTERS.map(({ key, label }) => (
-  <MenuItem key={key} value={key}>
-    <Box sx={{ display: "flex", width: "100%", alignItems: "center" }}>
-      <Box>{label}</Box>
+const NotifFilterChips = ({ activeFilter, onChange, settings, unreadCount }) => {
+  const [anchorEl, setAnchorEl] = useState(null);
+  const open = Boolean(anchorEl);
+  const activeLabel = NOTIF_FILTERS.find((f) => f.key === activeFilter)?.label || "All";
 
-      {key === "unread" && unreadCount > 0 && (
-        <Box
-          sx={{
-            ml: "auto",
-            fontSize: "0.65rem",
-            fontWeight: 700,
-            color: settings.primaryColor,
-          }}
-        >
-          {unreadCount}
-        </Box>
-      )}
-    </Box>
-  </MenuItem>
-))}
-  </Select>
-);
+  return (
+    <>
+      <Button
+        onClick={(e) => setAnchorEl(e.currentTarget)}
+        endIcon={<ArrowDropDown sx={{ fontSize: 15, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />}
+        sx={{
+          minWidth: 74,
+          height: 26,
+          px: 0.85,
+          py: 0.35,
+          borderRadius: "8px",
+          textTransform: "none",
+          fontSize: "0.68rem",
+          fontWeight: 500,
+          color: "#fff",
+          border: "1px solid rgba(255,255,255,0.28)",
+          bgcolor: "rgba(255,255,255,0.15)",
+          "&:hover": { bgcolor: "rgba(255,255,255,0.22)", borderColor: "rgba(255,255,255,0.32)" },
+          "& .MuiButton-endIcon": { ml: 0.3 },
+        }}
+      >
+        {activeLabel}
+      </Button>
+
+      <Menu
+        anchorEl={anchorEl}
+        open={open}
+        onClose={() => setAnchorEl(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        PaperProps={{
+          sx: {
+            mt: 0.6,
+            minWidth: 170,
+            borderRadius: "10px",
+            border: `1px solid ${settings.primaryColor}26`,
+            boxShadow: "0 10px 28px rgba(0,0,0,0.14)",
+            overflow: "hidden",
+          },
+        }}
+      >
+        {NOTIF_FILTERS.map(({ key, label }) => {
+          const active = key === activeFilter;
+          return (
+            <MenuItem
+              key={key}
+              onClick={() => { onChange(key); setAnchorEl(null); }}
+              sx={{
+                py: 0.9,
+                fontSize: "0.74rem",
+                color: active ? settings.secondaryColor : settings.textPrimaryColor,
+                fontWeight: active ? 600 : 400,
+                bgcolor: active ? `${settings.primaryColor}14` : "transparent",
+                "&:hover": { bgcolor: `${settings.primaryColor}0D` },
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 1,
+              }}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
+                <Typography sx={{ fontSize: "0.74rem", fontWeight: "inherit" }}>{label}</Typography>
+                {key === "unread" && unreadCount > 0 && (
+                  <Typography sx={{ fontSize: "0.66rem", color: settings.secondaryColor, fontWeight: 700 }}>
+                    {unreadCount}
+                  </Typography>
+                )}
+              </Box>
+              {active && (
+                <Box sx={{ width: 14, height: 14, borderRadius: "50%", bgcolor: settings.secondaryColor, color: "#fff", fontSize: "0.62rem", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
+                  ✓
+                </Box>
+              )}
+            </MenuItem>
+          );
+        })}
+      </Menu>
+    </>
+  );
+};
 // ─── Home ─────────────────────────────────────────────────────────────────────
 const Home = () => {
   const settings = useSystemSettings();
@@ -664,6 +685,26 @@ const Home = () => {
   // ── Derived unread count — always in sync with local array ──
   const derivedUnreadCount = notifications.filter((n) => n.read_status === 0).length;
 
+  const getCarouselItemForNotif = useCallback((notif) => {
+    const type = notif.notification_type;
+    if (type === "announcement") return announcementDetails[notif.id] || null;
+    if (type === "holiday") {
+      return scheduledHolidaysForCarousel.find((h) => {
+        const link = notif.action_link || "";
+        const idMatch = link.match(/holiday[/-](\d+)/i);
+        return idMatch ? h.id === `holiday-${idMatch[1]}` : true;
+      }) || scheduledHolidaysForCarousel[0] || null;
+    }
+    if (type === "suspension") {
+      return suspensionsForCarousel.find((s) => {
+        const link = notif.action_link || "";
+        const idMatch = link.match(/suspension[/-](\d+)/i);
+        return idMatch ? s.id === `suspension-${idMatch[1]}` : true;
+      }) || suspensionsForCarousel[0] || null;
+    }
+    return null;
+  }, [announcementDetails, scheduledHolidaysForCarousel, suspensionsForCarousel]);
+
   // ── Filtered notifications ──
   const filteredNotifications = useMemo(() => {
     if (!Array.isArray(notifications)) return [];
@@ -674,6 +715,34 @@ const Home = () => {
       return n.notification_type === notifFilter;
     });
   }, [notifications, notifFilter]);
+
+  const getNotificationDayLabel = useCallback((createdAt) => {
+    if (!createdAt) return "Earlier";
+    const d = new Date(createdAt);
+    if (isNaN(d.getTime())) return "Earlier";
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    d.setHours(0, 0, 0, 0);
+    if (d.getTime() === today.getTime()) return "Today";
+    if (d.getTime() === yesterday.getTime()) return "Yesterday";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }, []);
+
+  const markAllNotificationsAsRead = useCallback(async () => {
+    const unread = (notifications || []).filter((n) => n.read_status === 0);
+    if (!unread.length) return;
+    const token = localStorage.getItem("token");
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    try {
+      await Promise.allSettled(
+        unread.map((n) => axios.put(`${API_BASE_URL}/api/notifications/${n.id}/read`, {}, { headers })),
+      );
+    } finally {
+      setNotifications((prev) => prev.map((n) => (n.read_status === 0 ? { ...n, read_status: 1 } : n)));
+    }
+  }, [notifications]);
 
   const handleCloseNotifModal = () => {
     setNotifModalOpen(false);
@@ -993,30 +1062,41 @@ const Home = () => {
               <Box sx={{ position: "absolute", top: { xs: "50%", md: "76px" }, right: { xs: "50%", md: "20px" }, transform: { xs: "translate(50%, -50%)", md: "none" }, width: { xs: "92%", sm: "400px" }, maxHeight: "85vh", display: "flex", flexDirection: "column", bgcolor: "#ffffff", border: `1px solid ${settings.primaryColor}30`, boxShadow: `0 16px 48px ${settings.primaryColor}28`, borderRadius: "16px", overflow: "hidden" }}>
 
                 {/* Header — branded maroon background */}
-<Box sx={{ px: 2.25, py: 1.25, bgcolor: settings.primaryColor, flexShrink: 0 }}>
-  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-    <Typography sx={{ fontWeight: 700, fontSize: "0.95rem", color: "#fff", flexShrink: 0 }}>
-      Notifications
-    </Typography>
-    {derivedUnreadCount > 0 && (
-      <Box sx={{ px: 1, py: 0.15, borderRadius: "20px", bgcolor: "rgba(255,255,255,0.25)", border: "1px solid rgba(255,255,255,0.3)", color: "#fff", fontSize: "0.65rem", fontWeight: 700, lineHeight: 1.7, flexShrink: 0 }}>
-        {derivedUnreadCount}
-      </Box>
-    )}
-    <Box sx={{ flex: 1 }}>
-      <NotifFilterChips activeFilter={notifFilter} onChange={setNotifFilter} settings={settings} unreadCount={derivedUnreadCount} />
-    </Box>
-    <IconButton size="small" onClick={handleCloseNotifModal} sx={{ color: "rgba(255,255,255,0.8)", width: 28, height: 28, flexShrink: 0, background: "rgba(255,255,255,0.15)", "&:hover": { background: "rgba(255,255,255,0.25)", color: "#fff" } }}>
-      <Close sx={{ fontSize: 14 }} />
-    </IconButton>
-  </Box>
-</Box>
+                <Box sx={{ px: 2, py: 1.25, background: `linear-gradient(135deg, ${settings.secondaryColor} 0%, ${settings.primaryColor} 55%, ${settings.secondaryColor} 100%)`, flexShrink: 0 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <Box sx={{ width: 30, height: 30, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <NotificationsIcon sx={{ fontSize: 15, color: "#fff" }} />
+                    </Box>
+                    <Typography sx={{ fontWeight: 500, fontSize: "0.9rem", color: "#fff", flexShrink: 0 }}>
+                      Notifications
+                    </Typography>
+                    <Box sx={{ flex: 1 }} />
+                    {derivedUnreadCount > 0 && (
+                      <Box sx={{ px: 1, py: 0.15, borderRadius: "20px", bgcolor: "rgba(255,255,255,0.25)", border: "1px solid rgba(255,255,255,0.3)", color: "#fff", fontSize: "0.62rem", fontWeight: 600, lineHeight: 1.7, flexShrink: 0, whiteSpace: "nowrap" }}>
+                        {derivedUnreadCount} unread
+                      </Box>
+                    )}
+                    <NotifFilterChips activeFilter={notifFilter} onChange={setNotifFilter} settings={settings} unreadCount={derivedUnreadCount} />
+                    <IconButton size="small" onClick={handleCloseNotifModal} sx={{ color: "rgba(255,255,255,0.8)", width: 26, height: 26, flexShrink: 0, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", "&:hover": { background: "rgba(255,255,255,0.25)", color: "#fff" } }}>
+                      <Close sx={{ fontSize: 13 }} />
+                    </IconButton>
+                  </Box>
+                </Box>
+
+                <Button
+                  fullWidth
+                  onClick={markAllNotificationsAsRead}
+                  disabled={derivedUnreadCount === 0}
+                  sx={{ justifyContent: "flex-end", textTransform: "none", borderRadius: 0, py: 0.6, px: 2, fontSize: "0.68rem", fontWeight: 600, color: settings.secondaryColor, bgcolor: `${settings.primaryColor}0D`, borderBottom: "1px solid #efe4e4", "&:hover": { bgcolor: `${settings.primaryColor}16` } }}
+                >
+                  Mark all as read
+                </Button>
 
                 {/* Body */}
                 <Box sx={{ flex: 1, overflowY: "auto", bgcolor: "#ffffff", "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: `${settings.primaryColor}40`, borderRadius: 4 } }}>
                   {Array.isArray(notifications) && notifications.length > 0 ? (
                     filteredNotifications.length > 0 ? (
-                      filteredNotifications.slice(0, 15).map((notif) => {
+                      filteredNotifications.slice(0, 15).map((notif, idx, arr) => {
                         const isContact = notif.notification_type === "contact" || notif.notification_type === "ticket";
                         const isRead = notif.read_status === 1;
 
@@ -1063,6 +1143,85 @@ const Home = () => {
                           if (d < 7) return `${d}d ago`;
                           return new Date(notif.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
                         })();
+                        const dayLabel = getNotificationDayLabel(notif.created_at);
+                        const prevDayLabel = idx > 0 ? getNotificationDayLabel(arr[idx - 1]?.created_at) : null;
+                        const showDayLabel = idx === 0 || dayLabel !== prevDayLabel;
+
+                        const isImageType = notif.notification_type === "announcement" ||
+                          notif.notification_type === "holiday" ||
+                          notif.notification_type === "suspension";
+                        const isAnnouncementCard = notif.notification_type === "announcement";
+                        const carouselItem = isImageType ? getCarouselItemForNotif(notif) : null;
+                        const itemImage = carouselItem?.image
+                          ? `${API_BASE_URL}${carouselItem.image}`
+                          : null;
+                        const itemTitle = carouselItem?.title || notif.title || "";
+                        const itemAbout = carouselItem?.about || "";
+
+                        if (isImageType) {
+                          return (
+                            <React.Fragment key={`notif-wrap-${notif.id}`}>
+                              {showDayLabel && (
+                                <Box sx={{ px: 2, pt: idx === 0 ? 0.9 : 1.2, pb: 0.45, fontSize: "0.58rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#8d7f7f", bgcolor: "#faf6f6", borderBottom: "1px solid #f2e9e9" }}>
+                                  {dayLabel}
+                                </Box>
+                              )}
+                              <Box
+                                onClick={() => handleNotificationClick(notif)}
+                                sx={{
+                                  borderBottom: "1px solid #f5eeee",
+                                  bgcolor: isRead ? "#ffffff" : `${settings.primaryColor}06`,
+                                  cursor: "pointer",
+                                  transition: "background 0.12s",
+                                  "&:hover": { bgcolor: isRead ? "#fdf8f8" : `${settings.primaryColor}0E` },
+                                  "&:last-child": { borderBottom: "none" },
+                                  borderLeft: isRead ? "none" : `3px solid ${settings.primaryColor}`,
+                                }}
+                              >
+                                {isAnnouncementCard ? (
+                                  <Box sx={{ position: "relative", height: 100, overflow: "hidden", mx: 1.5, mt: 1.25, borderRadius: "10px" }}>
+                                    {itemImage ? (
+                                      <Box component="img" src={itemImage} alt={itemTitle} sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                                    ) : (
+                                      <Box sx={{ width: "100%", height: "100%", background: "linear-gradient(135deg,#3d0c6b,#1a0a3d)" }} />
+                                    )}
+                                    <Box sx={{ position: "absolute", inset: 0, background: "linear-gradient(to top,rgba(0,0,0,0.88) 0%,rgba(0,0,0,0.15) 55%,transparent 100%)" }} />
+                                    <Box sx={{ position: "absolute", top: 7, left: 8, px: 1, py: 0.15, borderRadius: "20px", bgcolor: "rgba(123,31,162,0.9)" }}>
+                                      <Typography sx={{ fontSize: "0.55rem", fontWeight: 700, color: "#fff", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                                        {cfg.label}
+                                      </Typography>
+                                    </Box>
+                                    {!isRead && <Box sx={{ position: "absolute", top: 7, right: 8, width: 7, height: 7, borderRadius: "50%", bgcolor: "#fff", outline: `2px solid ${settings.secondaryColor}` }} />}
+                                    {itemTitle && <Typography sx={{ position: "absolute", bottom: 7, left: 10, right: 10, fontSize: "0.72rem", fontWeight: 500, color: "#fff", lineHeight: 1.35 }}>{itemTitle}</Typography>}
+                                  </Box>
+                                ) : (
+                                  <Box sx={{ mx: 1.5, mt: 1.1, borderRadius: "10px", overflow: "hidden", height: 64, display: "flex", alignItems: "center", px: 1.75, gap: 1.5, border: `1px solid ${notif.notification_type === "holiday" ? "rgba(237,108,2,0.3)" : "rgba(211,47,47,0.25)"}`, bgcolor: notif.notification_type === "holiday" ? "rgba(237,108,2,0.12)" : "rgba(211,47,47,0.09)" }}>
+                                    <Box sx={{ width: 36, height: 36, borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: notif.notification_type === "holiday" ? "rgba(237,108,2,0.18)" : "rgba(211,47,47,0.15)" }}>
+                                      {icon}
+                                    </Box>
+                                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                                      <Typography sx={{ fontSize: "0.55rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", mb: 0.25, color: notif.notification_type === "holiday" ? "#b45309" : "#b71c1c" }}>
+                                        {cfg.label}
+                                      </Typography>
+                                      <Typography sx={{ fontSize: "0.74rem", fontWeight: 500, color: "#1d1d1d", lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                        {itemTitle || cleanDesc}
+                                      </Typography>
+                                    </Box>
+                                    {!isRead && <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#fff", outline: `2px solid ${settings.secondaryColor}`, flexShrink: 0 }} />}
+                                  </Box>
+                                )}
+                              <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, px: 1.5, py: 1, pb: 1.25 }}>
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                  <Typography sx={{ fontSize: "0.75rem", color: "#444", lineHeight: 1.45 }}>
+                                    {cleanDesc || itemAbout}
+                                  </Typography>
+                                </Box>
+                                <Typography sx={{ fontSize: "0.62rem", color: "#999", flexShrink: 0, mt: 0.1 }}>{timeAgo}</Typography>
+                              </Box>
+                              </Box>
+                            </React.Fragment>
+                          );
+                        }
 
                         const ticketEntry = isContact ? (contactTicketStatuses || {})[notif.id] : null;
                         const ticketSubject = ticketEntry?.subject || "";
@@ -1070,8 +1229,13 @@ const Home = () => {
                         const ticketEmpNum  = ticketEntry?.employee_number || notif.employeeNumber || "";
 
                         return (
-                          <Box
-                            key={`notif-${notif.id}`}
+                          <React.Fragment key={`notif-wrap-${notif.id}`}>
+                            {showDayLabel && (
+                              <Box sx={{ px: 2, pt: idx === 0 ? 0.9 : 1.2, pb: 0.45, fontSize: "0.58rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#8d7f7f", bgcolor: "#faf6f6", borderBottom: "1px solid #f2e9e9" }}>
+                                {dayLabel}
+                              </Box>
+                            )}
+                            <Box
                             onClick={() => handleNotificationClick(notif)}
                             sx={{
                               display: "flex", alignItems: "flex-start", gap: 1.25,
@@ -1132,7 +1296,8 @@ const Home = () => {
                             </Box>
                             {/* Unread dot */}
                             {!isRead && <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: settings.primaryColor, flexShrink: 0, mt: 0.6 }} />}
-                          </Box>
+                            </Box>
+                          </React.Fragment>
                         );
                       })
                     ) : (
@@ -1154,6 +1319,23 @@ const Home = () => {
                     </Box>
                   )}
                 </Box>
+
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 1.5, py: 1.1, bgcolor: "#faf8f8", borderTop: "1px solid #ece3e3", flexWrap: "wrap" }}>
+                  <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: "#7a6f6f", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                    Legend:
+                  </Typography>
+                  {[
+                    { label: "Holiday", bg: "rgba(237,108,2,0.25)", border: "#ed6c02" },
+                    { label: "Suspension", bg: "rgba(211,47,47,0.2)", border: "#d32f2f" },
+                    { label: "On Leave", bg: "rgba(46,125,50,0.2)", border: "#2e7d32" },
+                  ].map((item) => (
+                    <Box key={item.label} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <Box sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: item.bg, border: `1.5px solid ${item.border}` }} />
+                      <Typography sx={{ fontSize: "0.64rem", color: "#666" }}>{item.label}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+
               </Box>
             </Fade>
           </Modal>
@@ -1171,7 +1353,19 @@ const Home = () => {
           </Menu>
 
           {/* ── VIEW NOTES/EVENTS DIALOG ── */}
-          <Dialog open={viewNotesDialog} onClose={() => setViewNotesDialog(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3, p: 2, bgcolor: settings.accentColor, border: `1px solid ${settings.primaryColor}26` } }}>
+          <Dialog
+            open={viewNotesDialog}
+            onClose={() => setViewNotesDialog(false)}
+            maxWidth="sm"
+            fullWidth
+            BackdropProps={{
+              sx: {
+                backgroundColor: "rgba(0, 0, 0, 0.56)",
+                backdropFilter: "blur(4px)",
+              },
+            }}
+            PaperProps={{ sx: { borderRadius: 3, p: 2, bgcolor: settings.accentColor, border: `1px solid ${settings.primaryColor}26` } }}
+          >
             <DialogTitle sx={{ pb: 1, fontSize: "1rem", fontWeight: 600, color: settings.textPrimaryColor }}>{selectedDate && (() => { const [y, m, d] = selectedDate.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }); })()}</DialogTitle>
             <DialogContent sx={{ pt: 1 }}>
               <Typography variant="subtitle1" sx={{ fontWeight: 700, color: settings.textPrimaryColor, mb: 1, display: "flex", alignItems: "center" }}><Note sx={{ mr: 1 }} /> Notes</Typography>
@@ -1208,7 +1402,19 @@ const Home = () => {
           </Dialog>
 
           {/* ── ADD NOTE DIALOG ── */}
-          <Dialog open={openNoteDialog} onClose={() => setOpenNoteDialog(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3, p: 2, bgcolor: settings.accentColor, border: `1px solid ${settings.primaryColor}26` } }}>
+          <Dialog
+            open={openNoteDialog}
+            onClose={() => setOpenNoteDialog(false)}
+            maxWidth="sm"
+            fullWidth
+            BackdropProps={{
+              sx: {
+                backgroundColor: "rgba(0, 0, 0, 0.56)",
+                backdropFilter: "blur(4px)",
+              },
+            }}
+            PaperProps={{ sx: { borderRadius: 3, p: 2, bgcolor: settings.accentColor, border: `1px solid ${settings.primaryColor}26` } }}
+          >
             <DialogTitle sx={{ pb: 1, fontSize: "1rem", fontWeight: 600, color: settings.textPrimaryColor }}>Add Note</DialogTitle>
             <DialogContent sx={{ pt: 1 }}>
               <TextField fullWidth multiline rows={4} label="Note Content" value={currentNote.content} onChange={(e) => setCurrentNote({ ...currentNote, content: e.target.value })} sx={{ mb: 2, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
@@ -1221,7 +1427,19 @@ const Home = () => {
           </Dialog>
 
           {/* ── ADD EVENT DIALOG ── */}
-          <Dialog open={openEventDialog} onClose={() => setOpenEventDialog(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3, p: 2, bgcolor: settings.accentColor, border: `1px solid ${settings.primaryColor}26` } }}>
+          <Dialog
+            open={openEventDialog}
+            onClose={() => setOpenEventDialog(false)}
+            maxWidth="sm"
+            fullWidth
+            BackdropProps={{
+              sx: {
+                backgroundColor: "rgba(0, 0, 0, 0.56)",
+                backdropFilter: "blur(4px)",
+              },
+            }}
+            PaperProps={{ sx: { borderRadius: 3, p: 2, bgcolor: settings.accentColor, border: `1px solid ${settings.primaryColor}26` } }}
+          >
             <DialogTitle sx={{ pb: 1, fontSize: "1rem", fontWeight: 600, color: settings.textPrimaryColor }}>Add Event</DialogTitle>
             <DialogContent sx={{ pt: 1 }}>
               <TextField fullWidth label="Event Title" value={currentEvent.title} onChange={(e) => setCurrentEvent({ ...currentEvent, title: e.target.value })} sx={{ mb: 2, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />

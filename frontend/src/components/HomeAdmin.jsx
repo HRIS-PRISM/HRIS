@@ -37,8 +37,6 @@ import {
   ListItemText,
   ListItemIcon,
   Checkbox,
-  Tab,
-  Tabs,
   TextField,
   DialogTitle,
   DialogContent,
@@ -241,68 +239,90 @@ const NOTIF_FILTERS = [
   { key: "suspension",   label: "Suspensions" },
 ];
 
-const NotifFilterChips = ({ activeFilter, onChange, settings, unreadCount }) => (
-  <Select
-    size="small"
-    value={activeFilter}
-    onChange={(e) => onChange(e.target.value)}
-    sx={{
-      width: "100%",
-      fontSize: "0.72rem",
-      fontWeight: 500,
-      color: settings.primaryColor,
-      bgcolor: `${settings.textSecondaryColor}`,
-      borderRadius: "8px",
-      height: 30,
-      "& .MuiSelect-select": { py: "4px !important" },
-      "& .MuiOutlinedInput-notchedOutline": { borderColor: `${settings.primaryColor}30` },
-      "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: `${settings.textSecondaryColor}70` },
-      "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: settings.textSecondaryColor, borderWidth: "1px" },
-      "& .MuiSelect-icon": { color: settings.primaryColor, fontSize: 18 },
-    }}
-    MenuProps={{
-      PaperProps: {
-        sx: {
-          borderRadius: "10px",
-          mt: 0.5,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
-          border: `1px solid ${settings.primaryColor}20`,
-          "& .MuiMenuItem-root": {
-            fontSize: "0.75rem",
-            fontWeight: 400,
-            color: settings.textPrimaryColor,
-            py: 0.9,
-            display: "flex",
-            justifyContent: "space-between",
-            "&.Mui-selected": { bgcolor: `${settings.primaryColor}12`, fontWeight: 600, color: settings.primaryColor },
-            "&:hover": { bgcolor: `${settings.primaryColor}0A` },
+const NotifFilterChips = ({ activeFilter, onChange, settings, unreadCount }) => {
+  const [anchorEl, setAnchorEl] = useState(null);
+  const open = Boolean(anchorEl);
+  const activeLabel = NOTIF_FILTERS.find((f) => f.key === activeFilter)?.label || "All";
+
+  return (
+    <>
+      <Button
+        onClick={(e) => setAnchorEl(e.currentTarget)}
+        endIcon={<ArrowDropDownIcon sx={{ fontSize: 15, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />}
+        sx={{
+          minWidth: 74,
+          height: 26,
+          px: 0.85,
+          py: 0.35,
+          borderRadius: "8px",
+          textTransform: "none",
+          fontSize: "0.68rem",
+          fontWeight: 500,
+          color: "#fff",
+          border: "1px solid rgba(255,255,255,0.28)",
+          bgcolor: "rgba(255,255,255,0.15)",
+          "&:hover": { bgcolor: "rgba(255,255,255,0.22)", borderColor: "rgba(255,255,255,0.32)" },
+          "& .MuiButton-endIcon": { ml: 0.3 },
+        }}
+      >
+        {activeLabel}
+      </Button>
+
+      <Menu
+        anchorEl={anchorEl}
+        open={open}
+        onClose={() => setAnchorEl(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        PaperProps={{
+          sx: {
+            mt: 0.6,
+            minWidth: 170,
+            borderRadius: "10px",
+            border: `1px solid ${settings.primaryColor}26`,
+            boxShadow: "0 10px 28px rgba(0,0,0,0.14)",
+            overflow: "hidden",
           },
-        },
-      },
-    }}
-  >
-     {NOTIF_FILTERS.map(({ key, label }) => (
-    <MenuItem key={key} value={key}>
-      <Box sx={{ display: "flex", width: "100%", alignItems: "center" }}>
-        <Box>{label}</Box>
-  
-        {key === "unread" && unreadCount > 0 && (
-          <Box
-            sx={{
-              ml: "auto",
-              fontSize: "0.65rem",
-              fontWeight: 700,
-              color: settings.primaryColor,
-            }}
-          >
-            {unreadCount}
-          </Box>
-        )}
-      </Box>
-    </MenuItem>
-  ))}
-  </Select>
-);
+        }}
+      >
+        {NOTIF_FILTERS.map(({ key, label }) => {
+          const active = key === activeFilter;
+          return (
+            <MenuItem
+              key={key}
+              onClick={() => { onChange(key); setAnchorEl(null); }}
+              sx={{
+                py: 0.9,
+                fontSize: "0.74rem",
+                color: active ? settings.secondaryColor : settings.textPrimaryColor,
+                fontWeight: active ? 600 : 400,
+                bgcolor: active ? `${settings.primaryColor}14` : "transparent",
+                "&:hover": { bgcolor: `${settings.primaryColor}0D` },
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 1,
+              }}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
+                <Typography sx={{ fontSize: "0.74rem", fontWeight: "inherit" }}>{label}</Typography>
+                {key === "unread" && unreadCount > 0 && (
+                  <Typography sx={{ fontSize: "0.66rem", color: settings.secondaryColor, fontWeight: 700 }}>
+                    {unreadCount}
+                  </Typography>
+                )}
+              </Box>
+              {active && (
+                <Box sx={{ width: 14, height: 14, borderRadius: "50%", bgcolor: settings.secondaryColor, color: "#fff", fontSize: "0.62rem", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
+                  ✓
+                </Box>
+              )}
+            </MenuItem>
+          );
+        })}
+      </Menu>
+    </>
+  );
+};
 
 // ─── system settings ─────────────────────────────────────────────────────────
 
@@ -781,23 +801,35 @@ const QuickActions = ({ settings, userRole }) => {
 const ModalCard = ({ open, onClose, title, icon, primaryColor, secondaryColor, children, actions }) => {
   if (!open) return null;
   return (
-    <Box sx={{ position: "fixed", inset: 0, zIndex: 1400, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.52)", backdropFilter: "blur(4px)" }} onClick={onClose}>
-      <Grow in={open} timeout={220}>
-        <Box onClick={(e) => e.stopPropagation()} sx={{ width: { xs: "92%", sm: 420 }, bgcolor: "#fff", borderRadius: "14px", boxShadow: "0 28px 64px rgba(0,0,0,0.24)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          <Box sx={{ background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor || primaryColor} 100%)`, px: 2.5, py: 1.6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              {icon && <Box sx={{ color: "#fff", display: "flex" }}>{icon}</Box>}
-              <Typography sx={{ fontWeight: 700, fontSize: "0.95rem", color: "#fff", letterSpacing: "0.01em" }}>{title}</Typography>
+    <Modal
+      open={open}
+      onClose={onClose}
+      closeAfterTransition
+      BackdropProps={{
+        sx: {
+          background: "rgba(0,0,0,0.52)",
+          backdropFilter: "blur(4px)",
+        },
+      }}
+    >
+      <Box sx={{ position: "fixed", inset: 0, zIndex: 1400, display: "flex", alignItems: "center", justifyContent: "center", px: 1.5 }}>
+        <Grow in={open} timeout={220}>
+          <Box sx={{ width: { xs: "92%", sm: 420 }, bgcolor: "#fff", borderRadius: "14px", boxShadow: "0 28px 64px rgba(0,0,0,0.24)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <Box sx={{ background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor || primaryColor} 100%)`, px: 2.5, py: 1.6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                {icon && <Box sx={{ color: "#fff", display: "flex" }}>{icon}</Box>}
+                <Typography sx={{ fontWeight: 700, fontSize: "0.95rem", color: "#fff", letterSpacing: "0.01em" }}>{title}</Typography>
+              </Box>
+              <IconButton size="small" onClick={onClose} sx={{ color: "rgba(255,255,255,0.85)", p: 0.5, "&:hover": { bgcolor: "rgba(255,255,255,0.18)" } }}>
+                <Close sx={{ fontSize: 17 }} />
+              </IconButton>
             </Box>
-            <IconButton size="small" onClick={onClose} sx={{ color: "rgba(255,255,255,0.85)", p: 0.5, "&:hover": { bgcolor: "rgba(255,255,255,0.18)" } }}>
-              <Close sx={{ fontSize: 17 }} />
-            </IconButton>
+            <Box sx={{ px: 2.5, pt: 2.25, pb: 0.5 }}>{children}</Box>
+            {actions && <Box sx={{ px: 2.5, py: 1.75, display: "flex", justifyContent: "flex-end", gap: 1 }}>{actions}</Box>}
           </Box>
-          <Box sx={{ px: 2.5, pt: 2.25, pb: 0.5 }}>{children}</Box>
-          {actions && <Box sx={{ px: 2.5, py: 1.75, display: "flex", justifyContent: "flex-end", gap: 1 }}>{actions}</Box>}
-        </Box>
-      </Grow>
-    </Box>
+        </Grow>
+      </Box>
+    </Modal>
   );
 };
 
@@ -866,15 +898,93 @@ const TasksAndEvents = ({ settings, employeeNumber }) => {
     <>
       <Card sx={{ flex: 1, display: "flex", flexDirection: "column", background: settings.accentColor, backdropFilter: "blur(15px)", border: `1px solid ${settings.primaryColor}26`, borderRadius: 4, boxShadow: `0 15px 40px ${settings.primaryColor}33`, minHeight: 0, overflow: "hidden" }}>
         <SuccessfulOverlay open={showSuccess} action="create" onClose={() => setShowSuccess(false)} />
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", px: 1.5, pt: 1, flexShrink: 0, borderBottom: `1px solid ${settings.primaryColor}18` }}>
-          <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} sx={{ minHeight: 32, "& .MuiTabs-indicator": { backgroundColor: settings.primaryColor, height: 2 }, "& .MuiTab-root": { minHeight: 32, py: 0.5, px: 1.25, fontSize: "0.72rem", fontWeight: 600, color: settings.textPrimaryColor, opacity: 0.55, textTransform: "none", "&.Mui-selected": { color: settings.textPrimaryColor, opacity: 1 } } }}>
-            <Tab label={`Tasks${tasks.length > 0 ? ` (${tasks.length})` : ""}`} />
-            <Tab label={`Events${events.length > 0 ? ` (${events.length})` : ""}`} />
-          </Tabs>
-          <IconButton size="small" onClick={() => activeTab === 0 ? setAddTaskOpen(true) : setAddEventOpen(true)} sx={{ bgcolor: settings.textPrimaryColor, color: "#ffffff", "&:hover": { bgcolor: settings.hoverColor }, width: 24, height: 24, mb: 0.5 }}>
+        <Box sx={{ display: "flex", alignItems: "center", px: 1.5, pt: 1.25, pb: 1, gap: 1, flexShrink: 0 }}>
+          {["Tasks", "Events"].map((label, i) => {
+            const isActive = activeTab === i;
+            return (
+              <Box
+                key={label}
+                onClick={() => setActiveTab(i)}
+                sx={{
+                  flex: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 0.75,
+                  py: 0.75,
+                  px: 1,
+                  borderRadius: "8px",
+                  border: "1.5px solid",
+                  borderColor: isActive ? settings.primaryColor : `${settings.primaryColor}30`,
+                  color: isActive ? settings.primaryColor : settings.textPrimaryColor,
+                  bgcolor: isActive ? `${settings.primaryColor}08` : "transparent",
+                  cursor: "pointer",
+                  userSelect: "none",
+                  transition: "all 0.18s ease, transform 0.1s ease",
+                  "&:hover": {
+                    borderColor: `${settings.primaryColor}70`,
+                    color: settings.primaryColor,
+                    bgcolor: `${settings.primaryColor}10`,
+                  },
+                  "&:active": {
+                    transform: "scale(0.97)",
+                    bgcolor: `${settings.primaryColor}18`,
+                    borderColor: settings.primaryColor,
+                  },
+                }}
+              >
+                {i === 0
+                  ? <AssignmentTurnedInIcon sx={{ fontSize: 14 }} />
+                  : <Event sx={{ fontSize: 14 }} />
+                }
+
+                <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, lineHeight: 1 }}>
+                  {label}
+                </Typography>
+
+                <Box sx={{
+                  fontSize: "0.6rem",
+                  fontWeight: 600,
+                  px: 0.75,
+                  py: 0.1,
+                  borderRadius: "99px",
+                  bgcolor: isActive ? `${settings.primaryColor}20` : `${settings.primaryColor}10`,
+                  color: isActive ? settings.primaryColor : settings.textPrimaryColor,
+                  lineHeight: 1.7,
+                  transition: "all 0.18s",
+                }}>
+                  {i === 0 ? tasks.length : events.length}
+                </Box>
+              </Box>
+            );
+          })}
+
+          <IconButton
+            size="small"
+            onClick={() => activeTab === 0 ? setAddTaskOpen(true) : setAddEventOpen(true)}
+            sx={{
+              width: 28,
+              height: 28,
+              bgcolor: "transparent",
+              border: `0.5px solid ${settings.primaryColor}40`,
+              color: settings.textPrimaryColor,
+              borderRadius: "50%",
+              flexShrink: 0,
+              transition: "all 0.15s ease, transform 0.1s ease",
+              "&:hover": {
+                bgcolor: `${settings.primaryColor}15`,
+                borderColor: `${settings.primaryColor}80`,
+                color: settings.primaryColor,
+              },
+              "&:active": {
+                transform: "scale(0.88)",
+              },
+            }}
+          >
             <Add sx={{ fontSize: 14 }} />
           </IconButton>
         </Box>
+        <Box sx={{ height: "0.5px", bgcolor: `${settings.primaryColor}20`, flexShrink: 0 }} />
         <CardContent sx={{ p: 1.25, flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
           <Box sx={{ flex: 1, overflowY: "auto", overflowX: "hidden", pr: 0.5, minHeight: 0, "&::-webkit-scrollbar": { width: "4px" }, "&::-webkit-scrollbar-track": { background: `${settings.primaryColor}1A`, borderRadius: "2px" }, "&::-webkit-scrollbar-thumb": { background: `${settings.primaryColor}4D`, borderRadius: "2px" } }}>
             {activeTab === 0 && (
@@ -884,7 +994,25 @@ const TasksAndEvents = ({ settings, employeeNumber }) => {
                     <Checkbox checked={task.completed} onChange={() => handleToggleTask(task.id)} size="small" sx={{ p: 0.5, color: settings.textPrimaryColor, "&.Mui-checked": { color: settings.textPrimaryColor } }} />
                     <ListItemText primary={task.title} primaryTypographyProps={{ sx: { fontSize: "0.78rem", color: settings.textPrimaryColor, textDecoration: task.completed ? "line-through" : "none", lineHeight: 1.3 } }} />
                     <Chip label={getPriorityLabel(task.priority)} size="small" sx={{ fontSize: "0.6rem", height: 18, mr: 0.5, bgcolor: task.priority === "high" ? "#f4433610" : task.priority === "medium" ? "#ff980010" : "#4caf5010", color: task.priority === "high" ? "#f44336" : task.priority === "medium" ? "#ff9800" : "#4caf50" }} />
-                    <IconButton size="small" onClick={() => handleDeleteTask(task.id)} sx={{ color: settings.textPrimaryColor, p: 0.25 }}><Delete sx={{ fontSize: 14 }} /></IconButton>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleDeleteTask(task.id)}
+                      sx={{
+                        color: settings.textPrimaryColor,
+                        p: 0.25,
+                        borderRadius: "4px",
+                        transition: "all 0.15s, transform 0.1s",
+                        "&:hover": {
+                          bgcolor: "#FCEBEB",
+                          color: "#791F1F",
+                        },
+                        "&:active": {
+                          transform: "scale(0.88)",
+                        },
+                      }}
+                    >
+                      <Delete sx={{ fontSize: 14 }} />
+                    </IconButton>
                   </ListItem>
                 )) : <Typography sx={{ fontSize: "0.75rem", color: settings.textPrimaryColor, opacity: 0.5, textAlign: "center", py: 2 }}>No tasks yet</Typography>}
               </List>
@@ -898,7 +1026,25 @@ const TasksAndEvents = ({ settings, employeeNumber }) => {
                       <Event sx={{ fontSize: 16, color: status === "upcoming" ? "#4caf50" : status === "today" ? "#ff9800" : settings.textPrimaryColor, mr: 0.75, flexShrink: 0 }} />
                       <ListItemText primary={event.title} secondary={formatDate(event.date)} primaryTypographyProps={{ sx: { fontSize: "0.78rem", color: settings.textPrimaryColor, lineHeight: 1.3 } }} secondaryTypographyProps={{ sx: { fontSize: "0.65rem", color: settings.textPrimaryColor, opacity: 0.6 } }} />
                       <Chip label={getStatusLabel(status)} size="small" sx={{ fontSize: "0.6rem", height: 18, mr: 0.5, bgcolor: status === "upcoming" ? "#4caf5010" : status === "today" ? "#ff980010" : "#f4433610", color: status === "upcoming" ? "#4caf50" : status === "today" ? "#ff9800" : "#f44336" }} />
-                      <IconButton size="small" onClick={() => handleDeleteEvent(event.id)} sx={{ color: settings.textPrimaryColor, p: 0.25 }}><Delete sx={{ fontSize: 14 }} /></IconButton>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleDeleteEvent(event.id)}
+                        sx={{
+                          color: settings.textPrimaryColor,
+                          p: 0.25,
+                          borderRadius: "4px",
+                          transition: "all 0.15s, transform 0.1s",
+                          "&:hover": {
+                            bgcolor: "#FCEBEB",
+                            color: "#791F1F",
+                          },
+                          "&:active": {
+                            transform: "scale(0.88)",
+                          },
+                        }}
+                      >
+                        <Delete sx={{ fontSize: 14 }} />
+                      </IconButton>
                     </ListItem>
                   );
                 }) : <Typography sx={{ fontSize: "0.75rem", color: settings.textPrimaryColor, opacity: 0.5, textAlign: "center", py: 2 }}>No events yet</Typography>}
@@ -1018,12 +1164,73 @@ const AdminPayslipAndLeave = ({ settings, employeeNumber }) => {
 
   return (
     <Card sx={{ flex: 1, display: "flex", flexDirection: "column", background: settings.accentColor, backdropFilter: "blur(15px)", border: `1px solid ${settings.primaryColor}26`, borderRadius: 4, boxShadow: `0 15px 40px ${settings.primaryColor}33`, minHeight: 0, overflow: "hidden" }}>
-      <Box sx={{ display: "flex", alignItems: "center", px: 1.25, pt: 0.75, flexShrink: 0, borderBottom: `1px solid ${settings.primaryColor}18` }}>
-        <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} sx={{ minHeight: 30, flex: 1, "& .MuiTabs-indicator": { backgroundColor: settings.primaryColor, height: 2 }, "& .MuiTab-root": { minHeight: 30, py: 0.4, px: 1, fontSize: "0.7rem", fontWeight: 600, color: settings.textPrimaryColor, opacity: 0.5, textTransform: "none", "&.Mui-selected": { opacity: 1 } } }}>
-          <Tab label="Payslip" />
-          <Tab label={leaveCredits.length > 0 ? `Leave (${totalLeave.toFixed(1)}d)` : "Leave"} />
-        </Tabs>
+      <Box sx={{ display: "flex", alignItems: "center", px: 1.25, pt: 0.95, pb: 0.85, gap: 0.8, flexShrink: 0 }}>
+        {["Payslip", "Leave"].map((label, i) => {
+          const isActive = activeTab === i;
+          const pillLabel = i === 0
+            ? monthNames[payslipMonth]?.slice(0, 3)
+            : `${totalLeave.toFixed(1)}d`;
+
+          return (
+            <Box
+              key={label}
+              onClick={() => setActiveTab(i)}
+              sx={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 0.6,
+                py: 0.62,
+                px: 0.8,
+                borderRadius: "8px",
+                border: "1.5px solid",
+                borderColor: isActive ? settings.primaryColor : `${settings.primaryColor}30`,
+                color: isActive ? settings.primaryColor : settings.textPrimaryColor,
+                bgcolor: isActive ? `${settings.primaryColor}08` : "transparent",
+                cursor: "pointer",
+                userSelect: "none",
+                transition: "all 0.18s ease, transform 0.1s ease",
+                "&:hover": {
+                  borderColor: `${settings.primaryColor}70`,
+                  color: settings.primaryColor,
+                  bgcolor: `${settings.primaryColor}10`,
+                },
+                "&:active": {
+                  transform: "scale(0.97)",
+                  bgcolor: `${settings.primaryColor}18`,
+                  borderColor: settings.primaryColor,
+                },
+              }}
+            >
+              {i === 0
+                ? <Receipt sx={{ fontSize: 13 }} />
+                : <CalendarMonth sx={{ fontSize: 13 }} />}
+
+              <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, lineHeight: 1 }}>
+                {label}
+              </Typography>
+
+              <Box sx={{
+                fontSize: "0.56rem",
+                fontWeight: 600,
+                px: 0.62,
+                py: 0.1,
+                borderRadius: "99px",
+                bgcolor: isActive ? `${settings.primaryColor}20` : `${settings.primaryColor}10`,
+                color: isActive ? settings.primaryColor : settings.textPrimaryColor,
+                lineHeight: 1.65,
+                transition: "all 0.18s",
+                minWidth: 26,
+                textAlign: "center",
+              }}>
+                {pillLabel}
+              </Box>
+            </Box>
+          );
+        })}
       </Box>
+      <Box sx={{ height: "0.5px", bgcolor: `${settings.primaryColor}20`, flexShrink: 0 }} />
 
       {activeTab === 0 && (
         <Box onClick={() => navigate("/payslip", { state: { selectedMonth: payslipMonth, selectedYear: payslipYear } })} sx={{ flex: 1, display: "flex", flexDirection: "column", p: 1.25, minHeight: 0, gap: 1, cursor: "pointer", transition: "background 0.2s", "&:hover": { background: `${settings.primaryColor}08` } }}>
@@ -1356,6 +1563,14 @@ const AdminHome = () => {
   // ── Derived unread count — always in sync with local array ──
   const derivedUnreadCount = notifications.filter((n) => n.read_status === 0).length;
 
+  const getCarouselItemForNotif = useCallback((notif) => {
+    const type = notif.notification_type;
+    if (type === "announcement") return announcementDetails[notif.id] || null;
+    if (type === "holiday") return scheduledHolidaysForCarousel[0] || null;
+    if (type === "suspension") return suspensionsForCarousel[0] || null;
+    return null;
+  }, [announcementDetails, scheduledHolidaysForCarousel, suspensionsForCarousel]);
+
   const filteredNotifications = useMemo(() => {
     if (!Array.isArray(notifications)) return [];
     return notifications.filter((n) => {
@@ -1365,6 +1580,34 @@ const AdminHome = () => {
       return n.notification_type === notifFilter;
     });
   }, [notifications, notifFilter]);
+
+  const getNotificationDayLabel = useCallback((createdAt) => {
+    if (!createdAt) return "Earlier";
+    const d = new Date(createdAt);
+    if (isNaN(d.getTime())) return "Earlier";
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    d.setHours(0, 0, 0, 0);
+    if (d.getTime() === today.getTime()) return "Today";
+    if (d.getTime() === yesterday.getTime()) return "Yesterday";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }, []);
+
+  const markAllNotificationsAsRead = useCallback(async () => {
+    const unread = (notifications || []).filter((n) => n.read_status === 0);
+    if (!unread.length) return;
+    const token = localStorage.getItem("token");
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    try {
+      await Promise.allSettled(
+        unread.map((n) => axios.put(`${API_BASE_URL}/api/notifications/${n.id}/read`, {}, { headers })),
+      );
+    } finally {
+      setNotifications((prev) => prev.map((n) => (n.read_status === 0 ? { ...n, read_status: 1 } : n)));
+    }
+  }, [notifications]);
 
   const handleCloseNotifModal = () => {
     setNotifModalOpen(false);
@@ -1574,30 +1817,41 @@ const AdminHome = () => {
               <Box sx={{ position: "absolute", top: { xs: "50%", md: "76px" }, right: { xs: "50%", md: "20px" }, transform: { xs: "translate(50%, -50%)", md: "none" }, width: { xs: "92%", sm: "400px" }, maxHeight: "85vh", display: "flex", flexDirection: "column", bgcolor: "#ffffff", border: `1px solid ${settings.primaryColor}30`, boxShadow: `0 16px 48px ${settings.primaryColor}28`, borderRadius: "16px", overflow: "hidden" }}>
 
                 {/* Header — branded maroon background */}
-   <Box sx={{ px: 2.25, py: 1.25, bgcolor: settings.primaryColor, flexShrink: 0 }}>
-  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-    <Typography sx={{ fontWeight: 700, fontSize: "0.95rem", color: "#fff", flexShrink: 0 }}>
-      Notifications
-    </Typography>
-    {derivedUnreadCount > 0 && (
-      <Box sx={{ px: 1, py: 0.15, borderRadius: "20px", bgcolor: "rgba(255,255,255,0.25)", border: "1px solid rgba(255,255,255,0.3)", color: "#fff", fontSize: "0.65rem", fontWeight: 700, lineHeight: 1.7, flexShrink: 0 }}>
-        {derivedUnreadCount}
-      </Box>
-    )}
-    <Box sx={{ flex: 1 }}>
-      <NotifFilterChips activeFilter={notifFilter} onChange={setNotifFilter} settings={settings} unreadCount={derivedUnreadCount} />
-    </Box>
-    <IconButton size="small" onClick={handleCloseNotifModal} sx={{ color: "rgba(255,255,255,0.8)", width: 28, height: 28, flexShrink: 0, background: "rgba(255,255,255,0.15)", "&:hover": { background: "rgba(255,255,255,0.25)", color: "#fff" } }}>
-      <Close sx={{ fontSize: 14 }} />
-    </IconButton>
-  </Box>
-</Box>
+                <Box sx={{ px: 2, py: 1.25, background: `linear-gradient(135deg, ${settings.secondaryColor} 0%, ${settings.primaryColor} 55%, ${settings.secondaryColor} 100%)`, flexShrink: 0 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <Box sx={{ width: 30, height: 30, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <NotificationsIcon sx={{ fontSize: 15, color: "#fff" }} />
+                    </Box>
+                    <Typography sx={{ fontWeight: 500, fontSize: "0.9rem", color: "#fff", flexShrink: 0 }}>
+                      Notifications
+                    </Typography>
+                    <Box sx={{ flex: 1 }} />
+                    {derivedUnreadCount > 0 && (
+                      <Box sx={{ px: 1, py: 0.15, borderRadius: "20px", bgcolor: "rgba(255,255,255,0.25)", border: "1px solid rgba(255,255,255,0.3)", color: "#fff", fontSize: "0.62rem", fontWeight: 600, lineHeight: 1.7, flexShrink: 0, whiteSpace: "nowrap" }}>
+                        {derivedUnreadCount} unread
+                      </Box>
+                    )}
+                    <NotifFilterChips activeFilter={notifFilter} onChange={setNotifFilter} settings={settings} unreadCount={derivedUnreadCount} />
+                    <IconButton size="small" onClick={handleCloseNotifModal} sx={{ color: "rgba(255,255,255,0.8)", width: 26, height: 26, flexShrink: 0, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", "&:hover": { background: "rgba(255,255,255,0.25)", color: "#fff" } }}>
+                      <Close sx={{ fontSize: 13 }} />
+                    </IconButton>
+                  </Box>
+                </Box>
+
+                <Button
+                  fullWidth
+                  onClick={markAllNotificationsAsRead}
+                  disabled={derivedUnreadCount === 0}
+                  sx={{ justifyContent: "flex-end", textTransform: "none", borderRadius: 0, py: 0.6, px: 2, fontSize: "0.68rem", fontWeight: 600, color: settings.secondaryColor, bgcolor: `${settings.primaryColor}0D`, borderBottom: "1px solid #efe4e4", "&:hover": { bgcolor: `${settings.primaryColor}16` } }}
+                >
+                  Mark all as read
+                </Button>
 
                 {/* Body */}
                 <Box sx={{ flex: 1, overflowY: "auto", bgcolor: "#ffffff", "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: `${settings.primaryColor}40`, borderRadius: 4 } }}>
                   {Array.isArray(notifications) && notifications.length > 0 ? (
                     filteredNotifications.length > 0 ? (
-                      filteredNotifications.slice(0, 15).map((notif) => {
+                      filteredNotifications.slice(0, 15).map((notif, idx, arr) => {
                         const isContact = notif.notification_type === "contact" || notif.notification_type === "ticket";
                         const isRead = notif.read_status === 1;
 
@@ -1644,10 +1898,94 @@ const AdminHome = () => {
                           if (d < 7) return `${d}d ago`;
                           return new Date(notif.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
                         })();
+                        const dayLabel = getNotificationDayLabel(notif.created_at);
+                        const prevDayLabel = idx > 0 ? getNotificationDayLabel(arr[idx - 1]?.created_at) : null;
+                        const showDayLabel = idx === 0 || dayLabel !== prevDayLabel;
+
+                        const isImageType = notif.notification_type === "announcement" ||
+                          notif.notification_type === "holiday" ||
+                          notif.notification_type === "suspension";
+                        const isAnnouncementCard = notif.notification_type === "announcement";
+                        const carouselItem = isImageType ? getCarouselItemForNotif(notif) : null;
+                        const itemImage = carouselItem?.image
+                          ? buildImageUrl(carouselItem.image)
+                          : null;
+                        const itemTitle = carouselItem?.title || notif.title || "";
+                        const itemAbout = carouselItem?.about || "";
+
+                        if (isImageType) {
+                          return (
+                            <React.Fragment key={`notif-wrap-${notif.id}`}>
+                              {showDayLabel && (
+                                <Box sx={{ px: 2, pt: idx === 0 ? 0.9 : 1.2, pb: 0.45, fontSize: "0.58rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#8d7f7f", bgcolor: "#faf6f6", borderBottom: "1px solid #f2e9e9" }}>
+                                  {dayLabel}
+                                </Box>
+                              )}
+                              <Box
+                                onClick={() => handleNotificationClick(notif)}
+                                sx={{
+                                  borderBottom: "1px solid #f5eeee",
+                                  bgcolor: isRead ? "#ffffff" : `${settings.primaryColor}06`,
+                                  cursor: "pointer",
+                                  transition: "background 0.12s",
+                                  "&:hover": { bgcolor: isRead ? "#fdf8f8" : `${settings.primaryColor}0E` },
+                                  "&:last-child": { borderBottom: "none" },
+                                  borderLeft: isRead ? "none" : `3px solid ${settings.primaryColor}`,
+                                }}
+                              >
+                                {isAnnouncementCard ? (
+                                  <Box sx={{ position: "relative", height: 100, overflow: "hidden", mx: 1.5, mt: 1.25, borderRadius: "10px" }}>
+                                    {itemImage ? (
+                                      <Box component="img" src={itemImage} alt={itemTitle} sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                                    ) : (
+                                      <Box sx={{ width: "100%", height: "100%", background: "linear-gradient(135deg,#3d0c6b,#1a0a3d)" }} />
+                                    )}
+                                    <Box sx={{ position: "absolute", inset: 0, background: "linear-gradient(to top,rgba(0,0,0,0.88) 0%,rgba(0,0,0,0.15) 55%,transparent 100%)" }} />
+                                    <Box sx={{ position: "absolute", top: 7, left: 8, px: 1, py: 0.15, borderRadius: "20px", bgcolor: "rgba(123,31,162,0.9)" }}>
+                                      <Typography sx={{ fontSize: "0.55rem", fontWeight: 700, color: "#fff", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                                        {cfg.label}
+                                      </Typography>
+                                    </Box>
+                                    {!isRead && <Box sx={{ position: "absolute", top: 7, right: 8, width: 7, height: 7, borderRadius: "50%", bgcolor: "#fff", outline: `2px solid ${settings.secondaryColor}` }} />}
+                                    {itemTitle && <Typography sx={{ position: "absolute", bottom: 7, left: 10, right: 10, fontSize: "0.72rem", fontWeight: 500, color: "#fff", lineHeight: 1.35 }}>{itemTitle}</Typography>}
+                                  </Box>
+                                ) : (
+                                  <Box sx={{ mx: 1.5, mt: 1.1, borderRadius: "10px", overflow: "hidden", height: 64, display: "flex", alignItems: "center", px: 1.75, gap: 1.5, border: `1px solid ${notif.notification_type === "holiday" ? "rgba(237,108,2,0.3)" : "rgba(211,47,47,0.25)"}`, bgcolor: notif.notification_type === "holiday" ? "rgba(237,108,2,0.12)" : "rgba(211,47,47,0.09)" }}>
+                                    <Box sx={{ width: 36, height: 36, borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: notif.notification_type === "holiday" ? "rgba(237,108,2,0.18)" : "rgba(211,47,47,0.15)" }}>
+                                      {icon}
+                                    </Box>
+                                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                                      <Typography sx={{ fontSize: "0.55rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", mb: 0.25, color: notif.notification_type === "holiday" ? "#b45309" : "#b71c1c" }}>
+                                        {cfg.label}
+                                      </Typography>
+                                      <Typography sx={{ fontSize: "0.74rem", fontWeight: 500, color: "#1d1d1d", lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                        {itemTitle || cleanDesc}
+                                      </Typography>
+                                    </Box>
+                                    {!isRead && <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#fff", outline: `2px solid ${settings.secondaryColor}`, flexShrink: 0 }} />}
+                                  </Box>
+                                )}
+                              <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, px: 1.5, py: 1, pb: 1.25 }}>
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                  <Typography sx={{ fontSize: "0.75rem", color: "#444", lineHeight: 1.45 }}>
+                                    {cleanDesc || itemAbout}
+                                  </Typography>
+                                </Box>
+                                <Typography sx={{ fontSize: "0.62rem", color: "#999", flexShrink: 0, mt: 0.1 }}>{timeAgo}</Typography>
+                              </Box>
+                              </Box>
+                            </React.Fragment>
+                          );
+                        }
 
                         return (
-                          <Box
-                            key={`notif-${notif.id}`}
+                          <React.Fragment key={`notif-wrap-${notif.id}`}>
+                            {showDayLabel && (
+                              <Box sx={{ px: 2, pt: idx === 0 ? 0.9 : 1.2, pb: 0.45, fontSize: "0.58rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#8d7f7f", bgcolor: "#faf6f6", borderBottom: "1px solid #f2e9e9" }}>
+                                {dayLabel}
+                              </Box>
+                            )}
+                            <Box
                             onClick={() => handleNotificationClick(notif)}
                             sx={{
                               display: "flex", alignItems: "flex-start", gap: 1.25,
@@ -1682,7 +2020,8 @@ const AdminHome = () => {
                             </Box>
                             {/* Unread dot */}
                             {!isRead && <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: settings.primaryColor, flexShrink: 0, mt: 0.5 }} />}
-                          </Box>
+                            </Box>
+                          </React.Fragment>
                         );
                       })
                     ) : (
@@ -1704,6 +2043,23 @@ const AdminHome = () => {
                     </Box>
                   )}
                 </Box>
+
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 1.5, py: 1.1, bgcolor: "#faf8f8", borderTop: "1px solid #ece3e3", flexWrap: "wrap" }}>
+                  <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: "#7a6f6f", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                    Legend:
+                  </Typography>
+                  {[
+                    { label: "Holiday", bg: "rgba(237,108,2,0.25)", border: "#ed6c02" },
+                    { label: "Suspension", bg: "rgba(211,47,47,0.2)", border: "#d32f2f" },
+                    { label: "On Leave", bg: "rgba(46,125,50,0.2)", border: "#2e7d32" },
+                  ].map((item) => (
+                    <Box key={item.label} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <Box sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: item.bg, border: `1.5px solid ${item.border}` }} />
+                      <Typography sx={{ fontSize: "0.64rem", color: "#666" }}>{item.label}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+
               </Box>
             </Fade>
           </Modal>
