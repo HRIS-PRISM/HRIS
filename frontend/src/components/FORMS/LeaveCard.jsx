@@ -592,9 +592,7 @@ const LeaveCard = () => {
         </Box>
 
         {/* Floating Action Buttons (Bottom Right - ROW) */}
-        <Box
-            sx={{
-                position: 'fixed',
+        <Box className="no-print forms-floating-actions" sx={{position: 'fixed',
                 bottom: '1in',
                 right: 30,
                 display: 'flex',

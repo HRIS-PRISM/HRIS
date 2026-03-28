@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import API_BASE_URL from '../apiConfig';
-import { getAuthHeaders } from '../utils/auth';
+import { getAuthHeaders, getUserInfo } from '../utils/auth';
 
 /**
  * Custom hook for checking multiple page accesses at once
@@ -43,8 +43,17 @@ const usePageAccesses = (componentIdentifiers = [], options = {}) => {
       setError(null);
 
       try {
+        const tokenUser = getUserInfo();
+        const tokenEmployeeNumber = tokenUser?.employeeNumber || '';
+        const storedEmployeeNumber = localStorage.getItem('employeeNumber') || '';
+
+        // Keep auth identity stable even if a page previously wrote a search employee number.
+        if (tokenEmployeeNumber && tokenEmployeeNumber !== storedEmployeeNumber) {
+          localStorage.setItem('employeeNumber', tokenEmployeeNumber);
+        }
+
         const userId =
-          overrideEmployeeNumber || localStorage.getItem('employeeNumber');
+          overrideEmployeeNumber || tokenEmployeeNumber || storedEmployeeNumber;
 
         if (!userId) {
           setError('No employee number found');
@@ -98,7 +107,11 @@ const usePageAccesses = (componentIdentifiers = [], options = {}) => {
         );
 
         if (!accessResponse.ok) {
-          setError('Failed to fetch page access');
+          if (accessResponse.status === 401 || accessResponse.status === 403) {
+            setError('Unauthorized while fetching page access');
+          } else {
+            setError('Failed to fetch page access');
+          }
           setLoading(false);
           return;
         }

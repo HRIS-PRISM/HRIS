@@ -1,5 +1,5 @@
 import API_BASE_URL from "../apiConfig";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Alert,
   TextField,
@@ -118,6 +118,9 @@ const getTypeLabel = (type) => {
 };
 
 const Login = () => {
+  const OTP_LENGTH = 6;
+  const OTP_RESEND_SECONDS = 3 * 60;
+
   const [showIntro, setShowIntro] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [employeeNumber, setEmployeeNumber] = useState("");
@@ -126,16 +129,18 @@ const Login = () => {
   const [errMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [show2FA, setShow2FA] = useState(false);
-  const [pin, setPin] = useState("");
+  const [pinDigits, setPinDigits] = useState(Array(OTP_LENGTH).fill(""));
   const [twoFactorError, setTwoFactorError] = useState("");
   const [success, setSuccess] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [attempts, setAttempts] = useState(0);
   const [isLocked, setIsLocked] = useState(false);
   const [lockTimer, setLockTimer] = useState(0);
-  const [codeTimer, setCodeTimer] = useState(0);
+  const [codeExpireTimer, setCodeExpireTimer] = useState(0);
+  const [resendTimer, setResendTimer] = useState(0);
   const [resendLoading, setResendLoading] = useState(false);
   const [twoFactorLoading, setTwoFactorLoading] = useState(false);
+  const pinInputRefs = useRef([]);
 
   // ── Carousel data ──────────────────────────────────────────────────────────
   const [announcements, setAnnouncements] = useState([]);
@@ -204,6 +209,8 @@ const Login = () => {
     () => resolvedEmployeeNumber || employeeNumber,
     [resolvedEmployeeNumber, employeeNumber]
   );
+
+  const pin = useMemo(() => pinDigits.join(""), [pinDigits]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -319,12 +326,33 @@ const Login = () => {
     return () => clearInterval(interval);
   }, [isLoginLocked, loginLockTimer]);
 
-  // Code timer
+  // Code expiry timer
   useEffect(() => {
     let interval;
-    if (codeTimer > 0) interval = setInterval(() => setCodeTimer((prev) => prev - 1), 1000);
+    if (codeExpireTimer > 0) {
+      interval = setInterval(() => {
+        setCodeExpireTimer((prev) => (prev <= 1 ? 0 : prev - 1));
+      }, 1000);
+    }
     return () => clearInterval(interval);
-  }, [codeTimer]);
+  }, [codeExpireTimer]);
+
+  // Resend cooldown timer (starts only when user clicks resend)
+  useEffect(() => {
+    let interval;
+    if (resendTimer > 0) {
+      interval = setInterval(() => {
+        setResendTimer((prev) => (prev <= 1 ? 0 : prev - 1));
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [resendTimer]);
+
+  useEffect(() => {
+    if (!show2FA) return;
+    setPinDigits(Array(OTP_LENGTH).fill(""));
+    setTimeout(() => pinInputRefs.current[0]?.focus(), 120);
+  }, [show2FA]);
 
   // Auto-hide login error after 3 seconds
   useEffect(() => {
@@ -372,7 +400,8 @@ const Login = () => {
     setResolvedEmployeeNumber("");
   };
 
-  const send2FACode = async (email, empNumber) => {
+  const send2FACode = async (email, empNumber, options = {}) => {
+    const { isResend = false } = options;
     setResendLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/send-2fa-code`, {
@@ -383,10 +412,14 @@ const Login = () => {
       const data = await res.json();
       if (res.ok) {
         setSuccess("Verification code sent to your email.");
-        setCodeTimer(2 * 60);
+        setCodeExpireTimer(OTP_RESEND_SECONDS);
+        if (isResend) {
+          setResendTimer(OTP_RESEND_SECONDS);
+        }
         setAttempts(0);
         setIsLocked(false);
         setTwoFactorError("");
+        setPinDigits(Array(OTP_LENGTH).fill(""));
       } else {
         setTwoFactorError(data.error || "Failed to send code.");
       }
@@ -450,7 +483,8 @@ const Login = () => {
   };
 
   const verify2FACode = async () => {
-    if (!pin.trim()) { setTwoFactorError("Please enter the verification code"); return; }
+    if (!pin.trim()) { setTwoFactorError("Please enter all 6 digits."); return; }
+    if (codeExpireTimer <= 0) { setTwoFactorError("Code expired. Please resend a new code."); return; }
     if (isLocked) { setTwoFactorError(`Too many failed attempts. Wait ${formatTime(lockTimer)}.`); return; }
 
     setTwoFactorLoading(true);
@@ -481,8 +515,11 @@ const Login = () => {
           setIsLocked(true);
           setLockTimer(60);
           setTwoFactorError("Too many failed attempts. Locked for 1 min.");
+          setPinDigits(Array(OTP_LENGTH).fill(""));
         } else {
           setTwoFactorError(data.error || "Invalid verification code. Try again.");
+          setPinDigits(Array(OTP_LENGTH).fill(""));
+          setTimeout(() => pinInputRefs.current[0]?.focus(), 80);
         }
       }
     } catch {
@@ -497,6 +534,84 @@ const Login = () => {
     const s = seconds % 60;
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
+
+  const maskEmail = (email) => {
+    const val = String(email || "").trim();
+    if (!val.includes("@")) return val;
+    const [local, domain] = val.split("@");
+    if (!local) return val;
+    const visible = local.slice(0, 1);
+    return `${visible}${"*".repeat(Math.max(local.length - 1, 4))}@${domain}`;
+  };
+
+  const handlePinChange = (index, rawValue) => {
+    if (isLocked) return;
+    const numeric = String(rawValue || "").replace(/\D/g, "");
+    const next = [...pinDigits];
+
+    if (!numeric) {
+      next[index] = "";
+      setPinDigits(next);
+      return;
+    }
+
+    if (numeric.length > 1) {
+      numeric.slice(0, OTP_LENGTH - index).split("").forEach((char, offset) => {
+        next[index + offset] = char;
+      });
+      setPinDigits(next);
+      const nextFocus = Math.min(index + numeric.length, OTP_LENGTH - 1);
+      pinInputRefs.current[nextFocus]?.focus();
+      return;
+    }
+
+    next[index] = numeric;
+    setPinDigits(next);
+    if (index < OTP_LENGTH - 1) {
+      pinInputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handlePinKeyDown = (index, e) => {
+    if (e.key === "Backspace") {
+      if (pinDigits[index]) {
+        const next = [...pinDigits];
+        next[index] = "";
+        setPinDigits(next);
+      } else if (index > 0) {
+        const next = [...pinDigits];
+        next[index - 1] = "";
+        setPinDigits(next);
+        pinInputRefs.current[index - 1]?.focus();
+      }
+      e.preventDefault();
+    }
+  };
+
+  const handlePinPaste = (e) => {
+    e.preventDefault();
+    if (isLocked) return;
+    const pasted = (e.clipboardData || window.clipboardData)
+      .getData("text")
+      .replace(/\D/g, "")
+      .slice(0, OTP_LENGTH);
+    if (!pasted) return;
+    const next = Array(OTP_LENGTH).fill("");
+    pasted.split("").forEach((char, index) => {
+      next[index] = char;
+    });
+    setPinDigits(next);
+    pinInputRefs.current[Math.min(pasted.length, OTP_LENGTH) - 1]?.focus();
+  };
+
+  const attemptMessage = useMemo(() => {
+    if (isLocked) return "Account locked";
+    if (attempts > 0 && attempts < 3) {
+      const remaining = 3 - attempts;
+      return `${remaining} attempt${remaining !== 1 ? "s" : ""} left`;
+    }
+    return "";
+  }, [attempts, isLocked]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -530,12 +645,18 @@ const Login = () => {
         setUserEmail(data.email);
 
         try {
-          let globalMfaEnabled = false;
+          // Keep MFA enabled by default if the setting is not initialized yet.
+          let globalMfaEnabled = true;
           try {
             const globalMfaResponse = await fetch(`${API_BASE_URL}/api/system-settings/global_mfa_enabled`);
             if (globalMfaResponse.ok) {
               const globalMfaData = await globalMfaResponse.json();
-              globalMfaEnabled = globalMfaData.setting_value === "true" || globalMfaData.setting_value === true;
+              const globalRaw = globalMfaData.setting_value;
+              globalMfaEnabled =
+                globalRaw === "true" ||
+                globalRaw === true ||
+                globalRaw === "1" ||
+                globalRaw === 1;
             }
           } catch {}
 
@@ -1006,30 +1127,257 @@ const Login = () => {
 
         {/* ── 2FA Modal ── */}
         <Modal open={show2FA} onClose={() => setShow2FA(false)}>
-          <Box sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 480, maxWidth: "90%", bgcolor: "rgba(255,248,231,0.85)", borderRadius: 4, p: 5, textAlign: "center", backdropFilter: "blur(10px)", boxShadow: "0 20px 50px rgba(128,0,32,0.3)" }}>
-            <Typography variant="h5" sx={{ color: darkText, fontWeight: "bold", mb: 3 }}>Email Verification</Typography>
-            <Typography sx={{ mb: 3, color: mediumText }}>Verification code sent to <b>{userEmail}</b></Typography>
-            {success && <Alert icon={<CheckCircleOutline />} severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-            {twoFactorError && <Alert icon={<ErrorOutline />} severity="error" sx={{ mb: 2 }}>{twoFactorError}</Alert>}
-            <TextField
-              fullWidth
-              placeholder="••••••"
-              value={pin}
-              onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-              inputProps={{ maxLength: 6, style: { letterSpacing: "0.15rem", fontSize: "1.6rem", textAlign: "center" } }}
+          <Box
+            sx={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              p: 3,
+              bgcolor: "rgba(0,0,0,0.55)",
+            }}
+          >
+            <Box
               sx={{
-                mb: 2,
-                "& .MuiInputBase-input": { color: "#000" },
-                "& .MuiInputBase-input::placeholder": { color: placeholderGray, opacity: 1 },
-                "& .MuiOutlinedInput-root": { borderRadius: 2, background: "#fff", "& fieldset": { borderColor: placeholderGray } },
+                width: "100%",
+                maxWidth: 400,
+                bgcolor: "#FFF8E7",
+                borderRadius: "20px",
+                px: { xs: 2.5, sm: 5 },
+                pt: 4.5,
+                pb: 4,
+                border: "0.5px solid rgba(128,0,32,0.15)",
+                textAlign: "center",
               }}
-            />
-            <Button fullWidth variant="contained" sx={{ mb: 2, py: 1.8, background: primaryGradient, "&:hover": { background: primaryHoverGradient, transform: "scale(1.05)" }, transition: "transform 0.2s ease-in-out" }} onClick={verify2FACode} startIcon={<VerifiedUserOutlined sx={{ fontSize: 28, color: "#FFF8E7" }} />}>
-              {twoFactorLoading ? "Verifying..." : "Verify"}
-            </Button>
-            <Button fullWidth variant="outlined" sx={{ py: 1.8, color: "#000", borderColor: "#000", "&:hover": { backgroundColor: "rgba(0,0,0,0.05)", borderColor: "#000" } }} onClick={() => send2FACode(userEmail, employeeNumberForRequests)} disabled={resendLoading || codeTimer > 0}>
-              {codeTimer > 0 ? `Resend in ${formatTime(codeTimer)}` : resendLoading ? "Sending..." : "Resend Code"}
-            </Button>
+            >
+              <Box
+                sx={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: "50%",
+                  bgcolor: "rgba(128,0,32,0.08)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  mx: "auto",
+                  mb: 2,
+                }}
+              >
+                <VerifiedUserOutlined sx={{ color: "#800020", fontSize: 26 }} />
+              </Box>
+
+              <Typography sx={{ fontSize: 18, fontWeight: 500, color: "#4B0000", mb: 0.75 }}>
+                Email verification
+              </Typography>
+              <Typography sx={{ fontSize: 13, color: "#800020", lineHeight: 1.5, mb: 3 }}>
+                We sent a 6-digit code to<br />
+                <Box component="span" sx={{ fontWeight: 500, color: "#4B0000" }}>
+                  {maskEmail(userEmail)}
+                </Box>
+              </Typography>
+
+              {success && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    textAlign: "left",
+                    p: "10px 12px",
+                    borderRadius: "8px",
+                    bgcolor: "#EAF3DE",
+                    border: "0.5px solid #9FE1CB",
+                    color: "#27500A",
+                    fontSize: 13,
+                    mb: 1.75,
+                  }}
+                >
+                  <CheckCircleOutline sx={{ fontSize: 16 }} />
+                  {success}
+                </Box>
+              )}
+
+              {twoFactorError && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    textAlign: "left",
+                    p: "10px 12px",
+                    borderRadius: "8px",
+                    bgcolor: "#FCEBEB",
+                    border: "0.5px solid #F7C1C1",
+                    color: "#791F1F",
+                    fontSize: 13,
+                    mb: 1.75,
+                  }}
+                >
+                  <ErrorOutline sx={{ fontSize: 16 }} />
+                  {twoFactorError}
+                </Box>
+              )}
+
+              <Box sx={{ display: "flex", justifyContent: "center", gap: 1.25, mb: 1.25 }}>
+                {pinDigits.map((digit, index) => (
+                  <Box
+                    key={`pin-${index}`}
+                    component="input"
+                    ref={(el) => {
+                      pinInputRefs.current[index] = el;
+                    }}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={digit}
+                    disabled={isLocked}
+                    onChange={(e) => handlePinChange(index, e.target.value)}
+                    onKeyDown={(e) => handlePinKeyDown(index, e)}
+                    onPaste={handlePinPaste}
+                    onFocus={(e) => e.target.select()}
+                    sx={{
+                      width: { xs: 42, sm: 52 },
+                      height: { xs: 52, sm: 60 },
+                      border: `1.5px solid ${digit ? "#800020" : "rgba(128,0,32,0.3)"}`,
+                      borderRadius: "10px",
+                      bgcolor: digit ? "rgba(128,0,32,0.04)" : "#fff",
+                      textAlign: "center",
+                      fontSize: { xs: 20, sm: 24 },
+                      fontWeight: 500,
+                      color: "#4B0000",
+                      outline: "none",
+                      caretColor: "#800020",
+                      transition: "border-color 0.15s, box-shadow 0.15s, background-color 0.15s",
+                      fontFamily: "monospace",
+                      "&:focus": {
+                        borderColor: "#800020",
+                        boxShadow: "0 0 0 3px rgba(128,0,32,0.12)",
+                      },
+                      "&:disabled": {
+                        bgcolor: "rgba(128,0,32,0.04)",
+                        color: "rgba(75,0,0,0.45)",
+                        borderColor: "rgba(128,0,32,0.2)",
+                        cursor: "not-allowed",
+                      },
+                    }}
+                  />
+                ))}
+              </Box>
+
+              <Box sx={{ display: "flex", justifyContent: "center", gap: 0.75, mb: 2 }}>
+                {pinDigits.map((digit, index) => (
+                  <Box
+                    key={`dot-${index}`}
+                    sx={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: "50%",
+                      bgcolor: digit ? "#800020" : "rgba(128,0,32,0.18)",
+                      transition: "background 0.15s",
+                    }}
+                  />
+                ))}
+              </Box>
+
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2.5, px: 0.25 }}>
+                <Typography sx={{ fontSize: 12, color: "#A32D2D" }}>{attemptMessage}</Typography>
+                <Typography sx={{ fontSize: 12, color: codeExpireTimer <= 30 ? "#A32D2D" : "#800020", fontWeight: 500 }}>
+                  {codeExpireTimer > 0 ? `Code expires in ${formatTime(codeExpireTimer)}` : "Code expired"}
+                </Typography>
+              </Box>
+
+              <Button
+                fullWidth
+                onClick={verify2FACode}
+                disabled={twoFactorLoading || isLocked || codeExpireTimer <= 0 || pin.length < OTP_LENGTH}
+                sx={{
+                  mb: 1.5,
+                  py: 1.4,
+                  borderRadius: "10px",
+                  bgcolor: "#800020",
+                  color: "#FFF8E7",
+                  textTransform: "none",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 1,
+                  "&:hover": { bgcolor: "#A52A2A" },
+                  "&:disabled": { opacity: 0.45, color: "#FFF8E7" },
+                }}
+              >
+                <VerifiedUserOutlined sx={{ fontSize: 16 }} />
+                {twoFactorLoading ? "Verifying..." : "Verify code"}
+              </Button>
+
+              <Button
+                fullWidth
+                variant="outlined"
+                onClick={() => send2FACode(userEmail, employeeNumberForRequests, { isResend: true })}
+                disabled={resendLoading || resendTimer > 0}
+                sx={{
+                  py: 1.2,
+                  px: 1.5,
+                  borderRadius: "10px",
+                  textTransform: "none",
+                  borderColor: "rgba(128,0,32,0.3)",
+                  color: "#800020",
+                  fontSize: 13,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 1,
+                  "&:hover": {
+                    borderColor: "rgba(128,0,32,0.3)",
+                    bgcolor: "rgba(128,0,32,0.05)",
+                  },
+                  "&:disabled": {
+                    bgcolor: "rgba(128,0,32,0.04)",
+                    borderColor: "rgba(128,0,32,0.15)",
+                    color: "rgba(128,0,32,0.4)",
+                  },
+                }}
+              >
+                <AccessTimeIcon sx={{ fontSize: 14 }} />
+                {resendLoading ? "Sending..." : resendTimer > 0 ? "Resend available in" : "Resend code"}
+                {resendTimer > 0 && (
+                  <Box
+                    component="span"
+                    sx={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      minWidth: 44,
+                      height: 22,
+                      px: 0.9,
+                      borderRadius: "20px",
+                      bgcolor: "rgba(128,0,32,0.1)",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    {formatTime(resendTimer)}
+                  </Box>
+                )}
+              </Button>
+
+              {resendTimer > 0 && (
+                <Box sx={{ width: "100%", height: 3, bgcolor: "rgba(128,0,32,0.1)", borderRadius: "2px", mt: 0.8, overflow: "hidden" }}>
+                  <Box
+                    sx={{
+                      height: "100%",
+                      bgcolor: "#800020",
+                      borderRadius: "2px",
+                      width: `${(resendTimer / OTP_RESEND_SECONDS) * 100}%`,
+                      transition: "width 1s linear",
+                    }}
+                  />
+                </Box>
+              )}
+            </Box>
           </Box>
         </Modal>
 

@@ -1219,9 +1219,9 @@ const closeModal = () => setModal((p) => ({ ...p, open: false }));
   }, [accessLoading]);
 
   useEffect(() => {
-    const en = localStorage.getItem('employeeNumber');
-    const sd = localStorage.getItem('startDate');
-    const ed = localStorage.getItem('endDate');
+    const en = localStorage.getItem('attendanceDesignatedEmployeeNumber');
+    const sd = localStorage.getItem('attendanceDesignatedStartDate');
+    const ed = localStorage.getItem('attendanceDesignatedEndDate');
     if (en) setEmployeeNumber(en);
     if (sd) setStartDate(sd);
     if (ed) setEndDate(ed);
@@ -1256,9 +1256,9 @@ const closeModal = () => setModal((p) => ({ ...p, open: false }));
   );
 
   const handleSubmit = async () => {
-    localStorage.setItem('employeeNumber', employeeNumber);
-    localStorage.setItem('startDate', startDate);
-    localStorage.setItem('endDate', endDate);
+    localStorage.setItem('attendanceDesignatedEmployeeNumber', employeeNumber);
+    localStorage.setItem('attendanceDesignatedStartDate', startDate);
+    localStorage.setItem('attendanceDesignatedEndDate', endDate);
     setLoading(true);
     setError('');
     try {
@@ -1270,7 +1270,25 @@ const closeModal = () => setModal((p) => ({ ...p, open: false }));
         },
       );
 
-      const processedData = response.data.map((row) => {
+      const rawRows = Array.isArray(response.data) ? response.data : [];
+      if (rawRows.length === 0) {
+        setAttendanceData([]);
+        setSuspensionByDate({});
+        setLeaveByDate({});
+        setHolidayByDate({});
+        showModal(
+          "No Attendance Device Record",
+          "No saved attendance record was found in Attendance Device for this employee and date range.\n\nPlease save the Attendance Device record first, then search again.\n\nPress OK to open Attendance Device.",
+          "warning",
+          () => {
+            closeModal();
+            navigate('/view_attendance');
+          },
+        );
+        return;
+      }
+
+      const processedData = rawRows.map((row) => {
         const {
           timeIN,
           timeOUT,

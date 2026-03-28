@@ -272,7 +272,7 @@ const printPage = async () => {
                 </Box>
 
                 {/* FAB Buttons */}
-                <Box className="no-print" sx={{ position: 'fixed', bottom: 60, right: 30, display: 'flex', flexDirection: 'row', gap: 2, zIndex: 1000 }}>
+                <Box className="no-print forms-floating-actions" sx={{ position: 'fixed', bottom: 60, right: 30, display: 'flex', flexDirection: 'row', gap: 2, zIndex: 1000 }}>
                     <Zoom in={true}>
                         <Tooltip title="Print Form" placement="top">
                             <Fab onClick={printPage} sx={{ bgcolor: '#6D2323', '&:hover': { bgcolor: '#8a4747' }, width: 56, height: 56 }}>
