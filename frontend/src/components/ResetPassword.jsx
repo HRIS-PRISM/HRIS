@@ -285,11 +285,7 @@ const ResetPassword = () => {
 
         {/* ── HERO CARD ── */}
         <GlassCard sx={{ mb: 3, animation: "sectionIn 0.4s ease" }}>
-          <CardBanner />
           <Box sx={{ px: { xs: 3, md: 5 }, py: { xs: 3, md: 4 }, display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap" }}>
-            <Avatar sx={{ width: 72, height: 72, bgcolor: alpha(P, 0.1), border: `4px solid ${PANEL}`, boxShadow: `0 6px 20px ${alpha(P, 0.22)}` }}>
-              <LockResetIcon sx={{ color: P, fontSize: 36 }} />
-            </Avatar>
             <Box sx={{ flex: 1, minWidth: 180 }}>
               <Typography sx={{ fontWeight: 900, fontSize: { xs: "1.4rem", md: "1.75rem" }, color: P, lineHeight: 1.15, mb: 0.5, letterSpacing: "-0.01em" }}>
                 Password Management

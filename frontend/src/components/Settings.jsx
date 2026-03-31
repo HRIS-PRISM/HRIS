@@ -25,12 +25,12 @@ import { useSocket } from "../contexts/SocketContext";
    GLOBAL STYLES
 ───────────────────────────────────────────────────────────────────────────── */
 const GLOBAL_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes pulse-ring {
-    0%   { box-shadow: 0 0 0 0 rgba(109,35,35,0.35); }
-    70%  { box-shadow: 0 0 0 10px rgba(109,35,35,0); }
-    100% { box-shadow: 0 0 0 0 rgba(109,35,35,0); }
+    0%   { box-shadow: 0 0 0 0 rgba(30,41,59,0.3); }
+    70%  { box-shadow: 0 0 0 8px rgba(30,41,59,0); }
+    100% { box-shadow: 0 0 0 0 rgba(30,41,59,0); }
   }
   @keyframes laShimmer {
     0%   { background-position: -800px 0; }
@@ -44,21 +44,21 @@ const GLOBAL_CSS = `
     0%,100% { opacity: 1; }
     50%      { opacity: 0.4; }
   }
-  * { font-family: 'IBM Plex Sans', sans-serif; }
+  * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
 `;
 
 /* ─────────────────────────────────────────────────────────────────────────────
    STATIC TOKENS
 ───────────────────────────────────────────────────────────────────────────── */
-const FALLBACK_P  = "#6D2323";
-const FALLBACK_S  = "#8B4545";
-const PAGE_BG     = "#f0f1f3";
+const FALLBACK_P  = "#1e293b";
+const FALLBACK_S  = "#334155";
+const PAGE_BG     = "#f1f5f9";
 const PANEL       = "#ffffff";
-const BD          = "#e2e4e8";
-const TXT         = "#111827";
-const MUTED       = "#6b7280";
-const SUBTLE      = "#f7f8fa";
-const DARK        = "#15181f";
+const BD          = "#e2e8f0";
+const TXT         = "#0f172a";
+const MUTED       = "#64748b";
+const SUBTLE      = "#f8fafc";
+const DARK        = "#0f172a";
 const SIDEBAR_W   = 280;
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ const SIDEBAR_W   = 280;
 const LASkeletonBox = ({ width = "100%", height = 16, borderRadius = 8, sx = {} }) => (
   <Box sx={{
     width, height, borderRadius: `${borderRadius}px`, flexShrink: 0,
-    background: "linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.16) 50%,rgba(109,35,35,0.07) 75%)",
+    background: "linear-gradient(90deg,rgba(30,41,59,0.05) 25%,rgba(30,41,59,0.12) 50%,rgba(30,41,59,0.05) 75%)",
     backgroundSize: "800px 100%",
     animation: "laShimmer 1.6s infinite linear",
     ...sx,
@@ -75,241 +75,154 @@ const LASkeletonBox = ({ width = "100%", height = 16, borderRadius = 8, sx = {} 
 );
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   LOADING WIREFRAME — aligned to match the real layout exactly
+   LOADING WIREFRAME
 ───────────────────────────────────────────────────────────────────────────── */
 const SettingsWireframe = () => (
-  <Box sx={{ minHeight: "100vh"}}>
+  <Box sx={{ minHeight: "100vh" }}>
     <style>{GLOBAL_CSS}</style>
 
-    {/* ── SIDEBAR ghost — fixed right, identical to real sidebar ── */}
+    {/* Sidebar ghost */}
     <Box sx={{
-      width: SIDEBAR_W,
-      bgcolor: "#fff",
-      borderLeft: `2px solid ${alpha(FALLBACK_P, 0.3)}`,
-      position: "fixed",
-      right: 0,
-      top: 0,
-      height: "100vh",
-      zIndex: 1200,
-      display: "flex",
-      flexDirection: "column",
+      width: SIDEBAR_W, bgcolor: "#fff",
+      borderLeft: `1px solid ${BD}`,
+      position: "fixed", right: 0, top: 0, height: "100vh", zIndex: 1200,
+      display: "flex", flexDirection: "column",
     }}>
-      {/* Sidebar header */}
       <Box sx={{
         px: 3, py: 2.5,
-        borderBottom: `1px solid ${alpha(FALLBACK_P, 0.12)}`,
-        display: "flex", alignItems: "center", gap: 2,
-        flexShrink: 0,
-        background: `linear-gradient(135deg, ${alpha(FALLBACK_P, 0.07)} 0%, ${alpha(FALLBACK_P, 0.02)} 100%)`,
+        borderBottom: `1px solid ${BD}`,
+        display: "flex", alignItems: "center", gap: 2, flexShrink: 0,
         animation: "laPulse 2s ease-in-out infinite",
       }}>
-        <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: alpha(FALLBACK_P, 0.18), flexShrink: 0 }} />
+        <Box sx={{ width: 32, height: 32, borderRadius: 1, bgcolor: alpha(FALLBACK_P, 0.08), flexShrink: 0 }} />
         <Box sx={{ flex: 1 }}>
-          <LASkeletonBox width="55%" height={12} borderRadius={4} sx={{ mb: 0.75 }} />
-          <LASkeletonBox width="38%" height={8} borderRadius={3} />
+          <LASkeletonBox width="50%" height={11} borderRadius={4} sx={{ mb: 0.5 }} />
+          <LASkeletonBox width="35%" height={8} borderRadius={3} />
         </Box>
       </Box>
 
-      {/* Active section chip ghost */}
-      <Box sx={{
-        mx: 2.5, my: 2, px: 2, py: 1.25,
-        bgcolor: alpha(FALLBACK_P, 0.06),
-        borderRadius: 1.5,
-        border: `1px solid ${alpha(FALLBACK_P, 0.14)}`,
-        flexShrink: 0,
-        animation: "laPulse 2s ease-in-out 0.05s infinite",
-      }}>
-        <LASkeletonBox width="45%" height={8} borderRadius={3} sx={{ mb: 0.6 }} />
-        <LASkeletonBox width="70%" height={12} borderRadius={4} />
-      </Box>
-
-      {/* "Account" group label */}
-      <Box sx={{ px: 3, pb: 0.75, pt: 0.5 }}>
-        <LASkeletonBox width="40%" height={8} borderRadius={3} />
-      </Box>
-
-      {/* Nav items — 3 account rows, divider label, 4 info rows */}
       {[52, 44, 66, null, 40, 28, 36, 55].map((w, i) =>
         w === null ? (
-          <Box key={i} sx={{ px: 3, pb: 0.75, pt: 1.25 }}>
-            <LASkeletonBox width="45%" height={8} borderRadius={3} />
+          <Box key={i} sx={{ px: 3, pb: 0.5, pt: 1 }}>
+            <LASkeletonBox width="38%" height={7} borderRadius={3} />
           </Box>
         ) : (
           <Box key={i} sx={{
-            display: "flex", alignItems: "center", gap: 1.75,
-            px: 3, py: 1.35,
+            display: "flex", alignItems: "center", gap: 1.5,
+            px: 3, py: 1.25,
             animation: `laPulse 2s ease-in-out ${i * 0.06}s infinite`,
-            ...(i === 0 ? {
-              borderLeft: `3px solid ${FALLBACK_P}`,
-              bgcolor: alpha(FALLBACK_P, 0.08),
-            } : {
-              borderLeft: "3px solid transparent",
-            }),
+            borderRadius: "0 6px 6px 0", mr: 1,
+            ...(i === 0 ? { bgcolor: alpha(FALLBACK_P, 0.06) } : {}),
           }}>
-            <Box sx={{ width: 16, height: 16, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, i === 0 ? 0.18 : 0.07), flexShrink: 0 }} />
-            <LASkeletonBox width={`${w}%`} height={11} borderRadius={3} />
+            <Box sx={{ width: 14, height: 14, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, i === 0 ? 0.12 : 0.05), flexShrink: 0 }} />
+            <LASkeletonBox width={`${w}%`} height={10} borderRadius={3} />
           </Box>
         )
       )}
 
-      {/* Footer ghost */}
-      <Box sx={{ mt: "auto", px: 3, py: 2.5, borderTop: `1px solid ${alpha(FALLBACK_P, 0.1)}`, flexShrink: 0 }}>
+      <Box sx={{ mt: "auto", px: 3, py: 2.5, borderTop: `1px solid ${BD}`, flexShrink: 0 }}>
         <Box sx={{
-          display: "flex", alignItems: "center", gap: 1.5,
-          py: 1.25, px: 1.75,
-          borderRadius: 2, border: `1px solid ${alpha(FALLBACK_P, 0.12)}`,
-          bgcolor: alpha(FALLBACK_P, 0.04),
-          animation: "laPulse 2s ease-in-out 0.3s infinite",
+          display: "flex", alignItems: "center", gap: 1.25, py: 1, px: 1.5,
+          borderRadius: 1.5, animation: "laPulse 2s ease-in-out 0.3s infinite",
         }}>
-          <Box sx={{ width: 16, height: 16, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.1), flexShrink: 0 }} />
-          <LASkeletonBox width="60%" height={11} borderRadius={3} />
+          <Box sx={{ width: 14, height: 14, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.06), flexShrink: 0 }} />
+          <LASkeletonBox width="55%" height={10} borderRadius={3} />
         </Box>
       </Box>
     </Box>
 
-    {/* ── MAIN CONTENT — uses the exact same offsets as the real layout ── */}
+    {/* Main content ghost */}
     <Box sx={{
-      width: "100vw",
-      maxWidth: "100%",
-      position: "relative",
-      left: "63%",
-      transform: "translateX(-61%)",
+      width: "100vw", maxWidth: "100%",
+      position: "relative", left: "63%", transform: "translateX(-61%)",
       boxSizing: "border-box",
       pl: { xs: 2, sm: 3, md: 6 },
       pr: `${SIDEBAR_W + 16}px`,
       py: { xs: 2, md: 4 },
     }}>
-
-      {/* Breadcrumb ghost */}
-      <Box sx={{
-        display: "flex", alignItems: "center", gap: 1.5, mb: 4,
-        animation: "laPulse 2s ease-in-out infinite",
-      }}>
-        <LASkeletonBox width={60} height={10} borderRadius={3} />
-        <LASkeletonBox width={8} height={10} borderRadius={3} />
-        <LASkeletonBox width={120} height={10} borderRadius={3} />
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 4, animation: "laPulse 2s ease-in-out infinite" }}>
+        <LASkeletonBox width={55} height={9} borderRadius={3} />
+        <LASkeletonBox width={6} height={9} borderRadius={3} />
+        <LASkeletonBox width={110} height={9} borderRadius={3} />
         <Box sx={{ flex: 1 }} />
-        {/* Identity pill ghost */}
         <Box sx={{
           display: "flex", alignItems: "center", gap: 1,
-          px: 2, py: 0.75,
-          bgcolor: "#fff",
-          border: `1px solid ${alpha(FALLBACK_P, 0.12)}`,
-          borderRadius: "20px",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+          px: 2, py: 0.6, bgcolor: "#fff", border: `1px solid ${BD}`, borderRadius: "16px",
         }}>
-          <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.25), flexShrink: 0 }} />
-          <LASkeletonBox width={160} height={10} borderRadius={3} />
+          <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.2), flexShrink: 0 }} />
+          <LASkeletonBox width={140} height={9} borderRadius={3} />
         </Box>
       </Box>
 
-      {/* Hero card skeleton */}
       <Box sx={{
-        mb: 4, borderRadius: 3, overflow: "hidden",
-        border: `1px solid ${alpha(FALLBACK_P, 0.1)}`,
-        boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
+        mb: 4, borderRadius: 2, overflow: "hidden",
+        border: `1px solid ${BD}`,
+        boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06)",
         animation: "laPulse 2s ease-in-out 0.04s infinite",
       }}>
-        <Box sx={{
-          p: 5,
-          background: "linear-gradient(135deg,#fff 0%,#f5f5f5 100%)",
-          position: "relative", overflow: "hidden",
-        }}>
-          <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.06), pointerEvents: "none" }} />
-          <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.04), pointerEvents: "none" }} />
-          <Box sx={{ display: "flex", alignItems: "center", gap: 3, position: "relative", zIndex: 1 }}>
-            <Box sx={{ width: 64, height: 64, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.12), flexShrink: 0 }} />
-            <Box>
-              <LASkeletonBox width={260} height={26} borderRadius={6} sx={{ mb: 1.25 }} />
-              <LASkeletonBox width={380} height={13} borderRadius={4} />
-            </Box>
+        <Box sx={{ p: 5, bgcolor: "#fff", display: "flex", alignItems: "center", gap: 3 }}>
+          <Box sx={{ width: 52, height: 52, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.08), flexShrink: 0 }} />
+          <Box>
+            <LASkeletonBox width={240} height={22} borderRadius={6} sx={{ mb: 1 }} />
+            <LASkeletonBox width={340} height={12} borderRadius={4} />
           </Box>
         </Box>
       </Box>
 
-      {/* Section card skeleton */}
       <Box sx={{
-        borderRadius: 3, overflow: "hidden",
-        border: `1px solid ${alpha(FALLBACK_P, 0.1)}`,
-        boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
+        borderRadius: 2, overflow: "hidden",
+        border: `1px solid ${BD}`,
+        boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06)",
         bgcolor: "#fff",
         animation: "laPulse 2s ease-in-out 0.14s infinite",
       }}>
-        {/* SectionHeader ghost */}
         <Box sx={{
-          px: 4, py: 3,
-          background: "linear-gradient(135deg,#fff 0%,#f5f5f5 100%)",
+          px: 4, py: 2.5, bgcolor: "#fff",
           display: "flex", alignItems: "center", gap: 2,
-          boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
-          borderBottom: `1px solid ${alpha(FALLBACK_P, 0.08)}`,
+          borderBottom: `1px solid ${BD}`,
         }}>
-          <Box sx={{ width: 56, height: 56, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.1), flexShrink: 0 }} />
+          <Box sx={{ width: 44, height: 44, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.06), flexShrink: 0 }} />
           <Box>
-            <LASkeletonBox width={190} height={15} borderRadius={4} sx={{ mb: 0.75 }} />
-            <LASkeletonBox width={270} height={11} borderRadius={3} />
+            <LASkeletonBox width={170} height={13} borderRadius={4} sx={{ mb: 0.5 }} />
+            <LASkeletonBox width={240} height={10} borderRadius={3} />
           </Box>
         </Box>
 
-        {/* Card body */}
         <Box sx={{ p: { xs: 3, md: 4 } }}>
-          {/* Step indicator ghost */}
           <Box sx={{ display: "flex", alignItems: "center", mb: 4 }}>
             {[0, 1, 2].map((i) => (
               <React.Fragment key={i}>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <Box sx={{
-                    width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
-                    bgcolor: i === 0 ? alpha(FALLBACK_P, 0.35) : alpha(FALLBACK_P, 0.1),
+                    width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+                    bgcolor: i === 0 ? alpha(FALLBACK_P, 0.2) : alpha(FALLBACK_P, 0.06),
                   }} />
-                  <LASkeletonBox width={i === 0 ? 90 : i === 1 ? 80 : 110} height={12} borderRadius={4} />
+                  <LASkeletonBox width={i === 0 ? 80 : i === 1 ? 70 : 100} height={10} borderRadius={3} />
                 </Box>
-                {i < 2 && (
-                  <Box sx={{ flex: 1, height: 2, bgcolor: alpha(FALLBACK_P, 0.1), mx: 2, borderRadius: 2 }} />
-                )}
+                {i < 2 && <Box sx={{ flex: 1, height: 1, bgcolor: BD, mx: 2 }} />}
               </React.Fragment>
             ))}
           </Box>
 
-          {/* Inner form box ghost */}
-          <Box sx={{
-            border: `1px solid ${alpha(FALLBACK_P, 0.12)}`,
-            bgcolor: SUBTLE, p: 3.5, borderRadius: 2,
-          }}>
-            {/* Info box ghost */}
-            <Box sx={{ display: "flex", mb: 3 }}>
-              <Box sx={{ width: 4, bgcolor: alpha(FALLBACK_P, 0.4), borderRadius: "4px 0 0 4px", flexShrink: 0 }} />
-              <Box sx={{
-                flex: 1, px: 2.5, py: 2,
-                bgcolor: alpha(FALLBACK_P, 0.04),
-                border: `1px solid ${alpha(FALLBACK_P, 0.14)}`,
-                borderLeft: "none",
-                borderRadius: "0 8px 8px 0",
-              }}>
-                <LASkeletonBox width="85%" height={11} borderRadius={3} sx={{ mb: 0.75 }} />
-                <LASkeletonBox width="60%" height={11} borderRadius={3} />
+          <Box sx={{ border: `1px solid ${BD}`, bgcolor: SUBTLE, p: 3, borderRadius: 1.5 }}>
+            <Box sx={{ display: "flex", mb: 2.5 }}>
+              <Box sx={{ width: 3, bgcolor: alpha(FALLBACK_P, 0.3), borderRadius: "3px 0 0 3px", flexShrink: 0 }} />
+              <Box sx={{ flex: 1, px: 2, py: 1.5, bgcolor: alpha(FALLBACK_P, 0.02), borderRadius: "0 6px 6px 0" }}>
+                <LASkeletonBox width="80%" height={10} borderRadius={3} sx={{ mb: 0.5 }} />
+                <LASkeletonBox width="55%" height={10} borderRadius={3} />
               </Box>
             </Box>
-
-            {/* Field label + input */}
-            <Box sx={{ mb: 3 }}>
-              <LASkeletonBox width="18%" height={10} borderRadius={3} sx={{ mb: 1 }} />
-              <Box sx={{
-                height: 46, borderRadius: 2,
-                border: `1px solid ${alpha(FALLBACK_P, 0.15)}`,
-                bgcolor: SUBTLE,
-                display: "flex", alignItems: "center", px: 1.75, gap: 1,
-              }}>
-                <LASkeletonBox width="55%" height={13} borderRadius={4} />
-                <Box sx={{ ml: "auto", width: 28, height: 28, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.08) }} />
+            <Box sx={{ mb: 2.5 }}>
+              <LASkeletonBox width="16%" height={9} borderRadius={3} sx={{ mb: 0.75 }} />
+              <Box sx={{ height: 42, borderRadius: 1.5, border: `1px solid ${BD}`, bgcolor: SUBTLE, display: "flex", alignItems: "center", px: 1.5, gap: 1 }}>
+                <LASkeletonBox width="50%" height={12} borderRadius={3} />
+                <Box sx={{ ml: "auto", width: 24, height: 24, borderRadius: "50%", bgcolor: alpha(FALLBACK_P, 0.05) }} />
               </Box>
             </Box>
-
-            {/* CTA button ghost */}
-            <Box sx={{ width: 210, height: 44, borderRadius: 2, bgcolor: alpha(FALLBACK_P, 0.22) }} />
+            <Box sx={{ width: 180, height: 40, borderRadius: 1.5, bgcolor: alpha(FALLBACK_P, 0.12) }} />
           </Box>
         </Box>
       </Box>
-
     </Box>
   </Box>
 );
@@ -319,32 +232,33 @@ const SettingsWireframe = () => (
 ───────────────────────────────────────────────────────────────────────────── */
 const GlassCard = ({ children, sx = {} }) => (
   <Card elevation={0} sx={{
-    background: "linear-gradient(135deg,rgba(255,255,255,0.95) 0%,rgba(255,255,255,0.85) 100%)",
-    backdropFilter: "blur(10px)", borderRadius: 3,
-    border: `1px solid rgba(109,35,35,0.1)`,
-    boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
-    transition: "box-shadow 0.3s ease", overflow: "visible",
+    bgcolor: PANEL, borderRadius: 2,
+    border: `1px solid ${BD}`,
+    boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06)",
+    transition: "box-shadow 0.2s ease", overflow: "visible",
     ...sx,
   }}>{children}</Card>
 );
 
 const SectionHeader = ({ icon: Icon, title, subtitle, action, P, S }) => (
   <Box sx={{
-    px: 4, py: 3,
-    background: "linear-gradient(135deg,#ffffff 0%,#f5f5f5 100%)",
+    px: 4, py: 2.5,
+    bgcolor: "#fff",
     display: "flex", alignItems: "center", justifyContent: "space-between",
     gap: 2, flexWrap: "wrap",
-    boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
-    borderRadius: "12px 12px 0 0",
-    borderBottom: `1px solid ${alpha(P, 0.08)}`,
+    borderBottom: `1px solid ${BD}`,
+    borderRadius: "8px 8px 0 0",
   }}>
     <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-      <Avatar sx={{ bgcolor: alpha(P, 0.13), width: 56, height: 56, boxShadow: `0 8px 24px ${alpha(P, 0.14)}` }}>
-        <Icon sx={{ color: P, fontSize: 28 }} />
+      <Avatar sx={{
+        bgcolor: alpha(P, 0.08), width: 44, height: 44,
+        "& .MuiSvgIcon-root": { color: P, fontSize: 22 },
+      }}>
+        <Icon />
       </Avatar>
       <Box>
-        <Typography sx={{ fontWeight: 900, fontSize: "1.05rem", color: P, lineHeight: 1.2 }}>{title}</Typography>
-        {subtitle && <Typography sx={{ fontSize: "0.82rem", color: S, fontWeight: 700, mt: 0.25 }}>{subtitle}</Typography>}
+        <Typography sx={{ fontWeight: 700, fontSize: "0.95rem", color: TXT, lineHeight: 1.3 }}>{title}</Typography>
+        {subtitle && <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.15 }}>{subtitle}</Typography>}
       </Box>
     </Box>
     {action && <Box>{action}</Box>}
@@ -352,17 +266,18 @@ const SectionHeader = ({ icon: Icon, title, subtitle, action, P, S }) => (
 );
 
 const SectionHero = ({ icon: Icon, title, subtitle, P, S }) => (
-  <GlassCard sx={{ mb: 4, overflow: "hidden" }}>
-    <Box sx={{ p: 5, background: "linear-gradient(135deg,#ffffff 0%,#f5f5f5 100%)", position: "relative", overflow: "hidden" }}>
-      <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle,${alpha(P, 0.1)} 0%,${alpha(P, 0)} 70%)` }} />
-      <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, background: `radial-gradient(circle,${alpha(P, 0.08)} 0%,${alpha(P, 0)} 70%)` }} />
-      <Box sx={{ display: "flex", alignItems: "center", gap: 3, position: "relative", zIndex: 1 }}>
-        <Avatar sx={{ bgcolor: alpha(P, 0.13), mr: 1, width: 64, height: 64, boxShadow: `0 8px 24px ${alpha(P, 0.15)}` }}>
-          <Icon sx={{ color: P, fontSize: 32 }} />
+  <GlassCard sx={{ mb: 3, overflow: "hidden" }}>
+    <Box sx={{ p: { xs: 4, md: 5 }, bgcolor: "#fff" }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
+        <Avatar sx={{
+          bgcolor: alpha(P, 0.08), width: 56, height: 56,
+          "& .MuiSvgIcon-root": { color: P, fontSize: 28 },
+        }}>
+          <Icon />
         </Avatar>
         <Box>
-          <Typography variant="h4" component="h1" sx={{ fontWeight: 900, mb: 1, lineHeight: 1.2, color: P }}>{title}</Typography>
-          <Typography variant="body1" sx={{ opacity: 0.85, fontWeight: 700, color: S }}>{subtitle}</Typography>
+          <Typography variant="h4" component="h1" sx={{ fontWeight: 800, mb: 0.5, lineHeight: 1.2, color: TXT, letterSpacing: "-0.02em" }}>{title}</Typography>
+          <Typography variant="body1" sx={{ color: MUTED }}>{subtitle}</Typography>
         </Box>
       </Box>
     </Box>
@@ -373,15 +288,16 @@ const makeBtn = (P, S) => {
   const Btn = ({ children, danger, outline, sm, fullWidth, ...p }) => (
     <Button disableElevation fullWidth={fullWidth} variant={outline ? "outlined" : "contained"}
       sx={{
-        borderRadius: 2, textTransform: "none", fontWeight: 900,
-        fontSize: sm ? "0.78rem" : "0.875rem",
-        py: sm ? 0.75 : 1.1, px: sm ? 2 : 3,
-        boxShadow: outline ? "none" : `0 4px 12px ${alpha(P, 0.3)}`,
+        borderRadius: 1.5, textTransform: "none", fontWeight: 600,
+        fontSize: sm ? "0.78rem" : "0.85rem",
+        py: sm ? 0.6 : 0.8, px: sm ? 2 : 2.5,
+        boxShadow: "none",
+        transition: "all 0.15s ease",
         ...(outline
-          ? { borderColor: alpha(P, 0.5), color: P, "&:hover": { borderColor: P, bgcolor: alpha(P, 0.05) } }
+          ? { borderColor: BD, color: TXT, "&:hover": { borderColor: P, bgcolor: alpha(P, 0.04), boxShadow: "none" } }
           : danger
-            ? { bgcolor: "#b91c1c", color: "#fff", "&:hover": { bgcolor: "#991b1b" }, "&:disabled": { bgcolor: "#e5e7eb", color: "#9ca3af", boxShadow: "none" } }
-            : { bgcolor: P, color: "#fff", "&:hover": { bgcolor: S }, "&:disabled": { bgcolor: "#e5e7eb", color: "#9ca3af", boxShadow: "none" } }),
+            ? { bgcolor: "#dc2626", color: "#fff", "&:hover": { bgcolor: "#b91c1c" }, "&:disabled": { bgcolor: "#f1f5f9", color: "#94a3b8" } }
+            : { bgcolor: P, color: "#fff", "&:hover": { bgcolor: S, boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }, "&:disabled": { bgcolor: "#f1f5f9", color: "#94a3b8" } }),
       }} {...p}>{children}
     </Button>
   );
@@ -389,52 +305,65 @@ const makeBtn = (P, S) => {
 };
 
 const InfoBox = ({ children, P }) => (
-  <Box sx={{ display: "flex", mb: 3 }}>
-    <Box sx={{ width: 4, bgcolor: P, borderRadius: "4px 0 0 4px", flexShrink: 0 }} />
-    <Box sx={{ flex: 1, px: 2.5, py: 2, bgcolor: alpha(P, 0.04), border: `1px solid ${alpha(P, 0.14)}`, borderLeft: "none", borderRadius: "0 8px 8px 0" }}>
-      <Typography sx={{ fontSize: "0.875rem", color: TXT, lineHeight: 1.75 }}>{children}</Typography>
-    </Box>
+  <Box sx={{
+    display: "flex", mb: 3, px: 3, py: 2.5,
+    bgcolor: alpha(P, 0.03),
+    border: `1px solid ${alpha(P, 0.08)}`,
+    borderRadius: 1.5,
+    borderLeft: `3px solid ${alpha(P, 0.4)}`,
+  }}>
+    <Typography sx={{ fontSize: "0.84rem", color: MUTED, lineHeight: 1.7 }}>{children}</Typography>
   </Box>
 );
 
 const FL = ({ children, req, P }) => (
-  <Typography sx={{ fontSize: "0.78rem", fontWeight: 900, color: P, mb: 0.75, display: "block", letterSpacing: "0.01em" }}>
-    {children}{req && <span style={{ color: "#c0392b", marginLeft: 3 }}>*</span>}
+  <Typography sx={{
+    fontSize: "0.78rem", fontWeight: 600, color: TXT, mb: 0.6, display: "block",
+  }}>
+    {children}{req && <span style={{ color: "#dc2626", marginLeft: 2 }}>*</span>}
   </Typography>
 );
 
 const makeFX = (P) => ({
   "& .MuiOutlinedInput-root": {
-    borderRadius: 2, bgcolor: SUBTLE, fontSize: "0.9rem",
-    "& fieldset": { borderColor: alpha(P, 0.22) },
-    "&:hover fieldset": { borderColor: P },
-    "&.Mui-focused fieldset": { borderColor: P, borderWidth: 2 },
+    borderRadius: 1.5, bgcolor: "#fff", fontSize: "0.875rem",
+    "& fieldset": { borderColor: BD },
+    "&:hover fieldset": { borderColor: alpha(P, 0.3) },
+    "&.Mui-focused fieldset": { borderColor: P },
   },
-  "& .MuiInputBase-input": { py: "11px", px: "14px" },
+  "& .MuiInputBase-input": { py: "10px", px: "12px" },
 });
 
 const makeReadOnlyFX = (P) => ({
   "& .MuiOutlinedInput-root": {
-    borderRadius: 2, bgcolor: alpha(P, 0.03), fontSize: "0.9rem",
-    "& fieldset": { borderColor: alpha(P, 0.15), borderStyle: "dashed" },
-    "&:hover fieldset": { borderColor: alpha(P, 0.25) },
+    borderRadius: 1.5, bgcolor: SUBTLE, fontSize: "0.875rem",
+    "& fieldset": { borderColor: BD, borderStyle: "dashed" },
+    "&:hover fieldset": { borderColor: alpha(P, 0.15) },
   },
-  "& .MuiInputBase-input": { py: "11px", px: "14px" },
-  "& .MuiInputBase-input.Mui-disabled": { WebkitTextFillColor: TXT, fontWeight: 600, cursor: "not-allowed" },
+  "& .MuiInputBase-input": { py: "10px", px: "12px" },
+  "& .MuiInputBase-input.Mui-disabled": { WebkitTextFillColor: TXT, fontWeight: 500 },
 });
 
 const makeMFX = (P) => ({
   "& .MuiOutlinedInput-root": {
-    borderRadius: 2, bgcolor: SUBTLE, fontSize: "0.9rem",
-    "& fieldset": { borderColor: alpha(P, 0.22) },
-    "&:hover fieldset": { borderColor: P },
-    "&.Mui-focused fieldset": { borderColor: P, borderWidth: 2 },
+    borderRadius: 1.5, bgcolor: "#fff", fontSize: "0.875rem",
+    "& fieldset": { borderColor: BD },
+    "&:hover fieldset": { borderColor: alpha(P, 0.3) },
+    "&.Mui-focused fieldset": { borderColor: P },
   },
 });
 
 const Tag = ({ label, color }) => (
-  <Box sx={{ display: "inline-flex", alignItems: "center", px: 1.5, py: 0.3, bgcolor: alpha(color, 0.1), border: `1px solid ${alpha(color, 0.3)}`, borderRadius: "20px" }}>
-    <Typography sx={{ fontSize: "0.65rem", fontWeight: 900, color, letterSpacing: "0.08em", textTransform: "uppercase" }}>{label}</Typography>
+  <Box sx={{
+    display: "inline-flex", alignItems: "center",
+    px: 1.25, py: 0.2,
+    bgcolor: alpha(color, 0.06),
+    borderRadius: "4px",
+  }}>
+    <Typography sx={{
+      fontSize: "0.62rem", fontWeight: 600, color: alpha(color, 0.8),
+      letterSpacing: "0.04em", textTransform: "uppercase",
+    }}>{label}</Typography>
   </Box>
 );
 
@@ -447,25 +376,37 @@ const STATUS_OPTIONS = [
 
 const StatusBadge = ({ status }) => {
   const map = {
-    new: ["#92400e","#fef3c7","#d97706"], on_process: ["#7c2d12","#ffedd5","#fb923c"],
-    read: ["#1e3a5f","#dbeafe","#2563eb"], replied: ["#14532d","#dcfce7","#16a34a"],
-    resolved: ["#374151","#f3f4f6","#6b7280"],
+    new: ["#92400e","#fef9c3","#eab308"], on_process: ["#7c2d12","#fff7ed","#f97316"],
+    read: ["#1e40af","#eff6ff","#3b82f6"], replied: ["#166534","#f0fdf4","#22c55e"],
+    resolved: ["#374151","#f9fafb","#6b7280"],
   };
-  const [tc, bg, bc] = map[status] || map.resolved;
+  const [tc, bg] = map[status] || map.resolved;
   return (
-    <Box sx={{ px: 1.5, py: 0.3, bgcolor: bg, border: `1px solid ${alpha(bc, 0.4)}`, borderRadius: "20px", display: "inline-flex", alignItems: "center" }}>
-      <Typography sx={{ fontSize: "0.65rem", fontWeight: 900, color: tc, letterSpacing: "0.08em", textTransform: "uppercase" }}>{STATUS_LABELS[status] || status}</Typography>
+    <Box sx={{
+      px: 1.25, py: 0.2, bgcolor: bg, borderRadius: "4px", display: "inline-flex", alignItems: "center",
+    }}>
+      <Typography sx={{
+        fontSize: "0.62rem", fontWeight: 600, color: tc,
+        letterSpacing: "0.04em", textTransform: "uppercase",
+      }}>{STATUS_LABELS[status] || status}</Typography>
     </Box>
   );
 };
 
 const DlgHeader = ({ icon: Icon, title, onClose, P, S }) => (
-  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", px: 3, py: 2.5, background: `linear-gradient(135deg,${P} 0%,${S} 100%)`, borderBottom: `1px solid ${alpha(P, 0.3)}` }}>
+  <Box sx={{
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    px: 3, py: 2, bgcolor: P, borderBottom: `1px solid ${alpha(P, 0.2)}`,
+  }}>
     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-      <Avatar sx={{ bgcolor: "rgba(255,255,255,0.2)", width: 38, height: 38 }}><Icon sx={{ fontSize: 18, color: "#fff" }} /></Avatar>
-      <Typography sx={{ fontWeight: 900, fontSize: "0.95rem", color: "#fff" }}>{title}</Typography>
+      <Avatar sx={{ bgcolor: "rgba(255,255,255,0.15)", width: 34, height: 34 }}>
+        <Icon sx={{ fontSize: 16, color: "#fff" }} />
+      </Avatar>
+      <Typography sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#fff" }}>{title}</Typography>
     </Box>
-    <IconButton onClick={onClose} sx={{ color: "rgba(255,255,255,0.7)", p: 0.5, "&:hover": { color: "#fff" } }}><Close sx={{ fontSize: 17 }} /></IconButton>
+    <IconButton onClick={onClose} sx={{ color: "rgba(255,255,255,0.6)", p: 0.5, "&:hover": { color: "#fff", bgcolor: "rgba(255,255,255,0.1)" } }}>
+      <Close sx={{ fontSize: 16 }} />
+    </IconButton>
   </Box>
 );
 
@@ -478,7 +419,7 @@ const Settings = () => {
   const navigate         = useNavigate();
   const location         = useLocation();
   const _pendingTicketId       = useRef(null);
-  const _pendingFromNotification = useRef(false); // true when arriving from a notification click
+  const _pendingFromNotification = useRef(false);
 
   const P = sys?.primaryColor   || FALLBACK_P;
   const S = sys?.secondaryColor || FALLBACK_S;
@@ -511,10 +452,7 @@ const Settings = () => {
   const [contactSubmissions, setContactSubmissions] = useState([]);
   const [selectedSub, setSelectedSub]               = useState(null);
   const [contactView, setContactView]               = useState("thread");
-
-  // ── FIX 1: default filter is "new" ──
   const [contactStatusFilter, setContactStatusFilter] = useState("new");
-
   const [adminReply, setAdminReply]                 = useState("");
   const [contactMessages, setContactMessages]       = useState([]);
   const [messagesLoading, setMessagesLoading]       = useState(false);
@@ -546,39 +484,15 @@ const Settings = () => {
   /* ── Effects ── */
   useEffect(() => { const i = getUserInfo(); if (i?.role) setUserRole(i.role); }, []);
 
-  // ── FIX 2: navigation from notification — reset filter to "all" so ticket is visible ──
   useEffect(() => {
     if (pageLoading) return;
     const { section, ticketId } = location.state || {};
     if (!section) return;
-
-    if (ticketId) {
-      _pendingTicketId.current = Number(ticketId);
-    }
-
-    // Mark that we arrived via a notification so fetchTickets uses
-    // updated_at sorting in its fallback (handles old notifications with no ticket ID)
-    if (section === "contact") {
-      _pendingFromNotification.current = true;
-    }
-
-    // Always reset filter to "all" when deep-linking to contact section,
-    // regardless of whether a specific ticketId exists in the link.
-    // This ensures the ticket is never hidden by the default "new" filter.
-    if (section === "contact") {
-      setContactStatusFilter("all");
-    }
-
-    // Clear router state so a page refresh doesn't re-apply it
+    if (ticketId) _pendingTicketId.current = Number(ticketId);
+    if (section === "contact") _pendingFromNotification.current = true;
+    if (section === "contact") setContactStatusFilter("all");
     window.history.replaceState({}, "");
-
-    if (section === activeSection) {
-      // Already on contact section — manually trigger fetchTickets to consume the pending ID
-      fetchTickets();
-    } else {
-      setActiveSection(section);
-      // The existing useEffect([activeSection]) will call fetchTickets
-    }
+    if (section === activeSection) { fetchTickets(); } else { setActiveSection(section); }
   }, [pageLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -687,46 +601,27 @@ const Settings = () => {
 
   const fetchTickets = async (selectId = null) => {
     try {
-      const r = await axios.get(`${API_BASE_URL}/api/contact-us`, {
-        headers: { Authorization: `Bearer ${tok()}` },
-      });
+      const r = await axios.get(`${API_BASE_URL}/api/contact-us`, { headers: { Authorization: `Bearer ${tok()}` } });
       const list = r.data.data || r.data || [];
       const statusOrder = { new: 1, read: 2, replied: 3, on_process: 4, resolved: 5 };
       list.sort((a, b) => {
         const ar = statusOrder[a.status] || 99;
         const br = statusOrder[b.status] || 99;
-        return ar !== br
-          ? ar - br
-          : new Date(b.created_at || 0) - new Date(a.created_at || 0);
+        return ar !== br ? ar - br : new Date(b.created_at || 0) - new Date(a.created_at || 0);
       });
       setContactSubmissions(list);
-
-      // 1. Explicit ID — passed after submitting a new ticket
-      if (selectId) {
-        const match = list.find(s => String(s.id) === String(selectId));
-        if (match) { setSelectedSub(match); setContactView("thread"); return; }
-      }
-
-      // 2. Deep-link from notification — consume and clear immediately
+      if (selectId) { const match = list.find(s => String(s.id) === String(selectId)); if (match) { setSelectedSub(match); setContactView("thread"); return; } }
       const pendingId = _pendingTicketId.current;
       if (pendingId) {
-        _pendingTicketId.current = null;
-        _pendingFromNotification.current = false;
+        _pendingTicketId.current = null; _pendingFromNotification.current = false;
         const match = list.find(s => String(s.id) === String(pendingId));
         if (match) { setSelectedSub(match); setContactView("thread"); return; }
       }
-
-      // 3. Arrived from a notification but no specific ticket ID (old notification format)
-      //    Pick the most recently UPDATED ticket — that's the one admin just replied to.
       if (_pendingFromNotification.current) {
         _pendingFromNotification.current = false;
-        const mostRecent = [...list].sort((a, b) =>
-          new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0)
-        )[0];
+        const mostRecent = [...list].sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0))[0];
         if (mostRecent) { setSelectedSub(mostRecent); setContactView("thread"); return; }
       }
-
-      // 4. Fallback — keep existing selection or default to first
       if (!selectedSub && list.length > 0) setSelectedSub(list[0]);
     } catch {}
   };
@@ -852,23 +747,14 @@ const Settings = () => {
 
   useEffect(() => {
     if (!firstName && !lastName && !userEmail) return;
-    setContactForm(p => ({
-      ...p,
-      name: [firstName, lastName].filter(Boolean).join(" ") || p.name,
-      email: userEmail || p.email,
-    }));
+    setContactForm(p => ({ ...p, name: [firstName, lastName].filter(Boolean).join(" ") || p.name, email: userEmail || p.email }));
   }, [firstName, lastName, userEmail]);
 
   useEffect(() => { setFeedbackMessages([]); setFeedbackReply(""); setFeedbackAttachment(null); setFeedbackRating(0); setFeedbackSubmitted(false); }, [selectedSub?.id]);
 
-  // ── FIX 3: setTimeout so DOM is fully rendered before scrolling to bottom ──
   useEffect(() => {
     if (contactView === "compose" || !selectedSub) return;
-    setTimeout(() => {
-      if (threadScrollRef.current) {
-        threadScrollRef.current.scrollTop = threadScrollRef.current.scrollHeight;
-      }
-    }, 100);
+    setTimeout(() => { if (threadScrollRef.current) threadScrollRef.current.scrollTop = threadScrollRef.current.scrollHeight; }, 100);
   }, [contactMessages, messagesLoading, contactView, selectedSub?.id]);
 
   if (pageLoading) return <SettingsWireframe />;
@@ -882,7 +768,7 @@ const Settings = () => {
     switch (currentStep) {
       case 0: return (
         <Box component="form" onSubmit={handleRequestCode}>
-          <InfoBox P={P}>{userEmail ? <>Enter your current password to verify identity. A one-time code will be sent to <strong>{userEmail}</strong>.</> : <>No email linked. Configure one under <strong>Email Settings</strong> first.</>}</InfoBox>
+          <InfoBox P={P}>{userEmail ? <>Enter your current password to verify identity. A one-time code will be sent to <strong style={{ color: TXT }}>{userEmail}</strong>.</> : <>No email linked. Configure one under <strong style={{ color: TXT }}>Email Settings</strong> first.</>}</InfoBox>
           <Box sx={{ mb: 3 }}>
             <FL req P={P}>Current Password</FL>
             <TextField fullWidth size="small" sx={FX} type={showPw.current ? "text" : "password"} name="currentPassword" value={formData.currentPassword} onChange={handleChanges}
@@ -893,11 +779,11 @@ const Settings = () => {
       );
       case 1: return (
         <Box component="form" onSubmit={handleVerifyCode}>
-          <InfoBox P={P}>A 6-digit code has been sent to <strong>{userEmail}</strong>. Check your inbox.</InfoBox>
+          <InfoBox P={P}>A 6-digit code has been sent to <strong style={{ color: TXT }}>{userEmail}</strong>. Check your inbox.</InfoBox>
           <Box sx={{ mb: 3 }}>
             <FL req P={P}>Verification Code</FL>
             <TextField fullWidth size="small" sx={FX} name="verificationCode" value={formData.verificationCode} onChange={handleChanges}
-              inputProps={{ maxLength: 6, style: { textAlign: "center", fontSize: "2rem", letterSpacing: "0.7rem", fontWeight: 900, fontFamily: "'IBM Plex Mono', monospace", padding: "14px" } }} />
+              inputProps={{ maxLength: 6, style: { textAlign: "center", fontSize: "1.75rem", letterSpacing: "0.6rem", fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", padding: "12px" } }} />
           </Box>
           <Box sx={{ display: "flex", gap: 1.5 }}>
             <Btn outline onClick={() => setCurrentStep(0)} startIcon={<ArrowBack />}>Back</Btn>
@@ -917,7 +803,7 @@ const Settings = () => {
           ))}
           <Box sx={{ mb: 3, display: "flex", alignItems: "flex-start", gap: 1 }}>
             <Checkbox checked={passwordConfirmed} onChange={e => setPasswordConfirmed(e.target.checked)} size="small" sx={{ mt: "-2px", p: 0.25, color: BD, "&.Mui-checked": { color: P } }} />
-            <Typography sx={{ fontSize: "0.875rem", color: TXT, lineHeight: 1.6, cursor: "pointer" }} onClick={() => setPasswordConfirmed(!passwordConfirmed)}>I confirm that I want to change my account password.</Typography>
+            <Typography sx={{ fontSize: "0.84rem", color: MUTED, lineHeight: 1.6, cursor: "pointer" }} onClick={() => setPasswordConfirmed(!passwordConfirmed)}>I confirm that I want to change my account password.</Typography>
           </Box>
           <Box sx={{ display: "flex", gap: 1.5 }}>
             <Btn outline onClick={() => setCurrentStep(1)} startIcon={<ArrowBack />}>Back</Btn>
@@ -934,21 +820,19 @@ const Settings = () => {
     const active = activeSection === section;
     return (
       <Box onClick={() => setActiveSection(section)} sx={{
-        display: "flex", alignItems: "center", gap: 1.75,
-        px: 3, py: 1.35, cursor: "pointer",
-        borderLeft: active ? `3px solid ${P}` : "3px solid transparent",
-        bgcolor: active ? alpha(P, 0.1) : "transparent",
-        transition: "all 0.15s ease",
-        "&:hover": { bgcolor: active ? alpha(P, 0.1) : alpha(P, 0.04) },
+        display: "flex", alignItems: "center", gap: 1.5,
+        px: 3, py: 1.15, cursor: "pointer", mx: 1,
+        borderRadius: "0 6px 6px 0",
+        bgcolor: active ? alpha(P, 0.07) : "transparent",
+        transition: "all 0.12s ease",
+        "&:hover": { bgcolor: active ? alpha(P, 0.07) : alpha(P, 0.03) },
       }}>
-        <Icon sx={{ fontSize: 16, color: active ? P : alpha(P, 0.4), flexShrink: 0 }} />
-        <Typography sx={{ fontSize: "0.875rem", fontWeight: active ? 700 : 500, color: active ? P : MUTED, flex: 1 }}>{label}</Typography>
-        {active && <KeyboardArrowRight sx={{ fontSize: 14, color: alpha(P, 0.35) }} />}
+        <Icon sx={{ fontSize: 15, color: active ? P : MUTED, flexShrink: 0 }} />
+        <Typography sx={{ fontSize: "0.84rem", fontWeight: active ? 600 : 400, color: active ? TXT : MUTED, flex: 1 }}>{label}</Typography>
       </Box>
     );
   };
 
-  /* ── Derived display values ── */
   const displayName  = [firstName, lastName].filter(Boolean).join(" ") || userEmail;
   const displayEmpNo = employeeNumber || "—";
   const displayEmail = userEmail || "—";
@@ -957,24 +841,21 @@ const Settings = () => {
      RENDER
   ───────────────────────────────────────────────────────────── */
   return (
-    <Box sx={{ position: "relative", minHeight: "100vh"}}>
+    <Box sx={{ position: "relative", minHeight: "100vh" }}>
       <style>{GLOBAL_CSS}</style>
 
       {/* Loading overlay */}
-      <Backdrop open={loading} sx={{ zIndex: t => t.zIndex.drawer + 1, bgcolor: "rgba(0,0,0,0.5)" }}>
+      <Backdrop open={loading} sx={{ zIndex: t => t.zIndex.drawer + 1, bgcolor: "rgba(15,23,42,0.4)" }}>
         <Box sx={{ textAlign: "center" }}>
-          <Box sx={{ width: 48, height: 48, border: `3px solid ${alpha(P, 0.3)}`, borderTopColor: P, borderRadius: "50%", animation: "spin 0.8s linear infinite", mx: "auto" }} />
-          <Typography sx={{ mt: 2, color: "#fff", fontSize: "0.85rem", fontWeight: 700 }}>Processing…</Typography>
+          <Box sx={{ width: 36, height: 36, border: `2px solid ${alpha(P, 0.2)}`, borderTopColor: P, borderRadius: "50%", animation: "spin 0.7s linear infinite", mx: "auto" }} />
+          <Typography sx={{ mt: 2, color: "#fff", fontSize: "0.8rem", fontWeight: 500 }}>Processing…</Typography>
         </Box>
       </Backdrop>
 
       {/* ══ MAIN CONTENT ══════════════════════════════════════════ */}
       <Box sx={{
-        width: '100vw',
-        maxWidth: '100%',
-        position: 'relative',
-        left: '63%',
-        transform: 'translateX(-61%)',
+        width: '100vw', maxWidth: '100%',
+        position: 'relative', left: '63%', transform: 'translateX(-61%)',
         boxSizing: 'border-box',
         pl: { xs: 2, sm: 3, md: 6 },
         pr: `${SIDEBAR_W + 16}px`,
@@ -983,19 +864,23 @@ const Settings = () => {
 
         {/* Breadcrumb */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 4, flexWrap: "wrap" }}>
-          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.72rem", color: MUTED }}>Settings</Typography>
-          <Typography sx={{ color: BD, fontSize: "0.75rem" }}>/</Typography>
-          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.72rem", color: P, fontWeight: 700 }}>{sectionMeta[activeSection]}</Typography>
+          <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>Settings</Typography>
+          <Typography sx={{ color: BD, fontSize: "0.7rem" }}>/</Typography>
+          <Typography sx={{ fontSize: "0.78rem", color: TXT, fontWeight: 600 }}>{sectionMeta[activeSection]}</Typography>
           <Box sx={{ flex: 1 }} />
           {firstName && lastName && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2, py: 0.75, bgcolor: PANEL, border: `1px solid ${BD}`, borderRadius: "20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-              <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#22c55e", animation: "pulse-ring 2s infinite", flexShrink: 0 }} />
-              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.68rem", color: MUTED }}>{firstName} {lastName} · {employeeNumber}</Typography>
+            <Box sx={{
+              display: "flex", alignItems: "center", gap: 1,
+              px: 2, py: 0.5, bgcolor: PANEL, border: `1px solid ${BD}`,
+              borderRadius: "20px",
+            }}>
+              <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "#22c55e", animation: "pulse-ring 2s infinite", flexShrink: 0 }} />
+              <Typography sx={{ fontSize: "0.72rem", color: MUTED, fontFamily: "'JetBrains Mono', monospace" }}>{firstName} {lastName} · {employeeNumber}</Typography>
             </Box>
           )}
         </Box>
 
-        {errMsg && <Alert severity="error" sx={{ mb: 3, borderRadius: 2, fontWeight: 700 }} onClose={() => setErrMsg("")}>{errMsg}</Alert>}
+        {errMsg && <Alert severity="error" sx={{ mb: 3, borderRadius: 1.5, fontWeight: 500, fontSize: "0.84rem" }} onClose={() => setErrMsg("")}>{errMsg}</Alert>}
 
         {/* ── CHANGE PASSWORD ─────────────────────────────────── */}
         {activeSection === "password" && (
@@ -1007,19 +892,26 @@ const Settings = () => {
                 <Box sx={{ display: "flex", alignItems: "center", mb: 4 }}>
                   {STEPS.map((label, i) => (
                     <React.Fragment key={i}>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
-                        <Box sx={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: i <= currentStep ? P : BD, boxShadow: i === currentStep ? `0 4px 12px ${alpha(P, 0.4)}` : "none", transition: "all 0.3s ease" }}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <Box sx={{
+                          width: 28, height: 28, borderRadius: "50%",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          bgcolor: i <= currentStep ? P : "transparent",
+                          border: `1.5px solid ${i <= currentStep ? P : BD}`,
+                          transition: "all 0.2s ease",
+                          ...(i === currentStep ? { boxShadow: `0 0 0 3px ${alpha(P, 0.12)}` } : {}),
+                        }}>
                           {i < currentStep
-                            ? <CheckCircle sx={{ fontSize: 16, color: "#fff" }} />
-                            : <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.7rem", fontWeight: 900, color: i <= currentStep ? "#fff" : MUTED }}>{i + 1}</Typography>}
+                            ? <CheckCircle sx={{ fontSize: 14, color: "#fff" }} />
+                            : <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "0.65rem", fontWeight: 600, color: i <= currentStep ? "#fff" : MUTED }}>{i + 1}</Typography>}
                         </Box>
-                        <Typography sx={{ fontSize: "0.82rem", fontWeight: i === currentStep ? 900 : 400, color: i === currentStep ? TXT : MUTED, whiteSpace: "nowrap" }}>{label}</Typography>
+                        <Typography sx={{ fontSize: "0.78rem", fontWeight: i === currentStep ? 600 : 400, color: i === currentStep ? TXT : MUTED, whiteSpace: "nowrap" }}>{label}</Typography>
                       </Box>
-                      {i < STEPS.length - 1 && <Box sx={{ flex: 1, height: 2, bgcolor: i < currentStep ? P : BD, mx: 2, borderRadius: 2, transition: "background-color 0.3s ease" }} />}
+                      {i < STEPS.length - 1 && <Box sx={{ flex: 1, height: 1, bgcolor: i < currentStep ? P : BD, mx: 2, transition: "background-color 0.2s ease" }} />}
                     </React.Fragment>
                   ))}
                 </Box>
-                <Box sx={{ border: `1px solid ${alpha(P, 0.12)}`, bgcolor: SUBTLE, p: 3.5, borderRadius: 2 }}>
+                <Box sx={{ border: `1px solid ${BD}`, bgcolor: SUBTLE, p: 3.5, borderRadius: 1.5 }}>
                   {renderStep()}
                 </Box>
               </CardContent>
@@ -1036,15 +928,18 @@ const Settings = () => {
               <CardContent sx={{ p: { xs: 3, md: 4 } }}>
                 <InfoBox P={P}>{userEmail ? "Update the email address linked to your account." : "No email is associated. Add one to enable 2FA."}</InfoBox>
                 {userEmail && (
-                  <Box sx={{ mb: 3, p: 2.5, bgcolor: alpha(P, 0.04), border: `1px solid ${alpha(P, 0.15)}`, borderRadius: 2, display: "flex", alignItems: "center", gap: 2 }}>
-                    <Avatar sx={{ bgcolor: alpha(P, 0.15), width: 40, height: 40 }}><EmailIcon sx={{ color: P, fontSize: 20 }} /></Avatar>
+                  <Box sx={{
+                    mb: 3, p: 2.5, bgcolor: SUBTLE, border: `1px solid ${BD}`, borderRadius: 1.5,
+                    display: "flex", alignItems: "center", gap: 2,
+                  }}>
+                    <Avatar sx={{ bgcolor: alpha(P, 0.06), width: 36, height: 36 }}><EmailIcon sx={{ color: P, fontSize: 18 }} /></Avatar>
                     <Box>
-                      <Typography sx={{ fontSize: "0.7rem", color: MUTED, fontWeight: 700, mb: 0.25 }}>CURRENT EMAIL</Typography>
-                      <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.875rem", color: TXT, fontWeight: 700 }}>{userEmail}</Typography>
+                      <Typography sx={{ fontSize: "0.65rem", color: MUTED, fontWeight: 600, mb: 0.15, textTransform: "uppercase", letterSpacing: "0.05em" }}>Current Email</Typography>
+                      <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "0.84rem", color: TXT, fontWeight: 500 }}>{userEmail}</Typography>
                     </Box>
                   </Box>
                 )}
-                <Grid container spacing={3}>
+                <Grid container spacing={2.5}>
                   <Grid item xs={12} md={6}><FL req P={P}>{userEmail ? "New Email Address" : "Email Address"}</FL><TextField fullWidth size="small" sx={FX} value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="name@organisation.ph" /></Grid>
                   <Grid item xs={12} md={6}><FL req P={P}>Confirm Address</FL><TextField fullWidth size="small" sx={FX} value={confirmEmail} onChange={e => setConfirmEmail(e.target.value)} placeholder="Re-enter address" /></Grid>
                 </Grid>
@@ -1060,13 +955,17 @@ const Settings = () => {
         {activeSection === "security" && (
           <>
             <GlassCard sx={{ mb: 4 }}>
-              <SectionHeader P={P} S={S} icon={Shield} title="Two-Factor Authentication" subtitle="2FA / OTP Settings | Add an extra layer of security to your account" />
+              <SectionHeader P={P} S={S} icon={Shield} title="Two-Factor Authentication" subtitle="Add an extra layer of security to your account" />
               <CardContent sx={{ p: { xs: 3, md: 4 } }}>
                 <InfoBox P={P}>When enabled, a 6-digit one-time code is required at each login.</InfoBox>
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", p: 3, mb: 4, border: `1px solid ${alpha(P, 0.15)}`, borderRadius: 2, bgcolor: enableMFA ? alpha(P, 0.04) : SUBTLE }}>
+                <Box sx={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  p: 3, mb: 4, border: `1px solid ${BD}`, borderRadius: 1.5,
+                  bgcolor: enableMFA ? alpha(P, 0.02) : SUBTLE,
+                }}>
                   <Box>
-                    <Typography sx={{ fontWeight: 900, color: TXT, fontSize: "1rem", mb: 0.5 }}>Two-Factor Authentication</Typography>
-                    <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>{enableMFA ? "Active — OTP required at each login." : "Inactive — password login only."}</Typography>
+                    <Typography sx={{ fontWeight: 600, color: TXT, fontSize: "0.95rem", mb: 0.25 }}>Two-Factor Authentication</Typography>
+                    <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{enableMFA ? "Active — OTP required at each login." : "Inactive — password login only."}</Typography>
                   </Box>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                     <Tag label={enableMFA ? "ENABLED" : "DISABLED"} color={enableMFA ? "#16a34a" : MUTED} />
@@ -1074,9 +973,9 @@ const Settings = () => {
                       sx={{ "& .MuiSwitch-switchBase.Mui-checked": { color: P }, "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: P } }} />
                   </Box>
                 </Box>
-                <Box sx={{ border: `1px solid ${alpha(P, 0.12)}`, borderRadius: 2, overflow: "hidden" }}>
-                  <Box sx={{ px: 3, py: 1.75, bgcolor: alpha(P, 0.05), borderBottom: `1px solid ${alpha(P, 0.1)}` }}>
-                    <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.68rem", fontWeight: 700, color: MUTED, letterSpacing: "0.1em", textTransform: "uppercase" }}>Protocol Overview</Typography>
+                <Box sx={{ border: `1px solid ${BD}`, borderRadius: 1.5, overflow: "hidden" }}>
+                  <Box sx={{ px: 3, py: 1.5, bgcolor: SUBTLE, borderBottom: `1px solid ${BD}` }}>
+                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: MUTED, letterSpacing: "0.05em", textTransform: "uppercase" }}>Protocol Overview</Typography>
                   </Box>
                   <Box sx={{ p: 3 }}>
                     {[
@@ -1085,11 +984,14 @@ const Settings = () => {
                       "Each code is single-use and expires automatically.",
                       "You may toggle 2FA at any time from this panel.",
                     ].map((t, i) => (
-                      <Box key={i} sx={{ display: "flex", gap: 2, mb: i < 3 ? 2 : 0, p: 1.5, borderRadius: 1.5, bgcolor: i % 2 === 0 ? SUBTLE : "transparent" }}>
-                        <Box sx={{ width: 28, height: 28, borderRadius: "50%", bgcolor: P, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: `0 4px 12px ${alpha(P, 0.3)}` }}>
-                          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.65rem", fontWeight: 900, color: "#fff" }}>0{i + 1}</Typography>
+                      <Box key={i} sx={{ display: "flex", gap: 2, mb: i < 3 ? 2 : 0, p: 1.5, borderRadius: 1, bgcolor: i % 2 === 0 ? SUBTLE : "transparent" }}>
+                        <Box sx={{
+                          width: 24, height: 24, borderRadius: "50%", bgcolor: P,
+                          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                        }}>
+                          <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "0.6rem", fontWeight: 600, color: "#fff" }}>0{i + 1}</Typography>
                         </Box>
-                        <Typography sx={{ fontSize: "0.875rem", color: TXT, lineHeight: 1.7, pt: "4px" }}>{t}</Typography>
+                        <Typography sx={{ fontSize: "0.84rem", color: MUTED, lineHeight: 1.7, pt: "2px" }}>{t}</Typography>
                       </Box>
                     ))}
                   </Box>
@@ -1125,15 +1027,15 @@ const Settings = () => {
                 ) : aboutUs ? (
                   <>
                     <Box sx={{ display: "flex", alignItems: "baseline", gap: 2, mb: 3, pb: 2.5, borderBottom: `1px solid ${BD}` }}>
-                      <Typography sx={{ fontWeight: 900, fontSize: "1.4rem", color: TXT }}>{aboutUs.title}</Typography>
+                      <Typography sx={{ fontWeight: 700, fontSize: "1.3rem", color: TXT }}>{aboutUs.title}</Typography>
                       {aboutUs.version && <Tag label={`v${aboutUs.version}`} color={P} />}
                     </Box>
-                    <Box sx={{ "& h2,& h3,& h4": { color: P, mt: 2.5, mb: 1 }, "& p": { mb: 1.5, lineHeight: 1.8, color: TXT }, "& ul": { pl: 3, mb: 1.5 }, "& li": { mb: 0.5, lineHeight: 1.8, color: TXT } }} dangerouslySetInnerHTML={{ __html: aboutUs.content }} />
+                    <Box sx={{ "& h2,& h3,& h4": { color: P, mt: 2.5, mb: 1 }, "& p": { mb: 1.5, lineHeight: 1.8, color: MUTED }, "& ul": { pl: 3, mb: 1.5 }, "& li": { mb: 0.5, lineHeight: 1.8, color: MUTED } }} dangerouslySetInnerHTML={{ __html: aboutUs.content }} />
                   </>
                 ) : (
                   <Box sx={{ py: 10, textAlign: "center" }}>
-                    <Business sx={{ fontSize: 52, color: alpha(P, 0.2), mb: 1.5 }} />
-                    <Typography sx={{ color: MUTED, fontWeight: 700 }}>No content available.</Typography>
+                    <Business sx={{ fontSize: 44, color: BD, mb: 1.5 }} />
+                    <Typography sx={{ color: MUTED }}>No content available.</Typography>
                   </Box>
                 )}
               </CardContent>
@@ -1155,29 +1057,29 @@ const Settings = () => {
               />
               <CardContent sx={{ p: { xs: 3, md: 4 } }}>
                 {faqs.length > 0 ? faqs.map(faq => (
-                  <Box key={faq.id} sx={{ border: `1px solid ${alpha(P, 0.12)}`, mb: 1.5, borderRadius: 2, overflow: "hidden", transition: "box-shadow 0.2s, border-color 0.2s", "&:hover": { borderColor: P, boxShadow: `0 4px 16px ${alpha(P, 0.1)}` } }}>
+                  <Box key={faq.id} sx={{ border: `1px solid ${BD}`, mb: 1, borderRadius: 1.5, overflow: "hidden", transition: "border-color 0.15s", "&:hover": { borderColor: alpha(P, 0.3) } }}>
                     <Accordion disableGutters elevation={0} sx={{ bgcolor: "transparent", "&:before": { display: "none" } }}>
-                      <AccordionSummary expandIcon={<ExpandMore sx={{ color: P, fontSize: 22 }} />}
-                        sx={{ px: 3, minHeight: 56, bgcolor: alpha(P, 0.03), borderBottom: `1px solid ${alpha(P, 0.1)}`, "& .MuiAccordionSummary-content": { alignItems: "center", my: 1.25, gap: 2 } }}>
-                        <HelpOutline sx={{ fontSize: 17, color: P, flexShrink: 0 }} />
-                        <Typography sx={{ fontWeight: 700, color: TXT, fontSize: "0.9rem", flex: 1 }}>{faq.question}</Typography>
+                      <AccordionSummary expandIcon={<ExpandMore sx={{ color: MUTED, fontSize: 20 }} />}
+                        sx={{ px: 3, minHeight: 52, "& .MuiAccordionSummary-content": { alignItems: "center", my: 1, gap: 1.5 } }}>
+                        <HelpOutline sx={{ fontSize: 16, color: MUTED, flexShrink: 0 }} />
+                        <Typography sx={{ fontWeight: 500, color: TXT, fontSize: "0.875rem", flex: 1 }}>{faq.question}</Typography>
                         {faq.category && <Tag label={faq.category} color={P} />}
                         {isAdmin && (
-                          <Box sx={{ display: "flex", gap: 0.5, ml: 0.5 }}>
-                            <IconButton size="small" onClick={e => { e.stopPropagation(); setEditingFaq(faq); setFaqForm({ question: faq.question, answer: faq.answer, category: faq.category || "general", display_order: faq.display_order || 0, is_active: faq.is_active !== false }); setFaqDialogOpen(true); }} sx={{ color: P, p: 0.75 }}><Edit sx={{ fontSize: 14 }} /></IconButton>
-                            <IconButton size="small" onClick={e => { e.stopPropagation(); handleDeleteFaq(faq.id); }} sx={{ color: "#b91c1c", p: 0.75 }}><Delete sx={{ fontSize: 14 }} /></IconButton>
+                          <Box sx={{ display: "flex", gap: 0.25, ml: 0.5 }}>
+                            <IconButton size="small" onClick={e => { e.stopPropagation(); setEditingFaq(faq); setFaqForm({ question: faq.question, answer: faq.answer, category: faq.category || "general", display_order: faq.display_order || 0, is_active: faq.is_active !== false }); setFaqDialogOpen(true); }} sx={{ color: MUTED, p: 0.5, "&:hover": { color: P } }}><Edit sx={{ fontSize: 14 }} /></IconButton>
+                            <IconButton size="small" onClick={e => { e.stopPropagation(); handleDeleteFaq(faq.id); }} sx={{ color: MUTED, p: 0.5, "&:hover": { color: "#dc2626" } }}><Delete sx={{ fontSize: 14 }} /></IconButton>
                           </Box>
                         )}
                       </AccordionSummary>
-                      <AccordionDetails sx={{ px: 4, py: 3, bgcolor: PANEL }}>
-                        <Typography sx={{ fontSize: "0.9rem", color: TXT, lineHeight: 1.8 }}>{faq.answer}</Typography>
+                      <AccordionDetails sx={{ px: 4, py: 2.5, bgcolor: SUBTLE }}>
+                        <Typography sx={{ fontSize: "0.875rem", color: MUTED, lineHeight: 1.8 }}>{faq.answer}</Typography>
                       </AccordionDetails>
                     </Accordion>
                   </Box>
                 )) : (
                   <Box sx={{ py: 10, textAlign: "center" }}>
-                    <QuestionAnswer sx={{ fontSize: 52, color: alpha(P, 0.2), mb: 1.5 }} />
-                    <Typography sx={{ color: MUTED, fontWeight: 700 }}>No FAQs on record.</Typography>
+                    <QuestionAnswer sx={{ fontSize: 44, color: BD, mb: 1.5 }} />
+                    <Typography sx={{ color: MUTED }}>No FAQs on record.</Typography>
                   </Box>
                 )}
               </CardContent>
@@ -1199,31 +1101,31 @@ const Settings = () => {
               />
               <CardContent sx={{ p: { xs: 3, md: 4 } }}>
                 {policies.length > 0 ? policies.map(policy => (
-                  <Box key={policy.id} sx={{ border: `1px solid ${alpha(P, 0.12)}`, mb: 1.5, borderRadius: 2, overflow: "hidden", transition: "box-shadow 0.2s, border-color 0.2s", "&:hover": { borderColor: P, boxShadow: `0 4px 16px ${alpha(P, 0.1)}` } }}>
+                  <Box key={policy.id} sx={{ border: `1px solid ${BD}`, mb: 1, borderRadius: 1.5, overflow: "hidden", transition: "border-color 0.15s", "&:hover": { borderColor: alpha(P, 0.3) } }}>
                     <Accordion disableGutters elevation={0} sx={{ bgcolor: "transparent", "&:before": { display: "none" } }}>
-                      <AccordionSummary expandIcon={<ExpandMore sx={{ color: P, fontSize: 22 }} />}
-                        sx={{ px: 3, minHeight: 56, bgcolor: alpha(P, 0.03), borderBottom: `1px solid ${alpha(P, 0.1)}`, "& .MuiAccordionSummary-content": { alignItems: "center", my: 1.25, gap: 2 } }}>
-                        <Policy sx={{ fontSize: 18, color: P, flexShrink: 0 }} />
-                        <Typography sx={{ fontWeight: 700, color: TXT, fontSize: "0.9rem", flex: 1 }}>{policy.title}</Typography>
+                      <AccordionSummary expandIcon={<ExpandMore sx={{ color: MUTED, fontSize: 20 }} />}
+                        sx={{ px: 3, minHeight: 52, "& .MuiAccordionSummary-content": { alignItems: "center", my: 1, gap: 1.5 } }}>
+                        <Policy sx={{ fontSize: 17, color: MUTED, flexShrink: 0 }} />
+                        <Typography sx={{ fontWeight: 500, color: TXT, fontSize: "0.875rem", flex: 1 }}>{policy.title}</Typography>
                         {policy.category && <Tag label={policy.category} color={P} />}
                         {policy.version && <Tag label={`v${policy.version}`} color={MUTED} />}
                         {isAdmin && (
-                          <Box sx={{ display: "flex", gap: 0.5, ml: 0.5 }}>
-                            <IconButton size="small" onClick={e => { e.stopPropagation(); setEditingPolicy(policy); setPolicyForm({ title: policy.title, content: policy.content, category: policy.category || "privacy", display_order: policy.display_order || 0, is_active: policy.is_active !== false }); setPolicyDialogOpen(true); }} sx={{ color: P, p: 0.75 }}><Edit sx={{ fontSize: 14 }} /></IconButton>
-                            <IconButton size="small" onClick={e => { e.stopPropagation(); handleDeletePolicy(policy.id); }} sx={{ color: "#b91c1c", p: 0.75 }}><Delete sx={{ fontSize: 14 }} /></IconButton>
+                          <Box sx={{ display: "flex", gap: 0.25, ml: 0.5 }}>
+                            <IconButton size="small" onClick={e => { e.stopPropagation(); setEditingPolicy(policy); setPolicyForm({ title: policy.title, content: policy.content, category: policy.category || "privacy", display_order: policy.display_order || 0, is_active: policy.is_active !== false }); setPolicyDialogOpen(true); }} sx={{ color: MUTED, p: 0.5, "&:hover": { color: P } }}><Edit sx={{ fontSize: 14 }} /></IconButton>
+                            <IconButton size="small" onClick={e => { e.stopPropagation(); handleDeletePolicy(policy.id); }} sx={{ color: MUTED, p: 0.5, "&:hover": { color: "#dc2626" } }}><Delete sx={{ fontSize: 14 }} /></IconButton>
                           </Box>
                         )}
                       </AccordionSummary>
-                      <AccordionDetails sx={{ px: 4, py: 3, bgcolor: PANEL }}>
-                        <Box sx={{ fontSize: "0.9rem", color: TXT, lineHeight: 1.8, "& h2,& h3": { color: P, mt: 2, mb: 1 }, "& p": { mb: 1.5 }, "& ul": { pl: 3, mb: 1.5 }, "& li": { mb: 0.5 } }} dangerouslySetInnerHTML={{ __html: policy.content }} />
-                        {policy.updated_at && <Typography sx={{ mt: 2, fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.65rem", color: MUTED }}>Last updated: {new Date(policy.updated_at).toLocaleString()}</Typography>}
+                      <AccordionDetails sx={{ px: 4, py: 2.5, bgcolor: SUBTLE }}>
+                        <Box sx={{ fontSize: "0.875rem", color: MUTED, lineHeight: 1.8, "& h2,& h3": { color: P, mt: 2, mb: 1 }, "& p": { mb: 1.5 }, "& ul": { pl: 3, mb: 1.5 }, "& li": { mb: 0.5 } }} dangerouslySetInnerHTML={{ __html: policy.content }} />
+                        {policy.updated_at && <Typography sx={{ mt: 2, fontFamily: "'JetBrains Mono', monospace", fontSize: "0.65rem", color: MUTED }}>Last updated: {new Date(policy.updated_at).toLocaleString()}</Typography>}
                       </AccordionDetails>
                     </Accordion>
                   </Box>
                 )) : (
                   <Box sx={{ py: 10, textAlign: "center" }}>
-                    <Policy sx={{ fontSize: 52, color: alpha(P, 0.2), mb: 1.5 }} />
-                    <Typography sx={{ color: MUTED, fontWeight: 700 }}>No policies on record.</Typography>
+                    <Policy sx={{ fontSize: 44, color: BD, mb: 1.5 }} />
+                    <Typography sx={{ color: MUTED }}>No policies on record.</Typography>
                   </Box>
                 )}
               </CardContent>
@@ -1235,7 +1137,7 @@ const Settings = () => {
         {activeSection === "contact" && (
           <>
             <GlassCard sx={{ mb: -40, overflow: "hidden" }}>
-              <SectionHeader P={P} S={S} icon={ContactSupport} title="Contact Support | Messages | Tickets" subtitle="View and manage your communications with us"
+              <SectionHeader P={P} S={S} icon={ContactSupport} title="Contact Support" subtitle="View and manage your communications with us"
                 action={
                   <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
                     {!isAdmin && <Btn sm startIcon={<Add sx={{ fontSize: 14 }} />} onClick={() => { setSelectedSub(null); setContactView("compose"); }}>New Message</Btn>}
@@ -1249,79 +1151,87 @@ const Settings = () => {
                   {/* ── Inbox / Conversation List ── */}
                   <Box>
                     <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
-                      <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.65rem", color: MUTED, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700 }}>Conversations</Typography>
-                      <FormControl size="small" sx={{ minWidth: 140 }}>
+                      <Typography sx={{ fontSize: "0.68rem", color: MUTED, letterSpacing: "0.05em", textTransform: "uppercase", fontWeight: 600 }}>Conversations</Typography>
+                      <FormControl size="small" sx={{ minWidth: 130 }}>
                         <Select value={contactStatusFilter} onChange={e => setContactStatusFilter(e.target.value)}
-                          sx={{ borderRadius: 2, bgcolor: SUBTLE, fontSize: "0.75rem", fontWeight: 700, "& .MuiOutlinedInput-notchedOutline": { borderColor: alpha(P, 0.2) } }}>
+                          sx={{ borderRadius: 1.5, bgcolor: "#fff", fontSize: "0.75rem", fontWeight: 500, "& .MuiOutlinedInput-notchedOutline": { borderColor: BD } }}>
                           <MenuItem value="all">All</MenuItem>
                           {STATUS_OPTIONS.map(opt => <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>)}
                         </Select>
                       </FormControl>
                     </Box>
-                    <Box sx={{ border: `1px solid ${alpha(P, 0.12)}`, borderRadius: 2, height: 520, overflowY: "auto" }}>
+                    <Box sx={{ border: `1px solid ${BD}`, borderRadius: 1.5, height: 520, overflowY: "auto", bgcolor: "#fff" }}>
                       {filteredContactSubmissions.length > 0 ? filteredContactSubmissions.map(sub => {
                         const isActive = selectedSub?.id === sub.id && contactView === "thread";
                         return (
                           <Box key={sub.id}
                             onClick={() => { setSelectedSub(sub); setAdminReply(sub.admin_notes || ""); setContactView("thread"); if (isAdmin && sub.status === "new") handleUpdateSubStatus(sub.id, "read", null); }}
-                            sx={{ px: 2.5, py: 2, borderBottom: `1px solid ${alpha(P, 0.08)}`, cursor: "pointer", bgcolor: isActive ? alpha(P, 0.08) : "transparent", transition: "background-color 0.15s", "&:hover": { bgcolor: isActive ? alpha(P, 0.08) : SUBTLE }, "&:last-child": { borderBottom: "none" } }}>
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.4 }}>
-                              <Typography sx={{ fontSize: "0.855rem", fontWeight: 700, color: TXT, flex: 1, lineHeight: 1.3 }}>
+                            sx={{
+                              px: 2.5, py: 2, borderBottom: `1px solid ${alpha(BD, 0.6)}`, cursor: "pointer",
+                              bgcolor: isActive ? alpha(P, 0.04) : "transparent",
+                              transition: "background-color 0.1s",
+                              "&:hover": { bgcolor: isActive ? alpha(P, 0.04) : SUBTLE },
+                              "&:last-child": { borderBottom: "none" },
+                            }}>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.3 }}>
+                              <Typography sx={{ fontSize: "0.84rem", fontWeight: 500, color: TXT, flex: 1, lineHeight: 1.3 }}>
                                 {sub.name || "Unknown"}
                                 {sub.employee_number && (
-                                  <Box component="span" sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.68rem", color: alpha(P, 0.7), fontWeight: 600, ml: 0.75, bgcolor: alpha(P, 0.08), px: 0.75, py: 0.15, borderRadius: 1, border: `1px solid ${alpha(P, 0.18)}` }}>
-                                    #{sub.employee_number}
-                                  </Box>
+                                  <Box component="span" sx={{
+                                    fontFamily: "'JetBrains Mono', monospace", fontSize: "0.65rem", color: MUTED,
+                                    ml: 0.75, px: 0.6, py: 0.1, borderRadius: 0.5,
+                                    bgcolor: SUBTLE, border: `1px solid ${BD}`,
+                                  }}>#{sub.employee_number}</Box>
                                 )}
                               </Typography>
                               <StatusBadge status={sub.status} />
                             </Box>
-                            <Typography sx={{ fontSize: "0.82rem", color: isActive ? P : TXT, fontWeight: isActive ? 700 : 500, mb: 0.3, lineHeight: 1.4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            <Typography sx={{ fontSize: "0.8rem", color: isActive ? TXT : MUTED, fontWeight: isActive ? 500 : 400, mb: 0.25, lineHeight: 1.4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                               {sub.subject || "General Inquiry"}
                             </Typography>
-                            <Typography sx={{ fontSize: "0.7rem", color: MUTED, fontFamily: "'IBM Plex Mono', monospace" }}>
+                            <Typography sx={{ fontSize: "0.68rem", color: MUTED, fontFamily: "'JetBrains Mono', monospace" }}>
                               {new Date(sub.created_at).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
                             </Typography>
                           </Box>
                         );
                       }) : (
                         <Box sx={{ py: 6, textAlign: "center" }}>
-                          <ContactSupport sx={{ fontSize: 36, color: alpha(P, 0.2), mb: 1 }} />
-                          <Typography sx={{ color: MUTED, fontSize: "0.875rem" }}>{contactStatusFilter === "all" ? "No conversations yet." : "No conversations in this status."}</Typography>
+                          <ContactSupport sx={{ fontSize: 32, color: BD, mb: 1 }} />
+                          <Typography sx={{ color: MUTED, fontSize: "0.84rem" }}>{contactStatusFilter === "all" ? "No conversations yet." : "No conversations in this status."}</Typography>
                         </Box>
                       )}
                     </Box>
                   </Box>
 
                   {/* ── Thread / Composer Panel ── */}
-                  <Box sx={{ border: `1px solid ${alpha(P, 0.12)}`, borderRadius: 2, height: 565, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                  <Box sx={{ border: `1px solid ${BD}`, borderRadius: 1.5, height: 565, display: "flex", flexDirection: "column", overflow: "hidden", bgcolor: "#fff" }}>
 
                     {contactView === "compose" && (
                       <Box sx={{ p: 3.5, flex: 1, overflowY: "auto" }}>
-                        <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.7rem", color: MUTED, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700, mb: 2.5 }}>New Message</Typography>
-                        <Box sx={{ mb: 3, p: 2, bgcolor: alpha(P, 0.04), border: `1px solid ${alpha(P, 0.15)}`, borderRadius: 2, display: "flex", alignItems: "center", gap: 1.5 }}>
-                          <LockOutlined sx={{ fontSize: 16, color: P, flexShrink: 0 }} />
+                        <Typography sx={{ fontSize: "0.68rem", color: MUTED, letterSpacing: "0.05em", textTransform: "uppercase", fontWeight: 600, mb: 2.5 }}>New Message</Typography>
+                        <Box sx={{ mb: 3, p: 2, bgcolor: SUBTLE, border: `1px solid ${BD}`, borderRadius: 1.5, display: "flex", alignItems: "center", gap: 1.5 }}>
+                          <LockOutlined sx={{ fontSize: 15, color: MUTED, flexShrink: 0 }} />
                           <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.5 }}>
-                            Sender identity is locked to your account and cannot be changed.
+                            Sender identity is locked to your account.
                           </Typography>
                         </Box>
                         <Grid container spacing={2.5}>
                           <Grid item xs={12} sm={4}>
                             <FL P={P}>Full Name</FL>
                             <TextField fullWidth size="small" sx={ReadOnlyFX} value={displayName} disabled
-                              InputProps={{ endAdornment: <InputAdornment position="end"><LockOutlined sx={{ fontSize: 14, color: alpha(P, 0.4) }} /></InputAdornment> }} />
+                              InputProps={{ endAdornment: <InputAdornment position="end"><LockOutlined sx={{ fontSize: 13, color: BD }} /></InputAdornment> }} />
                           </Grid>
                           <Grid item xs={12} sm={4}>
                             <FL P={P}>Employee No.</FL>
                             <TextField fullWidth size="small"
-                              sx={{ ...ReadOnlyFX, "& .MuiInputBase-input.Mui-disabled": { WebkitTextFillColor: TXT, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, cursor: "not-allowed" } }}
+                              sx={{ ...ReadOnlyFX, "& .MuiInputBase-input.Mui-disabled": { WebkitTextFillColor: TXT, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500 } }}
                               value={displayEmpNo} disabled
-                              InputProps={{ endAdornment: <InputAdornment position="end"><LockOutlined sx={{ fontSize: 14, color: alpha(P, 0.4) }} /></InputAdornment> }} />
+                              InputProps={{ endAdornment: <InputAdornment position="end"><LockOutlined sx={{ fontSize: 13, color: BD }} /></InputAdornment> }} />
                           </Grid>
                           <Grid item xs={12} sm={4}>
                             <FL P={P}>Email Address</FL>
                             <TextField fullWidth size="small" sx={ReadOnlyFX} value={displayEmail} disabled
-                              InputProps={{ endAdornment: <InputAdornment position="end"><LockOutlined sx={{ fontSize: 14, color: alpha(P, 0.4) }} /></InputAdornment> }} />
+                              InputProps={{ endAdornment: <InputAdornment position="end"><LockOutlined sx={{ fontSize: 13, color: BD }} /></InputAdornment> }} />
                           </Grid>
                           <Grid item xs={12}>
                             <FL P={P}>Subject</FL>
@@ -1330,12 +1240,12 @@ const Settings = () => {
                           <Grid item xs={12}>
                             <FL req P={P}>Message</FL>
                             <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
-                              <IconButton component="label" size="small" sx={{ mt: 0.5, border: `1px solid ${alpha(P, 0.3)}`, borderRadius: 1.5, color: P }}>
+                              <IconButton component="label" size="small" sx={{ mt: 0.5, border: `1px solid ${BD}`, borderRadius: 1, color: MUTED, "&:hover": { borderColor: P, color: P } }}>
                                 <AttachFile sx={{ fontSize: 16 }} /><input type="file" hidden onChange={e => setContactAttachment(e.target.files?.[0] || null)} />
                               </IconButton>
                               <TextField fullWidth multiline rows={4} sx={MFX} value={contactForm.message} onChange={e => setContactForm(p => ({ ...p, message: e.target.value }))} onPaste={e => handlePasteAttachment(e, setContactAttachment)} placeholder="Describe your concern in detail…" />
                             </Box>
-                            {contactAttachment && <Chip size="small" label={contactAttachment.name} onDelete={() => setContactAttachment(null)} sx={{ mt: 1, bgcolor: SUBTLE, border: `1px solid ${BD}`, fontWeight: 700 }} />}
+                            {contactAttachment && <Chip size="small" label={contactAttachment.name} onDelete={() => setContactAttachment(null)} sx={{ mt: 1, bgcolor: SUBTLE, border: `1px solid ${BD}` }} />}
                           </Grid>
                         </Grid>
                         <Box sx={{ mt: 3, display: "flex", gap: 1 }}>
@@ -1347,25 +1257,25 @@ const Settings = () => {
 
                     {contactView === "thread" && selectedSub && (
                       <>
-                        <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${alpha(P, 0.1)}`, display: "flex", alignItems: "center", justifyContent: "space-between", bgcolor: alpha(P, 0.03), flexShrink: 0 }}>
+                        <Box sx={{
+                          px: 3, py: 2, borderBottom: `1px solid ${BD}`,
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          bgcolor: SUBTLE, flexShrink: 0,
+                        }}>
                           <Box sx={{ minWidth: 0, flex: 1, mr: 1 }}>
-                            <Typography sx={{ fontWeight: 700, fontSize: "0.9rem", color: TXT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{selectedSub.subject || "General Inquiry"}</Typography>
-                            <Typography sx={{ fontSize: "0.75rem", color: MUTED }}>
+                            <Typography sx={{ fontWeight: 600, fontSize: "0.875rem", color: TXT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{selectedSub.subject || "General Inquiry"}</Typography>
+                            <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>
                               {selectedSub.name}
-                              {selectedSub.employee_number && (
-                                <Box component="span" sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.68rem", color: alpha(P, 0.7), ml: 0.75 }}>
-                                  #{selectedSub.employee_number}
-                                </Box>
-                              )}
+                              {selectedSub.employee_number && <Box component="span" sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "0.65rem", color: MUTED, ml: 0.75 }}>#{selectedSub.employee_number}</Box>}
                               {" · "}{new Date(selectedSub.created_at).toLocaleDateString()}
                             </Typography>
                           </Box>
                           <StatusBadge status={selectedSub.status} />
                         </Box>
-                        <Box ref={threadScrollRef} sx={{ flex: 1, overflowY: "auto", p: 2.5, bgcolor: SUBTLE, minHeight: 0 }}>
+                        <Box ref={threadScrollRef} sx={{ flex: 1, overflowY: "auto", p: 2.5, minHeight: 0 }}>
                           {messagesLoading ? (
                             <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
-                              <Box sx={{ width: 28, height: 28, border: `2px solid ${alpha(P, 0.3)}`, borderTopColor: P, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                              <Box sx={{ width: 24, height: 24, border: `2px solid ${alpha(P, 0.15)}`, borderTopColor: P, borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
                             </Box>
                           ) : (
                             [...(selectedSub ? [{ id: `orig-${selectedSub.id}`, message: selectedSub.message, sender_name: selectedSub.name, sender_email: selectedSub.email, sender_employee_number: selectedSub.employee_number, created_at: selectedSub.created_at, attachment: selectedSub.attachment, is_original: true }] : []), ...contactMessages]
@@ -1374,29 +1284,34 @@ const Settings = () => {
                                 const isMe = (msg.sender_employee_number && String(msg.sender_employee_number) === String(employeeNumber)) || (msg.sender_email && msg.sender_email === userEmail);
                                 return (
                                   <Box key={msg.id} sx={{ display: "flex", justifyContent: isMe ? "flex-end" : "flex-start", mb: 2 }}>
-                                    <Box sx={{ maxWidth: "75%", px: 2.5, py: 2, bgcolor: isMe ? alpha(P, 0.1) : "#fff", border: `1px solid ${alpha(P, isMe ? 0.2 : 0.1)}`, borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                                      <Typography sx={{ fontSize: "0.72rem", color: MUTED, fontFamily: "'IBM Plex Mono', monospace", mb: 0.75, fontWeight: 700 }}>
-                                        {isMe ? "You" : (msg.sender_name || (msg.sender_role ? msg.sender_role.toUpperCase() : "Support"))}
+                                    <Box sx={{
+                                      maxWidth: "75%", px: 2.5, py: 2,
+                                      bgcolor: isMe ? alpha(P, 0.06) : "#fff",
+                                      border: `1px solid ${isMe ? alpha(P, 0.12) : BD}`,
+                                      borderRadius: isMe ? "10px 10px 2px 10px" : "10px 10px 10px 2px",
+                                    }}>
+                                      <Typography sx={{ fontSize: "0.68rem", color: MUTED, fontFamily: "'JetBrains Mono', monospace", mb: 0.5, fontWeight: 500 }}>
+                                        {isMe ? "You" : (msg.sender_name || (msg.sender_role ? msg.sender_role : "Support"))}
                                       </Typography>
-                                      <Typography sx={{ fontSize: "0.875rem", color: TXT, lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{msg.message}</Typography>
-                                      {msg.attachment && <Typography component="a" href={`${API_BASE_URL}${msg.attachment}`} target="_blank" rel="noopener noreferrer" sx={{ display: "inline-block", mt: 0.75, fontSize: "0.75rem", color: P, textDecoration: "underline", fontWeight: 700 }}>View attachment</Typography>}
-                                      <Typography sx={{ fontSize: "0.68rem", color: MUTED, fontFamily: "'IBM Plex Mono', monospace", mt: 1 }}>{new Date(msg.created_at).toLocaleString()}</Typography>
+                                      <Typography sx={{ fontSize: "0.84rem", color: TXT, lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{msg.message}</Typography>
+                                      {msg.attachment && <Typography component="a" href={`${API_BASE_URL}${msg.attachment}`} target="_blank" rel="noopener noreferrer" sx={{ display: "inline-block", mt: 0.5, fontSize: "0.75rem", color: P, textDecoration: "none", fontWeight: 500, "&:hover": { textDecoration: "underline" } }}>View attachment</Typography>}
+                                      <Typography sx={{ fontSize: "0.65rem", color: MUTED, fontFamily: "'JetBrains Mono', monospace", mt: 0.75 }}>{new Date(msg.created_at).toLocaleString()}</Typography>
                                     </Box>
                                   </Box>
                                 );
                               })
                           )}
                         </Box>
-                        <Box sx={{ p: 2.5, borderTop: `1px solid ${alpha(P, 0.12)}`, display: "flex", flexDirection: "column", gap: 1.5, bgcolor: PANEL, flexShrink: 0 }}>
+                        <Box sx={{ p: 2.5, borderTop: `1px solid ${BD}`, display: "flex", flexDirection: "column", gap: 1.5, flexShrink: 0 }}>
                           <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
-                            <IconButton component="label" size="small" disabled={selectedSub.status === "resolved"} sx={{ mt: 0.5, border: `1px solid ${alpha(P, 0.3)}`, borderRadius: 1.5, color: P }}>
+                            <IconButton component="label" size="small" disabled={selectedSub.status === "resolved"} sx={{ mt: 0.5, border: `1px solid ${BD}`, borderRadius: 1, color: MUTED, "&:hover": { borderColor: P, color: P } }}>
                               <AttachFile sx={{ fontSize: 16 }} /><input type="file" hidden onChange={e => setReplyAttachment(e.target.files?.[0] || null)} />
                             </IconButton>
                             <TextField fullWidth multiline rows={2} sx={MFX} value={adminReply} onChange={e => setAdminReply(e.target.value)} onPaste={e => handlePasteAttachment(e, setReplyAttachment)}
                               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendThreadMessage(); } }}
                               placeholder={selectedSub.status === "resolved" ? "Ticket resolved. You can still send feedback..." : "Type your response… (Enter to send)"} disabled={selectedSub.status === "resolved"} />
                           </Box>
-                          {replyAttachment && <Chip size="small" label={replyAttachment.name} onDelete={() => setReplyAttachment(null)} sx={{ maxWidth: "100%", bgcolor: SUBTLE, border: `1px solid ${BD}`, fontWeight: 700 }} />}
+                          {replyAttachment && <Chip size="small" label={replyAttachment.name} onDelete={() => setReplyAttachment(null)} sx={{ maxWidth: "100%", bgcolor: SUBTLE, border: `1px solid ${BD}` }} />}
                           <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end" }}>
                             <Btn onClick={handleSendThreadMessage} disabled={loading || (!adminReply.trim() && !replyAttachment) || selectedSub.status === "resolved"} startIcon={<Save />}>{loading ? "Sending..." : "Send Reply"}</Btn>
                             {isAdmin && <Btn outline onClick={() => handleUpdateSubStatus(selectedSub.id, "resolved", adminReply || null)} disabled={loading || selectedSub.status === "resolved"}>{selectedSub.status === "resolved" ? "Resolved" : "Mark Resolved"}</Btn>}
@@ -1410,8 +1325,8 @@ const Settings = () => {
                     {contactView !== "compose" && !selectedSub && (
                       <Box sx={{ flex: 1, display: "grid", placeItems: "center" }}>
                         <Box sx={{ textAlign: "center" }}>
-                          <ContactSupport sx={{ fontSize: 52, color: alpha(P, 0.2), mb: 1.5 }} />
-                          <Typography sx={{ color: MUTED, fontWeight: 700 }}>Select a conversation to view it</Typography>
+                          <ContactSupport sx={{ fontSize: 44, color: BD, mb: 1.5 }} />
+                          <Typography sx={{ color: MUTED }}>Select a conversation to view it</Typography>
                         </Box>
                       </Box>
                     )}
@@ -1427,58 +1342,62 @@ const Settings = () => {
 
       {/* ══ SIDEBAR ═══════════════════════════════════════════════════ */}
       <Box sx={{
-        width: SIDEBAR_W, bgcolor: "#ffffff",
-        borderLeft: `2px solid ${alpha(P, 0.3)}`,
-        boxShadow: `-4px 0 20px ${alpha(P, 0.06)}`,
+        width: SIDEBAR_W, bgcolor: "#fff",
+        borderLeft: `1px solid ${BD}`,
         display: "flex", flexDirection: "column",
         position: "fixed", right: 0, top: 0, height: "100vh",
         overflowY: "auto", zIndex: 1200,
-        transition: "border-color 0.3s ease, box-shadow 0.3s ease",
       }}>
         <Box sx={{
           px: 3, py: 2.5,
-          borderBottom: `1px solid ${alpha(P, 0.12)}`,
+          borderBottom: `1px solid ${BD}`,
           display: "flex", alignItems: "center", gap: 2, flexShrink: 0,
-          background: `linear-gradient(135deg, ${alpha(P, 0.07)} 0%, ${alpha(P, 0.02)} 100%)`,
         }}>
-          <Box sx={{ width: 36, height: 36, bgcolor: P, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 1.5, flexShrink: 0, boxShadow: `0 4px 12px ${alpha(P, 0.45)}` }}>
-            <SettingsIcon sx={{ fontSize: 19, color: "#fff" }} />
+          <Box sx={{
+            width: 30, height: 30, bgcolor: P,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            borderRadius: 1, flexShrink: 0,
+          }}>
+            <SettingsIcon sx={{ fontSize: 16, color: "#fff" }} />
           </Box>
           <Box>
-            <Typography sx={{ fontWeight: 900, fontSize: "0.9rem", color: P, lineHeight: 1.2 }}>Settings</Typography>
-            <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.58rem", color: alpha(P, 0.4), letterSpacing: "0.08em", textTransform: "uppercase" }}>HRIS Platform</Typography>
+            <Typography sx={{ fontWeight: 700, fontSize: "0.85rem", color: TXT, lineHeight: 1.2 }}>Settings</Typography>
+            <Typography sx={{ fontSize: "0.62rem", color: MUTED, letterSpacing: "0.03em" }}>HRIS Platform</Typography>
           </Box>
         </Box>
 
-        <Box sx={{ mx: 2.5, my: 2, px: 2, py: 1.25, bgcolor: alpha(P, 0.07), borderRadius: 1.5, border: `1px solid ${alpha(P, 0.18)}`, flexShrink: 0 }}>
-          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.58rem", color: alpha(P, 0.45), textTransform: "uppercase", letterSpacing: "0.1em", mb: 0.25 }}>Current Section</Typography>
-          <Typography sx={{ fontWeight: 900, fontSize: "0.82rem", color: P }}>{sectionMeta[activeSection]}</Typography>
-        </Box>
-
-        <Box sx={{ flex: 1 }}>
-          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.58rem", fontWeight: 700, color: alpha(P, 0.35), letterSpacing: "0.14em", textTransform: "uppercase", px: 3, pb: 0.75, pt: 0.5 }}>Account</Typography>
+        <Box sx={{ flex: 1, pt: 1 }}>
+          <Typography sx={{
+            fontSize: "0.62rem", fontWeight: 600, color: MUTED,
+            letterSpacing: "0.08em", textTransform: "uppercase",
+            px: 4, pb: 0.5, pt: 0.75,
+          }}>Account</Typography>
           <NavItem section="password" icon={VpnKey}        label="Change Password" />
           <NavItem section="email"    icon={EmailIcon}     label="Email Settings"  />
-          <NavItem section="security" icon={Shield}        label="Two-Factor Authentication" />
+          <NavItem section="security" icon={Shield}        label="Two-Factor Auth"  />
 
-          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.58rem", fontWeight: 700, color: alpha(P, 0.35), letterSpacing: "0.14em", textTransform: "uppercase", px: 3, pb: 0.75, pt: 1.25 }}>Information</Typography>
-          <NavItem section="about"   icon={Business}       label="About Us"   />
-          <NavItem section="faqs"    icon={QuestionAnswer} label="FAQs"        />
-          <NavItem section="policy"  icon={Policy}         label="Policies"    />
+          <Typography sx={{
+            fontSize: "0.62rem", fontWeight: 600, color: MUTED,
+            letterSpacing: "0.08em", textTransform: "uppercase",
+            px: 4, pb: 0.5, pt: 1.5,
+          }}>Information</Typography>
+          <NavItem section="about"   icon={Business}       label="About Us"        />
+          <NavItem section="faqs"    icon={QuestionAnswer} label="FAQs"             />
+          <NavItem section="policy"  icon={Policy}         label="Policies"         />
           <NavItem section="contact" icon={ContactSupport} label="Contact Support"  />
         </Box>
 
-        <Box sx={{ px: 3, py: 2.5, borderTop: `1px solid ${alpha(P, 0.1)}`, flexShrink: 0 }}>
+        <Box sx={{ px: 3, py: 2.5, borderTop: `1px solid ${BD}`, flexShrink: 0 }}>
           {userRole !== "staff" && (
             <Box onClick={() => navigate("/users-list")} sx={{
-              display: "flex", alignItems: "center", gap: 1.5,
-              py: 1.25, px: 1.75, cursor: "pointer",
-              color: MUTED, borderRadius: 2, border: "1px solid transparent",
-              transition: "all 0.15s",
-              "&:hover": { color: P, bgcolor: alpha(P, 0.05), borderColor: alpha(P, 0.2) },
+              display: "flex", alignItems: "center", gap: 1.25,
+              py: 1, px: 1.5, cursor: "pointer",
+              color: MUTED, borderRadius: 1.5,
+              transition: "all 0.12s",
+              "&:hover": { color: TXT, bgcolor: SUBTLE },
             }}>
-              <PeopleIcon sx={{ fontSize: 16 }} />
-              <Typography sx={{ fontSize: "0.845rem", fontWeight: 600 }}>User Management</Typography>
+              <PeopleIcon sx={{ fontSize: 15 }} />
+              <Typography sx={{ fontSize: "0.84rem", fontWeight: 500 }}>User Management</Typography>
             </Box>
           )}
         </Box>
@@ -1487,22 +1406,22 @@ const Settings = () => {
       {/* ══ MODALS ════════════════════════════════════════════════════ */}
 
       {/* Feedback dialog */}
-      <Dialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3, boxShadow: "0 25px 60px rgba(0,0,0,0.35)" } }}>
+      <Dialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 2, boxShadow: "0 20px 60px rgba(0,0,0,0.15)" } }}>
         <DlgHeader P={P} S={S} icon={ContactSupport} title="Ticket Feedback" onClose={() => setFeedbackOpen(false)} />
         <DialogContent sx={{ pt: 3, px: 3 }}>
           {isAdmin && (
-            <Box sx={{ border: `1px solid ${alpha(P, 0.12)}`, bgcolor: SUBTLE, maxHeight: 320, overflowY: "auto", p: 2.5, mb: 2, borderRadius: 2 }}>
+            <Box sx={{ border: `1px solid ${BD}`, bgcolor: SUBTLE, maxHeight: 320, overflowY: "auto", p: 2.5, mb: 2, borderRadius: 1.5 }}>
               {feedbackLoading
                 ? <Typography sx={{ color: MUTED, textAlign: "center", py: 4 }}>Loading...</Typography>
                 : feedbackMessages.length > 0 ? feedbackMessages.map(msg => {
                     const isMe = (msg.sender_employee_number && String(msg.sender_employee_number) === String(employeeNumber)) || (msg.sender_email && msg.sender_email === userEmail);
                     return (
                       <Box key={msg.id} sx={{ display: "flex", justifyContent: isMe ? "flex-end" : "flex-start", mb: 2 }}>
-                        <Box sx={{ maxWidth: "75%", px: 2.5, py: 2, bgcolor: isMe ? alpha(P, 0.1) : "#fff", border: `1px solid ${alpha(P, isMe ? 0.2 : 0.1)}`, borderRadius: "12px" }}>
-                          <Typography sx={{ fontSize: "0.75rem", color: MUTED, fontFamily: "'IBM Plex Mono', monospace", mb: 0.75 }}>{isMe ? "You" : (msg.sender_name || "User")}</Typography>
-                          <Typography sx={{ fontSize: "0.875rem", color: TXT, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{msg.message}</Typography>
-                          {msg.rating && <Box sx={{ mt: 0.75 }}><Rating value={Number(msg.rating)} readOnly size="small" /></Box>}
-                          <Typography sx={{ fontSize: "0.68rem", color: MUTED, fontFamily: "'IBM Plex Mono', monospace", mt: 1 }}>{new Date(msg.created_at).toLocaleString()}</Typography>
+                        <Box sx={{ maxWidth: "75%", px: 2.5, py: 2, bgcolor: isMe ? alpha(P, 0.06) : "#fff", border: `1px solid ${isMe ? alpha(P, 0.12) : BD}`, borderRadius: "10px" }}>
+                          <Typography sx={{ fontSize: "0.72rem", color: MUTED, fontFamily: "'JetBrains Mono', monospace", mb: 0.5, fontWeight: 500 }}>{isMe ? "You" : (msg.sender_name || "User")}</Typography>
+                          <Typography sx={{ fontSize: "0.84rem", color: TXT, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{msg.message}</Typography>
+                          {msg.rating && <Box sx={{ mt: 0.5 }}><Rating value={Number(msg.rating)} readOnly size="small" /></Box>}
+                          <Typography sx={{ fontSize: "0.65rem", color: MUTED, fontFamily: "'JetBrains Mono', monospace", mt: 0.75 }}>{new Date(msg.created_at).toLocaleString()}</Typography>
                         </Box>
                       </Box>
                     );
@@ -1513,12 +1432,12 @@ const Settings = () => {
           {!isAdmin && !feedbackSubmitted && (
             <>
               <Box sx={{ mb: 2 }}>
-                <Typography sx={{ fontWeight: 900, fontSize: "0.78rem", color: P, mb: 0.75 }}>Rating</Typography>
+                <Typography sx={{ fontWeight: 600, fontSize: "0.78rem", color: TXT, mb: 0.75 }}>Rating</Typography>
                 <Rating value={feedbackRating} onChange={(e, v) => setFeedbackRating(v || 0)} size="large" />
               </Box>
-              <Typography sx={{ fontWeight: 900, fontSize: "0.78rem", color: P, mb: 0.75 }}>Comment</Typography>
+              <Typography sx={{ fontWeight: 600, fontSize: "0.78rem", color: TXT, mb: 0.75 }}>Comment</Typography>
               <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", mb: 1.5 }}>
-                <IconButton component="label" size="small" sx={{ mt: 0.5, border: `1px solid ${alpha(P, 0.3)}`, borderRadius: 1.5, color: P }}>
+                <IconButton component="label" size="small" sx={{ mt: 0.5, border: `1px solid ${BD}`, borderRadius: 1, color: MUTED, "&:hover": { borderColor: P, color: P } }}>
                   <AttachFile sx={{ fontSize: 16 }} /><input type="file" hidden onChange={e => setFeedbackAttachment(e.target.files?.[0] || null)} />
                 </IconButton>
                 <TextField fullWidth multiline rows={3} sx={MFX} value={feedbackReply} onChange={e => setFeedbackReply(e.target.value)} onPaste={e => handlePasteAttachment(e, setFeedbackAttachment)} placeholder="Write your feedback..." />
@@ -1528,8 +1447,8 @@ const Settings = () => {
           )}
           {!isAdmin && feedbackSubmitted && (
             <Box sx={{ py: 5, textAlign: "center" }}>
-              <CheckCircleOutline sx={{ fontSize: 48, color: "#16a34a", mb: 1.5 }} />
-              <Typography sx={{ fontWeight: 700, color: TXT }}>Thank you for your feedback!</Typography>
+              <CheckCircleOutline sx={{ fontSize: 44, color: "#16a34a", mb: 1.5 }} />
+              <Typography sx={{ fontWeight: 600, color: TXT }}>Thank you for your feedback!</Typography>
             </Box>
           )}
         </DialogContent>
@@ -1541,14 +1460,14 @@ const Settings = () => {
 
       {/* Verify modal */}
       {showVerifyModal && (
-        <Box sx={{ position: "fixed", inset: 0, bgcolor: "rgba(15,17,23,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1400 }}>
-          <Box sx={{ bgcolor: PANEL, borderRadius: 3, width: "90%", maxWidth: 440, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.4)" }}>
-            <Box sx={{ background: `linear-gradient(135deg,${P} 0%,${S} 100%)`, px: 3, py: 2.5, display: "flex", alignItems: "center", gap: 2 }}>
-              <Avatar sx={{ bgcolor: "rgba(255,255,255,0.2)" }}><MarkEmailReadOutlined sx={{ color: "#fff" }} /></Avatar>
-              <Typography sx={{ color: "#fff", fontWeight: 900, fontSize: "0.95rem" }}>Verification Code Dispatched</Typography>
+        <Box sx={{ position: "fixed", inset: 0, bgcolor: "rgba(15,23,42,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1400, backdropFilter: "blur(4px)" }}>
+          <Box sx={{ bgcolor: PANEL, borderRadius: 2, width: "90%", maxWidth: 420, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.15)" }}>
+            <Box sx={{ bgcolor: P, px: 3, py: 2, display: "flex", alignItems: "center", gap: 1.5 }}>
+              <Avatar sx={{ bgcolor: "rgba(255,255,255,0.15)", width: 32, height: 32 }}><MarkEmailReadOutlined sx={{ color: "#fff", fontSize: 16 }} /></Avatar>
+              <Typography sx={{ color: "#fff", fontWeight: 600, fontSize: "0.9rem" }}>Code Dispatched</Typography>
             </Box>
             <Box sx={{ p: 3.5 }}>
-              <Typography sx={{ fontSize: "0.875rem", color: TXT, lineHeight: 1.75, mb: 3 }}>A 6-digit code has been sent to <strong>{userEmail}</strong>. Enter it to continue.</Typography>
+              <Typography sx={{ fontSize: "0.84rem", color: MUTED, lineHeight: 1.75, mb: 3 }}>A 6-digit code has been sent to <strong style={{ color: TXT }}>{userEmail}</strong>. Enter it to continue.</Typography>
               <Btn fullWidth onClick={() => setShowVerifyModal(false)}>Acknowledge</Btn>
             </Box>
           </Box>
@@ -1557,14 +1476,14 @@ const Settings = () => {
 
       {/* Password changed modal */}
       {showSuccessModal && (
-        <Box sx={{ position: "fixed", inset: 0, bgcolor: "rgba(15,17,23,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1400 }}>
-          <Box sx={{ bgcolor: PANEL, borderRadius: 3, width: "90%", maxWidth: 440, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.4)" }}>
-            <Box sx={{ background: "linear-gradient(135deg,#14532d 0%,#16a34a 100%)", px: 3, py: 2.5, display: "flex", alignItems: "center", gap: 2 }}>
-              <Avatar sx={{ bgcolor: "rgba(255,255,255,0.2)" }}><CheckCircleOutline sx={{ color: "#fff" }} /></Avatar>
-              <Typography sx={{ color: "#fff", fontWeight: 900, fontSize: "0.95rem" }}>Password Updated</Typography>
+        <Box sx={{ position: "fixed", inset: 0, bgcolor: "rgba(15,23,42,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1400, backdropFilter: "blur(4px)" }}>
+          <Box sx={{ bgcolor: PANEL, borderRadius: 2, width: "90%", maxWidth: 420, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.15)" }}>
+            <Box sx={{ bgcolor: "#16a34a", px: 3, py: 2, display: "flex", alignItems: "center", gap: 1.5 }}>
+              <Avatar sx={{ bgcolor: "rgba(255,255,255,0.15)", width: 32, height: 32 }}><CheckCircleOutline sx={{ color: "#fff", fontSize: 16 }} /></Avatar>
+              <Typography sx={{ color: "#fff", fontWeight: 600, fontSize: "0.9rem" }}>Password Updated</Typography>
             </Box>
             <Box sx={{ p: 3.5 }}>
-              <Typography sx={{ fontSize: "0.875rem", color: TXT, lineHeight: 1.75, mb: 3 }}>Your password has been changed. You will be signed out momentarily for security.</Typography>
+              <Typography sx={{ fontSize: "0.84rem", color: MUTED, lineHeight: 1.75, mb: 3 }}>Your password has been changed. You will be signed out momentarily for security.</Typography>
               <Btn fullWidth startIcon={<LockOutlined />} onClick={handleSuccessClose}>Continue</Btn>
             </Box>
           </Box>
@@ -1572,7 +1491,7 @@ const Settings = () => {
       )}
 
       {/* FAQ Dialog */}
-      <Dialog open={faqDialogOpen} onClose={() => setFaqDialogOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3, boxShadow: "0 25px 60px rgba(0,0,0,0.35)" } }}>
+      <Dialog open={faqDialogOpen} onClose={() => setFaqDialogOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 2, boxShadow: "0 20px 60px rgba(0,0,0,0.15)" } }}>
         <DlgHeader P={P} S={S} icon={QuestionAnswer} title={editingFaq ? "Edit FAQ" : "New FAQ"} onClose={() => setFaqDialogOpen(false)} />
         <DialogContent sx={{ pt: 3, px: 3 }}>
           <Box sx={{ mb: 2.5 }}><FL req P={P}>Question</FL><TextField fullWidth size="small" sx={FX} value={faqForm.question} onChange={e => setFaqForm(p => ({ ...p, question: e.target.value }))} /></Box>
@@ -1581,14 +1500,14 @@ const Settings = () => {
             <Grid item xs={12} sm={6}>
               <FL P={P}>Category</FL>
               <FormControl fullWidth size="small">
-                <Select value={faqForm.category} onChange={e => setFaqForm(p => ({ ...p, category: e.target.value }))} sx={{ borderRadius: 2, bgcolor: SUBTLE, "& .MuiOutlinedInput-notchedOutline": { borderColor: alpha(P, 0.22) } }}>
+                <Select value={faqForm.category} onChange={e => setFaqForm(p => ({ ...p, category: e.target.value }))} sx={{ borderRadius: 1.5, bgcolor: "#fff", "& .MuiOutlinedInput-notchedOutline": { borderColor: BD } }}>
                   {["general","password","email","account","technical","other"].map(c => <MenuItem key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</MenuItem>)}
                 </Select>
               </FormControl>
             </Grid>
             <Grid item xs={12} sm={6}><FL P={P}>Display Order</FL><TextField fullWidth size="small" sx={FX} type="number" value={faqForm.display_order} onChange={e => setFaqForm(p => ({ ...p, display_order: e.target.value }))} inputProps={{ min: 0 }} /></Grid>
           </Grid>
-          <FormControlLabel sx={{ mt: 1.5 }} control={<Checkbox checked={faqForm.is_active} onChange={e => setFaqForm(p => ({ ...p, is_active: e.target.checked }))} size="small" sx={{ color: BD, "&.Mui-checked": { color: P } }} />} label={<Typography sx={{ fontSize: "0.85rem", fontWeight: 700 }}>Active</Typography>} />
+          <FormControlLabel sx={{ mt: 1.5 }} control={<Checkbox checked={faqForm.is_active} onChange={e => setFaqForm(p => ({ ...p, is_active: e.target.checked }))} size="small" sx={{ color: BD, "&.Mui-checked": { color: P } }} />} label={<Typography sx={{ fontSize: "0.84rem" }}>Active</Typography>} />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
           <Btn outline onClick={() => setFaqDialogOpen(false)}>Cancel</Btn>
@@ -1597,7 +1516,7 @@ const Settings = () => {
       </Dialog>
 
       {/* Policy Dialog */}
-      <Dialog open={policyDialogOpen} onClose={() => setPolicyDialogOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3, boxShadow: "0 25px 60px rgba(0,0,0,0.35)" } }}>
+      <Dialog open={policyDialogOpen} onClose={() => setPolicyDialogOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 2, boxShadow: "0 20px 60px rgba(0,0,0,0.15)" } }}>
         <DlgHeader P={P} S={S} icon={Policy} title={editingPolicy ? "Edit Policy" : "New Policy"} onClose={() => setPolicyDialogOpen(false)} />
         <DialogContent sx={{ pt: 3, px: 3 }}>
           <Box sx={{ mb: 2.5 }}><FL req P={P}>Title</FL><TextField fullWidth size="small" sx={FX} value={policyForm.title} onChange={e => setPolicyForm(p => ({ ...p, title: e.target.value }))} /></Box>
@@ -1606,14 +1525,14 @@ const Settings = () => {
             <Grid item xs={12} sm={6}>
               <FL P={P}>Category</FL>
               <FormControl fullWidth size="small">
-                <Select value={policyForm.category} onChange={e => setPolicyForm(p => ({ ...p, category: e.target.value }))} sx={{ borderRadius: 2, bgcolor: SUBTLE, "& .MuiOutlinedInput-notchedOutline": { borderColor: alpha(P, 0.22) } }}>
+                <Select value={policyForm.category} onChange={e => setPolicyForm(p => ({ ...p, category: e.target.value }))} sx={{ borderRadius: 1.5, bgcolor: "#fff", "& .MuiOutlinedInput-notchedOutline": { borderColor: BD } }}>
                   {[["privacy","Privacy Policy"],["terms","Terms of Service"],["data","Data Protection"],["security","Security Policy"],["general","General Policy"],["other","Other"]].map(([v,l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}
                 </Select>
               </FormControl>
             </Grid>
             <Grid item xs={12} sm={6}><FL P={P}>Display Order</FL><TextField fullWidth size="small" sx={FX} type="number" value={policyForm.display_order} onChange={e => setPolicyForm(p => ({ ...p, display_order: e.target.value }))} inputProps={{ min: 0 }} /></Grid>
           </Grid>
-          <FormControlLabel sx={{ mt: 1.5 }} control={<Checkbox checked={policyForm.is_active} onChange={e => setPolicyForm(p => ({ ...p, is_active: e.target.checked }))} size="small" sx={{ color: BD, "&.Mui-checked": { color: P } }} />} label={<Typography sx={{ fontSize: "0.85rem", fontWeight: 700 }}>Active</Typography>} />
+          <FormControlLabel sx={{ mt: 1.5 }} control={<Checkbox checked={policyForm.is_active} onChange={e => setPolicyForm(p => ({ ...p, is_active: e.target.checked }))} size="small" sx={{ color: BD, "&.Mui-checked": { color: P } }} />} label={<Typography sx={{ fontSize: "0.84rem" }}>Active</Typography>} />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
           <Btn outline onClick={() => setPolicyDialogOpen(false)}>Cancel</Btn>
@@ -1624,17 +1543,26 @@ const Settings = () => {
       {/* Logout overlay */}
       {logoutOpen && (
         <Box sx={{ position: "fixed", inset: 0, bgcolor: DARK, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 3 }}>
-          <Box sx={{ width: 72, height: 72, border: `3px solid ${alpha(P, 0.3)}`, borderTopColor: P, borderRadius: "50%", animation: "spin 1s linear infinite" }} />
-          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "0.78rem", fontWeight: 700, color: "rgba(255,255,255,0.5)", letterSpacing: "0.18em", textTransform: "uppercase", animation: "logout-fade 1.5s ease-in-out infinite" }}>Signing out…</Typography>
+          <Box sx={{ width: 56, height: 56, border: `2px solid rgba(255,255,255,0.1)`, borderTopColor: "#fff", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+          <Typography sx={{ fontSize: "0.78rem", fontWeight: 500, color: "rgba(255,255,255,0.4)", letterSpacing: "0.12em", textTransform: "uppercase", animation: "logout-fade 1.5s ease-in-out infinite" }}>Signing out…</Typography>
         </Box>
       )}
 
       {/* Toast */}
       {toast.open && (
         <Box sx={{ position: "fixed", bottom: 28, right: SIDEBAR_W + 16, zIndex: 1500 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, px: 2.5, py: 1.75, bgcolor: "#1e1e2e", border: `1px solid ${alpha(P, 0.3)}`, borderRadius: 2.5, boxShadow: "0 8px 32px rgba(0,0,0,0.25)", minWidth: 280 }}>
-            <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: toast.severity === "success" ? "#22c55e" : "#ef4444", flexShrink: 0, boxShadow: toast.severity === "success" ? "0 0 8px #22c55e" : "0 0 8px #ef4444" }} />
-            <Typography sx={{ fontSize: "0.875rem", color: "#fff", flex: 1, fontWeight: 600 }}>{toast.message}</Typography>
+          <Box sx={{
+            display: "flex", alignItems: "center", gap: 1.5,
+            px: 2.5, py: 1.5, bgcolor: TXT,
+            borderRadius: 1.5,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
+            minWidth: 260,
+          }}>
+            <Box sx={{
+              width: 6, height: 6, borderRadius: "50%",
+              bgcolor: toast.severity === "success" ? "#22c55e" : "#ef4444", flexShrink: 0,
+            }} />
+            <Typography sx={{ fontSize: "0.84rem", color: "#fff", flex: 1, fontWeight: 500 }}>{toast.message}</Typography>
             <IconButton size="small" onClick={() => setToast(p => ({ ...p, open: false }))} sx={{ color: "rgba(255,255,255,0.4)", p: 0.25, "&:hover": { color: "#fff" } }}><Close sx={{ fontSize: 14 }} /></IconButton>
           </Box>
         </Box>

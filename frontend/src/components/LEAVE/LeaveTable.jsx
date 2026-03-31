@@ -1,1731 +1,509 @@
-import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import API_BASE_URL from "../../apiConfig";
+import React, { useState, useEffect } from "react";
+import axios from "axios";
 import {
-  Container,
-  Typography,
-  TextField,
-  Button,
-  Box,
-  Grid,
-  Chip,
-  Modal,
-  IconButton,
-  Card,
-  CardContent,
-  Avatar,
-  Divider,
-  Alert,
-  InputAdornment,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-} from '@mui/material';
+  Typography, TextField, Button, Box, Grid, Chip, Modal, IconButton,
+  Card, Divider, InputAdornment, Select, MenuItem, FormControl, Fade, Tooltip,
+} from "@mui/material";
+import { alpha, styled } from "@mui/material/styles";
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Save as SaveIcon,
-  Cancel as CancelIcon,
-  Close,
-  EventNote,
-  Search as SearchIcon,
-  AccessTime as TimeIcon,
-  Category as CategoryIcon,
-  Male as MaleIcon,
-  Female as FemaleIcon,
-  Wc as GenderIcon,
-} from '@mui/icons-material';
+  Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon,
+  Save as SaveIcon, Cancel as CancelIcon, Close, Search as SearchIcon,
+  AccessTime as TimeIcon, Male as MaleIcon, Female as FemaleIcon,
+  Wc as GenderIcon, Refresh as RefreshIcon, TableRows as TableRowsIcon,
+  FolderSpecial as LeaveIcon, CheckCircleOutline, InfoOutlined,
+  TableChart as TableChartIcon,
+} from "@mui/icons-material";
 
-import LoadingOverlay from '../LoadingOverlay';
-import SuccessfulOverlay from '../SuccessfulOverlay';
-import usePageAccess from '../../hooks/usePageAccess';
-import AccessDenied from '../AccessDenied';
+import LoadingOverlay from "../LoadingOverlay";
+import SuccessfulOverlay from "../SuccessfulOverlay";
+import usePageAccess from "../../hooks/usePageAccess";
+import AccessDenied from "../AccessDenied";
 
-// ─────────────────────────────────────────────
-// SHARED STYLED HELPERS
-// ─────────────────────────────────────────────
-const GlassCard = ({ children, sx = {} }) => (
-  <Card
-    sx={{
-      background:
-        'linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%)',
-      backdropFilter: 'blur(10px)',
-      borderRadius: 3,
-      border: '1px solid rgba(109, 35, 35, 0.1)',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
-      transition: 'all 0.3s ease',
-      overflow: 'visible',
-      '&:hover': { boxShadow: '0 12px 40px rgba(109, 35, 35, 0.12)' },
-      ...sx,
-    }}
-  >
-    {children}
-  </Card>
-);
+// ─── Theme tokens ──────────────────────────────────────────────────────────────
+const T = {
+  accent: "#6d2323",
+  accentDark: "#5a1d1d",
+  accentMid: "#8B4545",
+  accentFaint: "rgba(109,35,35,0.06)",
+  accentBorder: "rgba(109,35,35,0.14)",
+  accentHover: "rgba(109,35,35,0.10)",
+  headerGrad: "linear-gradient(180deg,#6d2323 0%,#7e2c2c 100%)",
+  rowEven: "#ffffff",
+  rowOdd: "rgba(109,35,35,0.025)",
+  rowHover: "rgba(109,35,35,0.055)",
+  male: { bg: "rgba(21,101,192,0.08)", color: "#1565C0", border: "rgba(21,101,192,0.22)" },
+  female: { bg: "rgba(194,24,91,0.08)", color: "#C2185B", border: "rgba(194,24,91,0.22)" },
+  text: "#1a1a1a",
+  muted: "#6b6b6b",
+  faint: "#a0a0a0",
+  surface: "#ffffff",
+  divider: "rgba(0,0,0,0.08)",
+};
 
-const SectionHeader = ({ icon: Icon, title, subtitle }) => (
-  <Box
-    sx={{
-      p: 4,
-      background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
-      color: '#6d2323',
-      display: 'flex',
-      alignItems: 'center',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-    }}
-  >
-    <Icon sx={{ fontSize: '1.8rem', mr: 2, color: '#6d2323' }} />
-    <Box>
-      <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#6d2323' }}>
-        {title}
-      </Typography>
-      <Typography variant="caption" sx={{ opacity: 0.9, color: '#8B3333' }}>
-        {subtitle}
-      </Typography>
-    </Box>
-  </Box>
-);
+// ─── Styled primitives ─────────────────────────────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: "0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)",
+  border: "0.5px solid rgba(0,0,0,0.09)",
+  overflow: "hidden",
+  background: T.surface,
+});
 
-// ─────────────────────────────────────────────
-// WIREFRAME SHIMMER KEYFRAMES
-// ─────────────────────────────────────────────
-const ltShimmerKeyframes = `
-@keyframes ltShimmer {
+const FieldInput = styled(TextField)({
+  "& .MuiOutlinedInput-root": {
+    borderRadius: 8,
+    fontSize: "0.875rem",
+    backgroundColor: "#fff",
+    "& fieldset": { borderColor: T.accentBorder },
+    "&:hover fieldset": { borderColor: T.accent },
+    "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 },
+    "& .MuiInputBase-input.Mui-disabled": { WebkitTextFillColor: T.text },
+  },
+  "& .MuiInputLabel-root.Mui-focused": { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: "none",
+  fontWeight: 600,
+  fontSize: "0.875rem",
+  letterSpacing: "0.01em",
+  transition: "all 0.18s ease",
+  "&:hover": { transform: "translateY(-1px)" },
+  "&:active": { transform: "translateY(0)" },
+});
+
+// ─── Shimmer ───────────────────────────────────────────────────────────────────
+const shimmerKf = `
+@keyframes shimmer {
   0%   { background-position: -800px 0; }
   100% { background-position:  800px 0; }
 }
-@keyframes ltPulse {
+@keyframes blink {
   0%, 100% { opacity: 1; }
-  50%       { opacity: 0.6; }
-}
-`;
+  50%       { opacity: 0.55; }
+}`;
 
-const LTSkeletonBox = ({
-  width = '100%',
-  height = 16,
-  borderRadius = 8,
-  sx = {},
-}) => (
-  <Box
-    sx={{
-      width,
-      height,
-      borderRadius: `${borderRadius}px`,
-      background:
-        'linear-gradient(90deg,rgba(109,35,35,0.08) 25%,rgba(109,35,35,0.18) 50%,rgba(109,35,35,0.08) 75%)',
-      backgroundSize: '800px 100%',
-      animation: 'ltShimmer 1.5s infinite linear',
-      flexShrink: 0,
-      ...sx,
-    }}
-  />
+const Bone = ({ w = "100%", h = 14, r = 6, sx = {} }) => (
+  <Box sx={{ width: w, height: h, borderRadius: r, background: `linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)`, backgroundSize: "800px 100%", animation: "shimmer 1.6s infinite linear", flexShrink: 0, ...sx }} />
 );
 
-// ─────────────────────────────────────────────
-// LEAVE TABLE WIREFRAME
-// ─────────────────────────────────────────────
-const LeaveTableWireframe = () => (
+const Wireframe = () => (
   <>
-    <style>{ltShimmerKeyframes}</style>
-    <Box
-      sx={{
-        py: { xs: 2, md: 4 },
-        mt: { xs: 0, md: -5 },
-        width: '100%',
-        maxWidth: '1600px',
-        mx: 'auto',
-        px: { xs: 2, sm: 3, md: 4 },
-      }}
-    >
-      {/* ── Hero Header skeleton ── */}
-      <Box
-        sx={{
-          mb: 4,
-          borderRadius: '12px',
-          overflow: 'hidden',
-          border: '1px solid rgba(109,35,35,0.1)',
-          animation: 'ltPulse 2s ease-in-out infinite',
-        }}
-      >
-        <Box
-          sx={{
-            p: 5,
-            background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
-            position: 'relative',
-            overflow: 'hidden',
-          }}
-        >
-          <Box
-            sx={{
-              position: 'absolute',
-              top: -50,
-              right: -50,
-              width: 200,
-              height: 200,
-              borderRadius: '50%',
-              bgcolor: 'rgba(109,35,35,0.06)',
-            }}
-          />
-          <Box
-            sx={{
-              position: 'absolute',
-              bottom: -30,
-              left: '30%',
-              width: 150,
-              height: 150,
-              borderRadius: '50%',
-              bgcolor: 'rgba(109,35,35,0.04)',
-            }}
-          />
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              position: 'relative',
-              zIndex: 1,
-            }}
-          >
-            <Box
-              sx={{
-                width: 64,
-                height: 64,
-                borderRadius: '50%',
-                bgcolor: 'rgba(109,35,35,0.12)',
-                mr: 4,
-                flexShrink: 0,
-              }}
-            />
-            <Box>
-              <LTSkeletonBox
-                width={280}
-                height={28}
-                borderRadius={6}
-                sx={{ mb: 1.5 }}
-              />
-              <LTSkeletonBox width={400} height={14} borderRadius={4} />
-            </Box>
+    <style>{shimmerKf}</style>
+    <Box sx={{ py: { xs: 2, md: 4 }, mt: { xs: 0, md: -5 }, width: "100vw", maxWidth: "100%", position: "relative", left: "63%", transform: "translateX(-61%)", px: { xs: 2, sm: 3, md: 6 } }}>
+      {/* Header skeleton */}
+      <Box sx={{ mb: 2, borderRadius: 3, overflow: "hidden", border: `1px solid ${T.accentBorder}`, animation: "blink 2s ease-in-out infinite" }}>
+        <Box sx={{ p: 3.5, background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2.5 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <Box sx={{ width: 48, height: 48, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.12)", flexShrink: 0 }} />
+            <Box><Bone w={200} h={18} sx={{ mb: 1 }} /><Bone w={340} h={11} /></Box>
           </Box>
+          <Box sx={{ display: "flex", gap: 1.5 }}><Bone w={140} h={30} r={20} /><Box sx={{ width: 32, height: 32, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.1)" }} /></Box>
         </Box>
       </Box>
-
-      {/* ── Add Leave Type Form skeleton ── */}
-      <Box
-        sx={{
-          mb: 4,
-          borderRadius: '12px',
-          overflow: 'hidden',
-          border: '1px solid rgba(109,35,35,0.1)',
-          animation: 'ltPulse 2s ease-in-out 0.08s infinite',
-          bgcolor: '#fff',
-        }}
-      >
-        {/* Form header */}
-        <Box
-          sx={{
-            p: 4,
-            background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
-            boxShadow: '0 2px 4px rgba(0,0,0,0.08)',
-          }}
-        >
-          <Box
-            sx={{
-              width: 36,
-              height: 36,
-              borderRadius: '50%',
-              bgcolor: 'rgba(109,35,35,0.1)',
-              flexShrink: 0,
-            }}
-          />
-          <Box>
-            <LTSkeletonBox
-              width={200}
-              height={16}
-              borderRadius={4}
-              sx={{ mb: 0.75 }}
-            />
-            <LTSkeletonBox width={320} height={11} borderRadius={3} />
-          </Box>
-        </Box>
-
-        {/* Form fields */}
-        <Box sx={{ p: 4 }}>
-          <Grid container spacing={2} alignItems="flex-end">
-            {/* Leave Code */}
-            <Grid item xs={12} sm={6} md={2.5}>
-              <LTSkeletonBox
-                width={90}
-                height={11}
-                borderRadius={3}
-                sx={{ mb: 1.25 }}
-              />
-              <Box
-                sx={{
-                  height: 40,
-                  borderRadius: '8px',
-                  border: '1px solid rgba(109,35,35,0.15)',
-                  bgcolor: 'rgba(255,255,255,0.8)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  px: 1.5,
-                }}
-              >
-                <LTSkeletonBox width="50%" height={11} borderRadius={3} />
-              </Box>
-              <LTSkeletonBox
-                width={70}
-                height={9}
-                borderRadius={2}
-                sx={{ mt: 0.75 }}
-              />
-            </Grid>
-
-            {/* Leave Description */}
-            <Grid item xs={12} sm={6} md={3}>
-              <LTSkeletonBox
-                width={130}
-                height={11}
-                borderRadius={3}
-                sx={{ mb: 1.25 }}
-              />
-              <Box
-                sx={{
-                  height: 40,
-                  borderRadius: '8px',
-                  border: '1px solid rgba(109,35,35,0.15)',
-                  bgcolor: 'rgba(255,255,255,0.8)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  px: 1.5,
-                }}
-              >
-                <LTSkeletonBox width="60%" height={11} borderRadius={3} />
-              </Box>
-              <LTSkeletonBox
-                width={140}
-                height={9}
-                borderRadius={2}
-                sx={{ mt: 0.75 }}
-              />
-            </Grid>
-
-            {/* Default Days */}
-            <Grid item xs={12} sm={6} md={2}>
-              <LTSkeletonBox
-                width={95}
-                height={11}
-                borderRadius={3}
-                sx={{ mb: 1.25 }}
-              />
-              <Box
-                sx={{
-                  height: 40,
-                  borderRadius: '8px',
-                  border: '1px solid rgba(109,35,35,0.15)',
-                  bgcolor: 'rgba(255,255,255,0.8)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  px: 1.5,
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Box
-                    sx={{
-                      width: 18,
-                      height: 18,
-                      borderRadius: '50%',
-                      bgcolor: 'rgba(109,35,35,0.12)',
-                      flexShrink: 0,
-                    }}
-                  />
-                  <LTSkeletonBox width={50} height={11} borderRadius={3} />
-                </Box>
-                <LTSkeletonBox width={45} height={9} borderRadius={2} />
-              </Box>
-              <LTSkeletonBox
-                width={75}
-                height={9}
-                borderRadius={2}
-                sx={{ mt: 0.75 }}
-              />
-            </Grid>
-
-            {/* Gender Restriction */}
-            <Grid item xs={12} sm={6} md={2}>
-              <LTSkeletonBox
-                width={130}
-                height={11}
-                borderRadius={3}
-                sx={{ mb: 1.25 }}
-              />
-              <Box
-                sx={{
-                  height: 40,
-                  borderRadius: '8px',
-                  border: '1px solid rgba(109,35,35,0.15)',
-                  bgcolor: 'rgba(255,255,255,0.8)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  px: 1.5,
-                }}
-              >
-                <LTSkeletonBox width="55%" height={11} borderRadius={3} />
-              </Box>
-              <LTSkeletonBox
-                width={175}
-                height={9}
-                borderRadius={2}
-                sx={{ mt: 0.75 }}
-              />
-            </Grid>
-
-            {/* Add Button */}
-            <Grid item xs={12} sm={6} md={2.5}>
-              <Box sx={{ height: 11, mb: 1.25 }} />
-              <Box
-                sx={{
-                  height: 40,
-                  borderRadius: '8px',
-                  bgcolor: 'rgba(109,35,35,0.18)',
-                  animation: 'ltPulse 2s ease-in-out 0.12s infinite',
-                }}
-              />
-              <Box sx={{ height: 9, mt: 0.75 }} />
-            </Grid>
-          </Grid>
-        </Box>
-      </Box>
-
-      {/* ── Records Section skeleton ── */}
-      <Box
-        sx={{
-          mb: 4,
-          borderRadius: '12px',
-          overflow: 'hidden',
-          border: '1px solid rgba(109,35,35,0.1)',
-          animation: 'ltPulse 2s ease-in-out 0.16s infinite',
-          bgcolor: '#fff',
-        }}
-      >
-        {/* Records header */}
-        <Box
-          sx={{
-            p: 4,
-            background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: 2,
-            boxShadow: '0 2px 4px rgba(0,0,0,0.08)',
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Box
-              sx={{
-                width: 56,
-                height: 56,
-                borderRadius: '50%',
-                bgcolor: 'rgba(109,35,35,0.12)',
-                flexShrink: 0,
-              }}
-            />
-            <Box>
-              <LTSkeletonBox
-                width={190}
-                height={16}
-                borderRadius={4}
-                sx={{ mb: 0.75 }}
-              />
-              <LTSkeletonBox width={145} height={11} borderRadius={3} />
-            </Box>
-          </Box>
-          {/* Search bar skeleton */}
-          <Box
-            sx={{
-              width: 300,
-              height: 40,
-              borderRadius: '8px',
-              border: '1px solid rgba(109,35,35,0.15)',
-              bgcolor: '#fff',
-              display: 'flex',
-              alignItems: 'center',
-              px: 1.5,
-              gap: 1,
-            }}
-          >
-            <Box
-              sx={{
-                width: 18,
-                height: 18,
-                borderRadius: '50%',
-                bgcolor: 'rgba(109,35,35,0.12)',
-                flexShrink: 0,
-              }}
-            />
-            <LTSkeletonBox width="55%" height={11} borderRadius={3} />
-          </Box>
-        </Box>
-
-        {/* Leave Type Cards Grid */}
-        <Box sx={{ p: 4 }}>
-          <Grid container spacing={3}>
-            {[...Array(8)].map((_, i) => (
-              <Grid item xs={12} sm={6} md={4} lg={3} key={i}>
-                <Box
-                  sx={{
-                    border: '1px solid rgba(109,35,35,0.12)',
-                    borderRadius: '12px',
-                    p: 2.5,
-                    minHeight: 180,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    bgcolor: '#fff',
-                    animation: `ltPulse 2s ease-in-out ${i * 0.07}s infinite`,
-                  }}
-                >
-                  {/* Card header */}
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 1.5,
-                      mb: 2,
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: '50%',
-                        bgcolor: 'rgba(109,35,35,0.15)',
-                        flexShrink: 0,
-                      }}
-                    />
-                    <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                      <LTSkeletonBox
-                        width="80%"
-                        height={14}
-                        borderRadius={3}
-                        sx={{ mb: 0.6 }}
-                      />
-                      <LTSkeletonBox width="50%" height={10} borderRadius={3} />
-                    </Box>
-                  </Box>
-
-                  {/* Divider */}
-                  <Box
-                    sx={{
-                      height: 1,
-                      bgcolor: 'rgba(109,35,35,0.08)',
-                      mb: 1.5,
-                    }}
-                  />
-
-                  {/* Days / Hours row */}
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      justifyContent: 'space-around',
-                      py: 1,
-                      bgcolor: 'rgba(109,35,35,0.02)',
-                      borderRadius: 2,
-                      mb: 1.5,
-                    }}
-                  >
-                    {[0, 1].map((j) => (
-                      <Box key={j} sx={{ textAlign: 'center' }}>
-                        <LTSkeletonBox
-                          width={38}
-                          height={18}
-                          borderRadius={3}
-                          sx={{ mb: 0.4, mx: 'auto' }}
-                        />
-                        <LTSkeletonBox
-                          width={28}
-                          height={9}
-                          borderRadius={2}
-                          sx={{ mx: 'auto' }}
-                        />
-                      </Box>
-                    ))}
-                  </Box>
-
-                  {/* Footer hint */}
-                  <Box
-                    sx={{
-                      mt: 'auto',
-                      pt: 1,
-                      borderTop: '1px solid rgba(109,35,35,0.06)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 0.75,
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        width: 13,
-                        height: 13,
-                        borderRadius: '3px',
-                        bgcolor: 'rgba(109,35,35,0.1)',
-                        flexShrink: 0,
-                      }}
-                    />
-                    <LTSkeletonBox width={110} height={9} borderRadius={2} />
-                  </Box>
-                </Box>
+      {/* Form skeleton */}
+      <Box sx={{ mb: 2, borderRadius: 3, border: `1px solid ${T.accentBorder}`, bgcolor: "#fff", overflow: "hidden", animation: "blink 2s ease-in-out 0.1s infinite" }}>
+        <Box sx={{ px: 3.5, py: 1.75, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}><Bone w={160} h={12} /></Box>
+        <Box sx={{ p: 3 }}>
+          <Grid container spacing={2}>
+            {[2, 3.5, 2, 2, 2.5].map((md, i) => (
+              <Grid item xs={12} sm={6} md={md} key={i}>
+                <Bone w={80} h={10} sx={{ mb: 1 }} />
+                <Box sx={{ height: 38, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: "#fafafa" }} />
               </Grid>
             ))}
           </Grid>
+        </Box>
+      </Box>
+      {/* Table skeleton — fixed height to match real component */}
+      <Box sx={{ borderRadius: 3, border: `1px solid ${T.accentBorder}`, bgcolor: "#fff", overflow: "hidden", animation: "blink 2s ease-in-out 0.2s infinite", height: "calc(100vh - 360px)", display: "flex", flexDirection: "column" }}>
+        <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, display: "flex", justifyContent: "space-between", flexShrink: 0 }}>
+          <Bone w={160} h={14} />
+          <Bone w={220} h={36} r={8} />
+        </Box>
+        <Box sx={{ px: 3.5, py: 1.5, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: "flex", gap: 3, flexShrink: 0 }}>
+          {[60, 200, 80, 120, 72, 72, 72].map((w, i) => <Bone key={i} w={w} h={10} />)}
+        </Box>
+        <Box sx={{ flexGrow: 1, overflowY: "auto" }}>
+          {[...Array(6)].map((_, i) => (
+            <Box key={i} sx={{ px: 3.5, py: 1.6, borderBottom: `1px solid ${T.divider}`, display: "flex", gap: 3, alignItems: "center", bgcolor: i % 2 === 0 ? "#fff" : T.rowOdd }}>
+              <Bone w={60} h={26} r={6} />
+              <Bone w={200} h={11} />
+              <Bone w={60} h={18} r={11} />
+              <Bone w={100} h={20} r={10} />
+              <Bone w={48} h={11} />
+              <Bone w={48} h={11} />
+              <Bone w={60} h={28} r={6} />
+            </Box>
+          ))}
         </Box>
       </Box>
     </Box>
   </>
 );
 
-// ─────────────────────────────────────────────
-// MAIN COMPONENT
-// ─────────────────────────────────────────────
+// ─── Gender pill ───────────────────────────────────────────────────────────────
+const GenderPill = ({ restriction }) => {
+  if (!restriction) return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+      <GenderIcon sx={{ fontSize: 13, color: T.faint }} />
+      <Typography sx={{ fontSize: "0.75rem", color: T.faint }}>Any</Typography>
+    </Box>
+  );
+  const isMale = restriction.toLowerCase() === "male";
+  const c = isMale ? T.male : T.female;
+  return (
+    <Chip size="small" icon={isMale ? <MaleIcon style={{ fontSize: 11, color: c.color }} /> : <FemaleIcon style={{ fontSize: 11, color: c.color }} />} label={restriction}
+      sx={{ height: 20, fontSize: "0.7rem", fontWeight: 600, bgcolor: c.bg, color: c.color, border: `1px solid ${c.border}`, borderRadius: "4px", "& .MuiChip-icon": { ml: "4px" } }} />
+  );
+};
+
+// ─── Stat cell ─────────────────────────────────────────────────────────────────
+const StatCell = ({ label, value, sub, color = T.accent }) => (
+  <Box sx={{ flex: 1, textAlign: "center", py: 2, px: 1, borderRadius: 2, bgcolor: alpha(color, 0.05), border: `1px solid ${alpha(color, 0.12)}` }}>
+    <Typography sx={{ fontSize: "1.5rem", fontWeight: 700, color, lineHeight: 1 }}>{value}</Typography>
+    {sub && <Typography sx={{ fontSize: "0.68rem", color: T.muted, mt: 0.3 }}>{sub}</Typography>}
+    <Typography sx={{ fontSize: "0.68rem", color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", mt: 0.5 }}>{label}</Typography>
+  </Box>
+);
+
+// ─── Main component ────────────────────────────────────────────────────────────
 const LeaveTable = () => {
-  const { hasAccess, loading: accessLoading } = usePageAccess('leave-table');
+  const { hasAccess, loading: accessLoading } = usePageAccess("leave-table");
   const [leaveTypes, setLeaveTypes] = useState([]);
-  const [newLeaveType, setNewLeaveType] = useState({
-    leave_description: '',
-    leave_code: '',
-    leave_hours: '',
-    gender_restriction: '',
-  });
+  const [newLeaveType, setNewLeaveType] = useState({ leave_description: "", leave_code: "", leave_hours: "", gender_restriction: "" });
   const [editLeaveType, setEditLeaveType] = useState(null);
   const [originalLeaveType, setOriginalLeaveType] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [successOpen, setSuccessOpen] = useState(false);
-  const [successAction, setSuccessAction] = useState('');
+  const [successAction, setSuccessAction] = useState("");
 
-  useEffect(() => {
-    fetchLeaveTypes();
-  }, []);
+  useEffect(() => { fetchLeaveTypes(); }, []);
 
   const fetchLeaveTypes = async () => {
-    try {
-      const res = await axios.get(`${API_BASE_URL}/leaveRoute/leave_table`);
-      setLeaveTypes(res.data);
-    } catch (error) {
-      console.error('Error fetching data:', error);
-    } finally {
-      setPageLoading(false);
-    }
+    try { const res = await axios.get(`${API_BASE_URL}/leaveRoute/leave_table`); setLeaveTypes(res.data); }
+    catch (e) { console.error(e); }
+    finally { setPageLoading(false); }
   };
 
   const handleAdd = async () => {
     if (!newLeaveType.leave_code || !newLeaveType.leave_description) return;
     setLoading(true);
     try {
-      const filteredLeaveType = Object.fromEntries(
-        Object.entries(newLeaveType).filter(([_, value]) => value !== ''),
-      );
-      await axios.post(
-        `${API_BASE_URL}/leaveRoute/leave_table`,
-        filteredLeaveType,
-      );
-      setNewLeaveType({
-        leave_description: '',
-        leave_code: '',
-        leave_hours: '',
-        gender_restriction: '',
-      });
-      setTimeout(() => {
-        setLoading(false);
-        setSuccessAction('adding');
-        setSuccessOpen(true);
-        setTimeout(() => setSuccessOpen(false), 2000);
-      }, 300);
+      const payload = Object.fromEntries(Object.entries(newLeaveType).filter(([, v]) => v !== ""));
+      await axios.post(`${API_BASE_URL}/leaveRoute/leave_table`, payload);
+      setNewLeaveType({ leave_description: "", leave_code: "", leave_hours: "", gender_restriction: "" });
       fetchLeaveTypes();
-    } catch (error) {
-      console.error('Error adding data:', error);
-      setLoading(false);
-    }
+      setTimeout(() => { setLoading(false); setSuccessAction("adding"); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 2000); }, 300);
+    } catch (e) { console.error(e); setLoading(false); }
   };
 
   const handleUpdate = async () => {
     try {
-      await axios.put(
-        `${API_BASE_URL}/leaveRoute/leave_table/${editLeaveType.id}`,
-        editLeaveType,
-      );
-      setEditLeaveType(null);
-      setOriginalLeaveType(null);
-      setIsEditing(false);
+      await axios.put(`${API_BASE_URL}/leaveRoute/leave_table/${editLeaveType.id}`, editLeaveType);
+      setEditLeaveType(null); setOriginalLeaveType(null); setIsEditing(false);
       fetchLeaveTypes();
-      setSuccessAction('edit');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-    } catch (error) {
-      console.error('Error updating data:', error);
-    }
+      setSuccessAction("edit"); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 2000);
+    } catch (e) { console.error(e); }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this leave type?'))
-      return;
+    if (!window.confirm("Delete this leave type?")) return;
     try {
       await axios.delete(`${API_BASE_URL}/leaveRoute/leave_table/${id}`);
-      setEditLeaveType(null);
-      setOriginalLeaveType(null);
-      setIsEditing(false);
+      setEditLeaveType(null); setOriginalLeaveType(null); setIsEditing(false);
       fetchLeaveTypes();
-      setSuccessAction('delete');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-    } catch (error) {
-      console.error('Error deleting data:', error);
-    }
+      setSuccessAction("delete"); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 2000);
+    } catch (e) { console.error(e); }
   };
 
-  const handleOpenModal = (leaveType) => {
-    setEditLeaveType({ ...leaveType });
-    setOriginalLeaveType({ ...leaveType });
-    setIsEditing(false);
-  };
-  const handleStartEdit = () => setIsEditing(true);
-  const handleCancelEdit = () => {
-    setEditLeaveType({ ...originalLeaveType });
-    setIsEditing(false);
-  };
-  const handleCloseModal = () => {
-    setEditLeaveType(null);
-    setOriginalLeaveType(null);
-    setIsEditing(false);
-  };
+  const openModal = (lt) => { setEditLeaveType({ ...lt }); setOriginalLeaveType({ ...lt }); setIsEditing(false); };
+  const openModalEdit = (lt) => { setEditLeaveType({ ...lt }); setOriginalLeaveType({ ...lt }); setIsEditing(true); };
+  const closeModal = () => { setEditLeaveType(null); setOriginalLeaveType(null); setIsEditing(false); };
+  const startEdit = () => setIsEditing(true);
+  const cancelEdit = () => { setEditLeaveType({ ...originalLeaveType }); setIsEditing(false); };
 
-  const fieldLabels = {
-    leave_description: 'Leave Description',
-    leave_code: 'Leave Code',
-    leave_hours: 'Default Days',
-    gender_restriction: 'Gender Restriction',
-  };
-
-  const filteredLeaveTypes = leaveTypes.filter((lt) => {
-    const description = lt.leave_description?.toLowerCase() || '';
-    const code = lt.leave_code?.toLowerCase() || '';
-    const search = searchTerm.toLowerCase();
-    return description.includes(search) || code.includes(search);
+  const filtered = leaveTypes.filter((lt) => {
+    const s = searchTerm.toLowerCase();
+    return (lt.leave_description || "").toLowerCase().includes(s) || (lt.leave_code || "").toLowerCase().includes(s);
   });
 
-  const inputSx = {
-    '& .MuiOutlinedInput-root': {
-      borderRadius: 2,
-      '& fieldset': { borderColor: 'rgba(109, 35, 35, 0.2)' },
-      '&:hover fieldset': { borderColor: '#6d2323' },
-      '&.Mui-focused fieldset': { borderColor: '#6d2323', borderWidth: 2 },
-    },
+  const canAdd = !loading && newLeaveType.leave_code && newLeaveType.leave_description;
+
+  const selectSx = {
+    borderRadius: "8px", fontSize: "0.875rem", bgcolor: "#fff",
+    "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accentBorder },
+    "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: T.accent },
+    "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: T.accent, borderWidth: "1.5px" },
   };
 
-  // ── Show wireframe while initial data loads ──
-  if (accessLoading) return <LeaveTableWireframe />;
-
+  if (accessLoading) return <Wireframe />;
   if (!hasAccess) return <AccessDenied />;
-
-  if (pageLoading) return <LeaveTableWireframe />;
+  if (pageLoading) return <Wireframe />;
 
   return (
-    <Box
-      sx={{
-        py: { xs: 2, md: 4 },
-        mt: { xs: 0, md: -5 },
-        width: '100%',
-        maxWidth: '1600px',
-        mx: 'auto',
-        px: { xs: 2, sm: 3, md: 4 },
-      }}
-    >
-      {/* Overlays */}
-      <LoadingOverlay open={loading} message="Processing leave type..." />
-      <SuccessfulOverlay
-        open={successOpen}
-        action={successAction}
-        onClose={() => setSuccessOpen(false)}
-      />
+    <Fade in timeout={400}>
+      <Box sx={{ py: { xs: 2, md: 4 }, mt: { xs: 0, md: -5 }, width: "100vw", maxWidth: "100%", position: "relative", left: "63%", transform: "translateX(-61%)", px: { xs: 2, sm: 3, md: 6 } }}>
+        <LoadingOverlay open={loading} message="Processing leave type…" />
+        <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
 
-      {/* ── Hero Header ── */}
-      <GlassCard sx={{ mb: 4 }}>
-        <Box
-          sx={{
-            p: 5,
-            background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
-            color: '#6d2323',
-            position: 'relative',
-            overflow: 'hidden',
-          }}
-        >
-          <Box
-            sx={{
-              position: 'absolute',
-              top: -50,
-              right: -50,
-              width: 200,
-              height: 200,
-              background:
-                'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)',
-            }}
-          />
-          <Box
-            sx={{
-              position: 'absolute',
-              bottom: -30,
-              left: '30%',
-              width: 150,
-              height: 150,
-              background:
-                'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
-            }}
-          />
-          <Box
-            display="flex"
-            alignItems="center"
-            position="relative"
-            zIndex={1}
-          >
-            <Avatar
-              sx={{
-                bgcolor: 'rgba(109,35,35,0.15)',
-                mr: 4,
-                width: 64,
-                height: 64,
-                boxShadow: '0 8px 24px rgba(109,35,35,0.15)',
-              }}
-            >
-              <CategoryIcon sx={{ color: '#6d2323', fontSize: 32 }} />
-            </Avatar>
-            <Box>
-              <Typography
-                variant="h4"
-                component="h1"
-                sx={{
-                  fontWeight: 700,
-                  mb: 1,
-                  lineHeight: 1.2,
-                  color: '#6d2323',
-                }}
-              >
-                Leave Types Management
-              </Typography>
-              <Typography
-                variant="body1"
-                sx={{ opacity: 0.8, fontWeight: 400, color: '#8B3333' }}
-              >
-                Administrative Panel • Define universal leave types and their
-                default hours
-              </Typography>
-            </Box>
-          </Box>
-        </Box>
-      </GlassCard>
-
-      {/* ── Add Leave Type Section ── */}
-      <GlassCard sx={{ mb: 4 }}>
-        <SectionHeader
-          icon={EventNote}
-          title="Add New Leave Type"
-          subtitle="Define a leave code, description, and default days allocation"
-        />
-
-        <CardContent sx={{ p: 4 }}>
-          <Grid container spacing={2} alignItems="flex-end">
-            {/* Leave Code */}
-            <Grid item xs={12} sm={6} md={2.5}>
-              <Typography
-                variant="subtitle2"
-                sx={{
-                  fontWeight: 600,
-                  mb: 1,
-                  color: '#6d2323',
-                  fontSize: '0.875rem',
-                }}
-              >
-                Leave Code *
-              </Typography>
-              <TextField
-                value={newLeaveType.leave_code}
-                onChange={(e) =>
-                  setNewLeaveType({
-                    ...newLeaveType,
-                    leave_code: e.target.value.toUpperCase(),
-                  })
-                }
-                fullWidth
-                placeholder="e.g., VL, SL, EL"
-                size="small"
-                sx={inputSx}
-              />
-              <Typography
-                variant="caption"
-                sx={{
-                  color: '#888',
-                  mt: 0.5,
-                  display: 'block',
-                  fontSize: '0.7rem',
-                }}
-              >
-                2–4 letters
-              </Typography>
-            </Grid>
-
-            {/* Leave Description */}
-            <Grid item xs={12} sm={6} md={3}>
-              <Typography
-                variant="subtitle2"
-                sx={{
-                  fontWeight: 600,
-                  mb: 1,
-                  color: '#6d2323',
-                  fontSize: '0.875rem',
-                }}
-              >
-                Leave Description *
-              </Typography>
-              <TextField
-                value={newLeaveType.leave_description}
-                onChange={(e) =>
-                  setNewLeaveType({
-                    ...newLeaveType,
-                    leave_description: e.target.value,
-                  })
-                }
-                fullWidth
-                placeholder="e.g., Vacation Leave"
-                size="small"
-                sx={inputSx}
-              />
-              <Typography
-                variant="caption"
-                sx={{
-                  color: '#888',
-                  mt: 0.5,
-                  display: 'block',
-                  fontSize: '0.7rem',
-                }}
-              >
-                Full name of the leave type
-              </Typography>
-            </Grid>
-
-            {/* Default Days */}
-            <Grid item xs={12} sm={6} md={2}>
-              <Typography
-                variant="subtitle2"
-                sx={{
-                  fontWeight: 600,
-                  mb: 1,
-                  color: '#6d2323',
-                  fontSize: '0.875rem',
-                }}
-              >
-                Default Days
-              </Typography>
-              <TextField
-                type="number"
-                value={
-                  newLeaveType.leave_hours !== ''
-                    ? newLeaveType.leave_hours / 8
-                    : ''
-                }
-                onChange={(e) => {
-                  const days = e.target.value;
-                  setNewLeaveType({
-                    ...newLeaveType,
-                    leave_hours: days !== '' ? parseFloat(days) * 8 : '',
-                  });
-                }}
-                fullWidth
-                placeholder="e.g., 10"
-                size="small"
-                inputProps={{ min: 0, step: 1 }}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <TimeIcon sx={{ color: '#6d2323', fontSize: 18 }} />
-                    </InputAdornment>
-                  ),
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <Typography
-                        variant="caption"
-                        sx={{ color: '#888', fontSize: '0.7rem' }}
-                      >
-                        = {newLeaveType.leave_hours || 0} hrs
-                      </Typography>
-                    </InputAdornment>
-                  ),
-                }}
-                sx={inputSx}
-              />
-              <Typography
-                variant="caption"
-                sx={{
-                  color: '#888',
-                  mt: 0.5,
-                  display: 'block',
-                  fontSize: '0.7rem',
-                }}
-              >
-                1 day = 8 hrs
-              </Typography>
-            </Grid>
-
-            {/* Gender Restriction */}
-            <Grid item xs={12} sm={6} md={2}>
-              <Typography
-                variant="subtitle2"
-                sx={{
-                  fontWeight: 600,
-                  mb: 1,
-                  color: '#6d2323',
-                  fontSize: '0.875rem',
-                }}
-              >
-                Gender Restriction
-              </Typography>
-              <FormControl fullWidth size="small">
-                <Select
-                  value={newLeaveType.gender_restriction}
-                  onChange={(e) =>
-                    setNewLeaveType({
-                      ...newLeaveType,
-                      gender_restriction: e.target.value,
-                    })
-                  }
-                  displayEmpty
-                  sx={{
-                    borderRadius: 2,
-                    '& .MuiOutlinedInput-notchedOutline': {
-                      borderColor: 'rgba(109,35,35,0.2)',
-                    },
-                    '&:hover .MuiOutlinedInput-notchedOutline': {
-                      borderColor: '#6d2323',
-                    },
-                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                      borderColor: '#6d2323',
-                      borderWidth: 2,
-                    },
-                  }}
-                >
-                  <MenuItem value="">
-                    <GenderIcon sx={{ fontSize: 15, mr: 1 }} />
-                    No Restriction
-                  </MenuItem>
-                  <MenuItem value="Male">
-                    <MaleIcon sx={{ fontSize: 15, mr: 1, color: '#1565C0' }} />
-                    Male Only
-                  </MenuItem>
-                  <MenuItem value="Female">
-                    <FemaleIcon
-                      sx={{ fontSize: 15, mr: 1, color: '#C2185B' }}
-                    />
-                    Female Only
-                  </MenuItem>
-                </Select>
-              </FormControl>
-              <Typography
-                variant="caption"
-                sx={{
-                  color: '#888',
-                  mt: 0.5,
-                  display: 'block',
-                  fontSize: '0.7rem',
-                }}
-              >
-                e.g., Paternity = Male, Maternity = Female
-              </Typography>
-            </Grid>
-
-            {/* Add Button */}
-            <Grid item xs={12} sm={6} md={2.5}>
-              <Typography
-                variant="subtitle2"
-                sx={{
-                  fontWeight: 600,
-                  mb: 1,
-                  color: 'transparent',
-                  fontSize: '0.875rem',
-                }}
-              >
-                Action
-              </Typography>
-              <Button
-                onClick={handleAdd}
-                variant="contained"
-                fullWidth
-                size="medium"
-                startIcon={<AddIcon />}
-                disabled={
-                  loading ||
-                  !newLeaveType.leave_code ||
-                  !newLeaveType.leave_description
-                }
-                sx={{
-                  height: 40,
-                  borderRadius: 2,
-                  fontWeight: 600,
-                  fontSize: '0.875rem',
-                  backgroundColor:
-                    !newLeaveType.leave_code || !newLeaveType.leave_description
-                      ? '#cccccc'
-                      : '#6D2323',
-                  color:
-                    !newLeaveType.leave_code || !newLeaveType.leave_description
-                      ? '#666'
-                      : '#FFF',
-                  boxShadow:
-                    !newLeaveType.leave_code || !newLeaveType.leave_description
-                      ? 'none'
-                      : '0 4px 12px rgba(109,35,35,0.3)',
-                  '&:hover': {
-                    backgroundColor:
-                      !newLeaveType.leave_code ||
-                      !newLeaveType.leave_description
-                        ? '#cccccc'
-                        : '#5a1d1d',
-                  },
-                  '&:disabled': {
-                    backgroundColor: '#cccccc !important',
-                    color: '#666 !important',
-                    boxShadow: 'none !important',
-                  },
-                }}
-              >
-                {loading ? 'Adding...' : 'Add Type'}
-              </Button>
-              <Typography
-                variant="caption"
-                sx={{
-                  color: 'transparent',
-                  mt: 0.5,
-                  display: 'block',
-                  fontSize: '0.7rem',
-                }}
-              >
-                &nbsp;
-              </Typography>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </GlassCard>
-
-      {/* ── Records Section ── */}
-      <GlassCard sx={{ mb: { xs: 6, md: 10 }, overflow: 'visible' }}>
-        {/* Records header */}
-        <Box
-          sx={{
-            p: 4,
-            background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
-            color: '#6d2323',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: 2,
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Avatar
-              sx={{
-                bgcolor: 'rgba(109,35,35,0.15)',
-                width: 56,
-                height: 56,
-                boxShadow: '0 4px 12px rgba(109,35,35,0.15)',
-              }}
-            >
-              <TimeIcon sx={{ fontSize: 28, color: '#6d2323' }} />
-            </Avatar>
-            <Box>
-              <Typography
-                variant="h6"
-                sx={{ fontWeight: 700, color: '#6d2323' }}
-              >
-                Leave Types Records
-              </Typography>
-              <Typography
-                variant="body2"
-                sx={{ opacity: 0.8, color: '#8B3333' }}
-              >
-                {filteredLeaveTypes.length}{' '}
-                {filteredLeaveTypes.length === 1 ? 'leave type' : 'leave types'}{' '}
-                configured
-              </Typography>
-            </Box>
-          </Box>
-
-          <TextField
-            size="small"
-            variant="outlined"
-            placeholder="Search leave types..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            sx={{
-              minWidth: 300,
-              '& .MuiOutlinedInput-root': {
-                borderRadius: 2,
-                backgroundColor: '#fff',
-                '& fieldset': { borderColor: 'rgba(109,35,35,0.2)' },
-                '&:hover fieldset': { borderColor: '#6d2323' },
-                '&.Mui-focused fieldset': { borderColor: '#6d2323' },
-              },
-            }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ color: '#6d2323' }} />
-                </InputAdornment>
-              ),
-            }}
-          />
-        </Box>
-
-        <CardContent sx={{ p: 4, overflow: 'visible' }}>
-          {filteredLeaveTypes.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 10 }}>
-              <Box
-                sx={{
-                  width: 120,
-                  height: 120,
-                  borderRadius: '50%',
-                  bgcolor: 'rgba(109,35,35,0.05)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  mx: 'auto',
-                  mb: 3,
-                }}
-              >
-                <EventNote
-                  sx={{ fontSize: 56, color: 'rgba(109,35,35,0.3)' }}
-                />
+        {/* ── Page Header ── */}
+        <SectionCard sx={{ mb: 2 }}>
+          <Box sx={{ px: 4, py: 3, background: "linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)", display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", overflow: "hidden" }}>
+            <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)" }} />
+            <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, borderRadius: "50%", background: "radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)" }} />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 3, position: "relative", zIndex: 1 }}>
+              <TableChartIcon sx={{ fontSize: 28, color: T.accent }} />
+              <Box>
+                <Typography sx={{ fontSize: "1.15rem", fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3 }}>Leave Types Management</Typography>
+                <Typography sx={{ fontSize: "0.78rem", color: T.accentMid, fontWeight: 600, opacity: 0.85 }}>Add and manage available leave types</Typography>
               </Box>
-              <Typography
-                variant="h6"
-                sx={{ color: '#6D2323', fontWeight: 700, mb: 1 }}
-              >
-                {leaveTypes.length === 0
-                  ? 'No Leave Types Found'
-                  : 'No Matching Records'}
-              </Typography>
-              <Typography
-                variant="body2"
-                sx={{ color: '#888', maxWidth: 400, mx: 'auto' }}
-              >
-                {leaveTypes.length === 0
-                  ? 'Get started by creating your first leave type using the form above.'
-                  : 'Try adjusting your search criteria.'}
-              </Typography>
             </Box>
-          ) : (
-            <Grid container spacing={3}>
-              {filteredLeaveTypes.map((leaveType) => (
-                <Grid item xs={12} sm={6} md={4} lg={3} key={leaveType.id}>
-                  <Box
-                    onClick={() => handleOpenModal(leaveType)}
-                    sx={{
-                      border: '1px solid rgba(109,35,35,0.15)',
-                      borderRadius: 3,
-                      p: 2.5,
-                      cursor: 'pointer',
-                      transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
-                      background:
-                        'linear-gradient(135deg, #FFFFFF 0%, #FEFEFE 100%)',
-                      minHeight: 180,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      '&:hover': {
-                        boxShadow: '0 12px 32px rgba(109,35,35,0.18)',
-                        borderColor: '#6d2323',
-                        transform: 'translateY(-4px)',
-                      },
-                    }}
-                  >
-                    {/* Card Header */}
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1.5,
-                        mb: 2,
-                      }}
-                    >
-                      <Avatar
-                        sx={{
-                          bgcolor: '#6d2323',
-                          width: 48,
-                          height: 48,
-                          boxShadow: '0 4px 12px rgba(109,35,35,0.25)',
-                        }}
-                      >
-                        <Typography
-                          sx={{
-                            fontWeight: 700,
-                            fontSize: '0.85rem',
-                            color: '#fff',
-                          }}
-                        >
-                          {leaveType.leave_code?.substring(0, 2)}
-                        </Typography>
-                      </Avatar>
-                      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                        <Typography
-                          variant="subtitle1"
-                          sx={{
-                            fontWeight: 700,
-                            color: '#6d2323',
-                            fontSize: '0.95rem',
-                            lineHeight: 1.3,
-                            mb: 0.2,
-                          }}
-                        >
-                          {leaveType.leave_description || 'Untitled Leave Type'}
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            color: '#888',
-                            fontWeight: 600,
-                            fontSize: '0.72rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 0.5,
-                          }}
-                        >
-                          {leaveType.gender_restriction === 'Male' && (
-                            <MaleIcon sx={{ fontSize: 14, color: '#1976d2' }} />
-                          )}
-                          {leaveType.gender_restriction === 'Female' && (
-                            <FemaleIcon
-                              sx={{ fontSize: 14, color: '#e91e63' }}
-                            />
-                          )}
-                          {leaveType.gender_restriction === 'Both' && (
-                            <GenderIcon
-                              sx={{ fontSize: 14, color: '#9c27b0' }}
-                            />
-                          )}
-                          {leaveType.leave_code}
-                          {leaveType.gender_restriction &&
-                            ` (${leaveType.gender_restriction})`}
-                        </Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, position: "relative", zIndex: 1 }}>
+              <Box sx={{ px: 2, py: 0.6, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
+                <Typography sx={{ fontSize: "0.78rem", color: T.accent, fontWeight: 700 }}>{leaveTypes.length} {leaveTypes.length === 1 ? "type" : "types"} on record</Typography>
+              </Box>
+              <Tooltip title="Refresh data">
+                <IconButton onClick={fetchLeaveTypes} size="small" sx={{ color: T.accent, bgcolor: alpha(T.accent, 0.1), "&:hover": { bgcolor: alpha(T.accent, 0.18) } }}>
+                  <RefreshIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+        </SectionCard>
+
+        {/* ── Add Form ── */}
+        <SectionCard sx={{ mb: 2 }}>
+          <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.5, bgcolor: T.accentFaint }}>
+            <AddIcon sx={{ fontSize: 15, color: T.accent }} />
+            <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Add New Leave Type</Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography sx={{ fontSize: "0.72rem", color: T.faint }}><Box component="span" sx={{ color: "#c62828" }}>*</Box> required fields</Typography>
+          </Box>
+          <Box sx={{ px: 3.5, py: 2.5 }}>
+            <Grid container spacing={2} alignItems="flex-end">
+              <Grid item xs={12} sm={6} md={2}>
+                <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>Leave Code <Box component="span" sx={{ color: "#c62828" }}>*</Box></Typography>
+                <FieldInput value={newLeaveType.leave_code} onChange={(e) => setNewLeaveType({ ...newLeaveType, leave_code: e.target.value.toUpperCase() })} fullWidth size="small" placeholder="e.g. VL, SL" inputProps={{ maxLength: 6 }} />
+                <Typography sx={{ fontSize: "0.68rem", color: T.faint, mt: 0.4 }}>2–6 uppercase letters</Typography>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3.5}>
+                <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>Leave Name <Box component="span" sx={{ color: "#c62828" }}>*</Box></Typography>
+                <FieldInput value={newLeaveType.leave_description} onChange={(e) => setNewLeaveType({ ...newLeaveType, leave_description: e.target.value })} fullWidth size="small" placeholder="e.g. Vacation Leave" />
+                <Typography sx={{ fontSize: "0.68rem", color: T.faint, mt: 0.4 }}>Official full name</Typography>
+              </Grid>
+              <Grid item xs={12} sm={6} md={2}>
+                <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>Default Days</Typography>
+                <FieldInput type="number" fullWidth size="small" placeholder="0"
+                  value={newLeaveType.leave_hours !== "" ? newLeaveType.leave_hours / 8 : ""}
+                  onChange={(e) => setNewLeaveType({ ...newLeaveType, leave_hours: e.target.value !== "" ? parseFloat(e.target.value) * 8 : "" })}
+                  inputProps={{ min: 0, step: 1 }}
+                  InputProps={{ startAdornment: <InputAdornment position="start"><TimeIcon sx={{ fontSize: 14, color: T.muted }} /></InputAdornment>, endAdornment: <InputAdornment position="end"><Typography sx={{ fontSize: "0.68rem", color: T.faint, whiteSpace: "nowrap" }}>{newLeaveType.leave_hours || 0}h</Typography></InputAdornment> }} />
+                <Typography sx={{ fontSize: "0.68rem", color: T.faint, mt: 0.4 }}>1 day = 8 hours</Typography>
+              </Grid>
+              <Grid item xs={12} sm={6} md={2}>
+                <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>Gender Restriction</Typography>
+                <FormControl fullWidth size="small">
+                  <Select value={newLeaveType.gender_restriction} onChange={(e) => setNewLeaveType({ ...newLeaveType, gender_restriction: e.target.value })} displayEmpty sx={selectSx}>
+                    <MenuItem value=""><Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><GenderIcon sx={{ fontSize: 14, opacity: 0.45 }} />No restriction</Box></MenuItem>
+                    <MenuItem value="Male"><Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><MaleIcon sx={{ fontSize: 14, color: "#1565C0" }} />Male only</Box></MenuItem>
+                    <MenuItem value="Female"><Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><FemaleIcon sx={{ fontSize: 14, color: "#C2185B" }} />Female only</Box></MenuItem>
+                  </Select>
+                </FormControl>
+                <Typography sx={{ fontSize: "0.68rem", color: T.faint, mt: 0.4 }}>Paternity / Maternity</Typography>
+              </Grid>
+              <Grid item xs={12} sm={6} md={2.5}>
+                <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "transparent", mb: 0.75, userSelect: "none" }}>.</Typography>
+                <AccentButton onClick={handleAdd} variant="contained" fullWidth startIcon={<AddIcon sx={{ fontSize: "16px !important" }} />} disabled={!canAdd}
+                  sx={{ height: 40, bgcolor: canAdd ? T.accent : "#d0d0d0", color: canAdd ? "#fff" : "#888", boxShadow: canAdd ? `0 2px 10px ${alpha(T.accent, 0.32)}` : "none", "&:hover": { bgcolor: canAdd ? T.accentDark : "#d0d0d0" }, "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important" } }}>
+                  {loading ? "Adding…" : "Add Leave Type"}
+                </AccentButton>
+                <Typography sx={{ fontSize: "0.68rem", color: "transparent", mt: 0.4, userSelect: "none" }}>.</Typography>
+              </Grid>
+            </Grid>
+          </Box>
+        </SectionCard>
+
+        {/* ── Records Table (scrollable inside card) ── */}
+        <SectionCard sx={{ height: "calc(100vh - 460px)", display: "flex", flexDirection: "column", mb: { xs: 6, md: 2 } }}>
+          {/* Toolbar */}
+          <Box sx={{ px: 3.5, py: 1.75, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 2, flexShrink: 0 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+              <TableRowsIcon sx={{ fontSize: 17, color: T.accent }} />
+              <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: T.text }}>Leave Types Registry</Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: T.faint }}>• {filtered.length} {filtered.length === 1 ? "type" : "types"}</Typography>
+            </Box>
+            <FieldInput size="small" placeholder="Search by code or name…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} sx={{ width: 280 }}
+              InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 15, color: T.muted }} /></InputAdornment> }} />
+          </Box>
+
+          {/* Column header bar — sticky */}
+          <Box sx={{ px: 3.5, py: 1.1, display: "grid", gridTemplateColumns: "110px 1fr 100px 160px 80px 80px 90px", gap: 1, alignItems: "center", bgcolor: alpha(T.accent, 0.04), borderBottom: `1px solid ${T.divider}`, flexShrink: 0 }}>
+            {["Leave Code", "Leave Name", "Default", "Gender", "Days", "Hours", "Action"].map((col) => (
+              <Typography key={col} sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.07em" }}>{col}</Typography>
+            ))}
+          </Box>
+
+          {/* Scrollable body */}
+          <Box sx={{ flexGrow: 1, overflowY: "auto", "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 }, "&::-webkit-scrollbar-track": { background: "transparent" } }}>
+            {filtered.length === 0 ? (
+              <Box sx={{ py: 10, textAlign: "center" }}>
+                <Box sx={{ width: 64, height: 64, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 2 }}>
+                  <LeaveIcon sx={{ fontSize: 28, color: alpha(T.accent, 0.3) }} />
+                </Box>
+                <Typography sx={{ fontSize: "0.88rem", fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                  {leaveTypes.length === 0 ? "No leave types configured yet" : "No records match your search"}
+                </Typography>
+                <Typography sx={{ fontSize: "0.78rem", color: T.faint }}>
+                  {leaveTypes.length === 0 ? "Use the form above to add your first leave type." : "Try a different search term."}
+                </Typography>
+              </Box>
+            ) : filtered.map((lt, idx) => {
+              const days = ((lt.leave_hours || 0) / 8).toFixed(1);
+              const hours = lt.leave_hours || 0;
+              return (
+                <Box key={lt.id} onClick={() => openModal(lt)} sx={{ px: 3.5, py: 1.4, display: "grid", gridTemplateColumns: "110px 1fr 100px 160px 80px 80px 90px", gap: 1, alignItems: "center", bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd, borderBottom: `1px solid ${T.divider}`, cursor: "pointer", transition: "background 0.13s ease", "&:hover": { bgcolor: T.rowHover }, "&:last-child": { borderBottom: "none" } }}>
+                  {/* Code badge */}
+                  <Box sx={{ display: "inline-flex", alignItems: "center", justifyContent: "center", px: 1.25, py: 0.4, borderRadius: 1.5, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, width: "fit-content" }}>
+                    <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: T.accent, letterSpacing: "0.05em" }}>{lt.leave_code}</Typography>
+                  </Box>
+                  {/* Description */}
+                  <Typography sx={{ fontSize: "0.875rem", fontWeight: 500, color: T.text, lineHeight: 1.3 }} noWrap>{lt.leave_description || "—"}</Typography>
+                  {/* Default indicator */}
+                  <Box>
+                    {hours > 0 ? (
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                        <CheckCircleOutline sx={{ fontSize: 13, color: "#2e7d32" }} />
+                        <Typography sx={{ fontSize: "0.75rem", color: "#2e7d32", fontWeight: 600 }}>Set</Typography>
+                      </Box>
+                    ) : (
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                        <InfoOutlined sx={{ fontSize: 13, color: T.faint }} />
+                        <Typography sx={{ fontSize: "0.75rem", color: T.faint }}>None</Typography>
+                      </Box>
+                    )}
+                  </Box>
+                  {/* Gender */}
+                  <Box><GenderPill restriction={lt.gender_restriction} /></Box>
+                  {/* Days */}
+                  <Typography sx={{ fontSize: "0.875rem", fontWeight: 600, color: hours > 0 ? T.text : T.faint }}>{hours > 0 ? `${days}d` : "—"}</Typography>
+                  {/* Hours */}
+                  <Typography sx={{ fontSize: "0.875rem", color: hours > 0 ? T.muted : T.faint }}>{hours > 0 ? `${hours}h` : "—"}</Typography>
+                  {/* Edit button */}
+                  <Box onClick={(e) => { e.stopPropagation(); openModalEdit(lt); }}>
+                    <AccentButton size="small" variant="outlined" sx={{ fontSize: "0.7rem", px: 1.25, py: 0.35, height: 26, minWidth: 0, borderColor: T.accentBorder, color: T.accent, "&:hover": { borderColor: T.accent, bgcolor: T.accentFaint, transform: "none" } }}>
+                      <EditIcon sx={{ fontSize: 12, mr: 0.4 }} /> Edit
+                    </AccentButton>
+                  </Box>
+                </Box>
+              );
+            })}
+          </Box>
+        </SectionCard>
+
+        {/* ── Edit / View Modal ── */}
+        <Modal open={!!editLeaveType} onClose={closeModal} sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2 }}>
+          <Fade in={!!editLeaveType}>
+            <Box sx={{ width: "100%", maxWidth: 500, maxHeight: "90vh", borderRadius: 3, overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.22)", bgcolor: T.surface, display: "flex", flexDirection: "column" }}>
+              {editLeaveType && (
+                <>
+                  {/* Header */}
+                  <Box sx={{ px: 3.5, py: 2.5, background: T.headerGrad, display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", overflow: "hidden", flexShrink: 0 }}>
+                    <Box sx={{ position: "absolute", top: -50, right: -30, width: 180, height: 180, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.04)" }} />
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
+                      <Box sx={{ width: 40, height: 40, borderRadius: 2, bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Typography sx={{ fontWeight: 800, fontSize: "0.82rem", color: "#fff", letterSpacing: "0.04em" }}>{editLeaveType.leave_code?.substring(0, 2)}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.95rem", lineHeight: 1.2, mb: 0.3 }}>{isEditing ? "Edit Leave Type" : "Leave Type Details"}</Typography>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                          <Typography sx={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.68)" }}>{editLeaveType.leave_code}</Typography>
+                          {editLeaveType.gender_restriction && <Chip label={editLeaveType.gender_restriction} size="small" sx={{ height: 16, fontSize: "0.62rem", bgcolor: "rgba(255,255,255,0.16)", color: "#fff", fontWeight: 600 }} />}
+                          {!isEditing && <Chip label="View mode" size="small" sx={{ height: 16, fontSize: "0.62rem", bgcolor: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.7)", fontWeight: 500 }} />}
+                          {isEditing && <Chip label="Editing" size="small" sx={{ height: 16, fontSize: "0.62rem", bgcolor: "rgba(255,200,0,0.22)", color: "#ffe082", fontWeight: 600 }} />}
+                        </Box>
                       </Box>
                     </Box>
-
-                    <Divider
-                      sx={{ mb: 1.5, borderColor: 'rgba(109,35,35,0.1)' }}
-                    />
-
-                    {/* Hours / Days Row */}
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        justifyContent: 'space-around',
-                        py: 1,
-                        bgcolor: 'rgba(109,35,35,0.02)',
-                        borderRadius: 2,
-                      }}
-                    >
-                      {[
-                        [
-                          'Days',
-                          ((leaveType.leave_hours || 0) / 8).toFixed(1),
-                          '#6d2323',
-                        ],
-                        ['Hours', `${leaveType.leave_hours || 0}`, '#8B3333'],
-                      ].map(([label, val, color]) => (
-                        <Box key={label} sx={{ textAlign: 'center' }}>
-                          <Typography
-                            variant="body1"
-                            sx={{ fontWeight: 700, color, fontSize: '1.1rem' }}
-                          >
-                            {val}
-                          </Typography>
-                          <Typography
-                            variant="caption"
-                            sx={{ color: '#888', fontSize: '0.65rem' }}
-                          >
-                            {label}
-                          </Typography>
-                        </Box>
-                      ))}
-                    </Box>
-
-                    {/* Click hint */}
-                    <Box
-                      sx={{
-                        mt: 1.5,
-                        pt: 1,
-                        borderTop: '1px solid rgba(109,35,35,0.06)',
-                      }}
-                    >
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          color: '#888',
-                          fontWeight: 600,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 0.5,
-                        }}
-                      >
-                        <EditIcon sx={{ fontSize: 13 }} /> Click to view or edit
-                      </Typography>
-                    </Box>
+                    <IconButton onClick={closeModal} size="small" sx={{ color: "rgba(255,255,255,0.75)", position: "relative", zIndex: 1, "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}>
+                      <Close sx={{ fontSize: 17 }} />
+                    </IconButton>
                   </Box>
-                </Grid>
-              ))}
-            </Grid>
-          )}
-        </CardContent>
-      </GlassCard>
 
-      {/* ── Edit / View Modal ── */}
-      <Modal
-        open={!!editLeaveType}
-        onClose={handleCloseModal}
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          p: 2,
-        }}
-      >
-        <Box
-          sx={{
-            backgroundColor: '#fff',
-            borderRadius: 4,
-            width: '90%',
-            maxWidth: '520px',
-            maxHeight: '85vh',
-            overflowY: 'auto',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
-          }}
-        >
-          {editLeaveType && (
-            <>
-              {/* Modal Header */}
-              <Box
-                sx={{
-                  background:
-                    'linear-gradient(135deg, #6D2323 0%, #8B4545 100%)',
-                  color: '#fff',
-                  p: 4,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}
-              >
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: -40,
-                    right: -40,
-                    width: 160,
-                    height: 160,
-                    background:
-                      'radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%)',
-                  }}
-                />
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 2.5,
-                    position: 'relative',
-                    zIndex: 1,
-                  }}
-                >
-                  <Avatar
-                    sx={{
-                      bgcolor: 'rgba(255,255,255,0.2)',
-                      width: 56,
-                      height: 56,
-                    }}
-                  >
-                    <EditIcon sx={{ fontSize: 28 }} />
-                  </Avatar>
-                  <Box>
-                    <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>
-                      {isEditing ? 'Edit Leave Type' : 'Leave Type Details'}
-                    </Typography>
-                    <Typography variant="body2" sx={{ opacity: 0.85 }}>
-                      {editLeaveType.leave_code}
-                    </Typography>
-                    <Chip
-                      label={`${(editLeaveType.leave_hours || 0) / 8} days default`}
-                      size="small"
-                      sx={{
-                        mt: 0.75,
-                        bgcolor: 'rgba(255,255,255,0.25)',
-                        color: '#fff',
-                        fontWeight: 600,
-                      }}
-                    />
-                  </Box>
-                </Box>
-                <IconButton
-                  onClick={handleCloseModal}
-                  sx={{ color: '#fff', position: 'relative', zIndex: 1 }}
-                >
-                  <Close />
-                </IconButton>
-              </Box>
-
-              {/* Modal Body */}
-              <Box sx={{ p: 4 }}>
-                <Grid container spacing={3}>
-                  {Object.keys(newLeaveType).map((field) => (
-                    <Grid item xs={12} key={field}>
-                      <Typography
-                        variant="subtitle2"
-                        sx={{ fontWeight: 600, mb: 1, color: '#6d2323' }}
-                      >
-                        {fieldLabels[field]}
-                      </Typography>
-
-                      {field === 'gender_restriction' ? (
-                        <FormControl fullWidth disabled={!isEditing}>
-                          <Select
-                            value={editLeaveType[field] ?? ''}
-                            onChange={(e) =>
-                              setEditLeaveType({
-                                ...editLeaveType,
-                                gender_restriction: e.target.value,
-                              })
-                            }
-                            displayEmpty
-                            sx={{ borderRadius: 2 }}
-                          >
-                            <MenuItem value="">
-                              <GenderIcon sx={{ fontSize: 15, mr: 1 }} />
-                              No Restriction
-                            </MenuItem>
-                            <MenuItem value="Male">
-                              <MaleIcon
-                                sx={{ fontSize: 15, mr: 1, color: '#1565C0' }}
-                              />
-                              Male Only
-                            </MenuItem>
-                            <MenuItem value="Female">
-                              <FemaleIcon
-                                sx={{ fontSize: 15, mr: 1, color: '#C2185B' }}
-                              />
-                              Female Only
-                            </MenuItem>
+                  {/* Body */}
+                  <Box sx={{ px: 3.5, py: 3, overflowY: "auto", flexGrow: 1, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                    <Box sx={{ display: "flex", gap: 1.5, mb: 3 }}>
+                      <StatCell label="Days" value={((editLeaveType.leave_hours || 0) / 8).toFixed(1)} sub="default allocation" color={T.accent} />
+                      <StatCell label="Hours" value={editLeaveType.leave_hours || 0} sub="equivalent" color={T.accentMid} />
+                    </Box>
+                    <Divider sx={{ mb: 3 }} />
+                    <Grid container spacing={2.5}>
+                      <Grid item xs={12} sm={5}>
+                        <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>Leave Code</Typography>
+                        <FieldInput value={editLeaveType.leave_code || ""} fullWidth size="small" onChange={(e) => setEditLeaveType({ ...editLeaveType, leave_code: e.target.value.toUpperCase() })} disabled={!isEditing} inputProps={{ maxLength: 6 }} />
+                      </Grid>
+                      <Grid item xs={12} sm={7}>
+                        <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>Description</Typography>
+                        <FieldInput value={editLeaveType.leave_description || ""} fullWidth size="small" onChange={(e) => setEditLeaveType({ ...editLeaveType, leave_description: e.target.value })} disabled={!isEditing} />
+                      </Grid>
+                      <Grid item xs={12} sm={5}>
+                        <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>Default Days</Typography>
+                        <FieldInput type="number" fullWidth size="small"
+                          value={editLeaveType.leave_hours != null && editLeaveType.leave_hours !== "" ? editLeaveType.leave_hours / 8 : ""}
+                          onChange={(e) => setEditLeaveType({ ...editLeaveType, leave_hours: e.target.value !== "" ? parseFloat(e.target.value) * 8 : "" })}
+                          disabled={!isEditing} inputProps={{ min: 0, step: 1 }}
+                          InputProps={{ endAdornment: <InputAdornment position="end"><Typography sx={{ fontSize: "0.68rem", color: T.faint }}>{editLeaveType.leave_hours || 0}h</Typography></InputAdornment> }} />
+                      </Grid>
+                      <Grid item xs={12} sm={7}>
+                        <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>Gender Restriction</Typography>
+                        <FormControl fullWidth size="small" disabled={!isEditing}>
+                          <Select value={editLeaveType.gender_restriction ?? ""} onChange={(e) => setEditLeaveType({ ...editLeaveType, gender_restriction: e.target.value })} displayEmpty sx={selectSx}>
+                            <MenuItem value=""><Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><GenderIcon sx={{ fontSize: 14, opacity: 0.45 }} />No restriction</Box></MenuItem>
+                            <MenuItem value="Male"><Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><MaleIcon sx={{ fontSize: 14, color: "#1565C0" }} />Male only</Box></MenuItem>
+                            <MenuItem value="Female"><Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><FemaleIcon sx={{ fontSize: 14, color: "#C2185B" }} />Female only</Box></MenuItem>
                           </Select>
                         </FormControl>
-                      ) : (
-                        <TextField
-                          value={
-                            field === 'leave_hours'
-                              ? editLeaveType[field] != null &&
-                                editLeaveType[field] !== ''
-                                ? editLeaveType[field] / 8
-                                : ''
-                              : editLeaveType[field] || ''
-                          }
-                          onChange={(e) => {
-                            if (field === 'leave_hours') {
-                              const days = e.target.value;
-                              setEditLeaveType({
-                                ...editLeaveType,
-                                leave_hours:
-                                  days !== '' ? parseFloat(days) * 8 : '',
-                              });
-                            } else {
-                              setEditLeaveType({
-                                ...editLeaveType,
-                                [field]:
-                                  field === 'leave_code'
-                                    ? e.target.value.toUpperCase()
-                                    : e.target.value,
-                              });
-                            }
-                          }}
-                          fullWidth
-                          disabled={!isEditing}
-                          type={field === 'leave_hours' ? 'number' : 'text'}
-                          inputProps={
-                            field === 'leave_hours'
-                              ? { min: 0, step: 1 }
-                              : undefined
-                          }
-                          InputProps={
-                            field === 'leave_hours'
-                              ? {
-                                  endAdornment: (
-                                    <InputAdornment position="end">
-                                      <Typography
-                                        variant="caption"
-                                        sx={{ color: '#888' }}
-                                      >
-                                        = {editLeaveType.leave_hours || 0} hrs
-                                      </Typography>
-                                    </InputAdornment>
-                                  ),
-                                }
-                              : undefined
-                          }
-                          sx={{
-                            '& .MuiOutlinedInput-root': { borderRadius: 2 },
-                            '& .MuiInputBase-input.Mui-disabled': {
-                              WebkitTextFillColor: '#000',
-                            },
-                          }}
-                        />
-                      )}
-                    </Grid>
-                  ))}
-
-                  {/* Days Summary Box */}
-                  <Grid item xs={12}>
-                    <Box
-                      sx={{
-                        p: 2.5,
-                        borderRadius: 2,
-                        bgcolor: 'rgba(109,35,35,0.04)',
-                        border: '1px solid rgba(109,35,35,0.1)',
-                      }}
-                    >
-                      <Typography
-                        variant="subtitle2"
-                        sx={{ fontWeight: 600, mb: 1.5, color: '#6d2323' }}
-                      >
-                        Days Equivalent (8 hours = 1 day)
-                      </Typography>
-                      <Grid container spacing={2}>
-                        {[
-                          [
-                            'Total Days',
-                            ((editLeaveType.leave_hours || 0) / 8).toFixed(1),
-                            '#6d2323',
-                          ],
-                          [
-                            'Total Hours',
-                            `${editLeaveType.leave_hours || 0} hrs`,
-                            '#8B3333',
-                          ],
-                        ].map(([label, val, color]) => (
-                          <Grid item xs={6} key={label}>
-                            <Typography
-                              variant="h4"
-                              sx={{ fontWeight: 700, color }}
-                            >
-                              {val}
-                            </Typography>
-                            <Typography
-                              variant="caption"
-                              sx={{ color: '#666' }}
-                            >
-                              {label}
-                            </Typography>
-                          </Grid>
-                        ))}
                       </Grid>
-                    </Box>
-                  </Grid>
-                </Grid>
+                    </Grid>
+                  </Box>
 
-                {/* Action Buttons */}
-                <Box
-                  sx={{
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    mt: 4,
-                    gap: 2,
-                  }}
-                >
-                  {!isEditing ? (
-                    <>
-                      <Button
-                        onClick={() => handleDelete(editLeaveType.id)}
-                        variant="outlined"
-                        startIcon={<DeleteIcon />}
-                        sx={{
-                          borderColor: '#d32f2f',
-                          color: '#d32f2f',
-                          borderRadius: 2,
-                          px: 3,
-                          '&:hover': {
-                            bgcolor: 'rgba(211,47,47,0.08)',
-                            borderColor: '#c62828',
-                          },
-                        }}
-                      >
-                        Delete
-                      </Button>
-                      <Button
-                        onClick={handleStartEdit}
-                        variant="contained"
-                        startIcon={<EditIcon />}
-                        sx={{
-                          bgcolor: '#6D2323',
-                          color: '#FFF',
-                          borderRadius: 2,
-                          px: 3,
-                          boxShadow: '0 4px 12px rgba(109,35,35,0.3)',
-                          '&:hover': { bgcolor: '#5a1d1d' },
-                        }}
-                      >
-                        Edit
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <Button
-                        onClick={handleCancelEdit}
-                        variant="outlined"
-                        startIcon={<CancelIcon />}
-                        sx={{
-                          color: '#6d2323',
-                          borderColor: '#6d2323',
-                          borderRadius: 2,
-                          px: 3,
-                          '&:hover': {
-                            borderColor: '#6d2323',
-                            bgcolor: 'rgba(109,35,35,0.05)',
-                          },
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        onClick={handleUpdate}
-                        variant="contained"
-                        startIcon={<SaveIcon />}
-                        sx={{
-                          bgcolor: '#6D2323',
-                          color: '#FFF',
-                          borderRadius: 2,
-                          px: 3,
-                          boxShadow: '0 4px 12px rgba(109,35,35,0.3)',
-                          '&:hover': { bgcolor: '#5a1d1d' },
-                        }}
-                      >
-                        Save Changes
-                      </Button>
-                    </>
-                  )}
-                </Box>
-              </Box>
-            </>
-          )}
-        </Box>
-      </Modal>
-    </Box>
+                  {/* Footer */}
+                  <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: "#f9f9f9", display: "flex", justifyContent: "flex-end", gap: 1.25, flexShrink: 0 }}>
+                    {!isEditing ? (
+                      <>
+                        <AccentButton onClick={() => handleDelete(editLeaveType.id)} variant="outlined" startIcon={<DeleteIcon sx={{ fontSize: "14px !important" }} />}
+                          sx={{ fontSize: "0.8rem", borderColor: "#e57373", color: "#c62828", "&:hover": { bgcolor: "rgba(198,40,40,0.04)", borderColor: "#c62828", transform: "none" } }}>
+                          Delete
+                        </AccentButton>
+                        <AccentButton onClick={startEdit} variant="contained" startIcon={<EditIcon sx={{ fontSize: "14px !important" }} />}
+                          sx={{ fontSize: "0.8rem", bgcolor: T.accent, color: "#fff", boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, "&:hover": { bgcolor: T.accentDark } }}>
+                          Edit Record
+                        </AccentButton>
+                      </>
+                    ) : (
+                      <>
+                        <AccentButton onClick={cancelEdit} variant="outlined" startIcon={<CancelIcon sx={{ fontSize: "14px !important" }} />}
+                          sx={{ fontSize: "0.8rem", borderColor: T.accentBorder, color: T.muted, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>
+                          Cancel
+                        </AccentButton>
+                        <AccentButton onClick={handleUpdate} variant="contained" startIcon={<SaveIcon sx={{ fontSize: "14px !important" }} />}
+                          sx={{ fontSize: "0.8rem", bgcolor: T.accent, color: "#fff", boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, "&:hover": { bgcolor: T.accentDark } }}>
+                          Save Changes
+                        </AccentButton>
+                      </>
+                    )}
+                  </Box>
+                </>
+              )}
+            </Box>
+          </Fade>
+        </Modal>
+      </Box>
+    </Fade>
   );
 };
 

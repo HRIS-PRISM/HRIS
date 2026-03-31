@@ -444,11 +444,7 @@ const PagesList = () => {
 
         {/* ── HERO CARD ── */}
         <GlassCard sx={{ mb: 3, animation: 'sectionIn 0.4s ease' }}>
-          <CardBanner />
           <Box sx={{ px: { xs: 3, md: 5 }, py: { xs: 3, md: 4 }, display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap' }}>
-            <Avatar sx={{ width: 72, height: 72, bgcolor: alpha(P, 0.1), border: `4px solid ${PANEL}`, boxShadow: `0 6px 20px ${alpha(P, 0.22)}` }}>
-              <PagesIcon sx={{ color: P, fontSize: 36 }} />
-            </Avatar>
             <Box sx={{ flex: 1, minWidth: 180 }}>
               <Typography sx={{ fontWeight: 900, fontSize: { xs: '1.4rem', md: '1.75rem' }, color: P, lineHeight: 1.15, mb: 0.5, letterSpacing: '-0.01em' }}>Page Management</Typography>
               <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.8rem', color: MUTED, fontWeight: 600, mb: 1.5 }}>
@@ -510,7 +506,7 @@ const PagesList = () => {
                 <Table sx={{ minWidth: 900 }}>
                   <TableHead>
                     <TableRow sx={{ bgcolor: SUBTLE }}>
-                      {['ID', 'Page Name', 'Description', 'URL', 'Component', 'Access Groups', 'Actions'].map((h, i) => (
+                      {['ID', 'Page Name', 'Page Group', 'URL', 'Component', 'Access Groups', 'Actions'].map((h, i) => (
                         <TableCell key={h} sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', fontWeight: 700, color: alpha(P, 0.5), textTransform: 'uppercase', letterSpacing: '0.1em', borderBottom: `2px solid ${alpha(P, 0.12)}`, py: 1.75, px: 2.5, whiteSpace: 'nowrap', textAlign: i === 6 ? 'center' : 'left' }}>
                           {h}
                         </TableCell>
