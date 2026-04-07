@@ -72,6 +72,14 @@ const generateHash = (data) => {
   return Math.abs(hash).toString(16).toUpperCase();
 };
 
+const escapeHtml = (value) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 // ── Styled Components ──────────────────────────────────────────────────────
 
 const GlassCard = styled(Card)(({ theme }) => ({
@@ -452,6 +460,246 @@ const Payslip = forwardRef(({ employee }, ref) => {
     return !isNaN(result) && result !== 0 ? `₱${result.toLocaleString()}` : '—';
   };
 
+  const buildPayslipHTML = (emp, logoSrc, hrisLogoSrc) => {
+    const fc = (v) => {
+      const n = parseFloat(v);
+      return !isNaN(n) && n !== 0 ? `&#8369;${n.toLocaleString()}` : '';
+    };
+    const fcAbs = (v) => fc(v) || 'Deducted from VL';
+    const frd = (v) => {
+      const h = Number(v);
+      if (!isNaN(h) && h > 0) {
+        const d = Math.floor(h / 8);
+        const r = h % 8;
+        return `${d} days${r > 0 ? ` & ${r} hrs` : ''}`;
+      }
+      return '';
+    };
+    const period = (() => {
+      if (!emp.startDate || !emp.endDate) return '&mdash;';
+      const s = new Date(emp.startDate), e = new Date(emp.endDate);
+      return `${s.toLocaleString('en-US', { month: 'long' }).toUpperCase()} ${s.getDate()}&ndash;${e.getDate()} ${e.getFullYear()}`;
+    })();
+    const isJO = (emp.employmentCategory ?? -1) === 0;
+    const netPayCalc = (() => {
+      const n = (parseFloat(emp.netSalary) || 0) - (parseFloat(emp.totalDeductions) || 0);
+      return n !== 0 ? `&#8369;${n.toLocaleString()}` : '&mdash;';
+    })();
+
+    const headerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#6d2323 0%,#a31d1d 100%);border-radius:6px;padding:20px 28px;margin-bottom:18px;box-shadow:0 4px 20px rgba(109,35,35,0.3);">
+        ${logoSrc ? `<img src="${logoSrc}" style="width:88px;height:88px;border-radius:50%;object-fit:cover;margin-left:8px;flex-shrink:0;" crossorigin="anonymous"/>` : `<div style="width:88px;height:88px;border-radius:50%;background:rgba(255,255,255,0.15);border:2px solid rgba(255,255,255,0.3);margin-left:8px;flex-shrink:0;"></div>`}
+        <div style="flex:1;text-align:center;color:white;padding:0 16px;">
+          <div style="font-style:italic;font-size:18px;opacity:0.9;font-family:Poppins,sans-serif;">Republic of the Philippines</div>
+          <div style="font-weight:900;font-size:22px;line-height:1.4;font-family:Poppins,sans-serif;letter-spacing:0.02em;margin-top:4px;">${escapeHtml(institutionName)}</div>
+          <div style="font-size:17px;opacity:0.85;font-family:Poppins,sans-serif;margin-top:4px;">${escapeHtml(institutionAddress)}</div>
+        </div>
+        ${hrisLogoSrc ? `<img src="${hrisLogoSrc}" style="width:100px;height:100px;border-radius:50%;object-fit:cover;flex-shrink:0;" crossorigin="anonymous"/>` : `<div style="width:100px;height:100px;border-radius:50%;background:rgba(255,255,255,0.15);border:2px solid rgba(255,255,255,0.3);flex-shrink:0;"></div>`}
+      </div>`;
+
+    const secHead = (t) =>
+      `<div style="background:#6D2323;color:white;padding:8px 16px;"><span style="font-weight:800;font-size:20px;letter-spacing:0.07em;font-family:Poppins,sans-serif;">${t}</span></div>`;
+    const infoCell = (lbl, content, br = false, bb = false, fw = false) => `
+      <div style="padding:12px 16px;${br ? 'border-right:2px solid #e0c8c8;' : ''}${bb ? 'border-bottom:2px solid #e0c8c8;' : ''}min-height:60px;${fw ? 'grid-column:1/-1;' : ''}">
+        <div style="font-size:18px;font-weight:800;letter-spacing:0.06em;color:#6d2323;margin-bottom:4px;font-family:Poppins,sans-serif;text-transform:uppercase;">${lbl}</div>
+        ${content}
+      </div>`;
+    const summaryCards = (netSal, totalDed, netPay) => `
+      <div style="display:flex;gap:12px;margin-bottom:24px;">
+        ${[
+          ['Net Salary', netSal, false],
+          ['Total Deductions', totalDed, false],
+          ['Net Pay', netPay, true],
+        ]
+          .map(
+            ([lbl, val, acc]) => `
+          <div style="flex:1;border-radius:8px;padding:12px;background:${acc ? 'linear-gradient(135deg,#f5ede8 0%,#ede0d8 100%)' : '#fff'};border:${acc ? '2.5px solid #6d2323' : '2.5px solid #c9a8a8'};${acc ? 'box-shadow:0 4px 16px rgba(109,35,35,0.25);' : ''}">
+            <div style="font-size:17px;font-weight:800;letter-spacing:0.07em;text-transform:uppercase;color:#6d2323;font-family:Poppins,sans-serif;">${lbl}</div>
+            <div style="font-size:34px;font-weight:900;color:${acc ? '#6d2323' : '#1a1a1a'};font-family:Poppins,sans-serif;line-height:1.1;">${val || '&mdash;'}</div>
+          </div>`,
+          )
+          .join('')}
+      </div>`;
+    const footer = `
+      <div style="margin-top:40px;padding-top:24px;text-align:center;">
+        <div style="font-size:18px;color:#555;margin-bottom:8px;font-family:Poppins,sans-serif;letter-spacing:0.08em;text-transform:uppercase;font-weight:700;">Certified Correct</div>
+        <div style="font-size:24px;font-weight:900;color:#1a1a1a;font-family:Poppins,sans-serif;">${escapeHtml(certifierName)}</div>
+        <div style="font-size:20px;color:#444;font-family:Poppins,sans-serif;font-weight:600;margin-top:4px;">${escapeHtml(certifierPosition)}</div>
+      </div>`;
+
+    let bodyHTML = '';
+    if (isJO) {
+      bodyHTML = `
+        <div style="border:2.5px solid #6d2323;border-radius:6px;margin-bottom:16px;overflow:hidden;">
+          ${secHead('EMPLOYEE INFORMATION')}
+          <div style="display:grid;grid-template-columns:1fr 1fr;">
+            ${infoCell('Employee Number', `<div style="font-size:26px;color:#c0392b;font-weight:900;font-family:Poppins,sans-serif;">${emp.employeeNumber ? parseFloat(emp.employeeNumber) : '&mdash;'}</div>`, true, true)}
+            ${infoCell('Name', `<div style="font-size:26px;color:#c0392b;font-weight:900;font-family:Poppins,sans-serif;">${escapeHtml(emp.name || '&mdash;')}</div>`, false, true)}
+            ${infoCell('Period', `<div style="font-size:21px;font-weight:700;color:#1a1a1a;font-family:Poppins,sans-serif;">${period}</div>`, true, false)}
+            ${infoCell('Rendered Days', `<div style="font-size:21px;font-weight:700;color:#1a1a1a;font-family:Poppins,sans-serif;">${frd(emp.rh) || '&mdash;'}</div>`, false, false)}
+          </div>
+        </div>
+        <div style="border:2.5px solid #6d2323;border-radius:6px;margin-bottom:16px;overflow:hidden;">
+          ${secHead('DEDUCTIONS')}
+          ${[
+            ['SSS', fc(emp.sss)],
+            ['Pag-IBIG', fc(emp.pagibigFundCont)],
+          ]
+            .map(
+              ([lbl, val]) => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1.5px solid #ddd;">
+              <span style="font-size:18px;font-weight:700;color:#333;font-family:Poppins,sans-serif;">${lbl}</span>
+              <span style="font-size:20px;font-weight:900;color:#111;font-family:Poppins,sans-serif;min-width:140px;text-align:right;">${val || '&mdash;'}</span>
+            </div>`,
+            )
+            .join('')}
+        </div>
+        ${summaryCards(fc(emp.netSalary), fc(emp.totalDeductions), netPayCalc)}
+        ${footer}`;
+    } else {
+      const rows = [
+        [['Withholding Tax', fc(emp.withholdingTax)], ['GSIS Salary Loan', fc(emp.gsisSalaryLoan)], ['Life & Retirement', fc(emp.personalLifeRetIns)]],
+        [['PhilHealth', fc(emp.PhilHealthContribution)], ['GSIS Policy Loan', fc(emp.gsisPolicyLoan)], ['PhilHealth Diff', fc(emp.philhealthDiff)]],
+        [['Pag-IBIG', fc(emp.pagibigFundCont)], ['GSIS Housing Loan', fc(emp.gsisHousingLoan)], ['Pag-IBIG 2', fc(emp.pagibig2)]],
+        [['SSS', fc(emp.sss)], ['GSIS Arrears', fc(emp.gsisArrears)], ['LBP Loan', fc(emp.lbpLoan)]],
+        [['ECC', fc(emp.ecc)], ['GFAL', fc(emp.gfal)], ['MTSLAI', fc(emp.mtslai)]],
+        [['To Be Refunded', fc(emp.toBeRefunded)], ['CPL', fc(emp.cpl)], ['ESLAI', fc(emp.eslai)]],
+        [['FEU', fc(emp.feu)], ['MPL', fc(emp.mpl)], ['ABS', fcAbs(emp.abs)]],
+        [['', ''], ['MPL Lite', fc(emp.mplLite)], ['ELA', fc(emp.ela)]],
+      ];
+      bodyHTML = `
+        <div style="border:2.5px solid #6d2323;border-radius:6px;margin-bottom:16px;overflow:hidden;">
+          ${secHead('EMPLOYEE INFORMATION')}
+          <div style="display:grid;grid-template-columns:1fr 1fr;">
+            ${infoCell('Period', `<div style="font-size:21px;font-weight:700;color:#1a1a1a;font-family:Poppins,sans-serif;">${period}</div>`, true, true)}
+            ${infoCell('Employee Number', `<div style="font-size:26px;color:#c0392b;font-weight:900;font-family:Poppins,sans-serif;">${emp.employeeNumber ? parseFloat(emp.employeeNumber) : '&mdash;'}</div>`, false, true)}
+            ${infoCell('Name', `<div style="font-size:26px;color:#c0392b;font-weight:900;font-family:Poppins,sans-serif;">${escapeHtml(emp.name || '&mdash;')}</div>`, false, false, true)}
+          </div>
+        </div>
+        <div style="border:2.5px solid #6d2323;border-radius:6px;margin-bottom:16px;overflow:hidden;">
+          ${secHead('DEDUCTIONS BREAKDOWN')}
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);background:#f5eaea;border-bottom:2px solid #c9a8a8;">
+            ${['Government & Tax', 'GSIS Loans', 'Other Deductions'].map((h, i) => `<div style="font-size:18px;font-weight:800;color:#6d2323;letter-spacing:0.06em;text-transform:uppercase;padding:8px 16px;font-family:Poppins,sans-serif;${i < 2 ? 'border-right:2px solid #c9a8a8;' : ''}">${h}</div>`).join('')}
+          </div>
+          ${rows.map((row, ri) => `
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);background:${ri % 2 === 0 ? '#fdf6f6' : '#fff'};border-bottom:1.5px solid #c9a8a8;">
+              ${row.map(([lbl, val], ci) => `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 12px;${ci < 2 ? 'border-right:1.5px solid #c9a8a8;' : ''}min-height:38px;gap:4px;">
+                  <span style="font-size:20px;color:#1a1a1a;font-family:Poppins,sans-serif;font-weight:700;flex:1;">${lbl || ''}</span>
+                  <span style="font-size:20px;font-weight:900;color:${val ? '#6d2323' : '#aaa'};font-family:Poppins,sans-serif;min-width:100px;text-align:right;">${val || '&mdash;'}</span>
+                </div>`).join('')}
+            </div>`).join('')}
+        </div>
+        ${summaryCards(fc(emp.netSalary), fc(emp.totalDeductions), netPayCalc)}
+        <div style="border:2.5px solid #6d2323;border-radius:6px;margin-bottom:16px;overflow:hidden;">
+          ${secHead('PAYMENT BREAKDOWN')}
+          <div style="display:grid;grid-template-columns:1fr 1fr;">
+            ${[['1ST QUINCENA', fc(emp.pay1st)], ['2ND QUINCENA', fc(emp.pay2nd)]].map(([lbl, val], i) => `
+              <div style="padding:16px;${i === 0 ? 'border-right:2px solid #e0c8c8;' : ''}min-height:70px;">
+                <div style="font-size:18px;font-weight:800;color:#6d2323;letter-spacing:0.1em;text-transform:uppercase;font-family:Poppins,sans-serif;margin-bottom:4px;">${lbl}</div>
+                <div style="font-size:26px;font-weight:900;color:#1a1a1a;font-family:Poppins,sans-serif;line-height:1.1;">${val || '&mdash;'}</div>
+              </div>`).join('')}
+          </div>
+        </div>
+        ${footer}`;
+    }
+
+    return `
+      <div style="font-family:Poppins,sans-serif;background:#fff;width:1100px;padding:24px 24px 32px;box-sizing:border-box;position:relative;">
+        <div style="position:relative;z-index:1;">${headerHTML}${bodyHTML}</div>
+        ${hrisLogoSrc ? `<img data-watermark="1" src="${hrisLogoSrc}" crossorigin="anonymous" style="position:absolute;left:50%;width:70%;opacity:0.08;pointer-events:none;z-index:2;mix-blend-mode:multiply;top:50%;transform:translate(-50%,-50%);"/>` : ''}
+      </div>`;
+  };
+
+  const generate3MonthPDF = async (emp) => {
+    const s = new Date(emp.startDate);
+    const monthsToGet = [0, 1, 2].map((i) => {
+      const d = new Date(s.getFullYear(), s.getMonth() - i, 1);
+      return {
+        month: d.getMonth(),
+        year: d.getFullYear(),
+        label: d.toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+      };
+    });
+
+    const records = monthsToGet.map(({ month, year, label }) => ({
+      label,
+      payroll: allPayroll.find(
+        (p) =>
+          p.employeeNumber === emp.employeeNumber &&
+          new Date(p.startDate).getMonth() === month &&
+          new Date(p.startDate).getFullYear() === year,
+      ),
+    }));
+
+    const containers = records.map((_, i) => {
+      const div = document.createElement('div');
+      div.style.cssText = `position:absolute;left:${-9999 - i * 1200}px;top:-9999px;width:1100px;background:#fff;`;
+      document.body.appendChild(div);
+      return div;
+    });
+
+    records.forEach(({ payroll, label }, i) => {
+      containers[i].innerHTML = payroll
+        ? buildPayslipHTML(payroll, institutionLogo, dynamicHrisLogo)
+        : `<div style="width:1100px;height:1700px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+             <div style="font-size:28px;font-weight:bold;color:#6D2323;font-family:Poppins,sans-serif;">No Data</div>
+             <div style="font-size:20px;color:#6D2323;font-family:Poppins,sans-serif;margin-top:8px;">for ${label}</div>
+           </div>`;
+    });
+
+    await new Promise((r) => requestAnimationFrame(r));
+    containers.forEach((container) => {
+      const root = container.firstElementChild;
+      if (!root) return;
+      const totalH = root.scrollHeight || root.offsetHeight;
+      const wm = root.querySelector('img[data-watermark="1"]');
+      if (wm) {
+        const wmH =
+          wm.naturalHeight && wm.naturalWidth
+            ? (wm.offsetWidth || 770) * (wm.naturalHeight / wm.naturalWidth)
+            : 400;
+        wm.style.transform = 'none';
+        wm.style.top = `${totalH / 2 - wmH / 2}px`;
+        wm.style.left = `${(1100 - (wm.offsetWidth || 770)) / 2}px`;
+      }
+    });
+
+    const images = await Promise.all(
+      containers.map((container) => {
+        const root = container.firstElementChild || container;
+        const h = root.scrollHeight || root.offsetHeight || 1700;
+        return html2canvas(root, {
+          scale: 1.0,
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+          imageTimeout: 15000,
+          windowWidth: 1100,
+          windowHeight: h,
+          height: h,
+          foreignObjectRendering: false,
+        }).then((c) => c.toDataURL('image/jpeg', 0.82));
+      }),
+    );
+
+    containers.forEach((c) => document.body.removeChild(c));
+
+    const pdf = new jsPDF('l', 'in', 'a4');
+    const cw = 3.5, ch = 7.1, gap = 0.2;
+    const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
+    const tw = cw * 3 + gap * 2;
+    const yo = (ph - ch) / 2;
+    const pos = [
+      (pw - tw) / 2,
+      (pw - tw) / 2 + cw + gap,
+      (pw - tw) / 2 + (cw + gap) * 2,
+    ];
+    images.forEach((img, i) => pdf.addImage(img, 'JPEG', pos[i], yo, cw, ch));
+    return pdf;
+  };
+
   // ── Integrity verification ─────────────────────────────────────────────────
   const verifyIntegrity = () => {
     if (!fetchedAt || originalPayroll.length === 0) {
@@ -478,90 +726,27 @@ const Payslip = forwardRef(({ employee }, ref) => {
     if (!displayEmployee) return;
     if (!verifyIntegrity()) return;
     setSending(true);
-
-    const currentStart = new Date(displayEmployee.startDate);
-    const currentMonth = currentStart.getMonth();
-    const currentYear  = currentStart.getFullYear();
-
-    const monthsToGet = [0, 1, 2].map((i) => {
-      const d = new Date(currentYear, currentMonth - i, 1);
-      return { month: d.getMonth(), year: d.getFullYear(), label: d.toLocaleString('en-US', { month: 'long', year: 'numeric' }) };
-    });
-
-    const records = monthsToGet.map(({ month, year, label }) => ({
-      label,
-      payroll: allPayroll.find(
-        (p) =>
-          p.employeeNumber === displayEmployee.employeeNumber &&
-          new Date(p.startDate).getMonth() === month &&
-          new Date(p.startDate).getFullYear() === year,
-      ),
-    }));
-
-    const pdf        = new jsPDF('l', 'mm', 'a4');
-    const pageWidth  = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin     = 10, gap = 5;
-    const payslipWidth  = (pageWidth - 2 * margin - 2 * gap) / 3;
-    const payslipHeight = pageHeight - 2 * margin;
-    const positions     = [margin, margin + payslipWidth + gap, margin + 2 * payslipWidth + 2 * gap];
-
-    const tempContainer = document.createElement('div');
-    tempContainer.style.position        = 'absolute';
-    tempContainer.style.left            = '-9999px';
-    tempContainer.style.width           = '1200px';
-    tempContainer.style.backgroundColor = '#fff';
-    document.body.appendChild(tempContainer);
-
-    for (let i = 0; i < records.length; i++) {
-      const { payroll, label } = records[i];
-      let imgData;
-      if (payroll) {
-        setDisplayEmployee(payroll);
-        await new Promise((resolve) => setTimeout(resolve, 300));
-        const clone = payslipRef.current.cloneNode(true);
-        clone.style.width    = '1200px';
-        clone.style.overflow = 'hidden';
-        tempContainer.innerHTML = '';
-        tempContainer.appendChild(clone);
-        const actualHeight = clone.scrollHeight || clone.offsetHeight || 1700;
-        const canvas = await html2canvas(clone, {
-          scale: 2, useCORS: true,
-          width: 1200, height: actualHeight,
-          windowWidth: 1200, windowHeight: actualHeight,
-          logging: false,
-        });
-        imgData = canvas.toDataURL('image/png');
-      } else {
-        const placeholderCanvas  = document.createElement('canvas');
-        placeholderCanvas.width  = 1200;
-        placeholderCanvas.height = 1700;
-        const ctx = placeholderCanvas.getContext('2d');
-        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 1200, 1700);
-        ctx.fillStyle = '#6D2323'; ctx.font = 'bold 48px Arial'; ctx.textAlign = 'center';
-        ctx.fillText('No Data', 600, 750);
-        ctx.font = '32px Arial'; ctx.fillText(`for ${label}`, 600, 820);
-        imgData = placeholderCanvas.toDataURL('image/png');
-      }
-      pdf.addImage(imgData, 'PNG', positions[i], margin, payslipWidth, payslipHeight);
-    }
-
-    document.body.removeChild(tempContainer);
-    pdf.save(`${getSurname(displayEmployee.name)}_${formatPeriod(displayEmployee.startDate, displayEmployee.endDate)}.pdf`);
-
     try {
-      await axios.post(
-        `${API_BASE_URL}/PayrollReleasedRoute/log-print`,
-        { employeeNumber: displayEmployee.employeeNumber },
-        getAuthHeaders(),
-      );
-    } catch (e) {
-      console.error('Print audit log error:', e);
-    }
+      const pdf = await generate3MonthPDF(displayEmployee);
+      pdf.save(`${getSurname(displayEmployee.name)}_${formatPeriod(displayEmployee.startDate, displayEmployee.endDate)}.pdf`);
 
-    setDisplayEmployee(employee || null);
-    setSending(false);
-    setModal({ open: true, type: 'success', action: 'download' });
+      try {
+        await axios.post(
+          `${API_BASE_URL}/PayrollReleasedRoute/log-print`,
+          { employeeNumber: displayEmployee.employeeNumber },
+          getAuthHeaders(),
+        );
+      } catch (e) {
+        console.error('Print audit log error:', e);
+      }
+
+      setModal({ open: true, type: 'success', message: '' });
+    } catch (error) {
+      console.error('PDF generation error:', error);
+      setModal({ open: true, type: 'error', message: 'Failed to generate PDF.' });
+    } finally {
+      setSending(false);
+    }
   };
 
   if (pageLoading || accessLoading) return <PayslipWireframe />;
@@ -693,28 +878,29 @@ const Payslip = forwardRef(({ employee }, ref) => {
                 </Box>
               </Box>
 
-              <Paper ref={payslipRef} elevation={0} sx={{ p: 3, pb: 4, mt: 0, borderRadius: 0, backgroundColor: '#fff', fontFamily: '"Poppins", sans-serif', position: 'relative', width: '1100px', display: 'block', margin: '0 auto', boxSizing: 'border-box' }}>
+              <Paper ref={payslipRef} elevation={0} sx={{ p: 1.5, pb: 2, mt: 0, borderRadius: 0, backgroundColor: '#fff', fontFamily: '"Poppins", sans-serif', position: 'relative', width: '920px', display: 'block', margin: '0 auto', boxSizing: 'border-box' }}>
                 <Box component="img" src={dynamicHrisLogo} alt="Watermark" sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', opacity: 0.08, width: '70%', pointerEvents: 'none', userSelect: 'none', zIndex: 2, mixBlendMode: 'multiply' }} />
 
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2.5, background: 'linear-gradient(135deg, #6d2323 0%, #a31d1d 100%)', borderRadius: '6px', p: '20px 28px', boxShadow: '0 4px 20px rgba(109,35,35,0.3)' }}>
-                  {institutionLogo ? (
-                    <img src={institutionLogo} alt="Logo" style={{ width: '88px', height: '88px', borderRadius: '50%', objectFit: 'cover', marginLeft: '8px' }} />
-                  ) : (
-                    <Box sx={{ width: 88, height: 88, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.3)', marginLeft: '8px', flexShrink: 0 }} />
-                  )}
-                  <Box textAlign="center" flex={1} sx={{ color: 'white', px: 2 }}>
-                    <Typography sx={{ fontStyle: 'italic', fontSize: '18px', opacity: 0.9, fontFamily: '"Poppins", sans-serif' }}>Republic of the Philippines</Typography>
-                    <Typography sx={{ fontWeight: 900, fontSize: '22px', lineHeight: 1.4, fontFamily: '"Poppins", sans-serif', letterSpacing: '0.02em', mt: 0.5 }}>{institutionName}</Typography>
-                    <Typography sx={{ fontSize: '17px', opacity: 0.85, fontFamily: '"Poppins", sans-serif', mt: 0.3 }}>{institutionAddress}</Typography>
+                <Box data-preview-scale="true" sx={{ zoom: 0.64, width: '1200px', margin: '0 auto' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2.5, background: 'linear-gradient(135deg, #6d2323 0%, #a31d1d 100%)', borderRadius: '6px', p: '20px 28px', boxShadow: '0 4px 20px rgba(109,35,35,0.3)' }}>
+                    {institutionLogo ? (
+                      <img src={institutionLogo} alt="Logo" style={{ width: '88px', height: '88px', borderRadius: '50%', objectFit: 'cover', marginLeft: '8px' }} />
+                    ) : (
+                      <Box sx={{ width: 88, height: 88, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.3)', marginLeft: '8px', flexShrink: 0 }} />
+                    )}
+                    <Box textAlign="center" flex={1} sx={{ color: 'white', px: 2 }}>
+                      <Typography sx={{ fontStyle: 'italic', fontSize: '18px', opacity: 0.9, fontFamily: '"Poppins", sans-serif' }}>Republic of the Philippines</Typography>
+                      <Typography sx={{ fontWeight: 900, fontSize: '22px', lineHeight: 1.4, fontFamily: '"Poppins", sans-serif', letterSpacing: '0.02em', mt: 0.5 }}>{institutionName}</Typography>
+                      <Typography sx={{ fontSize: '17px', opacity: 0.85, fontFamily: '"Poppins", sans-serif', mt: 0.3 }}>{institutionAddress}</Typography>
+                    </Box>
+                    {dynamicHrisLogo ? (
+                      <img src={dynamicHrisLogo} alt="HRIS Logo" style={{ width: '100px', height: '100px', borderRadius: '50%', objectFit: 'cover' }} />
+                    ) : (
+                      <Box sx={{ width: 100, height: 100, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.3)', flexShrink: 0 }} />
+                    )}
                   </Box>
-                  {dynamicHrisLogo ? (
-                    <img src={dynamicHrisLogo} alt="HRIS Logo" style={{ width: '100px', height: '100px', borderRadius: '50%', objectFit: 'cover' }} />
-                  ) : (
-                    <Box sx={{ width: 100, height: 100, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.3)', flexShrink: 0 }} />
-                  )}
-                </Box>
 
-                <Box sx={{ position: 'relative', zIndex: 1 }}>
+                  <Box sx={{ position: 'relative', zIndex: 1 }}>
                   {(() => {
                     const isJO = (displayEmployee.employmentCategory ?? -1) === 0;
 
@@ -843,6 +1029,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                       </>
                     );
                   })()}
+                  </Box>
                 </Box>
               </Paper>
             </GlassCard>

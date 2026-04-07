@@ -414,6 +414,13 @@ const AttendanceUserState = () => {
       setRecords(filteredData);
       setSubmittedID(personID);
       setError('');
+
+      // Auto-scroll to results
+      if (filteredData.length > 0) {
+        setTimeout(() => {
+          resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 150);
+      }
     } catch (err) {
       console.error(err);
       setError('Failed to fetch attendance records');
@@ -432,6 +439,16 @@ const AttendanceUserState = () => {
 
   // Re-fetch on filter changes
   const isFirstRender = React.useRef(true);
+  const resultsRef = React.useRef(null);
+
+  // Sync month/year highlight from startDate
+  useEffect(() => {
+    if (!startDate) return;
+    const d = new Date(startDate + 'T00:00:00');
+    setSelectedYear(d.getFullYear());
+    setSelectedMonth(d.getMonth());
+  }, [startDate]);
+
   useEffect(() => {
     if (isFirstRender.current) { isFirstRender.current = false; return; }
     fetchRecords();
@@ -708,7 +725,7 @@ const AttendanceUserState = () => {
         {/* ── Results ── */}
         {submittedID && (
           <Fade in={!loading} timeout={500}>
-            <GlassCard sx={{ mb: 4, border: `1px solid ${alpha(accentColor,0.1)}` }}>
+            <GlassCard ref={resultsRef} sx={{ mb: 4, border: `1px solid ${alpha(accentColor,0.1)}` }}>
               <Box sx={{
                 p: 4,
                 background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`,
@@ -813,7 +830,7 @@ const AttendanceUserState = () => {
 
         {/* ── Scroll to Top ── */}
         <Zoom in={showScrollTop}>
-          <Fab sx={{ position: 'fixed', bottom: 24, right: 24, zIndex: 1000, bgcolor: accentColor, color: primaryColor, '&:hover': { bgcolor: accentDark } }} onClick={scrollToTop}>
+          <Fab sx={{ position: 'fixed', bottom: 24, right: 45, zIndex: 1000, bgcolor: accentColor, color: primaryColor, '&:hover': { bgcolor: accentDark } }} onClick={scrollToTop}>
             <KeyboardArrowUp />
           </Fab>
         </Zoom>

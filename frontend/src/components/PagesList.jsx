@@ -1,72 +1,72 @@
 import API_BASE_URL from '../apiConfig';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SuccessfulOverlay from './SuccessfulOverlay';
 import {
   Typography, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Button, Box, Alert, TextField, Grid,
-  IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
-  CircularProgress, Chip, Tooltip, Avatar, Backdrop,
+  IconButton, Dialog, DialogContent, DialogActions,
+  CircularProgress, Tooltip, Avatar, Backdrop,
   alpha, TablePagination, MenuItem, FormControl, Select,
-  FormHelperText, Checkbox, FormControlLabel, Portal, Paper,
+  Checkbox, FormControlLabel, Portal, Card,
   InputAdornment,
 } from '@mui/material';
+import { styled } from '@mui/material/styles';
 import {
   Add, Edit, Delete, Save, Cancel, Group, Description, Warning,
-  CheckCircle, Error, Person, FilterList, Refresh, SupervisorAccount,
+  CheckCircle, Person, FilterList, Refresh, SupervisorAccount,
   AdminPanelSettings, Work, Info, Category, Assignment, Assessment,
   Payment, Folder, FolderSpecial, EventNote, Search,
-  KeyboardArrowRight, Pages as PagesIcon, Lock,
+  KeyboardArrowRight, Pages as PagesIcon, Lock, Close,
 } from '@mui/icons-material';
 import AccessDenied from './AccessDenied';
 import axios from 'axios';
 import { getComponentInfo } from '../utils/componentMapping';
 
 /* ─────────────────────────────────────────────────────────────────
-   GLOBAL CSS — matches Profile exactly
+   GLOBAL CSS
 ───────────────────────────────────────────────────────────────── */
 const GLOBAL_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to   { opacity: 1; }
-  }
-  @keyframes sectionIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes bannerSlide {
-    from { opacity: 0; transform: translateY(-6px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+  @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes shimmer {
-    0%   { background-position: -900px 0; }
-    100% { background-position:  900px 0; }
+    0%   { background-position: -800px 0; }
+    100% { background-position:  800px 0; }
   }
-  @keyframes pulse-ring {
-    0%   { box-shadow: 0 0 0 0 rgba(109,35,35,0.4); }
-    70%  { box-shadow: 0 0 0 8px rgba(109,35,35,0); }
-    100% { box-shadow: 0 0 0 0 rgba(109,35,35,0); }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.55; }
   }
-  * { font-family: 'IBM Plex Sans', sans-serif; box-sizing: border-box; }
-  ::-webkit-scrollbar { width: 5px; }
-  ::-webkit-scrollbar-track { background: #f0f0f0; }
-  ::-webkit-scrollbar-thumb { background: rgba(109,35,35,0.25); border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(109,35,35,0.5); }
+  * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+  html, body, #root { height: 100%; overflow: hidden; }
 `;
 
 /* ─────────────────────────────────────────────────────────────────
    DESIGN TOKENS
 ───────────────────────────────────────────────────────────────── */
-const P      = '#6D2323';
-const S      = '#8B4545';
-const P_DARK = '#4a1515';
-const PANEL  = '#ffffff';
-const BD     = '#e2e4e8';
-const TXT    = '#111827';
-const MUTED  = '#6b7280';
-const SUBTLE = '#f7f8fa';
-const SIDEBAR_W = 260;
+const T = {
+  accent:       '#6d2323',
+  accentDark:   '#5a1d1d',
+  accentMid:    '#8B4545',
+  accentFaint:  'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  accentHover:  'rgba(109,35,35,0.10)',
+  headerGrad:   'linear-gradient(180deg,#6d2323 0%,#7e2c2c 100%)',
+  rowEven:      '#ffffff',
+  rowOdd:       'rgba(109,35,35,0.025)',
+  rowHover:     'rgba(109,35,35,0.055)',
+  text:         '#1a1a1a',
+  muted:        '#6b6b6b',
+  faint:        '#a0a0a0',
+  surface:      '#ffffff',
+  divider:      'rgba(0,0,0,0.08)',
+};
+
+const BD        = T.accentBorder;
+const TXT       = T.text;
+const MUTED     = T.muted;
+const SUBTLE    = 'rgba(109,35,35,0.03)';
+const SIDEBAR_W = 280;
 
 /* ─────────────────────────────────────────────────────────────────
    AUTH UTILS
@@ -82,109 +82,120 @@ const getUserRole = () => {
     if (!token) return null;
     const base64Url = token.split('.')[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+    const jsonPayload = decodeURIComponent(
+      atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+    );
     const payload = JSON.parse(jsonPayload);
     return payload.role || payload.userRole || null;
   } catch { return null; }
 };
 
 /* ─────────────────────────────────────────────────────────────────
-   SHARED ATOMS — mirrors Profile atoms
+   STYLED PRIMITIVES
 ───────────────────────────────────────────────────────────────── */
-const GlassCard = ({ children, sx = {} }) => (
-  <Box sx={{ background: PANEL, borderRadius: 3, border: `1px solid ${alpha(P, 0.09)}`, boxShadow: '0 4px 24px rgba(0,0,0,0.06)', overflow: 'hidden', ...sx }}>{children}</Box>
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: `0.5px solid ${T.accentBorder}`,
+  overflow: 'hidden',
+  background: T.surface,
+});
+
+const FieldInput = styled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+    '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: T.text },
+  },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.875rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  '&:hover': { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
+
+const Btn = ({ children, danger, outline, sm, fullWidth, startIcon, ...p }) => (
+  <AccentButton
+    disableElevation
+    fullWidth={fullWidth}
+    variant={outline ? 'outlined' : 'contained'}
+    size={sm ? 'small' : 'medium'}
+    startIcon={startIcon}
+    sx={{
+      fontSize: sm ? '0.78rem' : '0.85rem',
+      py: sm ? 0.5 : 0.75,
+      px: sm ? 1.5 : 2.25,
+      boxShadow: 'none',
+      ...(outline
+        ? { borderColor: T.accentBorder, color: T.muted, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }
+        : danger
+          ? { bgcolor: '#c62828', color: '#fff', '&:hover': { bgcolor: '#b71c1c' }, '&:disabled': { bgcolor: '#f1f5f9', color: '#94a3b8' } }
+          : { bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, '&:hover': { bgcolor: T.accentDark, boxShadow: `0 4px 16px ${alpha(T.accent, 0.38)}` }, '&:disabled': { bgcolor: '#d0d0d0 !important', color: '#888 !important', boxShadow: 'none !important', transform: 'none !important' } }),
+    }}
+    {...p}
+  >
+    {children}
+  </AccentButton>
 );
 
-const CardBanner = () => (
-  <Box sx={{ height: 6, background: `linear-gradient(90deg, ${P} 0%, ${S} 60%, ${alpha(P, 0.4)} 100%)` }} />
-);
-
-const SectionHeader = ({ icon: Icon, title, subtitle, action }) => (
-  <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#ffffff 0%,#f6f6f6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', borderBottom: `1px solid ${BD}` }}>
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-      <Avatar sx={{ bgcolor: alpha(P, 0.1), width: 52, height: 52, boxShadow: `0 4px 16px ${alpha(P, 0.12)}` }}>
-        <Icon sx={{ color: P, fontSize: 26 }} />
-      </Avatar>
-      <Box>
-        <Typography sx={{ fontWeight: 900, fontSize: '1rem', color: P, lineHeight: 1.2 }}>{title}</Typography>
-        {subtitle && <Typography sx={{ fontSize: '0.78rem', color: MUTED, fontWeight: 600, mt: 0.2 }}>{subtitle}</Typography>}
+const DlgHeader = ({ icon: Icon, title, onClose }) => (
+  <Box sx={{
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    px: 3.5, py: 2.5, background: T.headerGrad,
+    position: 'relative', overflow: 'hidden',
+  }}>
+    <Box sx={{ position: 'absolute', top: -50, right: -30, width: 180, height: 180, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.04)' }} />
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
+      <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Icon sx={{ fontSize: 16, color: '#fff' }} />
       </Box>
+      <Typography sx={{ fontWeight: 700, fontSize: '0.93rem', color: '#fff' }}>{title}</Typography>
     </Box>
-    {action && <Box>{action}</Box>}
+    <IconButton onClick={onClose} sx={{ color: 'rgba(255,255,255,0.75)', p: 0.5, position: 'relative', zIndex: 1, '&:hover': { color: '#fff', bgcolor: 'rgba(255,255,255,0.12)' } }}>
+      <Close sx={{ fontSize: 16 }} />
+    </IconButton>
   </Box>
 );
 
-const Btn = ({ children, danger, outline, sm, fullWidth, startIcon, ...p }) => (
-  <Button disableElevation fullWidth={fullWidth} variant={outline ? 'outlined' : 'contained'}
-    startIcon={startIcon}
-    sx={{
-      borderRadius: 2, textTransform: 'none', fontWeight: 700,
-      fontSize: sm ? '0.78rem' : '0.875rem',
-      py: sm ? 0.75 : 1.1, px: sm ? 2 : 3,
-      boxShadow: outline ? 'none' : `0 4px 12px ${alpha(P, 0.28)}`,
-      ...(outline
-        ? { borderColor: alpha(P, 0.45), color: P, '&:hover': { borderColor: P, bgcolor: alpha(P, 0.04) } }
-        : danger
-          ? { bgcolor: '#b91c1c', color: '#fff', '&:hover': { bgcolor: '#991b1b' }, '&:disabled': { bgcolor: '#e5e7eb', color: '#9ca3af', boxShadow: 'none' } }
-          : { bgcolor: P, color: '#fff', '&:hover': { bgcolor: P_DARK }, '&:disabled': { bgcolor: '#e5e7eb', color: '#9ca3af', boxShadow: 'none' } }),
-    }} {...p}>{children}
-  </Button>
-);
-
-/* Field label — matches Profile's FL */
 const FL = ({ children, req }) => (
-  <Typography component="label" sx={{ fontSize: '0.68rem', fontWeight: 700, color: alpha(TXT, 0.5), mb: 0.55, display: 'flex', alignItems: 'center', gap: 0.4, letterSpacing: '0.06em', textTransform: 'uppercase', lineHeight: 1 }}>
-    {children}{req && <span style={{ color: '#c0392b', marginLeft: 2, fontSize: '0.62rem' }}>*</span>}
+  <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75, display: 'block' }}>
+    {children}{req && <Box component="span" sx={{ color: '#c62828', ml: 0.25 }}>*</Box>}
   </Typography>
 );
 
-/* Input chrome — identical to Profile */
-const INPUT_CHROME = {
-  borderRadius: '8px', bgcolor: '#f4f5f7', fontSize: '0.875rem', color: TXT,
-  transition: 'background-color 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease',
-  '& fieldset': { borderColor: 'transparent', borderWidth: '1.5px', transition: 'border-color 0.15s ease' },
-  '&:hover': { bgcolor: '#eef0f3' },
-  '&:hover fieldset': { borderColor: alpha(P, 0.22) },
-  '&.Mui-focused': { bgcolor: '#ffffff', boxShadow: `0 0 0 2px ${alpha(P, 0.18)}, inset 0 1px 3px rgba(0,0,0,0.04)` },
-  '&.Mui-focused fieldset': { borderColor: P, borderWidth: '1.5px' },
+const selectSx = {
+  borderRadius: '8px', fontSize: '0.875rem', bgcolor: '#fff',
+  '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
+  '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent, borderWidth: '1.5px' },
 };
-
-const FX = { '& .MuiOutlinedInput-root': INPUT_CHROME, '& .MuiInputBase-input': { py: '9px', px: '12px', fontWeight: 500 } };
-
-const SELECT_SX = {
-  borderRadius: '8px', bgcolor: '#f4f5f7', fontSize: '0.875rem', fontWeight: 500,
-  transition: 'background-color 0.15s ease, box-shadow 0.15s ease',
-  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'transparent', borderWidth: '1.5px' },
-  '&:hover': { bgcolor: '#eef0f3' },
-  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: alpha(P, 0.22) },
-  '&.Mui-focused': { bgcolor: '#ffffff', boxShadow: `0 0 0 2px ${alpha(P, 0.18)}, inset 0 1px 3px rgba(0,0,0,0.04)` },
-  '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: P, borderWidth: '1.5px' },
-  '& .MuiSelect-select': { py: '9px', px: '12px' },
-};
-
-const Div = ({ label }) => (
-  <Box sx={{ display: 'flex', alignItems: 'center', my: 3 }}>
-    <Box sx={{ width: 24, height: 3, bgcolor: P, borderRadius: 2, mr: 1.5, flexShrink: 0 }} />
-    <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.65rem', fontWeight: 700, color: P, textTransform: 'uppercase', letterSpacing: '0.14em', mr: 1.5 }}>{label}</Typography>
-    <Box sx={{ flex: 1, height: '1px', bgcolor: alpha(P, 0.12) }} />
-  </Box>
-);
 
 /* ─────────────────────────────────────────────────────────────────
-   NAV SECTIONS — for sidebar
+   NAV SECTIONS
 ───────────────────────────────────────────────────────────────── */
 const NAV = [
-  { key: 'all',        label: 'All Pages',          icon: PagesIcon },
-  { key: 'General',   label: 'General',             icon: Category },
-  { key: 'System Administration', label: 'System Administration', icon: AdminPanelSettings },
-  { key: 'Registration',          label: 'Registration',          icon: Assignment },
-  { key: 'Information Management', label: 'Info Management',      icon: Info },
-  { key: 'Attendance Management',  label: 'Attendance Mgmt',      icon: Assessment },
-  { key: 'Payroll Management',     label: 'Payroll Mgmt',         icon: Payment },
-  { key: 'Leave Management',       label: 'Leave Mgmt',           icon: EventNote },
-  { key: 'Form',                   label: 'Forms',                icon: Description },
-  { key: 'Pages Management',       label: 'Pages Mgmt',           icon: FolderSpecial },
-  { key: 'Personal Data Sheets',   label: 'Personal Data',        icon: Folder },
+  { key: 'all',                      label: 'All Pages',          icon: PagesIcon },
+  { key: 'General',                  label: 'General',            icon: Category },
+  { key: 'System Administration',    label: 'System Admin',       icon: AdminPanelSettings },
+  { key: 'Registration',             label: 'Registration',       icon: Assignment },
+  { key: 'Information Management',   label: 'Info Management',    icon: Info },
+  { key: 'Attendance Management',    label: 'Attendance Mgmt',    icon: Assessment },
+  { key: 'Payroll Management',       label: 'Payroll Mgmt',       icon: Payment },
+  { key: 'Leave Management',         label: 'Leave Mgmt',         icon: EventNote },
+  { key: 'Form',                     label: 'Forms',              icon: Description },
+  { key: 'Pages Management',         label: 'Pages Mgmt',         icon: FolderSpecial },
+  { key: 'Personal Data Sheets',     label: 'Personal Data',      icon: Folder },
 ];
 
 const descriptionOptions = [
@@ -196,61 +207,75 @@ const descriptionOptions = [
 const accessGroupOptions = ['superadmin', 'administrator', 'technical', 'staff'];
 
 /* ─────────────────────────────────────────────────────────────────
-   GROUP / DESC HELPERS
+   BADGE HELPERS
 ───────────────────────────────────────────────────────────────── */
 const getGroupColor = (group) => {
   switch (group?.toLowerCase()) {
-    case 'superadmin':    return { color: P };
-    case 'administrator': return { color: S };
-    case 'technical':     return { color: '#2563eb' };
-    case 'staff':         return { color: '#047857' };
-    default:              return { color: MUTED };
+    case 'superadmin':    return T.accent;
+    case 'administrator': return T.accentMid;
+    case 'technical':     return '#2563eb';
+    case 'staff':         return '#047857';
+    default:              return MUTED;
   }
 };
 
 const getDescriptionBadge = (desc) => {
   const map = {
-    'general': { icon: <Category sx={{ fontSize: 12 }} />, color: P },
-    'system administration': { icon: <AdminPanelSettings sx={{ fontSize: 12 }} />, color: P },
-    'registration': { icon: <Assignment sx={{ fontSize: 12 }} />, color: S },
-    'information management': { icon: <Info sx={{ fontSize: 12 }} />, color: P },
-    'attendance management': { icon: <Assessment sx={{ fontSize: 12 }} />, color: P },
-    'payroll management': { icon: <Payment sx={{ fontSize: 12 }} />, color: S },
-    'leave management': { icon: <EventNote sx={{ fontSize: 12 }} />, color: P },
-    'form': { icon: <Description sx={{ fontSize: 12 }} />, color: P },
-    'pages management': { icon: <FolderSpecial sx={{ fontSize: 12 }} />, color: P },
-    'personal data sheets': { icon: <Folder sx={{ fontSize: 12 }} />, color: S },
+    'general':                { icon: <Category sx={{ fontSize: 11 }} />,           color: T.accent },
+    'system administration':  { icon: <AdminPanelSettings sx={{ fontSize: 11 }} />, color: T.accent },
+    'registration':           { icon: <Assignment sx={{ fontSize: 11 }} />,          color: T.accentMid },
+    'information management': { icon: <Info sx={{ fontSize: 11 }} />,                color: T.accent },
+    'attendance management':  { icon: <Assessment sx={{ fontSize: 11 }} />,          color: T.accent },
+    'payroll management':     { icon: <Payment sx={{ fontSize: 11 }} />,             color: T.accentMid },
+    'leave management':       { icon: <EventNote sx={{ fontSize: 11 }} />,           color: T.accent },
+    'form':                   { icon: <Description sx={{ fontSize: 11 }} />,         color: T.accent },
+    'pages management':       { icon: <FolderSpecial sx={{ fontSize: 11 }} />,       color: T.accent },
+    'personal data sheets':   { icon: <Folder sx={{ fontSize: 11 }} />,             color: T.accentMid },
   };
-  return map[desc?.toLowerCase()] || { icon: <Description sx={{ fontSize: 12 }} />, color: MUTED };
+  return map[desc?.toLowerCase()] || { icon: <Description sx={{ fontSize: 11 }} />, color: MUTED };
 };
+
+/* ─────────────────────────────────────────────────────────────────
+   SKELETON
+───────────────────────────────────────────────────────────────── */
+const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
+  <Box sx={{
+    width: w, height: h, borderRadius: r, flexShrink: 0,
+    background: `linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)`,
+    backgroundSize: '800px 100%',
+    animation: 'shimmer 1.6s infinite linear',
+    ...sx,
+  }} />
+);
 
 /* ─────────────────────────────────────────────────────────────────
    MAIN COMPONENT
 ───────────────────────────────────────────────────────────────── */
 const PagesList = () => {
-  const [pages, setPages]                   = useState([]);
-  const [filteredPages, setFilteredPages]   = useState([]);
-  const [activeSection, setActiveSection]   = useState('all');
-  const [currentPageId, setCurrentPageId]   = useState(null);
+  const [pages, setPages]                     = useState([]);
+  const [filteredPages, setFilteredPages]     = useState([]);
+  const [activeSection, setActiveSection]     = useState('all');
+  const [currentPageId, setCurrentPageId]     = useState(null);
   const [pageDescription, setPageDescription] = useState('');
-  const [pageGroups, setPageGroups]         = useState([]);
-  const [pageName, setPageName]             = useState('');
-  const [pageUrl, setPageUrl]               = useState('');
+  const [pageGroups, setPageGroups]           = useState([]);
+  const [pageName, setPageName]               = useState('');
+  const [pageUrl, setPageUrl]                 = useState('');
   const [componentIdentifier, setComponentIdentifier] = useState('');
-  const [loading, setLoading]               = useState(false);
-  const [deleteDialog, setDeleteDialog]     = useState(false);
-  const [deletePageId, setDeletePageId]     = useState(null);
-  const [editDialog, setEditDialog]         = useState(false);
-  const [successOpen, setSuccessOpen]       = useState(false);
-  const [successAction, setSuccessAction]   = useState('');
-  const [errorMessage, setErrorMessage]     = useState('');
-  const [searchTerm, setSearchTerm]         = useState('');
-  const [page, setPage]                     = useState(0);
-  const [rowsPerPage, setRowsPerPage]       = useState(10);
-  const [addDialog, setAddDialog]           = useState(false);
+  const [loading, setLoading]                 = useState(false);
+  const [initialLoading, setInitialLoading]   = useState(true);
+  const [deleteDialog, setDeleteDialog]       = useState(false);
+  const [deletePageId, setDeletePageId]       = useState(null);
+  const [editDialog, setEditDialog]           = useState(false);
+  const [successOpen, setSuccessOpen]         = useState(false);
+  const [successAction, setSuccessAction]     = useState('');
+  const [errorMessage, setErrorMessage]       = useState('');
+  const [searchTerm, setSearchTerm]           = useState('');
+  const [page, setPage]                       = useState(0);
+  const [rowsPerPage, setRowsPerPage]         = useState(10);
+  const [addDialog, setAddDialog]             = useState(false);
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
-  const [userRole, setUserRole]             = useState(null);
-  const [roleChecked, setRoleChecked]       = useState(false);
+  const [userRole, setUserRole]               = useState(null);
+  const [roleChecked, setRoleChecked]         = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => { const role = getUserRole(); setUserRole(role); setRoleChecked(true); }, []);
@@ -275,17 +300,28 @@ const PagesList = () => {
     setLoading(true); setErrorMessage('');
     try {
       const res = await fetch(`${API_BASE_URL}/pages`, { method: 'GET', ...getAuthHeaders() });
-      if (res.ok) { const data = await res.json(); const sorted = data.sort((a, b) => a.id - b.id); setPages(sorted); setFilteredPages(sorted); }
-      else { const err = await res.json(); setErrorMessage(err.error || 'Failed to fetch pages'); }
+      if (res.ok) {
+        const data = await res.json();
+        const sorted = data.sort((a, b) => a.id - b.id);
+        setPages(sorted); setFilteredPages(sorted);
+      } else {
+        const err = await res.json(); setErrorMessage(err.error || 'Failed to fetch pages');
+      }
     } catch { setErrorMessage('Error fetching pages'); }
-    finally { setLoading(false); }
+    finally { setLoading(false); setInitialLoading(false); }
   };
 
   const handleSubmit = async (e) => {
     e?.preventDefault();
-    if (!pageName.trim() || !pageDescription.trim() || pageGroups.length === 0) { setErrorMessage('Page name, description, and at least one access group are required'); return; }
+    if (!pageName.trim() || !pageDescription.trim() || pageGroups.length === 0) {
+      setErrorMessage('Page name, description, and at least one access group are required'); return;
+    }
     setLoading(true); setErrorMessage('');
-    const pageData = { page_name: pageName.trim(), page_description: pageDescription.trim(), page_url: pageUrl.trim() || null, page_group: pageGroups.join(','), component_identifier: componentIdentifier.trim() || null };
+    const pageData = {
+      page_name: pageName.trim(), page_description: pageDescription.trim(),
+      page_url: pageUrl.trim() || null, page_group: pageGroups.join(','),
+      component_identifier: componentIdentifier.trim() || null,
+    };
     try {
       const url = currentPageId ? `${API_BASE_URL}/pages/${currentPageId}` : `${API_BASE_URL}/pages`;
       const method = currentPageId ? 'PUT' : 'POST';
@@ -301,7 +337,10 @@ const PagesList = () => {
     finally { setLoading(false); }
   };
 
-  const resetForm = () => { setCurrentPageId(null); setPageName(''); setPageDescription(''); setPageUrl(''); setComponentIdentifier(''); setPageGroups([]); };
+  const resetForm = () => {
+    setCurrentPageId(null); setPageName(''); setPageDescription('');
+    setPageUrl(''); setComponentIdentifier(''); setPageGroups([]);
+  };
   const cancelEdit = () => { resetForm(); setEditDialog(false); setErrorMessage(''); };
   const cancelAdd  = () => { resetForm(); setAddDialog(false);  setErrorMessage(''); };
 
@@ -324,21 +363,20 @@ const PagesList = () => {
   };
 
   const paginatedPages = filteredPages.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-  const currentNav = NAV.find(n => n.key === activeSection) || NAV[0];
 
   /* ── Form fields (shared Add / Edit) ── */
   const renderFormFields = () => (
     <Box>
-      <Div label="Page Details" />
+      <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.45), mb: 2 }}>Page Details</Typography>
       <Grid container spacing={2.5}>
         <Grid item xs={12} sm={6}>
           <FL req>Page Name</FL>
-          <TextField fullWidth size="small" sx={{ ...FX, mb: 2 }} value={pageName} onChange={e => setPageName(e.target.value)} placeholder="e.g., dashboard, users, reports" />
+          <FieldInput fullWidth size="small" value={pageName} onChange={e => setPageName(e.target.value)} placeholder="e.g., dashboard, users, reports" />
         </Grid>
         <Grid item xs={12} sm={6}>
           <FL req>Page Description</FL>
-          <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-            <Select value={pageDescription} onChange={e => setPageDescription(e.target.value)} sx={SELECT_SX} displayEmpty>
+          <FormControl fullWidth size="small">
+            <Select value={pageDescription} onChange={e => setPageDescription(e.target.value)} sx={selectSx} displayEmpty>
               <MenuItem value=""><em style={{ color: '#9ca3af' }}>— Select —</em></MenuItem>
               {descriptionOptions.map(o => <MenuItem key={o} value={o}>{o}</MenuItem>)}
             </Select>
@@ -346,50 +384,88 @@ const PagesList = () => {
         </Grid>
         <Grid item xs={12} sm={6}>
           <FL>Page URL</FL>
-          <TextField fullWidth size="small" sx={{ ...FX, mb: 2 }} value={pageUrl} onChange={e => setPageUrl(e.target.value)} placeholder="e.g., /dashboard, /users" />
+          <FieldInput fullWidth size="small" value={pageUrl} onChange={e => setPageUrl(e.target.value)} placeholder="e.g., /dashboard, /users" />
         </Grid>
         <Grid item xs={12} sm={6}>
           <FL>Component Identifier</FL>
-          <TextField fullWidth size="small" sx={{ ...FX, mb: 1 }} value={componentIdentifier} onChange={e => setComponentIdentifier(e.target.value)} placeholder="e.g., pds1, registration"
-            InputProps={{ endAdornment: componentIdentifier ? (getComponentInfo(componentIdentifier) ? <CheckCircle sx={{ color: '#16a34a', fontSize: 16 }} /> : <Warning sx={{ color: '#d97706', fontSize: 16 }} />) : null }}
+          <FieldInput fullWidth size="small" value={componentIdentifier} onChange={e => setComponentIdentifier(e.target.value)}
+            placeholder="e.g., pds1, registration"
+            InputProps={{
+              endAdornment: componentIdentifier
+                ? (getComponentInfo(componentIdentifier)
+                  ? <CheckCircle sx={{ color: '#16a34a', fontSize: 16 }} />
+                  : <Warning sx={{ color: '#d97706', fontSize: 16 }} />)
+                : null,
+            }}
           />
-          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.65rem', color: MUTED, mb: 2 }}>
-            {componentIdentifier && getComponentInfo(componentIdentifier) ? `✓ Connected: ${getComponentInfo(componentIdentifier).componentName}` : componentIdentifier ? '⚠ No mapping found' : 'Optional unique identifier for dynamic access'}
+          <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.65rem', color: MUTED, mt: 0.5 }}>
+            {componentIdentifier && getComponentInfo(componentIdentifier)
+              ? `✓ Connected: ${getComponentInfo(componentIdentifier).componentName}`
+              : componentIdentifier ? '⚠ No mapping found'
+              : 'Optional unique identifier for dynamic access'}
           </Typography>
         </Grid>
       </Grid>
-      <Div label="Access Groups" />
-      <Box sx={{ mb: 1 }}>
-        <FL req>Roles that receive this page on Grant</FL>
-        <FormControl fullWidth size="small" sx={{ mt: 0.5 }}>
-          <Select multiple value={pageGroups} onChange={e => setPageGroups(e.target.value)} sx={SELECT_SX}
-            renderValue={selected => (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                {selected.map(v => (
-                  <Box key={v} sx={{ px: 1.25, py: 0.2, bgcolor: alpha(P, 0.1), border: `1px solid ${alpha(P, 0.22)}`, borderRadius: '20px' }}>
-                    <Typography sx={{ fontSize: '0.65rem', fontWeight: 900, color: P }}>{v.toUpperCase()}</Typography>
-                  </Box>
-                ))}
-              </Box>
-            )}
-          >
-            {accessGroupOptions.map(o => <MenuItem key={o} value={o}>{o}</MenuItem>)}
-          </Select>
-        </FormControl>
-        <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.65rem', color: MUTED, mt: 0.75 }}>
-          Roles selected here will receive this page when "Grant Role Access" is triggered in User Management.
-        </Typography>
-      </Box>
+
+      <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.45), mt: 3, mb: 2 }}>Access Groups</Typography>
+      <FL req>Roles that receive this page on Grant</FL>
+      <FormControl fullWidth size="small">
+        <Select multiple value={pageGroups} onChange={e => setPageGroups(e.target.value)} sx={selectSx}
+          renderValue={selected => (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {selected.map(v => (
+                <Box key={v} sx={{ px: 1.25, py: 0.2, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${alpha(T.accent, 0.2)}`, borderRadius: '20px' }}>
+                  <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent }}>{v.toUpperCase()}</Typography>
+                </Box>
+              ))}
+            </Box>
+          )}
+        >
+          {accessGroupOptions.map(o => <MenuItem key={o} value={o}>{o}</MenuItem>)}
+        </Select>
+      </FormControl>
+      <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.65rem', color: MUTED, mt: 0.75 }}>
+        Roles selected here will receive this page when "Grant Role Access" is triggered in User Management.
+      </Typography>
     </Box>
   );
 
   /* ─────────────────────────────────────────────────────────────
      GUARDS
   ───────────────────────────────────────────────────────────── */
-  if (!roleChecked) return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 8 }}>
-      <CircularProgress sx={{ color: P, mb: 2 }} />
-      <Typography sx={{ color: P, fontWeight: 600 }}>Verifying access permissions…</Typography>
+  if (!roleChecked || initialLoading) return (
+    <Box sx={{ minHeight: '100vh' }}>
+      <style>{GLOBAL_CSS}</style>
+      <Box sx={{ width: SIDEBAR_W, bgcolor: '#fff', borderLeft: `1px solid ${BD}`, position: 'fixed', right: 0, top: 0, height: '100vh', zIndex: 1200, display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ px: 3, py: 2.5, borderBottom: `1px solid ${BD}`, display: 'flex', alignItems: 'center', gap: 2, animation: 'blink 2s ease-in-out infinite' }}>
+          <Box sx={{ width: 30, height: 30, borderRadius: 1, bgcolor: alpha(T.accent, 0.12), flexShrink: 0 }} />
+          <Box sx={{ flex: 1 }}><Bone w="55%" h={11} r={4} sx={{ mb: 0.5 }} /><Bone w="38%" h={8} r={3} /></Box>
+        </Box>
+        {[60, 48, 70, 42, 55, 38, 65, 50].map((w, i) => (
+          <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 3, py: 1.25, animation: `blink 2s ease-in-out ${i * 0.07}s infinite` }}>
+            <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: alpha(T.accent, 0.07), flexShrink: 0 }} />
+            <Bone w={`${w}%`} h={10} r={3} />
+          </Box>
+        ))}
+      </Box>
+      <Box sx={{
+        width: '100vw', maxWidth: '100%',
+        position: 'relative', left: '63%', transform: 'translateX(-61%)',
+        boxSizing: 'border-box',
+        pl: { xs: 2, sm: 3, md: 6 },
+        pr: { xs: `${SIDEBAR_W + 16}px`, md: `${SIDEBAR_W + 24}px` },
+        py: { xs: 2, md: 4 },
+      }}>
+        <Box sx={{ mb: 2, borderRadius: 3, overflow: 'hidden', border: `1px solid ${BD}`, animation: 'blink 2s ease-in-out infinite' }}>
+          <Box sx={{ p: 3.5, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', gap: 2.5 }}>
+            <Box sx={{ width: 52, height: 52, borderRadius: '50%', bgcolor: alpha(T.accent, 0.12), flexShrink: 0 }} />
+            <Box><Bone w={200} h={18} sx={{ mb: 1 }} /><Bone w={340} h={11} /></Box>
+          </Box>
+        </Box>
+        <Box sx={{ borderRadius: 3, border: `1px solid ${BD}`, bgcolor: '#fff', overflow: 'hidden', animation: 'blink 2s ease-in-out 0.12s infinite' }}>
+          <Box sx={{ p: 3.5 }}>{[0,1,2,3,4].map(i => <Box key={i} sx={{ height: 48, borderRadius: 1, bgcolor: i % 2 === 0 ? SUBTLE : 'transparent', mb: 1, border: `1px solid ${BD}` }} />)}</Box>
+        </Box>
+      </Box>
     </Box>
   );
 
@@ -401,352 +477,420 @@ const PagesList = () => {
      MAIN RENDER
   ───────────────────────────────────────────────────────────── */
   return (
-    <Box sx={{ position: 'relative', minHeight: '100vh', overflow: 'hidden' }}>
+    <Box sx={{ position: 'relative', height: '100vh', overflow: 'hidden' }}>
       <style>{GLOBAL_CSS}</style>
+
+      {/* ── Success overlay ── */}
+      <Portal>
+        <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
+      </Portal>
+
+      {/* ── Error backdrop ── */}
+      <Backdrop open={!!errorMessage} sx={{ zIndex: 9999, backdropFilter: 'blur(8px)', bgcolor: 'rgba(0,0,0,0.5)' }} onClick={() => setErrorMessage('')}>
+        <Box onClick={e => e.stopPropagation()} sx={{ minWidth: 400, maxWidth: 560 }}>
+          {errorMessage && (
+            <Alert severity="error" sx={{ borderRadius: 3, boxShadow: '0 12px 48px rgba(0,0,0,0.4)', fontSize: '1rem', p: 3, '& .MuiAlert-message': { fontWeight: 600 } }} onClose={() => setErrorMessage('')}>
+              {errorMessage}
+            </Alert>
+          )}
+        </Box>
+      </Backdrop>
 
       {/* ══ MAIN CONTENT ══ */}
       <Box sx={{
-        width: '100vw', maxWidth: '100%', position: 'relative',
-        left: '63%', transform: 'translateX(-61%)',
-        pl: { xs: 2, sm: 3, md: 6 }, pr: `${SIDEBAR_W + 16}px`,
-        py: { xs: 2, md: 4 },
-        minHeight: '100vh',
+        width: '100vw', maxWidth: '100%',
+        position: 'relative', left: '65%', transform: 'translateX(-67%)',
         boxSizing: 'border-box',
+        pl: { xs: 2, sm: 3, md: 6 },
+        pr: { xs: `${SIDEBAR_W + 16}px`, md: `${SIDEBAR_W - 65}px` },
+        py: { xs: 2, md: 2 },
+        display: 'flex',
+        flexDirection: 'column',
+        height: 'calc(100vh - 143px)',
+        overflow: 'hidden',
       }}>
 
-        {/* ── Success overlay ── */}
-        <Portal>
-          <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
-        </Portal>
+        {/* ── Hero with action buttons ── */}
+        <SectionCard sx={{ mb: 1.5, flexShrink: 0, overflow: 'hidden' }}>
+          <Box sx={{
+            px: 4, py: 1.5, // ← reduced from 2.5 to recover vertical space
+            background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            position: 'relative', overflow: 'hidden',
+          }}>
+            <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.1) 0%,transparent 70%)' }} />
+            <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)' }} />
 
-        {/* ── Error backdrop ── */}
-        <Backdrop open={!!errorMessage} sx={{ zIndex: 9999, backdropFilter: 'blur(8px)', bgcolor: 'rgba(0,0,0,0.5)' }} onClick={() => setErrorMessage('')}>
-          <Box onClick={e => e.stopPropagation()} sx={{ minWidth: 400, maxWidth: 560 }}>
-            {errorMessage && (
-              <Alert severity="error" sx={{ borderRadius: 3, boxShadow: '0 12px 48px rgba(0,0,0,0.4)', fontSize: '1rem', p: 3, '& .MuiAlert-message': { fontWeight: 600 } }} onClose={() => setErrorMessage('')}>
-                {errorMessage}
-              </Alert>
-            )}
-          </Box>
-        </Backdrop>
-
-        {/* ── Breadcrumb ── */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3.5, flexWrap: 'wrap', animation: 'bannerSlide 0.4s ease' }}>
-          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', color: MUTED }}>System</Typography>
-          <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: BD }} />
-          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', color: P, fontWeight: 700 }}>Page Management</Typography>
-          <Box sx={{ flex: 1 }} />
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 0.75, bgcolor: PANEL, border: `1px solid ${BD}`, borderRadius: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-            <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: '#22c55e', animation: 'pulse-ring 2s infinite', flexShrink: 0 }} />
-            <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.67rem', color: MUTED }}>{pages.length} pages registered</Typography>
-          </Box>
-        </Box>
-
-        {/* ── HERO CARD ── */}
-        <GlassCard sx={{ mb: 3, animation: 'sectionIn 0.4s ease' }}>
-          <Box sx={{ px: { xs: 3, md: 5 }, py: { xs: 3, md: 4 }, display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap' }}>
-            <Box sx={{ flex: 1, minWidth: 180 }}>
-              <Typography sx={{ fontWeight: 900, fontSize: { xs: '1.4rem', md: '1.75rem' }, color: P, lineHeight: 1.15, mb: 0.5, letterSpacing: '-0.01em' }}>Page Management</Typography>
-              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.8rem', color: MUTED, fontWeight: 600, mb: 1.5 }}>
-                Access Groups control which roles receive pages on Grant
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                {['superadmin', 'administrator', 'technical', 'staff'].map(role => (
-                  <Box key={role} sx={{ px: 1.5, py: 0.3, bgcolor: alpha(P, 0.07), border: `1px solid ${alpha(P, 0.18)}`, borderRadius: '20px' }}>
-                    <Typography sx={{ fontSize: '0.65rem', fontWeight: 900, color: P }}>{role}</Typography>
-                  </Box>
-                ))}
+            {/* Left: icon + title */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
+              <PagesIcon sx={{ fontSize: 28, color: T.accent }} />
+              <Box>
+                <Typography sx={{ fontSize: '1.1rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.2 }}>
+                  Page Management
+                </Typography>
+                <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontWeight: 600, opacity: 0.9 }}>
+                  Access Groups control which roles receive pages on Grant
+                </Typography>
               </Box>
             </Box>
-            <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'center' }}>
+
+            {/* Right: stats pill + action buttons */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, position: 'relative', zIndex: 1 }}>
+              {/* Stats pill */}
+              <Box sx={{ px: 2, py: 0.6, borderRadius: 6, bgcolor: alpha(T.accent, 0.09), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
+                <Typography sx={{ fontSize: '0.78rem', color: T.accent, fontWeight: 700 }}>
+                  {searchTerm
+                    ? `${filteredPages.length} / ${pages.length} pages`
+                    : `${filteredPages.length} page${filteredPages.length !== 1 ? 's' : ''}`}
+                </Typography>
+              </Box>
+
+              {/* Refresh */}
               <Tooltip title="Refresh pages">
-                <IconButton onClick={() => fetchPages()} disabled={loading} sx={{ width: 38, height: 38, border: `1px solid ${BD}`, borderRadius: 1.5, bgcolor: PANEL, '&:hover': { borderColor: P, color: P } }}>
-                  {loading ? <CircularProgress size={16} sx={{ color: P }} /> : <Refresh sx={{ fontSize: 17 }} />}
+                <IconButton
+                  onClick={() => fetchPages()}
+                  disabled={loading}
+                  size="small"
+                  sx={{
+                    width: 34, height: 34,
+                    bgcolor: alpha(T.accent, 0.08),
+                    border: `1px solid ${alpha(T.accent, 0.18)}`,
+                    borderRadius: 1.5, color: T.accent,
+                    '&:hover': { bgcolor: alpha(T.accent, 0.14) },
+                  }}
+                >
+                  {loading
+                    ? <CircularProgress size={14} sx={{ color: T.accent }} />
+                    : <Refresh sx={{ fontSize: 16 }} />}
                 </IconButton>
               </Tooltip>
-              <Btn startIcon={<Group sx={{ fontSize: 15 }} />} onClick={() => navigate('/users-list')}>User Access</Btn>
-              <Btn startIcon={<Add sx={{ fontSize: 15 }} />} onClick={() => setAddDialog(true)}>Add Page</Btn>
+
+              {/* User Access */}
+              <AccentButton
+                size="small"
+                variant="contained"
+                startIcon={<Group sx={{ fontSize: 14 }} />}
+                onClick={() => navigate('/users-list')}
+                 sx={{
+                  fontSize: '0.78rem',
+                  bgcolor: T.accent, color: '#fff',
+                  boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                  '&:hover': { bgcolor: T.accentDark },
+                }}
+              >
+                User Access
+              </AccentButton>
+
+              {/* Add Page */}
+              <AccentButton
+                size="small"
+                variant="contained"
+                startIcon={<Add sx={{ fontSize: 14 }} />}
+                onClick={() => setAddDialog(true)}
+                sx={{
+                  fontSize: '0.78rem',
+                  bgcolor: T.accent, color: '#fff',
+                  boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                  '&:hover': { bgcolor: T.accentDark },
+                }}
+              >
+                Add Page
+              </AccentButton>
             </Box>
           </Box>
-        </GlassCard>
+        </SectionCard>
 
-        {/* ── SEARCH ── */}
-        <GlassCard sx={{ mb: 3, animation: 'sectionIn 0.35s ease 0.05s both' }}>
-          <Box sx={{ px: 4, py: 2.5, borderBottom: `1px solid ${BD}`, display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Avatar sx={{ bgcolor: alpha(P, 0.1), width: 36, height: 36 }}><FilterList sx={{ color: P, fontSize: 18 }} /></Avatar>
-            <Typography sx={{ fontWeight: 900, fontSize: '0.88rem', color: P }}>Search Pages</Typography>
-          </Box>
-          <Box sx={{ px: 4, py: 3 }}>
-            <TextField fullWidth size="small"
+        {/* ── Records Card (fills remaining height, table scrolls inside) ── */}
+        <SectionCard sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+          {/* Search row */}
+          <Box sx={{ px: 3, py: 1, borderBottom: `1px solid ${BD}`, display: 'flex', alignItems: 'center', gap: 2, bgcolor: SUBTLE, flexShrink: 0 }}>
+            <Search sx={{ color: alpha(T.accent, 0.4), fontSize: 17, flexShrink: 0 }} />
+            <FieldInput
+              fullWidth size="small"
               placeholder="Search by name, description, URL, or ID…"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              sx={FX}
-              InputProps={{ startAdornment: <InputAdornment position="start"><Search sx={{ color: alpha(P, 0.4), fontSize: 18 }} /></InputAdornment> }}
+              sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#fff' } }}
             />
           </Box>
-        </GlassCard>
 
-        {/* ── PAGES TABLE ── */}
-        {loading && (
-          <Box sx={{ textAlign: 'center', py: 8 }}>
-            <CircularProgress sx={{ color: P }} size={40} />
-            <Typography sx={{ color: MUTED, mt: 2, fontWeight: 600 }}>Loading pages…</Typography>
-          </Box>
-        )}
-        <Box sx={{ animation: !loading ? 'fadeIn 0.4s ease' : 'none', display: loading ? 'none' : undefined }}>
-          <GlassCard sx={{ animation: 'sectionIn 0.35s ease 0.1s both' }}>
-              <SectionHeader
-                icon={currentNav.icon}
-                title={activeSection === 'all' ? 'All Pages' : activeSection}
-                subtitle={searchTerm ? `${filteredPages.length} of ${pages.length} pages · "${searchTerm}"` : `${filteredPages.length} page${filteredPages.length !== 1 ? 's' : ''} in this section`}
-              />
-
-              <Box sx={{ overflowX: 'auto' }}>
-                <Table sx={{ minWidth: 900 }}>
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: SUBTLE }}>
-                      {['ID', 'Page Name', 'Page Group', 'URL', 'Component', 'Access Groups', 'Actions'].map((h, i) => (
-                        <TableCell key={h} sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', fontWeight: 700, color: alpha(P, 0.5), textTransform: 'uppercase', letterSpacing: '0.1em', borderBottom: `2px solid ${alpha(P, 0.12)}`, py: 1.75, px: 2.5, whiteSpace: 'nowrap', textAlign: i === 6 ? 'center' : 'left' }}>
-                          {h}
+          {/* Scrollable table area — fills card, scrolls when rows overflow */}
+          <Box sx={{ flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'auto' }}>
+            {loading && !pages.length ? (
+              <Box sx={{ py: 8, textAlign: 'center' }}>
+                <Box sx={{ width: 32, height: 32, border: `2px solid ${alpha(T.accent, 0.15)}`, borderTopColor: T.accent, borderRadius: '50%', animation: 'spin 0.7s linear infinite', mx: 'auto', mb: 2 }} />
+                <Typography sx={{ color: MUTED, fontWeight: 500, fontSize: '0.84rem' }}>Loading pages…</Typography>
+              </Box>
+            ) : (
+              <Table sx={{ minWidth: 860 }} stickyHeader size="small">
+                <TableHead>
+                  <TableRow>
+                    {['ID', 'Page Name', 'Section', 'URL', 'Component', 'Access Groups', 'Actions'].map((h, i) => (
+                      <TableCell key={h} sx={{
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: '0.6rem', fontWeight: 700,
+                        color: alpha(T.accent, 0.5),
+                        textTransform: 'uppercase', letterSpacing: '0.1em',
+                        borderBottom: `2px solid ${alpha(T.accent, 0.12)}`,
+                        bgcolor: '#fafafa',
+                        py: 0.75, px: 2, whiteSpace: 'nowrap',
+                        textAlign: i === 6 ? 'center' : 'left',
+                      }}>
+                        {h}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {paginatedPages.length > 0 ? paginatedPages.map((pg) => {
+                    const badge = getDescriptionBadge(pg.page_description);
+                    return (
+                      <TableRow key={pg.id} sx={{
+                        '&:nth-of-type(even)': { bgcolor: T.rowOdd },
+                        '&:hover': { bgcolor: T.rowHover },
+                        transition: 'background-color 0.12s ease',
+                        borderBottom: `1px solid ${alpha(T.accent, 0.06)}`,
+                        height: `calc((100vh - 390px) / ${paginatedPages.length})`,
+                      }}>
+                        {/* ID */}
+                        <TableCell sx={{ px: 2, py: 1.15 }}>
+                          <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.7rem', color: alpha(T.accent, 0.45), fontWeight: 600 }}>#{pg.id}</Typography>
                         </TableCell>
-                      ))}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {paginatedPages.length > 0 ? paginatedPages.map((pg, idx) => {
-                      const badge = getDescriptionBadge(pg.page_description);
-                      return (
-                        <TableRow key={pg.id} sx={{ '&:nth-of-type(even)': { bgcolor: alpha(P, 0.018) }, '&:hover': { bgcolor: alpha(P, 0.04) }, transition: 'background-color 0.15s ease', borderBottom: `1px solid ${alpha(P, 0.06)}` }}>
-                          {/* ID */}
-                          <TableCell sx={{ px: 2.5, py: 2 }}>
-                            <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.72rem', color: alpha(P, 0.45), fontWeight: 600 }}>#{pg.id}</Typography>
-                          </TableCell>
-                          {/* Name */}
-                          <TableCell sx={{ px: 2.5, py: 2 }}>
-                            <Typography sx={{ fontWeight: 700, fontSize: '0.875rem', color: TXT }}>{pg.page_name}</Typography>
-                          </TableCell>
-                          {/* Description */}
-                          <TableCell sx={{ px: 2.5, py: 2 }}>
-                            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, px: 1.5, py: 0.5, bgcolor: alpha(badge.color, 0.08), border: `1px solid ${alpha(badge.color, 0.2)}`, borderRadius: '20px' }}>
-                              <Box sx={{ color: badge.color }}>{badge.icon}</Box>
-                              <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: badge.color, whiteSpace: 'nowrap' }}>{pg.page_description}</Typography>
-                            </Box>
-                          </TableCell>
-                          {/* URL */}
-                          <TableCell sx={{ px: 2.5, py: 2 }}>
-                            <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.72rem', color: MUTED, bgcolor: SUBTLE, px: 1, py: 0.4, borderRadius: 1, display: 'inline-block', border: `1px solid ${BD}` }}>
-                              {pg.page_url || 'N/A'}
-                            </Typography>
-                          </TableCell>
-                          {/* Component */}
-                          <TableCell sx={{ px: 2.5, py: 2 }}>
-                            {pg.component_identifier ? (
-                              <Tooltip title={getComponentInfo(pg.component_identifier) ? `${getComponentInfo(pg.component_identifier).componentName} · ${getComponentInfo(pg.component_identifier).routePath}` : 'No component mapping found'} arrow>
-                                <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, px: 1.25, py: 0.4, bgcolor: getComponentInfo(pg.component_identifier) ? alpha('#16a34a', 0.08) : alpha('#d97706', 0.08), border: `1px solid ${getComponentInfo(pg.component_identifier) ? alpha('#16a34a', 0.25) : alpha('#d97706', 0.25)}`, borderRadius: '20px', cursor: 'help' }}>
-                                  {getComponentInfo(pg.component_identifier)
-                                    ? <CheckCircle sx={{ fontSize: 11, color: '#16a34a' }} />
-                                    : <Warning sx={{ fontSize: 11, color: '#d97706' }} />}
-                                  <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.68rem', fontWeight: 700, color: getComponentInfo(pg.component_identifier) ? '#16a34a' : '#d97706' }}>{pg.component_identifier}</Typography>
+                        {/* Page Name */}
+                        <TableCell sx={{ px: 2, py: 1.15 }}>
+                          <Typography sx={{ fontWeight: 600, fontSize: '0.82rem', color: TXT }}>{pg.page_name}</Typography>
+                        </TableCell>
+                        {/* Section */}
+                        <TableCell sx={{ px: 2, py: 1.15 }}>
+                          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, px: 1.25, py: 0.2, bgcolor: alpha(badge.color, 0.07), border: `1px solid ${alpha(badge.color, 0.18)}`, borderRadius: '20px' }}>
+                            <Box sx={{ color: badge.color }}>{badge.icon}</Box>
+                            <Typography sx={{ fontSize: '0.66rem', fontWeight: 600, color: badge.color, whiteSpace: 'nowrap' }}>{pg.page_description}</Typography>
+                          </Box>
+                        </TableCell>
+                        {/* URL */}
+                        <TableCell sx={{ px: 2, py: 1.15 }}>
+                          <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.7rem', color: MUTED, bgcolor: SUBTLE, px: 0.75, py: 0.15, borderRadius: 1, display: 'inline-block', border: `1px solid ${BD}` }}>
+                            {pg.page_url || 'N/A'}
+                          </Typography>
+                        </TableCell>
+                        {/* Component */}
+                        <TableCell sx={{ px: 2, py: 1.15 }}>
+                          {pg.component_identifier ? (
+                            <Tooltip title={getComponentInfo(pg.component_identifier) ? `${getComponentInfo(pg.component_identifier).componentName} · ${getComponentInfo(pg.component_identifier).routePath}` : 'No component mapping found'} arrow>
+                              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, px: 1.1, py: 0.15, bgcolor: getComponentInfo(pg.component_identifier) ? alpha('#16a34a', 0.07) : alpha('#d97706', 0.07), border: `1px solid ${getComponentInfo(pg.component_identifier) ? alpha('#16a34a', 0.22) : alpha('#d97706', 0.22)}`, borderRadius: '20px', cursor: 'help' }}>
+                                {getComponentInfo(pg.component_identifier)
+                                  ? <CheckCircle sx={{ fontSize: 10, color: '#16a34a' }} />
+                                  : <Warning sx={{ fontSize: 10, color: '#d97706' }} />}
+                                <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.66rem', fontWeight: 600, color: getComponentInfo(pg.component_identifier) ? '#16a34a' : '#d97706' }}>{pg.component_identifier}</Typography>
+                              </Box>
+                            </Tooltip>
+                          ) : (
+                            <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.66rem', color: alpha(MUTED, 0.5), fontStyle: 'italic' }}>—</Typography>
+                          )}
+                        </TableCell>
+                        {/* Access Groups */}
+                        <TableCell sx={{ px: 2, py: 1.15, maxWidth: 200 }}>
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4 }}>
+                            {pg.page_group ? pg.page_group.split(',').map((g, i) => {
+                              const gc = getGroupColor(g.trim());
+                              return (
+                                <Box key={i} sx={{ px: 1.1, py: 0.05, border: `1px solid ${alpha(gc, 0.28)}`, borderRadius: '20px', bgcolor: alpha(gc, 0.05) }}>
+                                  <Typography sx={{ fontSize: '0.6rem', fontWeight: 700, color: gc }}>{g.trim().toUpperCase()}</Typography>
                                 </Box>
-                              </Tooltip>
-                            ) : (
-                              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.68rem', color: alpha(MUTED, 0.5), fontStyle: 'italic' }}>—</Typography>
-                            )}
-                          </TableCell>
-                          {/* Access Groups */}
-                          <TableCell sx={{ px: 2.5, py: 2, maxWidth: 220 }}>
-                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                              {pg.page_group ? pg.page_group.split(',').map((g, i) => {
-                                const gc = getGroupColor(g.trim());
-                                return (
-                                  <Box key={i} sx={{ px: 1.25, py: 0.2, border: `1px solid ${alpha(gc.color, 0.3)}`, borderRadius: '20px', bgcolor: alpha(gc.color, 0.06) }}>
-                                    <Typography sx={{ fontSize: '0.62rem', fontWeight: 900, color: gc.color }}>{g.trim().toUpperCase()}</Typography>
-                                  </Box>
-                                );
-                              }) : <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.65rem', color: alpha(MUTED, 0.5), fontStyle: 'italic' }}>none</Typography>}
-                            </Box>
-                          </TableCell>
-                          {/* Actions */}
-                          <TableCell sx={{ px: 2.5, py: 2, textAlign: 'center' }}>
-                            <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                              <Tooltip title="Edit">
-                                <IconButton onClick={() => handleEdit(pg)} size="small" sx={{ width: 32, height: 32, border: `1px solid ${alpha(P, 0.2)}`, borderRadius: 1.5, color: P, '&:hover': { bgcolor: alpha(P, 0.08), borderColor: P } }}>
-                                  <Edit sx={{ fontSize: 14 }} />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Delete">
-                                <IconButton onClick={() => handleDeleteConfirm(pg.id)} size="small" sx={{ width: 32, height: 32, border: `1px solid ${alpha('#b91c1c', 0.2)}`, borderRadius: 1.5, color: '#b91c1c', '&:hover': { bgcolor: alpha('#b91c1c', 0.08), borderColor: '#b91c1c' } }}>
-                                  <Delete sx={{ fontSize: 14 }} />
-                                </IconButton>
-                              </Tooltip>
-                            </Box>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    }) : (
-                      <TableRow>
-                        <TableCell colSpan={7} sx={{ textAlign: 'center', py: 8 }}>
-                          <PagesIcon sx={{ fontSize: 56, color: alpha(P, 0.2), mb: 2, display: 'block', mx: 'auto' }} />
-                          <Typography sx={{ fontWeight: 700, color: alpha(P, 0.5), fontSize: '0.95rem', mb: 0.5 }}>No Pages Found</Typography>
-                          <Typography sx={{ color: MUTED, fontSize: '0.82rem' }}>{searchTerm ? 'Try adjusting your search' : 'No pages registered yet'}</Typography>
+                              );
+                            }) : <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.63rem', color: alpha(MUTED, 0.5), fontStyle: 'italic' }}>none</Typography>}
+                          </Box>
+                        </TableCell>
+                        {/* Actions */}
+                        <TableCell sx={{ px: 2, py: 1.15, textAlign: 'center' }}>
+                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                            <Tooltip title="Edit">
+                              <IconButton onClick={() => handleEdit(pg)} size="small" sx={{ width: 26, height: 26, border: `1px solid ${alpha(T.accent, 0.18)}`, borderRadius: 1.5, color: T.accent, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent } }}>
+                                <Edit sx={{ fontSize: 11 }} />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete">
+                              <IconButton onClick={() => handleDeleteConfirm(pg.id)} size="small" sx={{ width: 26, height: 26, border: `1px solid ${alpha('#c62828', 0.18)}`, borderRadius: 1.5, color: '#c62828', '&:hover': { bgcolor: 'rgba(198,40,40,0.05)', borderColor: '#c62828' } }}>
+                                <Delete sx={{ fontSize: 11 }} />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
                         </TableCell>
                       </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </Box>
+                    );
+                  }) : (
+                    <TableRow>
+                      <TableCell colSpan={7} sx={{ textAlign: 'center', py: 8 }}>
+                        <Box sx={{ width: 64, height: 64, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 1.5 }}>
+                          <PagesIcon sx={{ fontSize: 30, color: alpha(T.accent, 0.3) }} />
+                        </Box>
+                        <Typography sx={{ fontWeight: 600, color: alpha(T.accent, 0.5), fontSize: '0.9rem', mb: 0.4 }}>No Pages Found</Typography>
+                        <Typography sx={{ color: MUTED, fontSize: '0.8rem' }}>{searchTerm ? 'Try adjusting your search' : 'No pages registered yet'}</Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            )}
+          </Box>
 
-              {filteredPages.length > 0 && (
-                <Box sx={{ px: 3, py: 1.5, borderTop: `1px solid ${BD}`, display: 'flex', justifyContent: 'flex-end' }}>
-                  <TablePagination
-                    component="div"
-                    count={filteredPages.length}
-                    page={page}
-                    onPageChange={(_, np) => setPage(np)}
-                    rowsPerPage={rowsPerPage}
-                    onRowsPerPageChange={e => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
-                    rowsPerPageOptions={[5, 10, 25, 50]}
-                    sx={{ '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', color: MUTED } }}
-                  />
-                </Box>
-              )}
-            </GlassCard>
-        </Box>
+          {/* Pagination pinned at bottom of card */}
+          {filteredPages.length > 0 && (
+            <Box sx={{ px: 3, py: 0, borderTop: `1px solid ${BD}`, display: 'flex', justifyContent: 'flex-end', bgcolor: '#fafafa', flexShrink: 0 }}>
+              <TablePagination
+                component="div"
+                count={filteredPages.length}
+                page={page}
+                onPageChange={(_, np) => setPage(np)}
+                rowsPerPage={rowsPerPage}
+                onRowsPerPageChange={e => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+                rowsPerPageOptions={[5, 10, 25, 50]}
+                sx={{
+                  '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': {
+                    fontFamily: "'JetBrains Mono', monospace", fontSize: '0.7rem', color: MUTED,
+                  },
+                  '& .MuiTablePagination-toolbar': { minHeight: 36, py: 0 }, // ← compact toolbar
+                }}
+              />
+            </Box>
+          )}
+        </SectionCard>
       </Box>
 
       {/* ══ RIGHT SIDEBAR ══ */}
       <Box sx={{
-        width: SIDEBAR_W, bgcolor: PANEL, borderLeft: `2px solid ${alpha(P, 0.28)}`,
-        boxShadow: `-3px 0 18px ${alpha(P, 0.05)}`, display: 'flex', flexDirection: 'column',
-        position: 'fixed', right: 0, top: 0, height: '100vh', overflowY: 'auto', zIndex: 1200,
+        width: SIDEBAR_W, bgcolor: '#fff',
+        borderLeft: `1px solid ${BD}`,
+        display: 'flex', flexDirection: 'column',
+        position: 'fixed', right: 0, top: 0, height: '100vh',
+        overflowY: 'auto', zIndex: 1200,
       }}>
-        {/* Sidebar header */}
-        <Box sx={{ px: 3, py: 2.5, borderBottom: `1px solid ${alpha(P, 0.1)}`, display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0, background: `linear-gradient(135deg,${alpha(P, 0.07)} 0%,${alpha(P, 0.01)} 100%)` }}>
-          <Box sx={{ width: 36, height: 36, bgcolor: P, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 1.5, flexShrink: 0, boxShadow: `0 4px 12px ${alpha(P, 0.4)}` }}>
-            <PagesIcon sx={{ fontSize: 18, color: '#fff' }} />
+        {/* Header */}
+        <Box sx={{ px: 3, py: 2.5, borderBottom: `1px solid ${BD}`, display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+          <Box sx={{ width: 30, height: 30, bgcolor: T.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 1, flexShrink: 0 }}>
+            <PagesIcon sx={{ fontSize: 16, color: '#fff' }} />
           </Box>
           <Box>
-            <Typography sx={{ fontWeight: 900, fontSize: '0.88rem', color: P, lineHeight: 1.2 }}>Page Management</Typography>
-            <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.57rem', color: alpha(P, 0.4), letterSpacing: '0.08em', textTransform: 'uppercase' }}>System Configuration</Typography>
+            <Typography sx={{ fontWeight: 700, fontSize: '0.85rem', color: TXT, lineHeight: 1.2 }}>Page Management</Typography>
+            <Typography sx={{ fontSize: '0.62rem', color: MUTED, letterSpacing: '0.03em' }}>System Configuration</Typography>
           </Box>
         </Box>
 
-        {/* Stats mini */}
-        <Box sx={{ mx: 2.5, my: 2, p: 2, bgcolor: alpha(P, 0.04), borderRadius: 2, border: `1px solid ${alpha(P, 0.1)}`, flexShrink: 0 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
-            <Box sx={{ textAlign: 'center' }}>
-              <Typography sx={{ fontWeight: 900, fontSize: '1.3rem', color: P, lineHeight: 1 }}>{pages.length}</Typography>
-              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.57rem', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Total</Typography>
-            </Box>
-            <Box sx={{ textAlign: 'center' }}>
-              <Typography sx={{ fontWeight: 900, fontSize: '1.3rem', color: P, lineHeight: 1 }}>{filteredPages.length}</Typography>
-              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.57rem', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Filtered</Typography>
-            </Box>
-            <Box sx={{ textAlign: 'center' }}>
-              <Typography sx={{ fontWeight: 900, fontSize: '1.3rem', color: P, lineHeight: 1 }}>{descriptionOptions.length}</Typography>
-              <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.57rem', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Sections</Typography>
-            </Box>
+        {/* Stats */}
+        <Box sx={{ mx: 2.5, my: 2, p: 2, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${BD}`, flexShrink: 0 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            {[
+              { label: 'Total',    value: pages.length },
+              { label: 'Filtered', value: filteredPages.length },
+              { label: 'Sections', value: descriptionOptions.length },
+            ].map(({ label, value }) => (
+              <Box key={label} sx={{ textAlign: 'center' }}>
+                <Typography sx={{ fontWeight: 900, fontSize: '1.3rem', color: T.accent, lineHeight: 1 }}>{value}</Typography>
+                <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.57rem', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</Typography>
+              </Box>
+            ))}
           </Box>
         </Box>
 
-        {/* Active section badge */}
-        <Box sx={{ mx: 2.5, mb: 1.5, px: 2, py: 1.25, bgcolor: alpha(P, 0.06), borderRadius: 1.5, border: `1px solid ${alpha(P, 0.16)}`, flexShrink: 0 }}>
-          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.56rem', color: alpha(P, 0.45), textTransform: 'uppercase', letterSpacing: '0.1em', mb: 0.3 }}>Active Filter</Typography>
-          <Typography sx={{ fontWeight: 900, fontSize: '0.8rem', color: P }}>{activeSection === 'all' ? 'All Pages' : activeSection}</Typography>
+        {/* Active filter badge */}
+        <Box sx={{ mx: 2.5, mb: 1.5, px: 2, py: 1.25, bgcolor: T.accentFaint, borderRadius: 1.5, border: `1px solid ${BD}`, flexShrink: 0 }}>
+          <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.56rem', color: alpha(T.accent, 0.45), textTransform: 'uppercase', letterSpacing: '0.1em', mb: 0.3 }}>Active Filter</Typography>
+          <Typography sx={{ fontWeight: 700, fontSize: '0.8rem', color: T.accent }}>{activeSection === 'all' ? 'All Pages' : activeSection}</Typography>
         </Box>
 
         {/* Nav */}
-        <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.56rem', fontWeight: 700, color: alpha(P, 0.32), letterSpacing: '0.14em', textTransform: 'uppercase', px: 3, pb: 0.75, pt: 0.5 }}>Filter by Section</Typography>
+        <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.56rem', fontWeight: 700, color: alpha(T.accent, 0.32), letterSpacing: '0.14em', textTransform: 'uppercase', px: 3, pb: 0.75, pt: 0.5 }}>
+          Filter by Section
+        </Typography>
         <Box sx={{ flex: 1 }}>
           {NAV.map(({ key, label, icon: Icon }) => {
             const active = activeSection === key;
             const count = key === 'all' ? pages.length : pages.filter(p => p.page_description === key).length;
             return (
-              <Box key={key} onClick={() => setActiveSection(key)} sx={{ display: 'flex', alignItems: 'center', gap: 1.75, px: 3, py: 1.25, cursor: 'pointer', borderLeft: active ? `3px solid ${P}` : '3px solid transparent', bgcolor: active ? alpha(P, 0.09) : 'transparent', transition: 'all 0.14s ease', '&:hover': { bgcolor: active ? alpha(P, 0.09) : alpha(P, 0.04) } }}>
-                <Icon sx={{ fontSize: 15, color: active ? P : alpha(P, 0.35), flexShrink: 0 }} />
-                <Typography sx={{ fontSize: '0.84rem', fontWeight: active ? 700 : 500, color: active ? P : MUTED, flex: 1 }}>{label}</Typography>
-                {count > 0 && <Box sx={{ px: 1, py: 0.1, bgcolor: active ? alpha(P, 0.15) : alpha(P, 0.07), borderRadius: '20px' }}><Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', fontWeight: 900, color: active ? P : MUTED }}>{count}</Typography></Box>}
-                {active && <KeyboardArrowRight sx={{ fontSize: 13, color: alpha(P, 0.4) }} />}
+              <Box key={key} onClick={() => setActiveSection(key)} sx={{
+                display: 'flex', alignItems: 'center', gap: 1.5,
+                px: 3, py: 1.15, cursor: 'pointer', mx: 1,
+                borderRadius: '0 6px 6px 0',
+                bgcolor: active ? alpha(T.accent, 0.07) : 'transparent',
+                transition: 'all 0.12s ease',
+                '&:hover': { bgcolor: active ? alpha(T.accent, 0.07) : alpha(T.accent, 0.03) },
+              }}>
+                <Icon sx={{ fontSize: 15, color: active ? T.accent : MUTED, flexShrink: 0 }} />
+                <Typography sx={{ fontSize: '0.84rem', fontWeight: active ? 600 : 400, color: active ? TXT : MUTED, flex: 1 }}>{label}</Typography>
+                {count > 0 && (
+                  <Box sx={{ px: 1, py: 0.1, bgcolor: active ? alpha(T.accent, 0.12) : alpha(T.accent, 0.06), borderRadius: '20px' }}>
+                    <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.6rem', fontWeight: 700, color: active ? T.accent : MUTED }}>{count}</Typography>
+                  </Box>
+                )}
+                {active && <KeyboardArrowRight sx={{ fontSize: 13, color: alpha(T.accent, 0.4) }} />}
               </Box>
             );
           })}
         </Box>
 
         {/* Footer */}
-        <Box sx={{ px: 3, py: 2, borderTop: `1px solid ${alpha(P, 0.08)}`, flexShrink: 0, bgcolor: alpha(P, 0.013) }}>
-          <Typography sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.6rem', color: alpha(P, 0.4) }}>Page Management · HRIS System</Typography>
+        <Box sx={{ px: 3, py: 2, borderTop: `1px solid ${BD}`, flexShrink: 0 }}>
+          <Typography sx={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.6rem', color: alpha(T.accent, 0.4) }}>Page Management · HRIS System</Typography>
         </Box>
       </Box>
 
       {/* ══ ADD DIALOG ══ */}
-      <Dialog open={addDialog} onClose={cancelAdd} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3, bgcolor: '#f7f8fa', overflow: 'hidden' } }}>
-        <Box sx={{ px: 3, py: 2.5, background: `linear-gradient(135deg, ${P} 0%, ${S} 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 38, height: 38 }}><Add sx={{ fontSize: 18, color: '#fff' }} /></Avatar>
-            <Typography sx={{ fontWeight: 900, fontSize: '0.95rem', color: '#fff' }}>Add New Page</Typography>
-          </Box>
-          <IconButton onClick={cancelAdd} sx={{ color: 'rgba(255,255,255,0.7)', '&:hover': { color: '#fff' } }}><Cancel sx={{ fontSize: 17 }} /></IconButton>
-        </Box>
-        <Box sx={{ px: 4, py: 3, overflowY: 'auto', maxHeight: '65vh' }}>{renderFormFields()}</Box>
-        <Box sx={{ px: 3, py: 2, borderTop: `1px solid ${BD}`, display: 'flex', justifyContent: 'flex-end', gap: 1.25, bgcolor: PANEL, boxShadow: '0 -2px 8px rgba(0,0,0,0.05)' }}>
+      <Dialog open={addDialog} onClose={cancelAdd} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
+        <DlgHeader icon={Add} title="Add New Page" onClose={cancelAdd} />
+        <DialogContent sx={{ pt: 3, px: 3.5, overflowY: 'auto', maxHeight: '65vh' }}>
+          {renderFormFields()}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, borderTop: `1px solid ${BD}`, gap: 1, bgcolor: '#f9f9f9' }}>
           <Btn outline onClick={cancelAdd}>Cancel</Btn>
-          <Btn onClick={handleSubmit} disabled={loading} startIcon={loading ? <CircularProgress size={14} sx={{ color: '#fff' }} /> : <Save sx={{ fontSize: 15 }} />}>{loading ? 'Creating…' : 'Create Page'}</Btn>
-        </Box>
+          <Btn onClick={handleSubmit} disabled={loading} startIcon={loading ? <CircularProgress size={14} sx={{ color: '#fff' }} /> : <Save sx={{ fontSize: 15 }} />}>
+            {loading ? 'Creating…' : 'Create Page'}
+          </Btn>
+        </DialogActions>
       </Dialog>
 
       {/* ══ EDIT DIALOG ══ */}
-      <Dialog open={editDialog} onClose={cancelEdit} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3, bgcolor: '#f7f8fa', overflow: 'hidden' } }}>
-        <Box sx={{ px: 3, py: 2.5, background: `linear-gradient(135deg, ${P} 0%, ${S} 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 38, height: 38 }}><Edit sx={{ fontSize: 18, color: '#fff' }} /></Avatar>
-            <Typography sx={{ fontWeight: 900, fontSize: '0.95rem', color: '#fff' }}>Edit Page</Typography>
-          </Box>
-          <IconButton onClick={cancelEdit} sx={{ color: 'rgba(255,255,255,0.7)', '&:hover': { color: '#fff' } }}><Cancel sx={{ fontSize: 17 }} /></IconButton>
-        </Box>
-        <Box sx={{ px: 4, py: 3, overflowY: 'auto', maxHeight: '65vh' }}>{renderFormFields()}</Box>
-        <Box sx={{ px: 3, py: 2, borderTop: `1px solid ${BD}`, display: 'flex', justifyContent: 'flex-end', gap: 1.25, bgcolor: PANEL, boxShadow: '0 -2px 8px rgba(0,0,0,0.05)' }}>
+      <Dialog open={editDialog} onClose={cancelEdit} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
+        <DlgHeader icon={Edit} title="Edit Page" onClose={cancelEdit} />
+        <DialogContent sx={{ pt: 3, px: 3.5, overflowY: 'auto', maxHeight: '65vh' }}>
+          {renderFormFields()}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, borderTop: `1px solid ${BD}`, gap: 1, bgcolor: '#f9f9f9' }}>
           <Btn outline onClick={cancelEdit}>Cancel</Btn>
-          <Btn onClick={handleSubmit} disabled={loading} startIcon={loading ? <CircularProgress size={14} sx={{ color: '#fff' }} /> : <Save sx={{ fontSize: 15 }} />}>{loading ? 'Updating…' : 'Update Page'}</Btn>
-        </Box>
+          <Btn onClick={handleSubmit} disabled={loading} startIcon={loading ? <CircularProgress size={14} sx={{ color: '#fff' }} /> : <Save sx={{ fontSize: 15 }} />}>
+            {loading ? 'Updating…' : 'Update Page'}
+          </Btn>
+        </DialogActions>
       </Dialog>
 
       {/* ══ DELETE DIALOG ══ */}
-      <Dialog open={deleteDialog} onClose={() => { setDeleteDialog(false); setDeleteConfirmed(false); }} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3, bgcolor: '#f7f8fa', overflow: 'hidden' } }}>
-        <Box sx={{ px: 3, py: 2.5, background: `linear-gradient(135deg, ${P} 0%, ${S} 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 38, height: 38 }}><Warning sx={{ fontSize: 18, color: '#fff' }} /></Avatar>
-            <Box>
-              <Typography sx={{ fontWeight: 900, fontSize: '0.95rem', color: '#fff' }}>Confirm Deletion</Typography>
-              <Typography sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)' }}>This action requires confirmation</Typography>
-            </Box>
-          </Box>
-          <IconButton onClick={() => { setDeleteDialog(false); setDeleteConfirmed(false); }} sx={{ color: 'rgba(255,255,255,0.7)', '&:hover': { color: '#fff' } }}><Cancel sx={{ fontSize: 17 }} /></IconButton>
-        </Box>
-
-        <Box sx={{ px: 4, py: 4 }}>
+      <Dialog open={deleteDialog} onClose={() => { setDeleteDialog(false); setDeleteConfirmed(false); }} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
+        <DlgHeader icon={Warning} title="Confirm Deletion" onClose={() => { setDeleteDialog(false); setDeleteConfirmed(false); }} />
+        <DialogContent sx={{ pt: 3, px: 3.5 }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', mb: 3 }}>
-            <Box sx={{ width: 64, height: 64, borderRadius: '50%', bgcolor: alpha('#b91c1c', 0.08), border: `2px solid ${alpha('#b91c1c', 0.15)}`, display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2.5 }}>
-              <Delete sx={{ fontSize: 30, color: '#b91c1c' }} />
+            <Box sx={{ width: 60, height: 60, borderRadius: '50%', bgcolor: 'rgba(198,40,40,0.07)', border: `2px solid ${alpha('#c62828', 0.15)}`, display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
+              <Delete sx={{ fontSize: 28, color: '#c62828' }} />
             </Box>
-            <Typography sx={{ fontWeight: 700, fontSize: '0.95rem', color: TXT, mb: 1 }}>Are you sure you want to delete this page?</Typography>
-            <Typography sx={{ fontSize: '0.82rem', color: MUTED, lineHeight: 1.65 }}>This action cannot be undone. Deleting this page will permanently remove it and revoke all associated user access permissions.</Typography>
+            <Typography sx={{ fontWeight: 700, fontSize: '0.93rem', color: TXT, mb: 0.75 }}>Are you sure you want to delete this page?</Typography>
+            <Typography sx={{ fontSize: '0.82rem', color: MUTED, lineHeight: 1.65 }}>
+              This action cannot be undone. Deleting this page will permanently remove it and revoke all associated user access permissions.
+            </Typography>
           </Box>
-          <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: alpha(P, 0.04), border: `2px solid ${deleteConfirmed ? P : alpha(P, 0.15)}`, transition: 'all 0.2s ease' }}>
+          <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: T.accentFaint, border: `2px solid ${deleteConfirmed ? T.accent : BD}`, transition: 'all 0.2s ease' }}>
             <FormControlLabel
-              control={<Checkbox checked={deleteConfirmed} onChange={e => setDeleteConfirmed(e.target.checked)} sx={{ color: P, '&.Mui-checked': { color: P } }} />}
-              label={<Typography sx={{ fontSize: '0.875rem', fontWeight: deleteConfirmed ? 700 : 500, color: TXT }}>I understand this action cannot be undone</Typography>}
+              control={<Checkbox checked={deleteConfirmed} onChange={e => setDeleteConfirmed(e.target.checked)} size="small" sx={{ color: BD, '&.Mui-checked': { color: T.accent } }} />}
+              label={<Typography sx={{ fontSize: '0.875rem', fontWeight: deleteConfirmed ? 600 : 400, color: TXT }}>I understand this action cannot be undone</Typography>}
             />
           </Box>
-        </Box>
-
-        <Box sx={{ px: 3, py: 2, borderTop: `1px solid ${BD}`, display: 'flex', gap: 1.25, bgcolor: PANEL }}>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, borderTop: `1px solid ${BD}`, gap: 1, bgcolor: '#f9f9f9' }}>
           <Btn outline fullWidth onClick={() => { setDeleteDialog(false); setDeleteConfirmed(false); }}>Cancel</Btn>
           <Btn danger fullWidth disabled={loading || !deleteConfirmed}
+            onClick={handleDelete}
             startIcon={loading ? <CircularProgress size={14} sx={{ color: '#fff' }} /> : <Delete sx={{ fontSize: 14 }} />}>
             {loading ? 'Deleting…' : 'Delete Page'}
           </Btn>
-        </Box>
+        </DialogActions>
       </Dialog>
     </Box>
   );

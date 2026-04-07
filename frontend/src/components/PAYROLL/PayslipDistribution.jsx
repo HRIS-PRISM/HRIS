@@ -1,5 +1,5 @@
 import API_BASE_URL from "../../apiConfig";
-import React, { forwardRef, useRef, useState, useEffect, useCallback } from "react";
+import React, { forwardRef, useRef, useState, useEffect, useCallback, memo } from "react";
 import {
   Paper,
   Typography,
@@ -408,6 +408,108 @@ const PayslipDistributionWireframe = () => (
   </>
 );
 
+// ── Page Header (defined OUTSIDE the main component to prevent remount blinking) ──
+const PageHeader = memo(({
+  primaryColor,
+  secondaryColor,
+  accentColor,
+  textPrimaryColor,
+  onRefresh,
+}) => (
+  <Fade in timeout={500}>
+    <Box sx={{ mb: 4 }}>
+      <GlassCard
+        sx={{
+          background: `rgba(${hexToRgb(primaryColor)},0.95)`,
+          boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
+          border: `1px solid ${alpha(accentColor, 0.1)}`,
+        }}
+      >
+        <Box
+          sx={{
+            p: 5,
+            background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`,
+            position: "relative",
+            overflow: "hidden",
+          }}
+        >
+          <Box
+            sx={{
+              position: "absolute",
+              top: -50,
+              right: -50,
+              width: 200,
+              height: 200,
+              background: `radial-gradient(circle,${alpha(accentColor, 0.1)} 0%,transparent 70%)`,
+            }}
+          />
+          <Box
+            sx={{
+              position: "absolute",
+              bottom: -30,
+              left: "30%",
+              width: 150,
+              height: 150,
+              background: `radial-gradient(circle,${alpha(accentColor, 0.08)} 0%,transparent 70%)`,
+            }}
+          />
+          <Box
+            display="flex"
+            alignItems="center"
+            justifyContent="space-between"
+            position="relative"
+            zIndex={1}
+          >
+            <Box display="flex" alignItems="center">
+              <Avatar
+                sx={{
+                  bgcolor: alpha(primaryColor, 0.8),
+                  mr: 4,
+                  width: 64,
+                  height: 64,
+                  boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`,
+                }}
+              >
+                <WorkIcon sx={{ color: textPrimaryColor, fontSize: 32 }} />
+              </Avatar>
+              <Box>
+                <Typography
+                  variant="h4"
+                  sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}
+                >
+                  Employee Payslip Distribution
+                </Typography>
+                <Typography
+                  variant="body1"
+                  sx={{ opacity: 0.8, color: textPrimaryColor }}
+                >
+                  Manage and distribute monthly employee payslip records
+                </Typography>
+              </Box>
+            </Box>
+            <Box display="flex" alignItems="center" gap={2}>
+              <Tooltip title="Refresh Data">
+                <IconButton
+                  onClick={onRefresh}
+                  sx={{
+                    bgcolor: "rgba(109,35,35,0.1)",
+                    "&:hover": { bgcolor: "rgba(109,35,35,0.2)" },
+                    color: textPrimaryColor,
+                    width: 48,
+                    height: 48,
+                  }}
+                >
+                  <Refresh />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+        </Box>
+      </GlassCard>
+    </Box>
+  </Fade>
+));
+
 // ══════════════════════════════════════════════════════════════════════════
 const PayslipDistribution = forwardRef(({ employee }, ref) => {
   // ── Refs ──────────────────────────────────────────────────────────────
@@ -501,18 +603,8 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
   );
 
   const months = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
+    "Jan","Feb","Mar","Apr","May","Jun",
+    "Jul","Aug","Sep","Oct","Nov","Dec",
   ];
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 6 }, (_, i) => currentYear - i);
@@ -528,7 +620,7 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
   };
 
   // ── Fetch ─────────────────────────────────────────────────────────────
-  const fetchPayrollData = async () => {
+  const fetchPayrollData = useCallback(async () => {
     try {
       setLoading(true);
       const res = await axios.get(
@@ -538,7 +630,6 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
       const data = res.data || [];
       setAllPayroll(data);
 
-      // ── Capture integrity data ─────────────────────────────────
       if (data.length > 0) {
         const immutable = Object.freeze(JSON.parse(JSON.stringify(data)));
         setOriginalPayroll(immutable);
@@ -559,11 +650,12 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   usePayrollRealtimeRefresh(() => {
     if (!employee) fetchPayrollData();
   });
+
   useEffect(() => {
     if (!employee) fetchPayrollData();
   }, [employee]);
@@ -610,11 +702,6 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
   // ── Individual handlers ───────────────────────────────────────────────
   const handleIndivSearch = () => {
     if (!indivSearch.trim()) return;
-    const result = allPayroll.filter(
-      (e) =>
-        e.employeeNumber.toString().includes(indivSearch.trim()) ||
-        e.name.toLowerCase().includes(indivSearch.trim().toLowerCase()),
-    );
     setDisplayEmployee(null);
     setIndivMonth("");
     setIndivHasSearched(true);
@@ -643,82 +730,6 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
   // ── Open payslip modal from table row ────────────────────────────────
   const openPayslipModal = (emp) => setPayslipModal({ open: true, emp });
 
-  // ── Modal: Download PDF ───────────────────────────────────────────────
-  const handleModalDownload = async () => {
-    if (!payslipModal.emp) return;
-    if (!verifyIntegrity()) return;
-    setModalSending(true);
-    try {
-      const pdf = await generate3MonthPDF(payslipModal.emp);
-      pdf.save(
-        `${getSurname(payslipModal.emp.name)}_${formatPeriod(payslipModal.emp.startDate)}.pdf`,
-      );
-      // Audit log for print
-      try {
-        await axios.post(
-          `${API_BASE_URL}/PayrollReleasedRoute/log-print`,
-          { employeeNumber: payslipModal.emp.employeeNumber },
-          getAuthHeaders(),
-        );
-      } catch (e) {
-        console.error('Print audit log error:', e);
-      }
-      setModalActionModal({ open: true, type: "success", action: "download" });
-    } catch {
-      setModalActionModal({
-        open: true,
-        type: "error",
-        message: "Failed to generate PDF.",
-      });
-    } finally {
-      setModalSending(false);
-    }
-  };
-
-  // ── Modal: Send via Gmail ─────────────────────────────────────────────
-  const handleModalSendGmail = async () => {
-    if (!payslipModal.emp) return;
-    if (!verifyIntegrity()) return;
-    setModalSending(true);
-    try {
-      const emp = payslipModal.emp;
-      const pdf = await generate3MonthPDF(emp);
-      const filename = `${getSurname(emp.name)}_${formatPeriod(emp.startDate)}.pdf`;
-      const blob = pdf.output("blob");
-      const fd = new FormData();
-      fd.append("pdf", blob, filename);
-      fd.append("name", emp.name);
-      fd.append("employeeNumber", emp.employeeNumber);
-      const res = await axios.post(
-        `${API_BASE_URL}/SendPayslipRoute/send-payslip`,
-        fd,
-        {
-          ...getAuthHeaders(),
-          headers: {
-            ...getAuthHeaders().headers,
-            "Content-Type": "multipart/form-data",
-          },
-        },
-      );
-      if (res.data.success)
-        setModalActionModal({ open: true, type: "success", action: "gmail" });
-      else
-        setModalActionModal({
-          open: true,
-          type: "error",
-          message: res.data.error || "Failed to send payslip.",
-        });
-    } catch {
-      setModalActionModal({
-        open: true,
-        type: "error",
-        message: "An error occurred while sending payslip.",
-      });
-    } finally {
-      setModalSending(false);
-    }
-  };
-
   // ── Formatters ────────────────────────────────────────────────────────
   const formatCurrency = (v) => {
     const n = parseFloat(v);
@@ -727,8 +738,7 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
   const formatRenderedDays = (v) => {
     const h = Number(v);
     if (!isNaN(h) && h > 0) {
-      const d = Math.floor(h / 8),
-        r = h % 8;
+      const d = Math.floor(h / 8), r = h % 8;
       return `${d} days${r > 0 ? ` & ${r} hrs` : ""}`;
     }
     return "";
@@ -772,7 +782,7 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
     return true;
   };
 
-  // ── HTML payslip builder (used for all PDF generation) ────────────────
+  // ── HTML payslip builder ──────────────────────────────────────────────
   const buildPayslipHTML = (emp, logoSrc, hrisLogoSrc) => {
     const fc = (v) => {
       const n = parseFloat(v);
@@ -782,16 +792,14 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
     const frd = (v) => {
       const h = Number(v);
       if (!isNaN(h) && h > 0) {
-        const d = Math.floor(h / 8),
-          r = h % 8;
+        const d = Math.floor(h / 8), r = h % 8;
         return `${d} days${r > 0 ? ` & ${r} hrs` : ""}`;
       }
       return "";
     };
     const period = (() => {
       if (!emp.startDate || !emp.endDate) return "&mdash;";
-      const s = new Date(emp.startDate),
-        e = new Date(emp.endDate);
+      const s = new Date(emp.startDate), e = new Date(emp.endDate);
       return `${s.toLocaleString("en-US", { month: "long" }).toUpperCase()} ${s.getDate()}&ndash;${e.getDate()} ${e.getFullYear()}`;
     })();
     const isJO = (emp.employmentCategory ?? -1) === 0;
@@ -874,46 +882,14 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
         ${footer}`;
     } else {
       const rows = [
-        [
-          ["Withholding Tax", fc(emp.withholdingTax)],
-          ["GSIS Salary Loan", fc(emp.gsisSalaryLoan)],
-          ["Life & Retirement", fc(emp.personalLifeRetIns)],
-        ],
-        [
-          ["PhilHealth", fc(emp.PhilHealthContribution)],
-          ["GSIS Policy Loan", fc(emp.gsisPolicyLoan)],
-          ["PhilHealth Diff", fc(emp.philhealthDiff)],
-        ],
-        [
-          ["Pag-IBIG", fc(emp.pagibigFundCont)],
-          ["GSIS Housing Loan", fc(emp.gsisHousingLoan)],
-          ["Pag-IBIG 2", fc(emp.pagibig2)],
-        ],
-        [
-          ["SSS", fc(emp.sss)],
-          ["GSIS Arrears", fc(emp.gsisArrears)],
-          ["LBP Loan", fc(emp.lbpLoan)],
-        ],
-        [
-          ["ECC", fc(emp.ecc)],
-          ["GFAL", fc(emp.gfal)],
-          ["MTSLAI", fc(emp.mtslai)],
-        ],
-        [
-          ["To Be Refunded", fc(emp.toBeRefunded)],
-          ["CPL", fc(emp.cpl)],
-          ["ESLAI", fc(emp.eslai)],
-        ],
-        [
-          ["FEU", fc(emp.feu)],
-          ["MPL", fc(emp.mpl)],
-          ["ABS", fcAbs(emp.abs)],
-        ],
-        [
-          ["", ""],
-          ["MPL Lite", fc(emp.mplLite)],
-          ["ELA", fc(emp.ela)],
-        ],
+        [["Withholding Tax", fc(emp.withholdingTax)], ["GSIS Salary Loan", fc(emp.gsisSalaryLoan)], ["Life & Retirement", fc(emp.personalLifeRetIns)]],
+        [["PhilHealth", fc(emp.PhilHealthContribution)], ["GSIS Policy Loan", fc(emp.gsisPolicyLoan)], ["PhilHealth Diff", fc(emp.philhealthDiff)]],
+        [["Pag-IBIG", fc(emp.pagibigFundCont)], ["GSIS Housing Loan", fc(emp.gsisHousingLoan)], ["Pag-IBIG 2", fc(emp.pagibig2)]],
+        [["SSS", fc(emp.sss)], ["GSIS Arrears", fc(emp.gsisArrears)], ["LBP Loan", fc(emp.lbpLoan)]],
+        [["ECC", fc(emp.ecc)], ["GFAL", fc(emp.gfal)], ["MTSLAI", fc(emp.mtslai)]],
+        [["To Be Refunded", fc(emp.toBeRefunded)], ["CPL", fc(emp.cpl)], ["ESLAI", fc(emp.eslai)]],
+        [["FEU", fc(emp.feu)], ["MPL", fc(emp.mpl)], ["ABS", fcAbs(emp.abs)]],
+        [["", ""], ["MPL Lite", fc(emp.mplLite)], ["ELA", fc(emp.ela)]],
       ];
       bodyHTML = `
         <div style="border:2.5px solid #6d2323;border-radius:6px;margin-bottom:16px;overflow:hidden;">
@@ -929,39 +905,24 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
           <div style="display:grid;grid-template-columns:repeat(3,1fr);background:#f5eaea;border-bottom:2px solid #c9a8a8;">
             ${["Government & Tax", "GSIS Loans", "Other Deductions"].map((h, i) => `<div style="font-size:18px;font-weight:800;color:#6d2323;letter-spacing:0.06em;text-transform:uppercase;padding:8px 16px;font-family:Poppins,sans-serif;${i < 2 ? "border-right:2px solid #c9a8a8;" : ""}">${h}</div>`).join("")}
           </div>
-          ${rows
-            .map(
-              (row, ri) => `
+          ${rows.map((row, ri) => `
             <div style="display:grid;grid-template-columns:repeat(3,1fr);background:${ri % 2 === 0 ? "#fdf6f6" : "#fff"};border-bottom:1.5px solid #c9a8a8;">
-              ${row
-                .map(
-                  ([lbl, val], ci) => `
+              ${row.map(([lbl, val], ci) => `
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 12px;${ci < 2 ? "border-right:1.5px solid #c9a8a8;" : ""}min-height:38px;gap:4px;">
                   <span style="font-size:20px;color:#1a1a1a;font-family:Poppins,sans-serif;font-weight:700;flex:1;">${lbl || ""}</span>
                   <span style="font-size:20px;font-weight:900;color:${val ? "#6d2323" : "#aaa"};font-family:Poppins,sans-serif;min-width:100px;text-align:right;">${val || "&mdash;"}</span>
-                </div>`,
-                )
-                .join("")}
-            </div>`,
-            )
-            .join("")}
+                </div>`).join("")}
+            </div>`).join("")}
         </div>
         ${summaryCards(fc(emp.netSalary), fc(emp.totalDeductions), netPayCalc)}
         <div style="border:2.5px solid #6d2323;border-radius:6px;margin-bottom:16px;overflow:hidden;">
           ${secHead("PAYMENT BREAKDOWN")}
           <div style="display:grid;grid-template-columns:1fr 1fr;">
-            ${[
-              ["1ST QUINCENA", fc(emp.pay1st)],
-              ["2ND QUINCENA", fc(emp.pay2nd)],
-            ]
-              .map(
-                ([lbl, val], i) => `
+            ${[["1ST QUINCENA", fc(emp.pay1st)], ["2ND QUINCENA", fc(emp.pay2nd)]].map(([lbl, val], i) => `
               <div style="padding:16px;${i === 0 ? "border-right:2px solid #e0c8c8;" : ""}min-height:70px;">
                 <div style="font-size:18px;font-weight:800;color:#6d2323;letter-spacing:0.1em;text-transform:uppercase;font-family:Poppins,sans-serif;margin-bottom:4px;">${lbl}</div>
                 <div style="font-size:26px;font-weight:900;color:#1a1a1a;font-family:Poppins,sans-serif;line-height:1.1;">${val || "&mdash;"}</div>
-              </div>`,
-              )
-              .join("")}
+              </div>`).join("")}
           </div>
         </div>
         ${footer}`;
@@ -974,7 +935,7 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
       </div>`;
   };
 
-  // ── Core PDF generator (used by both bulk & individual) ───────────────
+  // ── Core PDF generator ────────────────────────────────────────────────
   const generate3MonthPDF = async (emp) => {
     const s = new Date(emp.startDate);
     const monthsToGet = [0, 1, 2].map((i) => {
@@ -1050,11 +1011,8 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
     containers.forEach((c) => document.body.removeChild(c));
 
     const pdf = new jsPDF("l", "in", "a4");
-    const cw = 3.5,
-      ch = 7.1,
-      gap = 0.2;
-    const pw = pdf.internal.pageSize.getWidth(),
-      ph = pdf.internal.pageSize.getHeight();
+    const cw = 3.5, ch = 7.1, gap = 0.2;
+    const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
     const tw = cw * 3 + gap * 2;
     const yo = (ph - ch) / 2;
     const pos = [
@@ -1066,6 +1024,54 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
     return pdf;
   };
 
+  // ── Modal: Download PDF ───────────────────────────────────────────────
+  const handleModalDownload = async () => {
+    if (!payslipModal.emp) return;
+    if (!verifyIntegrity()) return;
+    setModalSending(true);
+    try {
+      const pdf = await generate3MonthPDF(payslipModal.emp);
+      pdf.save(`${getSurname(payslipModal.emp.name)}_${formatPeriod(payslipModal.emp.startDate)}.pdf`);
+      try {
+        await axios.post(`${API_BASE_URL}/PayrollReleasedRoute/log-print`, { employeeNumber: payslipModal.emp.employeeNumber }, getAuthHeaders());
+      } catch (e) { console.error('Print audit log error:', e); }
+      setModalActionModal({ open: true, type: "success", action: "download" });
+    } catch {
+      setModalActionModal({ open: true, type: "error", message: "Failed to generate PDF." });
+    } finally {
+      setModalSending(false);
+    }
+  };
+
+  // ── Modal: Send via Gmail ─────────────────────────────────────────────
+  const handleModalSendGmail = async () => {
+    if (!payslipModal.emp) return;
+    if (!verifyIntegrity()) return;
+    setModalSending(true);
+    try {
+      const emp = payslipModal.emp;
+      const pdf = await generate3MonthPDF(emp);
+      const filename = `${getSurname(emp.name)}_${formatPeriod(emp.startDate)}.pdf`;
+      const blob = pdf.output("blob");
+      const fd = new FormData();
+      fd.append("pdf", blob, filename);
+      fd.append("name", emp.name);
+      fd.append("employeeNumber", emp.employeeNumber);
+      const res = await axios.post(`${API_BASE_URL}/SendPayslipRoute/send-payslip`, fd, {
+        ...getAuthHeaders(),
+        headers: { ...getAuthHeaders().headers, "Content-Type": "multipart/form-data" },
+      });
+      if (res.data.success)
+        setModalActionModal({ open: true, type: "success", action: "gmail" });
+      else
+        setModalActionModal({ open: true, type: "error", message: res.data.error || "Failed to send payslip." });
+    } catch {
+      setModalActionModal({ open: true, type: "error", message: "An error occurred while sending payslip." });
+    } finally {
+      setModalSending(false);
+    }
+  };
+
   // ── Individual: Download ──────────────────────────────────────────────
   const handleDownload = async () => {
     if (!displayEmployee) return;
@@ -1073,26 +1079,13 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
     setIndivSending(true);
     try {
       const pdf = await generate3MonthPDF(displayEmployee);
-      pdf.save(
-        `${getSurname(displayEmployee.name)}_${formatPeriod(displayEmployee.startDate)}.pdf`,
-      );
-      // Audit log for print
+      pdf.save(`${getSurname(displayEmployee.name)}_${formatPeriod(displayEmployee.startDate)}.pdf`);
       try {
-        await axios.post(
-          `${API_BASE_URL}/PayrollReleasedRoute/log-print`,
-          { employeeNumber: displayEmployee.employeeNumber },
-          getAuthHeaders(),
-        );
-      } catch (e) {
-        console.error('Print audit log error:', e);
-      }
+        await axios.post(`${API_BASE_URL}/PayrollReleasedRoute/log-print`, { employeeNumber: displayEmployee.employeeNumber }, getAuthHeaders());
+      } catch (e) { console.error('Print audit log error:', e); }
       setIndivModal({ open: true, type: "success", action: "download" });
     } catch {
-      setIndivModal({
-        open: true,
-        type: "error",
-        message: "Failed to generate PDF.",
-      });
+      setIndivModal({ open: true, type: "error", message: "Failed to generate PDF." });
     } finally {
       setIndivSending(false);
     }
@@ -1111,31 +1104,16 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
       fd.append("pdf", blob, filename);
       fd.append("name", displayEmployee.name);
       fd.append("employeeNumber", displayEmployee.employeeNumber);
-      const res = await axios.post(
-        `${API_BASE_URL}/SendPayslipRoute/send-payslip`,
-        fd,
-        {
-          ...getAuthHeaders(),
-          headers: {
-            ...getAuthHeaders().headers,
-            "Content-Type": "multipart/form-data",
-          },
-        },
-      );
+      const res = await axios.post(`${API_BASE_URL}/SendPayslipRoute/send-payslip`, fd, {
+        ...getAuthHeaders(),
+        headers: { ...getAuthHeaders().headers, "Content-Type": "multipart/form-data" },
+      });
       if (res.data.success)
         setIndivModal({ open: true, type: "success", action: "gmail" });
       else
-        setIndivModal({
-          open: true,
-          type: "error",
-          message: res.data.error || "Failed to send payslip.",
-        });
+        setIndivModal({ open: true, type: "error", message: res.data.error || "Failed to send payslip." });
     } catch {
-      setIndivModal({
-        open: true,
-        type: "error",
-        message: "An error occurred while sending payslip.",
-      });
+      setIndivModal({ open: true, type: "error", message: "An error occurred while sending payslip." });
     } finally {
       setIndivSending(false);
     }
@@ -1148,9 +1126,7 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
     setSending(true);
     setLoadingMessage("Generating payslips and sending via Gmail...");
     try {
-      const emps = filteredPayroll.filter((e) =>
-        selectedEmployees.includes(e.employeeNumber),
-      );
+      const emps = filteredPayroll.filter((e) => selectedEmployees.includes(e.employeeNumber));
       const batchSize = 3;
       const batches = [];
       for (let i = 0; i < emps.length; i += batchSize)
@@ -1163,19 +1139,13 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
         setLoadingMessage(`Processing batch ${bi + 1}/${batches.length}...`);
         const results = await Promise.all(
           batches[bi].map(async (emp) => {
-            setLoadingMessage(
-              `Batch ${bi + 1}/${batches.length}: Generating for ${emp.name}...`,
-            );
+            setLoadingMessage(`Batch ${bi + 1}/${batches.length}: Generating for ${emp.name}...`);
             const pdf = await generate3MonthPDF(emp);
             return { blob: pdf.output("blob"), emp };
           }),
         );
         results.forEach(({ blob, emp }) => {
-          fd.append(
-            "pdfs",
-            blob,
-            `${getSurname(emp.name)}_${formatPeriod(emp.startDate)}.pdf`,
-          );
+          fd.append("pdfs", blob, `${getSurname(emp.name)}_${formatPeriod(emp.startDate)}.pdf`);
           meta.push({ name: emp.name, employeeNumber: emp.employeeNumber });
         });
       }
@@ -1184,18 +1154,11 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
       fd.append("payslips", JSON.stringify(meta));
       await axios.post(`${API_BASE_URL}/SendPayslipRoute/send-bulk`, fd, {
         ...getAuthHeaders(),
-        headers: {
-          ...getAuthHeaders().headers,
-          "Content-Type": "multipart/form-data",
-        },
+        headers: { ...getAuthHeaders().headers, "Content-Type": "multipart/form-data" },
       });
       setSuccessOverlay({ open: true, action: "gmail" });
     } catch {
-      setBulkModal({
-        open: true,
-        type: "error",
-        message: "An error occurred while sending bulk payslips.",
-      });
+      setBulkModal({ open: true, type: "error", message: "An error occurred while sending bulk payslips." });
     } finally {
       setSending(false);
     }
@@ -1206,32 +1169,14 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
     const isJO = (emp.employmentCategory ?? -1) === 0;
     const period = (() => {
       if (!emp.startDate || !emp.endDate) return "—";
-      const s = new Date(emp.startDate),
-        e = new Date(emp.endDate);
+      const s = new Date(emp.startDate), e = new Date(emp.endDate);
       return `${s.toLocaleString("en-US", { month: "long" }).toUpperCase()} ${s.getDate()}–${e.getDate()} ${e.getFullYear()}`;
     })();
 
     const SecHead = ({ title, icon }) => (
-      <Box
-        sx={{
-          backgroundColor: "#6D2323",
-          color: "white",
-          px: 2,
-          py: 0.8,
-          display: "flex",
-          alignItems: "center",
-          gap: 1.2,
-        }}
-      >
+      <Box sx={{ backgroundColor: "#6D2323", color: "white", px: 2, py: 0.8, display: "flex", alignItems: "center", gap: 1.2 }}>
         {icon}
-        <Typography
-          sx={{
-            fontWeight: 800,
-            fontSize: "20px",
-            letterSpacing: "0.07em",
-            fontFamily: '"Poppins",sans-serif',
-          }}
-        >
+        <Typography sx={{ fontWeight: 800, fontSize: "20px", letterSpacing: "0.07em", fontFamily: '"Poppins",sans-serif' }}>
           {title}
         </Typography>
       </Box>
@@ -1240,441 +1185,137 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
     if (isJO)
       return (
         <>
-          <Box
-            sx={{
-              border: "2.5px solid #6d2323",
-              borderRadius: "6px",
-              mb: 2,
-              overflow: "hidden",
-            }}
-          >
+          <Box sx={{ border: "2.5px solid #6d2323", borderRadius: "6px", mb: 2, overflow: "hidden" }}>
             <SecHead title="EMPLOYEE INFORMATION" />
             <Grid container>
               {[
-                [
-                  "EMPLOYEE NUMBER",
-                  <Typography
-                    sx={{
-                      fontSize: "26px",
-                      color: "#c0392b",
-                      fontWeight: 900,
-                      fontFamily: '"Poppins",sans-serif',
-                    }}
-                  >
-                    {emp.employeeNumber
-                      ? `${parseFloat(emp.employeeNumber)}`
-                      : "—"}
-                  </Typography>,
-                ],
-                [
-                  "NAME",
-                  <Typography
-                    sx={{
-                      fontSize: "26px",
-                      color: "#c0392b",
-                      fontWeight: 900,
-                      fontFamily: '"Poppins",sans-serif',
-                    }}
-                  >
-                    {emp.name || "—"}
-                  </Typography>,
-                ],
-                [
-                  "PERIOD",
-                  <Typography
-                    sx={{
-                      fontSize: "21px",
-                      fontWeight: 700,
-                      color: "#1a1a1a",
-                      fontFamily: '"Poppins",sans-serif',
-                    }}
-                  >
-                    {period}
-                  </Typography>,
-                ],
-                [
-                  "RENDERED DAYS",
-                  <Typography
-                    sx={{
-                      fontSize: "21px",
-                      fontWeight: 700,
-                      color: "#1a1a1a",
-                      fontFamily: '"Poppins",sans-serif',
-                    }}
-                  >
-                    {formatRenderedDays(emp.rh) || "—"}
-                  </Typography>,
-                ],
+                ["EMPLOYEE NUMBER", <Typography sx={{ fontSize: "26px", color: "#c0392b", fontWeight: 900, fontFamily: '"Poppins",sans-serif' }}>{emp.employeeNumber ? `${parseFloat(emp.employeeNumber)}` : "—"}</Typography>],
+                ["NAME", <Typography sx={{ fontSize: "26px", color: "#c0392b", fontWeight: 900, fontFamily: '"Poppins",sans-serif' }}>{emp.name || "—"}</Typography>],
+                ["PERIOD", <Typography sx={{ fontSize: "21px", fontWeight: 700, color: "#1a1a1a", fontFamily: '"Poppins",sans-serif' }}>{period}</Typography>],
+                ["RENDERED DAYS", <Typography sx={{ fontSize: "21px", fontWeight: 700, color: "#1a1a1a", fontFamily: '"Poppins",sans-serif' }}>{formatRenderedDays(emp.rh) || "—"}</Typography>],
               ].map(([label, content], i) => (
                 <Grid item xs={12} md={6} key={i}>
-                  <Box
-                    sx={{
-                      p: 1.5,
-                      borderRight: i % 2 === 0 ? "2px solid #e0c8c8" : "none",
-                      borderBottom: i < 2 ? "2px solid #e0c8c8" : "none",
-                      minHeight: "60px",
-                    }}
-                  >
-                    <Typography
-                      sx={{
-                        fontSize: "18px",
-                        fontWeight: 800,
-                        letterSpacing: "0.06em",
-                        color: "#6d2323",
-                        mb: 0.5,
-                        fontFamily: '"Poppins",sans-serif',
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      {label}
-                    </Typography>
+                  <Box sx={{ p: 1.5, borderRight: i % 2 === 0 ? "2px solid #e0c8c8" : "none", borderBottom: i < 2 ? "2px solid #e0c8c8" : "none", minHeight: "60px" }}>
+                    <Typography sx={{ fontSize: "18px", fontWeight: 800, letterSpacing: "0.06em", color: "#6d2323", mb: 0.5, fontFamily: '"Poppins",sans-serif', textTransform: "uppercase" }}>{label}</Typography>
                     {content}
                   </Box>
                 </Grid>
               ))}
             </Grid>
           </Box>
-          <Box
-            sx={{
-              border: "2.5px solid #6d2323",
-              borderRadius: "6px",
-              mb: 2,
-              overflow: "hidden",
-            }}
-          >
-            <SecHead
-              title="DEDUCTIONS"
-              icon={<RemoveCircleOutlineIcon sx={{ fontSize: 22 }} />}
-            />
+          <Box sx={{ border: "2.5px solid #6d2323", borderRadius: "6px", mb: 2, overflow: "hidden" }}>
+            <SecHead title="DEDUCTIONS" icon={<RemoveCircleOutlineIcon sx={{ fontSize: 22 }} />} />
             <MoneyCell label="SSS" value={formatCurrency(emp.sss)} />
-            <MoneyCell
-              label="Pag-IBIG"
-              value={formatCurrency(emp.pagibigFundCont)}
-            />
+            <MoneyCell label="Pag-IBIG" value={formatCurrency(emp.pagibigFundCont)} />
           </Box>
           <Box sx={{ display: "flex", gap: 1.5, mb: 3 }}>
-            <SummaryCard
-              label="Net Salary"
-              value={formatCurrency(emp.netSalary)}
-            />
-            <SummaryCard
-              label="Total Deductions"
-              value={formatCurrency(emp.totalDeductions)}
-            />
+            <SummaryCard label="Net Salary" value={formatCurrency(emp.netSalary)} />
+            <SummaryCard label="Total Deductions" value={formatCurrency(emp.totalDeductions)} />
             <SummaryCard label="Net Pay" value={computeNetPay(emp)} accent />
           </Box>
-          <Box
-            sx={{
-              borderTop: "2.5px solid #e0c8c8",
-              mt: 5,
-              pt: 4,
-              textAlign: "center",
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: "18px",
-                color: "#555",
-                mb: 1.5,
-                fontFamily: '"Poppins",sans-serif',
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                fontWeight: 700,
-              }}
-            >
-              Certified Correct
-            </Typography>
-            <Typography
-              sx={{
-                fontSize: "24px",
-                fontWeight: 900,
-                color: "#1a1a1a",
-                fontFamily: '"Poppins",sans-serif',
-              }}
-            >
-              {certifierName}
-            </Typography>
-            <Typography
-              sx={{
-                fontSize: "20px",
-                color: "#444",
-                fontFamily: '"Poppins",sans-serif',
-                fontWeight: 600,
-                mt: 0.5,
-              }}
-            >
-              {certifierPosition}
-            </Typography>
+          <Box sx={{ borderTop: "2.5px solid #e0c8c8", mt: 5, pt: 4, textAlign: "center" }}>
+            <Typography sx={{ fontSize: "18px", color: "#555", mb: 1.5, fontFamily: '"Poppins",sans-serif', letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700 }}>Certified Correct</Typography>
+            <Typography sx={{ fontSize: "24px", fontWeight: 900, color: "#1a1a1a", fontFamily: '"Poppins",sans-serif' }}>{certifierName}</Typography>
+            <Typography sx={{ fontSize: "20px", color: "#444", fontFamily: '"Poppins",sans-serif', fontWeight: 600, mt: 0.5 }}>{certifierPosition}</Typography>
           </Box>
         </>
       );
 
     return (
       <>
-        <Box
-          sx={{
-            border: "2.5px solid #6d2323",
-            borderRadius: "6px",
-            mb: 2,
-            overflow: "hidden",
-          }}
-        >
+        <Box sx={{ border: "2.5px solid #6d2323", borderRadius: "6px", mb: 2, overflow: "hidden" }}>
           <SecHead title="EMPLOYEE INFORMATION" />
           <Grid container>
             {[
-              [
-                "PERIOD",
-                <Typography
-                  sx={{
-                    fontSize: "21px",
-                    fontWeight: 700,
-                    color: "#1a1a1a",
-                    fontFamily: '"Poppins",sans-serif',
-                  }}
-                >
-                  {period}
-                </Typography>,
-              ],
-              [
-                "EMPLOYEE NUMBER",
-                <Typography
-                  sx={{
-                    fontSize: "26px",
-                    color: "#c0392b",
-                    fontWeight: 900,
-                    fontFamily: '"Poppins",sans-serif',
-                  }}
-                >
-                  {emp.employeeNumber
-                    ? `${parseFloat(emp.employeeNumber)}`
-                    : "—"}
-                </Typography>,
-              ],
-              [
-                "NAME",
-                <Typography
-                  sx={{
-                    fontSize: "26px",
-                    color: "#c0392b",
-                    fontWeight: 900,
-                    fontFamily: '"Poppins",sans-serif',
-                  }}
-                >
-                  {emp.name || "—"}
-                </Typography>,
-              ],
+              ["PERIOD", <Typography sx={{ fontSize: "21px", fontWeight: 700, color: "#1a1a1a", fontFamily: '"Poppins",sans-serif' }}>{period}</Typography>],
+              ["EMPLOYEE NUMBER", <Typography sx={{ fontSize: "26px", color: "#c0392b", fontWeight: 900, fontFamily: '"Poppins",sans-serif' }}>{emp.employeeNumber ? `${parseFloat(emp.employeeNumber)}` : "—"}</Typography>],
+              ["NAME", <Typography sx={{ fontSize: "26px", color: "#c0392b", fontWeight: 900, fontFamily: '"Poppins",sans-serif' }}>{emp.name || "—"}</Typography>],
             ].map(([label, content], i) => (
               <Grid item xs={12} md={i === 2 ? 12 : 6} key={i}>
-                <Box
-                  sx={{
-                    p: 2,
-                    borderRight: i === 0 ? "2px solid #e0c8c8" : "none",
-                    borderBottom: i < 2 ? "2px solid #e0c8c8" : "none",
-                    minHeight: "70px",
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: "18px",
-                      fontWeight: 800,
-                      letterSpacing: "0.06em",
-                      color: "#6d2323",
-                      mb: 0.5,
-                      fontFamily: '"Poppins",sans-serif',
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    {label}
-                  </Typography>
+                <Box sx={{ p: 2, borderRight: i === 0 ? "2px solid #e0c8c8" : "none", borderBottom: i < 2 ? "2px solid #e0c8c8" : "none", minHeight: "70px" }}>
+                  <Typography sx={{ fontSize: "18px", fontWeight: 800, letterSpacing: "0.06em", color: "#6d2323", mb: 0.5, fontFamily: '"Poppins",sans-serif', textTransform: "uppercase" }}>{label}</Typography>
                   {content}
                 </Box>
               </Grid>
             ))}
           </Grid>
         </Box>
-        <Box
-          sx={{
-            border: "2.5px solid #6d2323",
-            borderRadius: "6px",
-            mb: 2,
-            overflow: "hidden",
-          }}
-        >
+        <Box sx={{ border: "2.5px solid #6d2323", borderRadius: "6px", mb: 2, overflow: "hidden" }}>
           <SecHead title="DEDUCTIONS BREAKDOWN" />
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3,1fr)",
-              backgroundColor: "#f5eaea",
-              borderBottom: "2px solid #c9a8a8",
-            }}
-          >
-            {["Government & Tax", "GSIS Loans", "Other Deductions"].map(
-              (h, i) => (
-                <Typography
-                  key={i}
-                  sx={{
-                    fontSize: "18px",
-                    fontWeight: 800,
-                    color: "#6d2323",
-                    letterSpacing: "0.06em",
-                    textTransform: "uppercase",
-                    px: 2,
-                    py: 1,
-                    fontFamily: '"Poppins",sans-serif',
-                    borderRight: i < 2 ? "2px solid #c9a8a8" : "none",
-                  }}
-                >
-                  {h}
-                </Typography>
-              ),
-            )}
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", backgroundColor: "#f5eaea", borderBottom: "2px solid #c9a8a8" }}>
+            {["Government & Tax", "GSIS Loans", "Other Deductions"].map((h, i) => (
+              <Typography key={i} sx={{ fontSize: "18px", fontWeight: 800, color: "#6d2323", letterSpacing: "0.06em", textTransform: "uppercase", px: 2, py: 1, fontFamily: '"Poppins",sans-serif', borderRight: i < 2 ? "2px solid #c9a8a8" : "none" }}>{h}</Typography>
+            ))}
           </Box>
           {[
-            [
-              ["Withholding Tax", formatCurrency(emp.withholdingTax)],
-              ["GSIS Salary Loan", formatCurrency(emp.gsisSalaryLoan)],
-              ["Life & Retirement", formatCurrency(emp.personalLifeRetIns)],
-            ],
-            [
-              ["PhilHealth", formatCurrency(emp.PhilHealthContribution)],
-              ["GSIS Policy Loan", formatCurrency(emp.gsisPolicyLoan)],
-              ["PhilHealth Diff", formatCurrency(emp.philhealthDiff)],
-            ],
-            [
-              ["Pag-IBIG", formatCurrency(emp.pagibigFundCont)],
-              ["GSIS Housing Loan", formatCurrency(emp.gsisHousingLoan)],
-              ["Pag-IBIG 2", formatCurrency(emp.pagibig2)],
-            ],
-            [
-              ["SSS", formatCurrency(emp.sss)],
-              ["GSIS Arrears", formatCurrency(emp.gsisArrears)],
-              ["LBP Loan", formatCurrency(emp.lbpLoan)],
-            ],
-            [
-              ["ECC", formatCurrency(emp.ecc)],
-              ["GFAL", formatCurrency(emp.gfal)],
-              ["MTSLAI", formatCurrency(emp.mtslai)],
-            ],
-            [
-              ["To Be Refunded", formatCurrency(emp.toBeRefunded)],
-              ["CPL", formatCurrency(emp.cpl)],
-              ["ESLAI", formatCurrency(emp.eslai)],
-            ],
-            [
-              ["FEU", formatCurrency(emp.feu)],
-              ["MPL", formatCurrency(emp.mpl)],
-              ["ABS", formatAbs(emp.abs)],
-            ],
-            [
-              ["", ""],
-              ["MPL Lite", formatCurrency(emp.mplLite)],
-              ["ELA", formatCurrency(emp.ela)],
-            ],
+            [["Withholding Tax", formatCurrency(emp.withholdingTax)], ["GSIS Salary Loan", formatCurrency(emp.gsisSalaryLoan)], ["Life & Retirement", formatCurrency(emp.personalLifeRetIns)]],
+            [["PhilHealth", formatCurrency(emp.PhilHealthContribution)], ["GSIS Policy Loan", formatCurrency(emp.gsisPolicyLoan)], ["PhilHealth Diff", formatCurrency(emp.philhealthDiff)]],
+            [["Pag-IBIG", formatCurrency(emp.pagibigFundCont)], ["GSIS Housing Loan", formatCurrency(emp.gsisHousingLoan)], ["Pag-IBIG 2", formatCurrency(emp.pagibig2)]],
+            [["SSS", formatCurrency(emp.sss)], ["GSIS Arrears", formatCurrency(emp.gsisArrears)], ["LBP Loan", formatCurrency(emp.lbpLoan)]],
+            [["ECC", formatCurrency(emp.ecc)], ["GFAL", formatCurrency(emp.gfal)], ["MTSLAI", formatCurrency(emp.mtslai)]],
+            [["To Be Refunded", formatCurrency(emp.toBeRefunded)], ["CPL", formatCurrency(emp.cpl)], ["ESLAI", formatCurrency(emp.eslai)]],
+            [["FEU", formatCurrency(emp.feu)], ["MPL", formatCurrency(emp.mpl)], ["ABS", formatAbs(emp.abs)]],
+            [["", ""], ["MPL Lite", formatCurrency(emp.mplLite)], ["ELA", formatCurrency(emp.ela)]],
           ].map((row, i) => (
             <DeductionRow key={i} items={row} isEven={i % 2 === 0} />
           ))}
         </Box>
         <Box sx={{ display: "flex", gap: 1.5, mb: 3 }}>
-          <SummaryCard
-            label="Net Salary"
-            value={formatCurrency(emp.netSalary)}
-          />
-          <SummaryCard
-            label="Total Deductions"
-            value={formatCurrency(emp.totalDeductions)}
-          />
+          <SummaryCard label="Net Salary" value={formatCurrency(emp.netSalary)} />
+          <SummaryCard label="Total Deductions" value={formatCurrency(emp.totalDeductions)} />
           <SummaryCard label="Net Pay" value={computeNetPay(emp)} accent />
         </Box>
-        <Box
-          sx={{
-            border: "2.5px solid #6d2323",
-            borderRadius: "6px",
-            mb: 2,
-            overflow: "hidden",
-          }}
-        >
+        <Box sx={{ border: "2.5px solid #6d2323", borderRadius: "6px", mb: 2, overflow: "hidden" }}>
           <SecHead title="PAYMENT BREAKDOWN" />
           <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)" }}>
-            {[
-              ["1ST QUINCENA", formatCurrency(emp.pay1st)],
-              ["2ND QUINCENA", formatCurrency(emp.pay2nd)],
-            ].map(([label, value], i) => (
-              <Box
-                key={i}
-                sx={{
-                  p: 2,
-                  borderRight: i === 0 ? "2px solid #e0c8c8" : "none",
-                  minHeight: "70px",
-                }}
-              >
-                <Typography
-                  sx={{
-                    fontSize: "18px",
-                    fontWeight: 800,
-                    color: "#6d2323",
-                    letterSpacing: "0.1em",
-                    textTransform: "uppercase",
-                    fontFamily: '"Poppins",sans-serif',
-                    mb: 0.5,
-                  }}
-                >
-                  {label}
-                </Typography>
-                <Typography
-                  sx={{
-                    fontSize: "26px",
-                    fontWeight: 900,
-                    color: "#1a1a1a",
-                    fontFamily: '"Poppins",sans-serif',
-                    lineHeight: 1.1,
-                  }}
-                >
-                  {value || "—"}
-                </Typography>
+            {[["1ST QUINCENA", formatCurrency(emp.pay1st)], ["2ND QUINCENA", formatCurrency(emp.pay2nd)]].map(([label, value], i) => (
+              <Box key={i} sx={{ p: 2, borderRight: i === 0 ? "2px solid #e0c8c8" : "none", minHeight: "70px" }}>
+                <Typography sx={{ fontSize: "18px", fontWeight: 800, color: "#6d2323", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: '"Poppins",sans-serif', mb: 0.5 }}>{label}</Typography>
+                <Typography sx={{ fontSize: "26px", fontWeight: 900, color: "#1a1a1a", fontFamily: '"Poppins",sans-serif', lineHeight: 1.1 }}>{value || "—"}</Typography>
               </Box>
             ))}
           </Box>
         </Box>
-        <Box sx={{ mt: 5, pt: 4, textAlign: "center" }}>
-          <Typography
-            sx={{
-              fontSize: "18px",
-              color: "#555",
-              mb: 1.5,
-              fontFamily: '"Poppins",sans-serif',
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              fontWeight: 700,
-            }}
-          >
-            Certified Correct
-          </Typography>
-          <Typography
-            sx={{
-              fontSize: "24px",
-              fontWeight: 900,
-              color: "#1a1a1a",
-              fontFamily: '"Poppins",sans-serif',
-            }}
-          >
-            {certifierName}
-          </Typography>
-          <Typography
-            sx={{
-              fontSize: "20px",
-              color: "#444",
-              fontFamily: '"Poppins",sans-serif',
-              fontWeight: 600,
-              mt: 0.5,
-            }}
-          >
-            {certifierPosition}
-          </Typography>
+        <Box sx={{ mt: 0.75, pt: 0.5, pb: 0.5, textAlign: "center" }}>
+          <Typography sx={{ fontSize: "16px", color: "#555", mb: 0.5, fontFamily: '"Poppins",sans-serif', letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700 }}>Certified Correct</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 900, color: "#1a1a1a", fontFamily: '"Poppins",sans-serif', lineHeight: 1.05 }}>{certifierName}</Typography>
+          <Typography sx={{ fontSize: "18px", color: "#444", fontFamily: '"Poppins",sans-serif', fontWeight: 600, mt: 0.25, lineHeight: 1.05 }}>{certifierPosition}</Typography>
         </Box>
       </>
     );
   };
+
+  // ── Payslip institution header (reused in both views) ─────────────────
+  const PayslipInstitutionHeader = () => (
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        mb: 2.5,
+        background: "linear-gradient(135deg,#6d2323 0%,#a31d1d 100%)",
+        borderRadius: "6px",
+        p: "20px 28px",
+        boxShadow: "0 4px 20px rgba(109,35,35,0.3)",
+      }}
+    >
+      {institutionLogo ? (
+        <img src={institutionLogo} alt="Logo" style={{ width: 88, height: 88, borderRadius: "50%", objectFit: "cover", marginLeft: 8 }} />
+      ) : (
+        <Box sx={{ width: 88, height: 88, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.15)", border: "2px solid rgba(255,255,255,0.3)", marginLeft: 8, flexShrink: 0 }} />
+      )}
+      <Box textAlign="center" flex={1} sx={{ color: "white", px: 2 }}>
+        <Typography sx={{ fontStyle: "italic", fontSize: "18px", opacity: 0.9, fontFamily: '"Poppins",sans-serif' }}>Republic of the Philippines</Typography>
+        <Typography sx={{ fontWeight: 900, fontSize: "22px", lineHeight: 1.4, fontFamily: '"Poppins",sans-serif', letterSpacing: "0.02em", mt: 0.5 }}>{institutionName}</Typography>
+        <Typography sx={{ fontSize: "17px", opacity: 0.85, fontFamily: '"Poppins",sans-serif', mt: 0.3 }}>{institutionAddress}</Typography>
+      </Box>
+      {hrisLogo ? (
+        <img src={hrisLogo} alt="HRIS Logo" style={{ width: 100, height: 100, borderRadius: "50%", objectFit: "cover" }} />
+      ) : (
+        <Box sx={{ width: 100, height: 100, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.15)", border: "2px solid rgba(255,255,255,0.3)", flexShrink: 0 }} />
+      )}
+    </Box>
+  );
 
   // ── Guards ────────────────────────────────────────────────────────────
   if (loading || accessLoading) return <PayslipDistributionWireframe />;
@@ -1688,167 +1329,68 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
       />
     );
 
-  // ── Shared page header ────────────────────────────────────────────────
-  const PageHeader = () => (
-    <Fade in timeout={500}>
-      <Box sx={{ mb: 4 }}>
-        <GlassCard
-          sx={{
-            background: `rgba(${hexToRgb(primaryColor)},0.95)`,
-            boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-            border: `1px solid ${alpha(accentColor, 0.1)}`,
-          }}
-        >
-          <Box
-            sx={{
-              p: 5,
-              background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`,
-              position: "relative",
-              overflow: "hidden",
-            }}
-          >
-            <Box
-              sx={{
-                position: "absolute",
-                top: -50,
-                right: -50,
-                width: 200,
-                height: 200,
-                background: `radial-gradient(circle,${alpha(accentColor, 0.1)} 0%,transparent 70%)`,
-              }}
-            />
-            <Box
-              sx={{
-                position: "absolute",
-                bottom: -30,
-                left: "30%",
-                width: 150,
-                height: 150,
-                background: `radial-gradient(circle,${alpha(accentColor, 0.08)} 0%,transparent 70%)`,
-              }}
-            />
-            <Box
-              display="flex"
-              alignItems="center"
-              justifyContent="space-between"
-              position="relative"
-              zIndex={1}
-            >
-              <Box display="flex" alignItems="center">
-                <Avatar
-                  sx={{
-                    bgcolor: alpha(primaryColor, 0.8),
-                    mr: 4,
-                    width: 64,
-                    height: 64,
-                    boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`,
-                  }}
-                >
-                  <WorkIcon sx={{ color: textPrimaryColor, fontSize: 32 }} />
-                </Avatar>
-                <Box>
-                  <Typography
-                    variant="h4"
-                    sx={{
-                      fontWeight: 700,
-                      mb: 1,
-                      lineHeight: 1.2,
-                      color: textPrimaryColor,
-                    }}
-                  >
-                    Employee Payslip{" "}
-                    {viewMode === "individual" ? "Records" : "Distribution"}
-                  </Typography>
-                  <Typography
-                    variant="body1"
-                    sx={{ opacity: 0.8, color: textPrimaryColor }}
-                  >
-                    {viewMode === "individual"
-                      ? "Search and view individual employee payslip records"
-                      : "Manage and distribute monthly employee payslip records"}
-                  </Typography>
-                </Box>
-              </Box>
-              <Box display="flex" alignItems="center" gap={2}>
-                {viewMode === "individual" && (
-                  <ProfessionalButton
-                    variant="outlined"
-                    startIcon={<ArrowBack />}
-                    onClick={() => {
-                      setViewMode("bulk");
-                      handleIndivClear();
-                    }}
-                    sx={{
-                      borderColor: accentColor,
-                      color: accentColor,
-                      "&:hover": { bgcolor: alpha(accentColor, 0.08) },
-                    }}
-                  >
-                    Back to Distribution
-                  </ProfessionalButton>
-                )}
-                <Chip
-                  label={
-                    viewMode === "individual"
-                      ? "Individual View"
-                      : "Bulk Distribution"
-                  }
-                  size="small"
-                  sx={{
-                    bgcolor: "rgba(109,35,35,0.15)",
-                    color: textPrimaryColor,
-                    fontWeight: 500,
-                  }}
-                />
-                <Tooltip title="Refresh Data">
-                  <IconButton
-                    onClick={() => fetchPayrollData()}
-                    sx={{
-                      bgcolor: "rgba(109,35,35,0.1)",
-                      "&:hover": { bgcolor: "rgba(109,35,35,0.2)" },
-                      color: textPrimaryColor,
-                      width: 48,
-                      height: 48,
-                    }}
-                  >
-                    <Refresh />
-                  </IconButton>
-                </Tooltip>
-              </Box>
-            </Box>
-          </Box>
-        </GlassCard>
-      </Box>
-    </Fade>
-  );
+  // ── Shared header props ───────────────────────────────────────────────
+  const headerProps = {
+    primaryColor,
+    secondaryColor,
+    accentColor,
+    textPrimaryColor,
+    onRefresh: fetchPayrollData,
+  };
 
   // ════════════════════════════════════════════════════════════════════
-  // INDIVIDUAL VIEW
+  // SINGLE RETURN — both views rendered, toggled via display
   // ════════════════════════════════════════════════════════════════════
-  if (viewMode === "individual")
-    return (
-      <>
+  return (
+    <>
+      {/* ════════════════════════════════════════════════════════════
+          INDIVIDUAL VIEW
+      ════════════════════════════════════════════════════════════ */}
+      <Box sx={{ display: viewMode === "individual" ? "block" : "none" }}>
         <Box sx={{ py: 4, width: "1200px", mx: "auto", overflow: "hidden" }}>
           <Box sx={{ px: 6 }}>
-            <PageHeader />
+            <PageHeader {...headerProps} />
 
             {error && (
               <Fade in>
-                <Alert severity="error" sx={{ mb: 3, borderRadius: 3 }}>
-                  {error}
-                </Alert>
+                <Alert severity="error" sx={{ mb: 3, borderRadius: 3 }}>{error}</Alert>
               </Fade>
             )}
 
+            {/* Mode toggle card */}
+            <Fade in timeout={600}>
+              <GlassCard sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, border: `1px solid ${alpha(accentColor, 0.1)}` }}>
+                <CardContent sx={{ p: 3 }}>
+                  <Grid container spacing={2}>
+                    {[
+                      { mode: "bulk", icon: <Send sx={{ fontSize: 28, color: accentColor, mb: 0.5 }} />, title: "Bulk Distribution", desc: "Select a month and send payslips to multiple employees at once" },
+                      { mode: "individual", icon: <Person sx={{ fontSize: 28, color: accentColor, mb: 0.5 }} />, title: "Individual View", desc: "Search an employee and view, download, or send their payslip" },
+                    ].map(({ mode, icon, title, desc }) => (
+                      <Grid item xs={12} md={6} key={mode}>
+                        <Box
+                          onClick={() => setViewMode(mode)}
+                          sx={{
+                            p: 3, borderRadius: 3, cursor: "pointer", textAlign: "center",
+                            border: `2px solid ${viewMode === mode ? accentColor : alpha(accentColor, 0.2)}`,
+                            bgcolor: viewMode === mode ? alpha(accentColor, 0.06) : "transparent",
+                            transition: "all 0.2s",
+                            "&:hover": { borderColor: accentColor, bgcolor: alpha(accentColor, 0.04) },
+                          }}
+                        >
+                          {icon}
+                          <Typography sx={{ fontWeight: 700, color: accentColor, fontSize: "1rem" }}>{title}</Typography>
+                          <Typography variant="body2" sx={{ color: accentDark, opacity: 0.7, mt: 0.5 }}>{desc}</Typography>
+                        </Box>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </CardContent>
+              </GlassCard>
+            </Fade>
+
             {/* Search + month picker */}
             <Fade in timeout={700}>
-              <GlassCard
-                sx={{
-                  mb: 4,
-                  background: `rgba(${hexToRgb(primaryColor)},0.95)`,
-                  border: `1px solid ${alpha(accentColor, 0.1)}`,
-                }}
-              >
+              <GlassCard sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, border: `1px solid ${alpha(accentColor, 0.1)}` }}>
                 <CardContent sx={{ p: 4 }}>
                   <Grid container spacing={3} alignItems="flex-end">
                     <Grid item xs={12} md={8}>
@@ -1857,9 +1399,7 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
                         label="Search by Name or Employee Number"
                         value={indivSearch}
                         onChange={(e) => setIndivSearch(e.target.value)}
-                        onKeyPress={(e) =>
-                          e.key === "Enter" && handleIndivSearch()
-                        }
+                        onKeyPress={(e) => e.key === "Enter" && handleIndivSearch()}
                         InputProps={{
                           startAdornment: (
                             <InputAdornment position="start">
@@ -1875,24 +1415,14 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
                           variant="contained"
                           onClick={handleIndivSearch}
                           disabled={!indivSearch.trim()}
-                          sx={{
-                            bgcolor: accentColor,
-                            color: primaryColor,
-                            "&:hover": { bgcolor: accentDark },
-                            "&:disabled": { bgcolor: blackColor, color: primaryColor},
-                            flex: 1,
-                          }}
+                          sx={{ bgcolor: accentColor, color: primaryColor, "&:hover": { bgcolor: accentDark }, "&:disabled": { bgcolor: blackColor, color: primaryColor }, flex: 1 }}
                         >
                           Search
                         </ProfessionalButton>
                         <ProfessionalButton
                           variant="outlined"
                           onClick={handleIndivClear}
-                          sx={{
-                            borderColor: accentColor,
-                            color: accentColor,
-                            "&:hover": { bgcolor: alpha(accentColor, 0.08) },
-                          }}
+                          sx={{ borderColor: accentColor, color: accentColor, "&:hover": { bgcolor: alpha(accentColor, 0.08) } }}
                         >
                           Clear
                         </ProfessionalButton>
@@ -1902,41 +1432,16 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
 
                   <Divider sx={{ my: 3, borderColor: "rgba(109,35,35,0.1)" }} />
 
-                  <Box
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 1.5,
-                      mb: 2,
-                    }}
-                  >
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2 }}>
                     <CalendarToday sx={{ color: accentColor, fontSize: 20 }} />
-                    <Typography
-                      variant="subtitle1"
-                      sx={{ fontWeight: 700, color: accentColor }}
-                    >
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700, color: accentColor }}>
                       Select Month
                       {!indivHasSearched && (
-                        <span
-                          style={{
-                            fontWeight: 400,
-                            opacity: 0.6,
-                            fontSize: "0.85rem",
-                            marginLeft: 8,
-                          }}
-                        >
-                          (search first)
-                        </span>
+                        <span style={{ fontWeight: 400, opacity: 0.6, fontSize: "0.85rem", marginLeft: 8 }}>(search first)</span>
                       )}
                     </Typography>
                   </Box>
-                  <Box
-                    sx={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(12,1fr)",
-                      gap: 1.5,
-                    }}
-                  >
+                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(12,1fr)", gap: 1.5 }}>
                     {months.map((m) => (
                       <ProfessionalButton
                         key={m}
@@ -1945,28 +1450,14 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
                         disabled={!indivHasSearched}
                         onClick={() => handleIndivMonthSelect(m)}
                         sx={{
-                          borderColor: indivHasSearched
-                            ? accentColor
-                            : grayColor,
-                          color:
-                            m === indivMonth
-                              ? primaryColor
-                              : indivHasSearched
-                                ? accentColor
-                                : grayColor,
+                          borderColor: indivHasSearched ? accentColor : grayColor,
+                          color: m === indivMonth ? primaryColor : indivHasSearched ? accentColor : grayColor,
                           minWidth: "auto",
                           fontSize: "0.875rem",
                           fontWeight: 500,
                           py: 1,
-                          backgroundColor:
-                            m === indivMonth ? accentColor : "transparent",
-                          "&:hover": {
-                            backgroundColor: indivHasSearched
-                              ? m === indivMonth
-                                ? accentDark
-                                : alpha(accentColor, 0.1)
-                              : "transparent",
-                          },
+                          backgroundColor: m === indivMonth ? accentColor : "transparent",
+                          "&:hover": { backgroundColor: indivHasSearched ? (m === indivMonth ? accentDark : alpha(accentColor, 0.1)) : "transparent" },
                           "&:disabled": { opacity: 0.45 },
                         }}
                       >
@@ -1981,111 +1472,426 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
             {/* Payslip preview */}
             {displayEmployee ? (
               <Fade in timeout={900}>
-                <GlassCard
-                  sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}
-                >
-                  {/* Card header */}
-                  <Box
-                    sx={{
-                      p: 4,
-                      background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`,
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
+                <GlassCard sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}>
+                  <Box sx={{ p: 4, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Box>
-                      <Typography
-                        variant="body2"
-                        sx={{
-                          opacity: 0.7,
-                          mb: 1,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.1em",
-                          color: accentDark,
-                        }}
-                      >
-                        Employee Payslip Record
-                      </Typography>
-                      <Typography
-                        variant="h4"
-                        sx={{ fontWeight: 600, color: accentColor, mb: 1 }}
-                      >
-                        {displayEmployee.name}
-                      </Typography>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 2,
-                          mt: 1,
-                        }}
-                      >
-                        <Chip
-                          icon={<Person sx={{ fontSize: 18 }} />}
-                          label={`ID: ${displayEmployee.employeeNumber}`}
-                          size="small"
-                          sx={{
-                            bgcolor: alpha(accentColor, 0.12),
-                            color: accentColor,
-                            fontWeight: 500,
-                          }}
-                        />
+                      <Typography variant="body2" sx={{ opacity: 0.7, mb: 1, textTransform: "uppercase", letterSpacing: "0.1em", color: accentDark }}>Employee Payslip Record</Typography>
+                      <Typography variant="h4" sx={{ fontWeight: 600, color: accentColor, mb: 1 }}>{displayEmployee.name}</Typography>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1 }}>
+                        <Chip icon={<Person sx={{ fontSize: 18 }} />} label={`ID: ${displayEmployee.employeeNumber}`} size="small" sx={{ bgcolor: alpha(accentColor, 0.12), color: accentColor, fontWeight: 500 }} />
                         <Chip
                           icon={<CalendarToday sx={{ fontSize: 18 }} />}
                           label={(() => {
-                            if (
-                              !displayEmployee.startDate ||
-                              !displayEmployee.endDate
-                            )
-                              return "—";
-                            const s = new Date(displayEmployee.startDate),
-                              e = new Date(displayEmployee.endDate);
+                            if (!displayEmployee.startDate || !displayEmployee.endDate) return "—";
+                            const s = new Date(displayEmployee.startDate), e = new Date(displayEmployee.endDate);
                             return `${s.toLocaleString("en-US", { month: "short" }).toUpperCase()} ${s.getDate()}–${e.getDate()}`;
                           })()}
                           size="small"
-                          sx={{
-                            bgcolor: alpha(accentColor, 0.12),
-                            color: accentColor,
-                            fontWeight: 500,
-                          }}
+                          sx={{ bgcolor: alpha(accentColor, 0.12), color: accentColor, fontWeight: 500 }}
                         />
                       </Box>
                     </Box>
-                    <Avatar
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.12),
-                        width: 80,
-                        height: 80,
-                        fontSize: "2rem",
-                        fontWeight: 600,
-                        color: accentColor,
-                      }}
-                    >
-                      {displayEmployee.name
-                        ? displayEmployee.name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
-                            .toUpperCase()
-                        : "E"}
+                    <Avatar sx={{ bgcolor: alpha(accentColor, 0.12), width: 80, height: 80, fontSize: "2rem", fontWeight: 600, color: accentColor }}>
+                      {displayEmployee.name ? displayEmployee.name.split(" ").map((n) => n[0]).join("").toUpperCase() : "E"}
                     </Avatar>
                   </Box>
 
-                  {/* Payslip paper */}
                   <Paper
                     ref={payslipRef}
                     elevation={0}
+                    sx={{ p: 1.5, pb: 2, borderRadius: 0, backgroundColor: "#fff", fontFamily: '"Poppins",sans-serif', position: "relative", width: "920px", display: "block", margin: "0 auto", boxSizing: "border-box" }}
+                  >
+                    {hrisLogo && (
+                      <Box component="img" src={hrisLogo} alt="Watermark" sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", opacity: 0.08, width: "70%", pointerEvents: "none", userSelect: "none", zIndex: 2, mixBlendMode: "multiply" }} />
+                    )}
+                    <Box sx={{ zoom: 0.64, width: "920px", margin: "0 auto" }}>
+                      <PayslipInstitutionHeader />
+                      <Box sx={{ position: "relative", zIndex: 1 }}>
+                        {renderPayslipPreview(displayEmployee)}
+                      </Box>
+                    </Box>
+                  </Paper>
+
+                  <Box sx={{ p: 4, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, borderTop: `2px solid ${alpha(accentColor, 0.12)}` }}>
+                    <Grid container spacing={3}>
+                      <Grid item xs={12} md={6}>
+                        <ProfessionalButton
+                          variant="contained" fullWidth
+                          startIcon={indivSending ? <CircularProgress size={22} sx={{ color: primaryColor }} /> : <Download />}
+                          onClick={handleDownload}
+                          disabled={indivSending}
+                          sx={{ py: 2, bgcolor: accentColor, color: primaryColor, fontSize: "1rem", "&:hover": { bgcolor: accentDark } }}
+                        >
+                          {indivSending ? "Generating..." : "Download PDF"}
+                        </ProfessionalButton>
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <ProfessionalButton
+                          variant="contained" fullWidth
+                          startIcon={indivSending ? <CircularProgress size={22} sx={{ color: primaryColor }} /> : <Send />}
+                          onClick={handleSendGmail}
+                          disabled={indivSending}
+                          sx={{ py: 2, bgcolor: blackColor, color: primaryColor, fontSize: "1rem", "&:hover": { bgcolor: "#2f2f2f" } }}
+                        >
+                          {indivSending ? "Sending..." : "Send via Gmail"}
+                        </ProfessionalButton>
+                      </Grid>
+                    </Grid>
+                  </Box>
+                </GlassCard>
+              </Fade>
+            ) : indivMonth ? (
+              <Fade in timeout={600}>
+                <GlassCard sx={{ mb: 4 }}>
+                  <CardContent sx={{ p: 4, textAlign: "center" }}>
+                    <Avatar sx={{ bgcolor: alpha(accentColor, 0.1), mx: "auto", mb: 3, width: 72, height: 72, color: accentColor }}>
+                      <CalendarToday sx={{ fontSize: 36 }} />
+                    </Avatar>
+                    <Typography variant="h6" color={accentColor} sx={{ fontWeight: 700 }}>No Payslip Found</Typography>
+                    <Typography variant="body2" color={grayColor}>No records found for <b>{indivMonth}</b></Typography>
+                  </CardContent>
+                </GlassCard>
+              </Fade>
+            ) : indivHasSearched ? (
+              <Fade in timeout={600}>
+                <GlassCard sx={{ mb: 4 }}>
+                  <CardContent sx={{ p: 4, textAlign: "center" }}>
+                    <Avatar sx={{ bgcolor: alpha(accentColor, 0.1), mx: "auto", mb: 3, width: 72, height: 72, color: accentColor }}>
+                      <CalendarToday sx={{ fontSize: 36 }} />
+                    </Avatar>
+                    <Typography variant="h6" color={accentColor} sx={{ fontWeight: 700 }}>Select Pay Period</Typography>
+                    <Typography variant="body2" color={grayColor}>Please select a month to view the payslip</Typography>
+                  </CardContent>
+                </GlassCard>
+              </Fade>
+            ) : null}
+          </Box>
+        </Box>
+
+        <Dialog open={indivModal.open} onClose={() => setIndivModal({ ...indivModal, open: false })} PaperProps={{ sx: { borderRadius: 4 } }}>
+          <SuccessfulOverlay open={indivModal.open && indivModal.type === "success"} action={indivModal.action} onClose={() => setIndivModal({ ...indivModal, open: false })} />
+          {indivModal.type === "error" && (
+            <Box sx={{ p: 4, textAlign: "center" }}>
+              <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>Error</Typography>
+              <Typography variant="body1" color="text.secondary">{indivModal.message}</Typography>
+              <Button onClick={() => setIndivModal({ ...indivModal, open: false })} sx={{ mt: 2 }}>OK</Button>
+            </Box>
+          )}
+        </Dialog>
+      </Box>
+
+      {/* ════════════════════════════════════════════════════════════
+          BULK DISTRIBUTION VIEW
+      ════════════════════════════════════════════════════════════ */}
+      <Box sx={{ display: viewMode === "bulk" ? "block" : "none" }}>
+        <Box sx={{ py: 4, width: "1200px", mx: "auto", overflow: "hidden" }}>
+          <Box sx={{ px: 6 }}>
+            <PageHeader {...headerProps} />
+
+            {error && (
+              <Fade in>
+                <Alert severity="error" sx={{ mb: 3, borderRadius: 3 }}>{error}</Alert>
+              </Fade>
+            )}
+
+            {/* Mode toggle card */}
+            <Fade in timeout={600}>
+              <GlassCard sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, border: `1px solid ${alpha(accentColor, 0.1)}` }}>
+                <CardContent sx={{ p: 3 }}>
+                  <Grid container spacing={2}>
+                    {[
+                      { mode: "bulk", icon: <Send sx={{ fontSize: 28, color: accentColor, mb: 0.5 }} />, title: "Bulk Distribution", desc: "Select a month and send payslips to multiple employees at once" },
+                      { mode: "individual", icon: <Person sx={{ fontSize: 28, color: accentColor, mb: 0.5 }} />, title: "Individual View", desc: "Search an employee and view, download, or send their payslip" },
+                    ].map(({ mode, icon, title, desc }) => (
+                      <Grid item xs={12} md={6} key={mode}>
+                        <Box
+                          onClick={() => setViewMode(mode)}
+                          sx={{
+                            p: 3, borderRadius: 3, cursor: "pointer", textAlign: "center",
+                            border: `2px solid ${viewMode === mode ? accentColor : alpha(accentColor, 0.2)}`,
+                            bgcolor: viewMode === mode ? alpha(accentColor, 0.06) : "transparent",
+                            transition: "all 0.2s",
+                            "&:hover": { borderColor: accentColor, bgcolor: alpha(accentColor, 0.04) },
+                          }}
+                        >
+                          {icon}
+                          <Typography sx={{ fontWeight: 700, color: accentColor, fontSize: "1rem" }}>{title}</Typography>
+                          <Typography variant="body2" sx={{ color: accentDark, opacity: 0.7, mt: 0.5 }}>{desc}</Typography>
+                        </Box>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </CardContent>
+              </GlassCard>
+            </Fade>
+
+            {/* Bulk filter controls */}
+            <Fade in timeout={700}>
+              <GlassCard sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, border: `1px solid ${alpha(accentColor, 0.1)}` }}>
+                <CardContent sx={{ p: 4 }}>
+                  <Grid container spacing={4}>
+                    <Grid item xs={12} md={8}>
+                      <ModernTextField
+                        fullWidth
+                        label="Search by Name or Employee Number"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        InputProps={{ startAdornment: <InputAdornment position="start"><Search sx={{ color: accentColor }} /></InputAdornment> }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <ModernTextField fullWidth select label="Year" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>
+                        {years.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
+                      </ModernTextField>
+                    </Grid>
+                  </Grid>
+                  <Divider sx={{ my: 3, borderColor: "rgba(109,35,35,0.1)" }} />
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2 }}>
+                    <CalendarToday sx={{ color: accentColor, fontSize: 20 }} />
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700, color: accentColor }}>Filter By Month:</Typography>
+                  </Box>
+                  <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(3,1fr)", sm: "repeat(6,1fr)", md: "repeat(12,1fr)" }, gap: 1.5 }}>
+                    {months.map((m) => (
+                      <ProfessionalButton
+                        key={m}
+                        variant={m === selectedMonth ? "contained" : "outlined"}
+                        size="small"
+                        onClick={() => setSelectedMonth(m)}
+                        sx={{
+                          borderColor: accentColor,
+                          color: m === selectedMonth ? primaryColor : accentColor,
+                          minWidth: "auto", fontSize: "0.875rem", fontWeight: 500, py: 1,
+                          backgroundColor: m === selectedMonth ? accentColor : "transparent",
+                          "&:hover": { backgroundColor: m === selectedMonth ? accentDark : alpha(accentColor, 0.1) },
+                        }}
+                      >
+                        {m}
+                      </ProfessionalButton>
+                    ))}
+                  </Box>
+                </CardContent>
+              </GlassCard>
+            </Fade>
+
+            {/* Employee table */}
+            {selectedMonth && (
+              <Fade in timeout={900}>
+                <GlassCard sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, border: `1px solid ${alpha(accentColor, 0.1)}` }}>
+                  <Box sx={{ p: 4, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Box>
+                      <Typography variant="body2" sx={{ opacity: 0.8, mb: 1, textTransform: "uppercase", letterSpacing: "0.1em", color: accentDark }}>Employee List</Typography>
+                      <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: accentColor }}>{selectedMonth} {selectedYear}</Typography>
+                      <Box sx={{ display: "flex", gap: 2, mt: 1 }}>
+                        <Chip label={`${filteredPayroll.length} Employees`} size="small" sx={{ bgcolor: "rgba(109,35,35,0.15)", color: textPrimaryColor, fontWeight: 500 }} />
+                        <Chip label={`${selectedEmployees.length} Selected`} size="small" sx={{ bgcolor: "rgba(109,35,35,0.15)", color: textPrimaryColor, fontWeight: 500 }} />
+                      </Box>
+                    </Box>
+                  </Box>
+                  <PremiumTableContainer>
+                    <Table sx={{ minWidth: 800 }}>
+                      <TableHead sx={{ bgcolor: alpha(primaryColor, 0.7) }}>
+                        <TableRow>
+                          <PremiumTableCell isHeader sx={{ color: accentColor, width: 80 }}>
+                            <Checkbox checked={allSelected} indeterminate={someSelected} onChange={handleSelectAll} sx={{ color: accentColor }} />
+                          </PremiumTableCell>
+                          <PremiumTableCell isHeader sx={{ color: accentColor }}>Name</PremiumTableCell>
+                          <PremiumTableCell isHeader sx={{ color: accentColor }}>Employee Number</PremiumTableCell>
+                          <PremiumTableCell isHeader sx={{ color: accentColor }}>Status</PremiumTableCell>
+                          <PremiumTableCell isHeader sx={{ color: accentColor }}>Actions</PremiumTableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {filteredPayroll.length > 0 ? (
+                          filteredPayroll.map((emp) => (
+                            <TableRow
+                              key={emp.employeeNumber}
+                              sx={{ "&:nth-of-type(even)": { bgcolor: alpha(primaryColor, 0.3) }, "&:hover": { bgcolor: alpha(accentColor, 0.05) }, transition: "all 0.2s" }}
+                            >
+                              <PremiumTableCell>
+                                <Checkbox checked={selectedEmployees.includes(emp.employeeNumber)} onChange={() => handleSelectOne(emp.employeeNumber)} sx={{ color: accentColor }} />
+                              </PremiumTableCell>
+                              <PremiumTableCell>{emp.name}</PremiumTableCell>
+                              <PremiumTableCell>{emp.employeeNumber}</PremiumTableCell>
+                              <PremiumTableCell>
+                                {emp.startDate ? (
+                                  <Chip label="Available" size="small" sx={{ bgcolor: "rgba(76,175,80,0.15)", color: "#2e7d32", fontWeight: 500 }} />
+                                ) : (
+                                  <Chip label="No Data" size="small" sx={{ bgcolor: "rgba(244,67,54,0.15)", color: "#c62828", fontWeight: 500 }} />
+                                )}
+                              </PremiumTableCell>
+                              <PremiumTableCell>
+                                <Tooltip title="View Payslip">
+                                  <Button
+                                    size="small"
+                                    startIcon={<Visibility fontSize="small" />}
+                                    onClick={() => openPayslipModal(emp)}
+                                    sx={{ border: `1px solid ${alpha(accentColor, 0.2)}`, padding: "4px 12px", bgcolor: alpha(accentColor, 0.08), color: accentColor, "&:hover": { bgcolor: alpha(accentColor, 0.18) } }}
+                                  >
+                                    View Payslip
+                                  </Button>
+                                </Tooltip>
+                              </PremiumTableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell colSpan={5} align="center" sx={{ py: 8 }}>
+                              <Avatar sx={{ bgcolor: "rgba(109,35,35,0.1)", mx: "auto", mb: 2, width: 72, height: 72, color: accentColor }}>
+                                <Search sx={{ fontSize: 36 }} />
+                              </Avatar>
+                              <Typography variant="h6" color={accentColor} sx={{ fontWeight: 600 }}>No Employee Data Found</Typography>
+                              <Typography variant="body2" color={accentDark}>Try adjusting your search filters or selecting a different month/year</Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </PremiumTableContainer>
+                </GlassCard>
+              </Fade>
+            )}
+
+            {/* Send button */}
+            {selectedMonth && filteredPayroll.length > 0 && (
+              <Fade in timeout={1100}>
+                <GlassCard sx={{ background: `rgba(${hexToRgb(primaryColor)},0.95)`, border: `1px solid ${alpha(accentColor, 0.1)}` }}>
+                  <CardHeader
+                    title={
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                        <Avatar sx={{ bgcolor: alpha(primaryColor, 0.8), color: textPrimaryColor }}><Send /></Avatar>
+                        <Typography variant="body2" sx={{ color: accentDark }}>Send payslips to selected employees via Gmail</Typography>
+                      </Box>
+                    }
+                    sx={{ bgcolor: alpha(primaryColor, 0.5), pb: 2, borderBottom: "1px solid rgba(109,35,35,0.1)" }}
+                  />
+                  <CardContent sx={{ p: 4 }}>
+                    <ProfessionalButton
+                      variant="contained" fullWidth
+                      startIcon={<Send />}
+                      onClick={sendSelectedPayslips}
+                      disabled={sending || !selectedEmployees.length}
+                      sx={{ py: 2, bgcolor: accentColor, color: primaryColor, fontSize: "1rem", "&:hover": { bgcolor: accentDark } }}
+                    >
+                      {sending ? "Sending..." : `Distribute Payslips (${selectedEmployees.length} selected)`}
+                    </ProfessionalButton>
+                  </CardContent>
+                </GlassCard>
+              </Fade>
+            )}
+          </Box>
+        </Box>
+
+        {/* ── Payslip View Modal ───────────────────────────────────── */}
+        <Dialog
+          open={payslipModal.open}
+          onClose={() => !modalSending && setPayslipModal({ open: false, emp: null })}
+          maxWidth={false}
+          PaperProps={{
+            sx: {
+              borderRadius: 4,
+              width: "900px",
+              maxWidth: "95vw",
+              maxHeight: "95vh",
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+            },
+          }}
+        >
+          {payslipModal.emp && (
+            <>
+              {/* ── Modal Header ── */}
+              <Box
+                sx={{
+                  px: 3,
+                  py: 2,
+                  background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  borderBottom: `2px solid ${alpha(accentColor, 0.15)}`,
+                  flexShrink: 0,
+                }}
+              >
+                <Box>
+                  <Typography
+                    variant="h6"
+                    sx={{ fontWeight: 700, color: accentColor, lineHeight: 1.2 }}
+                  >
+                    {payslipModal.emp.name}
+                  </Typography>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 2.5, mt: 0.8 }}>
+                    {/* Employee ID — plain text, no chip */}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.7 }}>
+                      <Person sx={{ fontSize: 15, color: accentColor, opacity: 0.7 }} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.8rem",
+                          fontWeight: 600,
+                          color: accentColor,
+                          letterSpacing: "0.03em",
+                        }}
+                      >
+                        {payslipModal.emp.employeeNumber}
+                      </Typography>
+                    </Box>
+                    {/* Thin divider */}
+                    <Box sx={{ width: "1px", height: 14, bgcolor: alpha(accentColor, 0.3) }} />
+                    {/* Period — plain text, no chip */}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.7 }}>
+                      <CalendarToday sx={{ fontSize: 15, color: accentColor, opacity: 0.7 }} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.8rem",
+                          fontWeight: 600,
+                          color: accentColor,
+                          letterSpacing: "0.03em",
+                        }}
+                      >
+                        {(() => {
+                          if (!payslipModal.emp.startDate || !payslipModal.emp.endDate) return "—";
+                          const s = new Date(payslipModal.emp.startDate);
+                          const e = new Date(payslipModal.emp.endDate);
+                          return `${s.toLocaleString("en-US", { month: "long" }).toUpperCase()} ${s.getDate()}–${e.getDate()} ${e.getFullYear()}`;
+                        })()}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
+
+                {/* Perfectly round close button */}
+                <IconButton
+                  onClick={() => !modalSending && setPayslipModal({ open: false, emp: null })}
+                  sx={{
+                    width: 36,
+                    height: 36,
+                    minWidth: 36,
+                    borderRadius: "50%",
+                    bgcolor: alpha(accentColor, 0.1),
+                    color: accentColor,
+                    flexShrink: 0,
+                    p: 0,
+                    "&:hover": { bgcolor: alpha(accentColor, 0.2) },
+                  }}
+                >
+                  ✕
+                </IconButton>
+              </Box>
+
+              {/* ── Scrollable Preview (scaled down) ── */}
+              <Box sx={{ overflowY: "auto", flex: "0 1 auto", minHeight: 0, maxHeight: "68vh", bgcolor: "#f0f0f0" }}>
+                <Box sx={{ display: "flex", justifyContent: "center", py: 1, px: 1 }}>
+                  <Box
                     sx={{
-                      p: 3,
-                      pb: 4,
-                      borderRadius: 0,
+                      zoom: 0.64,
+                      width: "920px",
+                      marginBottom: 0,
                       backgroundColor: "#fff",
                       fontFamily: '"Poppins",sans-serif',
                       position: "relative",
-                      width: "1100px",
-                      display: "block",
-                      margin: "0 auto",
+                      boxShadow: "0 4px 24px rgba(0,0,0,0.12)",
+                      borderRadius: "8px",
+                      p: 1.5,
                       boxSizing: "border-box",
                     }}
                   >
@@ -2108,1067 +1914,106 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
                         }}
                       />
                     )}
-                    {/* Header */}
-                    <Box
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        mb: 2.5,
-                        background:
-                          "linear-gradient(135deg,#6d2323 0%,#a31d1d 100%)",
-                        borderRadius: "6px",
-                        p: "20px 28px",
-                        boxShadow: "0 4px 20px rgba(109,35,35,0.3)",
-                      }}
-                    >
-                      {institutionLogo ? (
-                        <img
-                          src={institutionLogo}
-                          alt="Logo"
-                          style={{
-                            width: 88,
-                            height: 88,
-                            borderRadius: "50%",
-                            objectFit: "cover",
-                            marginLeft: 8,
-                          }}
-                        />
-                      ) : (
-                        <Box
-                          sx={{
-                            width: 88,
-                            height: 88,
-                            borderRadius: "50%",
-                            bgcolor: "rgba(255,255,255,0.15)",
-                            border: "2px solid rgba(255,255,255,0.3)",
-                            marginLeft: 8,
-                            flexShrink: 0,
-                          }}
-                        />
-                      )}
-                      <Box
-                        textAlign="center"
-                        flex={1}
-                        sx={{ color: "white", px: 2 }}
-                      >
-                        <Typography
-                          sx={{
-                            fontStyle: "italic",
-                            fontSize: "18px",
-                            opacity: 0.9,
-                            fontFamily: '"Poppins",sans-serif',
-                          }}
-                        >
-                          Republic of the Philippines
-                        </Typography>
-                        <Typography
-                          sx={{
-                            fontWeight: 900,
-                            fontSize: "22px",
-                            lineHeight: 1.4,
-                            fontFamily: '"Poppins",sans-serif',
-                            letterSpacing: "0.02em",
-                            mt: 0.5,
-                          }}
-                        >
-                          {institutionName}
-                        </Typography>
-                        <Typography
-                          sx={{
-                            fontSize: "17px",
-                            opacity: 0.85,
-                            fontFamily: '"Poppins",sans-serif',
-                            mt: 0.3,
-                          }}
-                        >
-                          {institutionAddress}
-                        </Typography>
-                      </Box>
-                      {hrisLogo ? (
-                        <img
-                          src={hrisLogo}
-                          alt="HRIS Logo"
-                          style={{
-                            width: 100,
-                            height: 100,
-                            borderRadius: "50%",
-                            objectFit: "cover",
-                          }}
-                        />
-                      ) : (
-                        <Box
-                          sx={{
-                            width: 100,
-                            height: 100,
-                            borderRadius: "50%",
-                            bgcolor: "rgba(255,255,255,0.15)",
-                            border: "2px solid rgba(255,255,255,0.3)",
-                            flexShrink: 0,
-                          }}
-                        />
-                      )}
-                    </Box>
-                    {/* Body */}
-                    <Box sx={{ position: "relative", zIndex: 1 }}>
-                      {renderPayslipPreview(displayEmployee)}
-                    </Box>
-                  </Paper>
-
-                  {/* Action buttons */}
-                  <Box
-                    sx={{
-                      p: 4,
-                      background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`,
-                      borderTop: `2px solid ${alpha(accentColor, 0.12)}`,
-                    }}
-                  >
-                    <Grid container spacing={3}>
-                      <Grid item xs={12} md={6}>
-                        <ProfessionalButton
-                          variant="contained"
-                          fullWidth
-                          startIcon={
-                            indivSending ? (
-                              <CircularProgress
-                                size={22}
-                                sx={{ color: primaryColor }}
-                              />
-                            ) : (
-                              <Download />
-                            )
-                          }
-                          onClick={handleDownload}
-                          disabled={indivSending}
-                          sx={{
-                            py: 2,
-                            bgcolor: accentColor,
-                            color: primaryColor,
-                            fontSize: "1rem",
-                            "&:hover": { bgcolor: accentDark },
-                          }}
-                        >
-                          {indivSending ? "Generating..." : "Download PDF"}
-                        </ProfessionalButton>
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <ProfessionalButton
-                          variant="contained"
-                          fullWidth
-                          startIcon={
-                            indivSending ? (
-                              <CircularProgress
-                                size={22}
-                                sx={{ color: primaryColor }}
-                              />
-                            ) : (
-                              <Send />
-                            )
-                          }
-                          onClick={handleSendGmail}
-                          disabled={indivSending}
-                          sx={{
-                            py: 2,
-                            bgcolor: blackColor,
-                            color: primaryColor,
-                            fontSize: "1rem",
-                            "&:hover": { bgcolor: "#2f2f2f" },
-                          }}
-                        >
-                          {indivSending ? "Sending..." : "Send via Gmail"}
-                        </ProfessionalButton>
-                      </Grid>
-                    </Grid>
-                  </Box>
-                </GlassCard>
-              </Fade>
-            ) : indivMonth ? (
-              <Fade in timeout={600}>
-                <GlassCard sx={{ mb: 4 }}>
-                  <CardContent sx={{ p: 4, textAlign: "center" }}>
-                    <Avatar
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.1),
-                        mx: "auto",
-                        mb: 3,
-                        width: 72,
-                        height: 72,
-                        color: accentColor,
-                      }}
-                    >
-                      <CalendarToday sx={{ fontSize: 36 }} />
-                    </Avatar>
-                    <Typography
-                      variant="h6"
-                      color={accentColor}
-                      sx={{ fontWeight: 700 }}
-                    >
-                      No Payslip Found
-                    </Typography>
-                    <Typography variant="body2" color={grayColor}>
-                      No records found for <b>{indivMonth}</b>
-                    </Typography>
-                  </CardContent>
-                </GlassCard>
-              </Fade>
-            ) : indivHasSearched ? (
-              <Fade in timeout={600}>
-                <GlassCard sx={{ mb: 4 }}>
-                  <CardContent sx={{ p: 4, textAlign: "center" }}>
-                    <Avatar
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.1),
-                        mx: "auto",
-                        mb: 3,
-                        width: 72,
-                        height: 72,
-                        color: accentColor,
-                      }}
-                    >
-                      <CalendarToday sx={{ fontSize: 36 }} />
-                    </Avatar>
-                    <Typography
-                      variant="h6"
-                      color={accentColor}
-                      sx={{ fontWeight: 700 }}
-                    >
-                      Select Pay Period
-                    </Typography>
-                    <Typography variant="body2" color={grayColor}>
-                      Please select a month to view the payslip
-                    </Typography>
-                  </CardContent>
-                </GlassCard>
-              </Fade>
-            ) : null}
-          </Box>
-        </Box>
-
-        <Dialog
-          open={indivModal.open}
-          onClose={() => setIndivModal({ ...indivModal, open: false })}
-          PaperProps={{ sx: { borderRadius: 4 } }}
-        >
-          <SuccessfulOverlay
-            open={indivModal.open && indivModal.type === "success"}
-            action={indivModal.action}
-            onClose={() => setIndivModal({ ...indivModal, open: false })}
-          />
-          {indivModal.type === "error" && (
-            <Box sx={{ p: 4, textAlign: "center" }}>
-              <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-                Error
-              </Typography>
-              <Typography variant="body1" color="text.secondary">
-                {indivModal.message}
-              </Typography>
-              <Button
-                onClick={() => setIndivModal({ ...indivModal, open: false })}
-                sx={{ mt: 2 }}
-              >
-                OK
-              </Button>
-            </Box>
-          )}
-        </Dialog>
-      </>
-    );
-
-  // ════════════════════════════════════════════════════════════════════
-  // BULK DISTRIBUTION VIEW
-  // ════════════════════════════════════════════════════════════════════
-  return (
-    <>
-      <Box sx={{ py: 4, width: "1200px", mx: "auto", overflow: "hidden" }}>
-        <Box sx={{ px: 6 }}>
-          <PageHeader />
-
-          {error && (
-            <Fade in>
-              <Alert severity="error" sx={{ mb: 3, borderRadius: 3 }}>
-                {error}
-              </Alert>
-            </Fade>
-          )}
-
-          {/* Mode toggle card */}
-          <Fade in timeout={600}>
-            <GlassCard
-              sx={{
-                mb: 4,
-                background: `rgba(${hexToRgb(primaryColor)},0.95)`,
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-              }}
-            >
-              <CardContent sx={{ p: 3 }}>
-                <Grid container spacing={2}>
-                  {[
-                    {
-                      mode: "bulk",
-                      icon: (
-                        <Send
-                          sx={{ fontSize: 28, color: accentColor, mb: 0.5 }}
-                        />
-                      ),
-                      title: "Bulk Distribution",
-                      desc: "Select a month and send payslips to multiple employees at once",
-                    },
-                    {
-                      mode: "individual",
-                      icon: (
-                        <Person
-                          sx={{ fontSize: 28, color: accentColor, mb: 0.5 }}
-                        />
-                      ),
-                      title: "Individual View",
-                      desc: "Search an employee and view, download, or send their payslip",
-                    },
-                  ].map(({ mode, icon, title, desc }) => (
-                    <Grid item xs={12} md={6} key={mode}>
-                      <Box
-                        onClick={() => setViewMode(mode)}
-                        sx={{
-                          p: 3,
-                          borderRadius: 3,
-                          cursor: "pointer",
-                          textAlign: "center",
-                          border: `2px solid ${viewMode === mode ? accentColor : alpha(accentColor, 0.2)}`,
-                          bgcolor:
-                            viewMode === mode
-                              ? alpha(accentColor, 0.06)
-                              : "transparent",
-                          transition: "all 0.2s",
-                          "&:hover": {
-                            borderColor: accentColor,
-                            bgcolor: alpha(accentColor, 0.04),
-                          },
-                        }}
-                      >
-                        {icon}
-                        <Typography
-                          sx={{
-                            fontWeight: 700,
-                            color: accentColor,
-                            fontSize: "1rem",
-                          }}
-                        >
-                          {title}
-                        </Typography>
-                        <Typography
-                          variant="body2"
-                          sx={{ color: accentDark, opacity: 0.7, mt: 0.5 }}
-                        >
-                          {desc}
-                        </Typography>
-                      </Box>
-                    </Grid>
-                  ))}
-                </Grid>
-              </CardContent>
-            </GlassCard>
-          </Fade>
-
-          {/* Bulk filter controls */}
-          <Fade in timeout={700}>
-            <GlassCard
-              sx={{
-                mb: 4,
-                background: `rgba(${hexToRgb(primaryColor)},0.95)`,
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-              }}
-            >
-              <CardContent sx={{ p: 4 }}>
-                <Grid container spacing={4}>
-                  <Grid item xs={12} md={8}>
-                    <ModernTextField
-                      fullWidth
-                      label="Search by Name or Employee Number"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <Search sx={{ color: accentColor }} />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={4}>
-                    <ModernTextField
-                      fullWidth
-                      select
-                      label="Year"
-                      value={selectedYear}
-                      onChange={(e) => setSelectedYear(e.target.value)}
-                    >
-                      {years.map((y) => (
-                        <MenuItem key={y} value={y}>
-                          {y}
-                        </MenuItem>
-                      ))}
-                    </ModernTextField>
-                  </Grid>
-                </Grid>
-                <Divider sx={{ my: 3, borderColor: "rgba(109,35,35,0.1)" }} />
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 1.5,
-                    mb: 2,
-                  }}
-                >
-                  <CalendarToday sx={{ color: accentColor, fontSize: 20 }} />
-                  <Typography
-                    variant="subtitle1"
-                    sx={{ fontWeight: 700, color: accentColor }}
-                  >
-                    Filter By Month:
-                  </Typography>
-                </Box>
-                <Box
-                  sx={{
-                    display: "grid",
-                    gridTemplateColumns: {
-                      xs: "repeat(3,1fr)",
-                      sm: "repeat(6,1fr)",
-                      md: "repeat(12,1fr)",
-                    },
-                    gap: 1.5,
-                  }}
-                >
-                  {months.map((m) => (
-                    <ProfessionalButton
-                      key={m}
-                      variant={m === selectedMonth ? "contained" : "outlined"}
-                      size="small"
-                      onClick={() => setSelectedMonth(m)}
-                      sx={{
-                        borderColor: accentColor,
-                        color: m === selectedMonth ? primaryColor : accentColor,
-                        minWidth: "auto",
-                        fontSize: "0.875rem",
-                        fontWeight: 500,
-                        py: 1,
-                        backgroundColor:
-                          m === selectedMonth ? accentColor : "transparent",
-                        "&:hover": {
-                          backgroundColor:
-                            m === selectedMonth
-                              ? accentDark
-                              : alpha(accentColor, 0.1),
-                        },
-                      }}
-                    >
-                      {m}
-                    </ProfessionalButton>
-                  ))}
-                </Box>
-              </CardContent>
-            </GlassCard>
-          </Fade>
-
-          {/* Employee table */}
-          {selectedMonth && (
-            <Fade in timeout={900}>
-              <GlassCard
-                sx={{
-                  mb: 4,
-                  background: `rgba(${hexToRgb(primaryColor)},0.95)`,
-                  border: `1px solid ${alpha(accentColor, 0.1)}`,
-                }}
-              >
-                <Box
-                  sx={{
-                    p: 4,
-                    background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <Box>
-                    <Typography
-                      variant="body2"
-                      sx={{
-                        opacity: 0.8,
-                        mb: 1,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.1em",
-                        color: accentDark,
-                      }}
-                    >
-                      Employee List
-                    </Typography>
-                    <Typography
-                      variant="h4"
-                      sx={{ fontWeight: 600, mb: 1, color: accentColor }}
-                    >
-                      {selectedMonth} {selectedYear}
-                    </Typography>
-                    <Box sx={{ display: "flex", gap: 2, mt: 1 }}>
-                      <Chip
-                        label={`${filteredPayroll.length} Employees`}
-                        size="small"
-                        sx={{
-                          bgcolor: "rgba(109,35,35,0.15)",
-                          color: textPrimaryColor,
-                          fontWeight: 500,
-                        }}
-                      />
-                      <Chip
-                        label={`${selectedEmployees.length} Selected`}
-                        size="small"
-                        sx={{
-                          bgcolor: "rgba(109,35,35,0.15)",
-                          color: textPrimaryColor,
-                          fontWeight: 500,
-                        }}
-                      />
-                    </Box>
-                  </Box>
-                </Box>
-                <PremiumTableContainer>
-                  <Table sx={{ minWidth: 800 }}>
-                    <TableHead sx={{ bgcolor: alpha(primaryColor, 0.7) }}>
-                      <TableRow>
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: accentColor, width: 80 }}
-                        >
-                          <Checkbox
-                            checked={allSelected}
-                            indeterminate={someSelected}
-                            onChange={handleSelectAll}
-                            sx={{ color: accentColor }}
-                          />
-                        </PremiumTableCell>
-                        <PremiumTableCell isHeader sx={{ color: accentColor }}>
-                          Name
-                        </PremiumTableCell>
-                        <PremiumTableCell isHeader sx={{ color: accentColor }}>
-                          Employee Number
-                        </PremiumTableCell>
-                        <PremiumTableCell isHeader sx={{ color: accentColor }}>
-                          Status
-                        </PremiumTableCell>
-                        <PremiumTableCell isHeader sx={{ color: accentColor }}>
-                          Actions
-                        </PremiumTableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {filteredPayroll.length > 0 ? (
-                        filteredPayroll.map((emp) => (
-                          <TableRow
-                            key={emp.employeeNumber}
-                            sx={{
-                              "&:nth-of-type(even)": {
-                                bgcolor: alpha(primaryColor, 0.3),
-                              },
-                              "&:hover": { bgcolor: alpha(accentColor, 0.05) },
-                              transition: "all 0.2s",
-                            }}
-                          >
-                            <PremiumTableCell>
-                              <Checkbox
-                                checked={selectedEmployees.includes(
-                                  emp.employeeNumber,
-                                )}
-                                onChange={() =>
-                                  handleSelectOne(emp.employeeNumber)
-                                }
-                                sx={{ color: accentColor }}
-                              />
-                            </PremiumTableCell>
-                            <PremiumTableCell>{emp.name}</PremiumTableCell>
-                            <PremiumTableCell>
-                              {emp.employeeNumber}
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              {emp.startDate ? (
-                                <Chip
-                                  label="Available"
-                                  size="small"
-                                  sx={{
-                                    bgcolor: "rgba(76,175,80,0.15)",
-                                    color: "#2e7d32",
-                                    fontWeight: 500,
-                                  }}
-                                />
-                              ) : (
-                                <Chip
-                                  label="No Data"
-                                  size="small"
-                                  sx={{
-                                    bgcolor: "rgba(244,67,54,0.15)",
-                                    color: "#c62828",
-                                    fontWeight: 500,
-                                  }}
-                                />
-                              )}
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <Tooltip title="View Payslip">
-                                <Button
-                                  size="small"
-                                  startIcon={<Visibility fontSize="small" />}
-                                  onClick={() => openPayslipModal(emp)}
-                                  sx={{
-                                    border: `1px solid ${alpha(accentColor, 0.2)}`,
-                                    padding: "4px 12px",
-                                    bgcolor: alpha(accentColor, 0.08),
-                                    color: accentColor,
-                                    "&:hover": {
-                                      bgcolor: alpha(accentColor, 0.18),
-                                    },
-                                  }}
-                                >
-                                  View Payslip
-                                </Button>
-                              </Tooltip>
-                            </PremiumTableCell>
-                          </TableRow>
-                        ))
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={5} align="center" sx={{ py: 8 }}>
-                            <Avatar
-                              sx={{
-                                bgcolor: "rgba(109,35,35,0.1)",
-                                mx: "auto",
-                                mb: 2,
-                                width: 72,
-                                height: 72,
-                                color: accentColor,
-                              }}
-                            >
-                              <Search sx={{ fontSize: 36 }} />
-                            </Avatar>
-                            <Typography
-                              variant="h6"
-                              color={accentColor}
-                              sx={{ fontWeight: 600 }}
-                            >
-                              No Employee Data Found
-                            </Typography>
-                            <Typography variant="body2" color={accentDark}>
-                              Try adjusting your search filters or selecting a
-                              different month/year
-                            </Typography>
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </PremiumTableContainer>
-              </GlassCard>
-            </Fade>
-          )}
-
-          {/* Send button */}
-          {selectedMonth && filteredPayroll.length > 0 && (
-            <Fade in timeout={1100}>
-              <GlassCard
-                sx={{
-                  background: `rgba(${hexToRgb(primaryColor)},0.95)`,
-                  border: `1px solid ${alpha(accentColor, 0.1)}`,
-                }}
-              >
-                <CardHeader
-                  title={
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                      <Avatar
-                        sx={{
-                          bgcolor: alpha(primaryColor, 0.8),
-                          color: textPrimaryColor,
-                        }}
-                      >
-                        <Send />
-                      </Avatar>
-                      <Typography variant="body2" sx={{ color: accentDark }}>
-                        Send payslips to selected employees via Gmail
-                      </Typography>
-                    </Box>
-                  }
-                  sx={{
-                    bgcolor: alpha(primaryColor, 0.5),
-                    pb: 2,
-                    borderBottom: "1px solid rgba(109,35,35,0.1)",
-                  }}
-                />
-                <CardContent sx={{ p: 4 }}>
-                  <ProfessionalButton
-                    variant="contained"
-                    fullWidth
-                    startIcon={<Send />}
-                    onClick={sendSelectedPayslips}
-                    disabled={sending || !selectedEmployees.length}
-                    sx={{
-                      py: 2,
-                      bgcolor: accentColor,
-                      color: primaryColor,
-                      fontSize: "1rem",
-                      "&:hover": { bgcolor: accentDark },
-                    }}
-                  >
-                    {sending
-                      ? "Sending..."
-                      : `Distribute Payslips (${selectedEmployees.length} selected)`}
-                  </ProfessionalButton>
-                </CardContent>
-              </GlassCard>
-            </Fade>
-          )}
-
-          {/* ── Payslip View Modal ───────────────────────────────────── */}
-          <Dialog
-            open={payslipModal.open}
-            onClose={() =>
-              !modalSending && setPayslipModal({ open: false, emp: null })
-            }
-            maxWidth={false}
-            PaperProps={{
-              sx: {
-                borderRadius: 4,
-                width: "1160px",
-                maxWidth: "95vw",
-                maxHeight: "95vh",
-                overflow: "hidden",
-                display: "flex",
-                flexDirection: "column",
-              },
-            }}
-          >
-            {payslipModal.emp && (
-              <>
-                {/* Modal header */}
-                <Box
-                  sx={{
-                    p: 3,
-                    background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    borderBottom: `2px solid ${alpha(accentColor, 0.15)}`,
-                    flexShrink: 0,
-                  }}
-                >
-                  <Box>
-                    <Typography
-                      variant="h5"
-                      sx={{ fontWeight: 700, color: accentColor }}
-                    >
-                      {payslipModal.emp.name}
-                    </Typography>
-                    <Box sx={{ display: "flex", gap: 2, mt: 1 }}>
-                      <Chip
-                        icon={<Person sx={{ fontSize: 16 }} />}
-                        label={`ID: ${payslipModal.emp.employeeNumber}`}
-                        size="small"
-                        sx={{
-                          bgcolor: alpha(accentColor, 0.12),
-                          color: accentColor,
-                          fontWeight: 500,
-                        }}
-                      />
-                      <Chip
-                        icon={<CalendarToday sx={{ fontSize: 16 }} />}
-                        label={(() => {
-                          if (
-                            !payslipModal.emp.startDate ||
-                            !payslipModal.emp.endDate
-                          )
-                            return "—";
-                          const s = new Date(payslipModal.emp.startDate),
-                            e = new Date(payslipModal.emp.endDate);
-                          return `${s.toLocaleString("en-US", { month: "long" }).toUpperCase()} ${s.getDate()}–${e.getDate()} ${e.getFullYear()}`;
-                        })()}
-                        size="small"
-                        sx={{
-                          bgcolor: alpha(accentColor, 0.12),
-                          color: accentColor,
-                          fontWeight: 500,
-                        }}
-                      />
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
-                    <ProfessionalButton
-                      variant="contained"
-                      startIcon={
-                        modalSending ? (
-                          <CircularProgress
-                            size={18}
-                            sx={{ color: primaryColor }}
-                          />
-                        ) : (
-                          <Download />
-                        )
-                      }
-                      onClick={handleModalDownload}
-                      disabled={modalSending}
-                      sx={{
-                        bgcolor: accentColor,
-                        color: primaryColor,
-                        py: 1.2,
-                        "&:hover": { bgcolor: accentDark },
-                      }}
-                    >
-                      {modalSending ? "Generating..." : "Download PDF"}
-                    </ProfessionalButton>
-                    <ProfessionalButton
-                      variant="contained"
-                      startIcon={
-                        modalSending ? (
-                          <CircularProgress
-                            size={18}
-                            sx={{ color: primaryColor }}
-                          />
-                        ) : (
-                          <Send />
-                        )
-                      }
-                      onClick={handleModalSendGmail}
-                      disabled={modalSending}
-                      sx={{
-                        bgcolor: blackColor,
-                        color: primaryColor,
-                        py: 1.2,
-                        "&:hover": { bgcolor: "#2f2f2f" },
-                      }}
-                    >
-                      {modalSending ? "Sending..." : "Send via Gmail"}
-                    </ProfessionalButton>
-                    <IconButton
-                      onClick={() =>
-                        !modalSending &&
-                        setPayslipModal({ open: false, emp: null })
-                      }
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.1),
-                        color: accentColor,
-                        "&:hover": { bgcolor: alpha(accentColor, 0.2) },
-                      }}
-                    >
-                      ✕
-                    </IconButton>
-                  </Box>
-                </Box>
-
-                {/* Scrollable payslip body */}
-                <Box sx={{ overflowY: "auto", flex: 1 }}>
-                  <Box
-                    sx={{
-                      p: 3,
-                      backgroundColor: "#fff",
-                      fontFamily: '"Poppins",sans-serif',
-                      position: "relative",
-                    }}
-                  >
-                    {hrisLogo && (
-                      <Box
-                        component="img"
-                        src={hrisLogo}
-                        alt="Watermark"
-                        sx={{
-                          position: "absolute",
-                          top: "50%",
-                          left: "50%",
-                          transform: "translate(-50%,-50%)",
-                          opacity: 0.08,
-                          width: "70%",
-                          pointerEvents: "none",
-                          userSelect: "none",
-                          zIndex: 2,
-                          mixBlendMode: "multiply",
-                        }}
-                      />
-                    )}
-                    {/* Payslip institution header */}
-                    <Box
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        mb: 2.5,
-                        background:
-                          "linear-gradient(135deg,#6d2323 0%,#a31d1d 100%)",
-                        borderRadius: "6px",
-                        p: "20px 28px",
-                        boxShadow: "0 4px 20px rgba(109,35,35,0.3)",
-                      }}
-                    >
-                      {institutionLogo ? (
-                        <img
-                          src={institutionLogo}
-                          alt="Logo"
-                          style={{
-                            width: 88,
-                            height: 88,
-                            borderRadius: "50%",
-                            objectFit: "cover",
-                            marginLeft: 8,
-                          }}
-                        />
-                      ) : (
-                        <Box
-                          sx={{
-                            width: 88,
-                            height: 88,
-                            borderRadius: "50%",
-                            bgcolor: "rgba(255,255,255,0.15)",
-                            border: "2px solid rgba(255,255,255,0.3)",
-                            marginLeft: 8,
-                            flexShrink: 0,
-                          }}
-                        />
-                      )}
-                      <Box
-                        textAlign="center"
-                        flex={1}
-                        sx={{ color: "white", px: 2 }}
-                      >
-                        <Typography
-                          sx={{
-                            fontStyle: "italic",
-                            fontSize: "18px",
-                            opacity: 0.9,
-                            fontFamily: '"Poppins",sans-serif',
-                          }}
-                        >
-                          Republic of the Philippines
-                        </Typography>
-                        <Typography
-                          sx={{
-                            fontWeight: 900,
-                            fontSize: "22px",
-                            lineHeight: 1.4,
-                            fontFamily: '"Poppins",sans-serif',
-                            letterSpacing: "0.02em",
-                            mt: 0.5,
-                          }}
-                        >
-                          {institutionName}
-                        </Typography>
-                        <Typography
-                          sx={{
-                            fontSize: "17px",
-                            opacity: 0.85,
-                            fontFamily: '"Poppins",sans-serif',
-                            mt: 0.3,
-                          }}
-                        >
-                          {institutionAddress}
-                        </Typography>
-                      </Box>
-                      {hrisLogo ? (
-                        <img
-                          src={hrisLogo}
-                          alt="HRIS Logo"
-                          style={{
-                            width: 100,
-                            height: 100,
-                            borderRadius: "50%",
-                            objectFit: "cover",
-                          }}
-                        />
-                      ) : (
-                        <Box
-                          sx={{
-                            width: 100,
-                            height: 100,
-                            borderRadius: "50%",
-                            bgcolor: "rgba(255,255,255,0.15)",
-                            border: "2px solid rgba(255,255,255,0.3)",
-                            flexShrink: 0,
-                          }}
-                        />
-                      )}
-                    </Box>
-                    {/* Payslip content */}
+                    <PayslipInstitutionHeader />
                     <Box sx={{ position: "relative", zIndex: 1 }}>
                       {renderPayslipPreview(payslipModal.emp)}
                     </Box>
                   </Box>
                 </Box>
-              </>
-            )}
-          </Dialog>
+              </Box>
 
-          {/* Modal action result dialog */}
-          <Dialog
-            open={modalActionModal.open}
-            onClose={() =>
-              setModalActionModal({ ...modalActionModal, open: false })
-            }
-            PaperProps={{ sx: { borderRadius: 4 } }}
-          >
-            <SuccessfulOverlay
-              open={
-                modalActionModal.open && modalActionModal.type === "success"
-              }
-              action={modalActionModal.action}
-              onClose={() =>
-                setModalActionModal({ ...modalActionModal, open: false })
-              }
-            />
-            {modalActionModal.type === "error" && (
-              <Box sx={{ p: 4, textAlign: "center" }}>
-                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-                  Error
-                </Typography>
-                <Typography variant="body1" color="text.secondary">
-                  {modalActionModal.message}
-                </Typography>
-                <Button
-                  onClick={() =>
-                    setModalActionModal({ ...modalActionModal, open: false })
+              {/* ── Sticky Bottom Action Buttons ── */}
+              <Box
+                sx={{
+                  display: "flex",
+                  flexShrink: 0,
+                  borderTop: `2px solid ${alpha(accentColor, 0.15)}`,
+                }}
+              >
+                <ProfessionalButton
+                  variant="contained"
+                  fullWidth
+                  startIcon={
+                    modalSending
+                      ? <CircularProgress size={18} sx={{ color: primaryColor }} />
+                      : <Download />
                   }
-                  sx={{ mt: 2 }}
+                  onClick={handleModalDownload}
+                  disabled={modalSending}
+                  sx={{
+                    borderRadius: 0,
+                    py: 2,
+                    bgcolor: accentColor,
+                    color: primaryColor,
+                    fontSize: "0.95rem",
+                    fontWeight: 600,
+                    "&:hover": { bgcolor: accentDark, transform: "none" },
+                    "&:disabled": { bgcolor: alpha(accentColor, 0.5), color: primaryColor },
+                    boxShadow: "none",
+                  }}
                 >
-                  OK
-                </Button>
-              </Box>
-            )}
-          </Dialog>
+                  {modalSending ? "Generating..." : "Download PDF"}
+                </ProfessionalButton>
 
-          <Dialog
-            open={bulkModal.open}
-            onClose={() => setBulkModal({ ...bulkModal, open: false })}
-            PaperProps={{ sx: { borderRadius: 4 } }}
-          >
-            <SuccessfulOverlay
-              open={bulkModal.open && bulkModal.type === "success"}
-              action={bulkModal.action}
-              onClose={() => setBulkModal({ ...bulkModal, open: false })}
-            />
-            {bulkModal.type === "error" && (
-              <Box sx={{ p: 4, textAlign: "center" }}>
-                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-                  Error
-                </Typography>
-                <Typography variant="body1" color="text.secondary">
-                  {bulkModal.message}
-                </Typography>
-                <Button
-                  onClick={() => setBulkModal({ ...bulkModal, open: false })}
-                  sx={{ mt: 2 }}
+                {/* 2px separator between buttons */}
+                <Box sx={{ width: "2px", bgcolor: alpha(primaryColor, 0.4), flexShrink: 0 }} />
+
+                <ProfessionalButton
+                  variant="contained"
+                  fullWidth
+                  startIcon={
+                    modalSending
+                      ? <CircularProgress size={18} sx={{ color: primaryColor }} />
+                      : <Send />
+                  }
+                  onClick={handleModalSendGmail}
+                  disabled={modalSending}
+                  sx={{
+                    borderRadius: 0,
+                    py: 2,
+                    bgcolor: blackColor,
+                    color: primaryColor,
+                    fontSize: "0.95rem",
+                    fontWeight: 600,
+                    "&:hover": { bgcolor: "#2f2f2f", transform: "none" },
+                    "&:disabled": { bgcolor: alpha(blackColor, 0.5), color: primaryColor },
+                    boxShadow: "none",
+                  }}
                 >
-                  OK
-                </Button>
+                  {modalSending ? "Sending..." : "Send via Gmail"}
+                </ProfessionalButton>
               </Box>
-            )}
-          </Dialog>
-        </Box>
+            </>
+          )}
+        </Dialog>
+
+        {/* Modal action result dialog */}
+        <Dialog open={modalActionModal.open} onClose={() => setModalActionModal({ ...modalActionModal, open: false })} PaperProps={{ sx: { borderRadius: 4 } }}>
+          <SuccessfulOverlay open={modalActionModal.open && modalActionModal.type === "success"} action={modalActionModal.action} onClose={() => setModalActionModal({ ...modalActionModal, open: false })} />
+          {modalActionModal.type === "error" && (
+            <Box sx={{ p: 4, textAlign: "center" }}>
+              <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>Error</Typography>
+              <Typography variant="body1" color="text.secondary">{modalActionModal.message}</Typography>
+              <Button onClick={() => setModalActionModal({ ...modalActionModal, open: false })} sx={{ mt: 2 }}>OK</Button>
+            </Box>
+          )}
+        </Dialog>
+
+        <Dialog open={bulkModal.open} onClose={() => setBulkModal({ ...bulkModal, open: false })} PaperProps={{ sx: { borderRadius: 4 } }}>
+          <SuccessfulOverlay open={bulkModal.open && bulkModal.type === "success"} action={bulkModal.action} onClose={() => setBulkModal({ ...bulkModal, open: false })} />
+          {bulkModal.type === "error" && (
+            <Box sx={{ p: 4, textAlign: "center" }}>
+              <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>Error</Typography>
+              <Typography variant="body1" color="text.secondary">{bulkModal.message}</Typography>
+              <Button onClick={() => setBulkModal({ ...bulkModal, open: false })} sx={{ mt: 2 }}>OK</Button>
+            </Box>
+          )}
+        </Dialog>
       </Box>
 
+      {/* ── Global overlays (outside both view boxes) ─────────────────── */}
       {sending && (
-        <LoadingOverlay
-          open={sending}
-          message={loadingMessage || "Processing..."}
-        />
+        <LoadingOverlay open={sending} message={loadingMessage || "Processing..."} />
       )}
       {successOverlay.open && (
         <SuccessfulOverlay
@@ -3179,18 +2024,13 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
         />
       )}
 
-      {/* ── Integrity Status Snackbar ────────────────────────────────────────── */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={5000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
       >
-        <Alert
-          onClose={() => setSnackbar({ ...snackbar, open: false })}
-          severity={snackbar.severity}
-          sx={{ width: "100%" }}
-        >
+        <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity} sx={{ width: "100%" }}>
           {snackbar.message}
         </Alert>
       </Snackbar>

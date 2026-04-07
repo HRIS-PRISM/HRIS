@@ -1,5 +1,6 @@
 import API_BASE_URL from '../apiConfig';
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import usePageAccess from '../hooks/usePageAccess';
 import AccessDenied from './AccessDenied';
 import LoadingOverlay from './LoadingOverlay';
@@ -20,10 +21,10 @@ import {
   Avatar,
   TextField,
   styled,
-  Tooltip,
+  Tooltip,  Tab,
+  Tabs,
 } from '@mui/material';
 import * as XLSX from 'xlsx';
-import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
   GroupAdd,
@@ -182,6 +183,45 @@ const SETUP_ITEMS = [
   { key: 'itemTable',  label: 'Item table',            desc: 'Configure Plantilla items',             route: '/item-table',            icon: AssignmentOutlined },
 ];
 
+const normalizeColumnKey = (key) =>
+  String(key || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+
+const COLUMN_ALIASES = {
+  firstName: ['firstname', 'first', 'givenname', 'given'],
+  middleName: ['middlename', 'middle', 'middlenameinitial', 'middleinitial', 'mi'],
+  lastName: ['lastname', 'surname', 'familyname', 'last'],
+  nameExtension: ['nameextension', 'suffix', 'extension', 'nameext'],
+  email: ['email', 'emailaddress', 'mail'],
+  employeeNumber: ['employeenumber', 'employeeid', 'employeeno', 'empnumber', 'empno', 'idnumber'],
+  employmentCategory: ['employmentcategory', 'category', 'employmenttype', 'employeecategory'],
+  password: ['password', 'passcode', 'passwd'],
+  department: ['department', 'departmentcode', 'dept', 'deptcode'],
+  customCategory: ['customcategory', 'custom', 'othercategory', 'categorydescription'],
+};
+
+const aliasToCanonical = Object.entries(COLUMN_ALIASES).reduce((acc, [canonical, aliases]) => {
+  aliases.forEach((alias) => {
+    acc[alias] = canonical;
+  });
+  return acc;
+}, {});
+
+const normalizeRowKeys = (row) => {
+  const normalized = {};
+
+  Object.entries(row || {}).forEach(([rawKey, value]) => {
+    const canonical = aliasToCanonical[normalizeColumnKey(rawKey)] || rawKey;
+    if (normalized[canonical] === undefined) {
+      normalized[canonical] = value;
+    }
+  });
+
+  return normalized;
+};
+
 // ─── Main component ───────────────────────────────────────────────────────────
 const BulkRegister = () => {
   const settings = useSystemSettings();
@@ -224,6 +264,11 @@ const BulkRegister = () => {
   });
   const [emailDomainRestricted, setEmailDomainRestricted] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const apiBase = useMemo(
+    () => (API_BASE_URL.includes('/api') ? API_BASE_URL : `${API_BASE_URL}/api`),
+    []
+  );
 
   useEffect(() => {
     const saved = localStorage.getItem('setupCompletedSteps');
@@ -234,15 +279,34 @@ const BulkRegister = () => {
     const run = async () => {
       try {
         const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-        const res = await fetch(`${API_BASE_URL}/api/system-settings/registration_field_requirements`, { headers: { Authorization: `Bearer ${token}` } });
+        const res = await fetch(`${apiBase}/system-settings/registration_field_requirements`, { headers: { Authorization: `Bearer ${token}` } });
         if (res.ok) {
           const data = await res.json();
           if (data?.setting_value) { try { setFieldRequirements(JSON.parse(data.setting_value)); } catch {} }
+          return;
+        }
+
+        if (res.status === 404) {
+          const allSettingsRes = await fetch(`${apiBase}/system-settings`, { headers: { Authorization: `Bearer ${token}` } });
+          if (!allSettingsRes.ok) return;
+
+          const allSettings = await allSettingsRes.json();
+          const raw = allSettings?.registration_field_requirements;
+          if (!raw) return;
+
+          if (typeof raw === 'string') {
+            try { setFieldRequirements(JSON.parse(raw)); } catch {}
+            return;
+          }
+
+          if (typeof raw === 'object') {
+            setFieldRequirements(raw);
+          }
         }
       } catch {}
     };
     run();
-  }, []);
+  }, [apiBase]);
 
   useEffect(() => {
     const run = async () => {
@@ -290,6 +354,8 @@ const BulkRegister = () => {
         const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
         if (worksheet.length === 0) { setErrMessage('Excel file is empty.'); return; }
 
+        const normalizedWorksheet = worksheet.map(normalizeRowKeys);
+
         const requiredFields = [];
         if (fieldRequirements.firstName)          requiredFields.push('firstName');
         if (fieldRequirements.lastName)           requiredFields.push('lastName');
@@ -299,10 +365,11 @@ const BulkRegister = () => {
         if (fieldRequirements.password)           requiredFields.push('password');
         if (fieldRequirements.department)         requiredFields.push('department');
 
-        const missingFields = requiredFields.filter((f) => !(f in worksheet[0]));
+        const firstRow = normalizedWorksheet[0] || {};
+        const missingFields = requiredFields.filter((f) => !(f in firstRow));
         if (missingFields.length > 0) { setErrMessage(`Missing required columns: ${missingFields.join(', ')}.`); return; }
 
-        const processedUsers = worksheet.map((user) => {
+        const processedUsers = normalizedWorksheet.map((user) => {
           let employmentCategoryValue = user.employmentCategory ? mapEmploymentCategory(user.employmentCategory) : null;
           let password = user.password?.toString().trim() || '';
           if (!password && user.lastName) password = user.lastName.toString().trim().toUpperCase().replace(/\s+/g, '');
@@ -422,7 +489,7 @@ const BulkRegister = () => {
   ].filter((f) => !fieldRequirements[f.key]);
 
   return (
-    <Box sx={{ pt: 3, pb: 0, width: '100vw', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '50%', transform: 'translateX(-50%)' }}>
+    <Box sx={{ pt: 3, pb: 0, width: '100%', mx: 'auto', maxWidth: '100%', overflowX: 'hidden', overflowY: 'auto' }}>
       <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
 
         {/* ── Header ── */}
@@ -443,15 +510,48 @@ const BulkRegister = () => {
                     </Box>
                   </Box>
                   <Box display="flex" alignItems="center" gap={2}>
-                    <Chip label="Bulk Registration" size="small" sx={{ bgcolor: alpha(p, 0.15), color: p, fontWeight: 500 }} />
-                    <ProfessionalButton
-                      variant="outlined"
-                      startIcon={<ArrowBack />}
-                      onClick={() => navigate('/registration')}
-                      sx={{ borderColor: p, color: p, '&:hover': { borderColor: s, bgcolor: alpha(p, 0.08) } }}
+                    <Tabs
+                      value={location.pathname === '/bulk-register' ? 'bulk' : 'single'}
+                      onChange={(_, value) => navigate(value === 'bulk' ? '/bulk-register' : '/registration')}
+                      sx={{
+                        minHeight: 36,
+                        bgcolor: alpha(p, 0.08),
+                        borderRadius: 2,
+                        px: 0.5,
+                        '& .MuiTabs-indicator': { display: 'none' },
+                      }}
                     >
-                      Single Registration
-                    </ProfessionalButton>
+                      <Tab
+                        value="single"
+                        label="Single"
+                        sx={{
+                          minHeight: 30,
+                          py: 0.35,
+                          px: 1.4,
+                          textTransform: 'none',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          borderRadius: 1.5,
+                          color: alpha(tp, 0.75),
+                          '&.Mui-selected': { bgcolor: p, color: ac },
+                        }}
+                      />
+                      <Tab
+                        value="bulk"
+                        label="Bulk"
+                        sx={{
+                          minHeight: 30,
+                          py: 0.35,
+                          px: 1.4,
+                          textTransform: 'none',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          borderRadius: 1.5,
+                          color: alpha(tp, 0.75),
+                          '&.Mui-selected': { bgcolor: p, color: ac },
+                        }}
+                      />
+                    </Tabs>
                   </Box>
                 </Box>
               </Box>
@@ -459,77 +559,126 @@ const BulkRegister = () => {
           </Box>
         </Fade>
 
-        {/* ── Two-column layout ── */}
+        {/* ── Layout ── */}
         <Grid container spacing={3} alignItems="flex-start">
 
-          {/* ── LEFT: Setup checklist ── */}
-          <Grid item xs={12} lg={3}>
+          {/* ── Excel Reference Section ── */}
+          <Grid item xs={12}>
             <Fade in timeout={700}>
               <GlassCard>
-                <CardHeader
-                  title={
-                    <Box>
-                      <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: alpha(tp, 0.5), mb: 0.4 }}>
-                        Pre-setup checklist
-                      </Typography>
-                      <Typography sx={{ fontSize: '0.8rem', color: tp, lineHeight: 1.4, fontWeight: 400 }}>
-                        Configure these before registering users
-                      </Typography>
-                    </Box>
-                  }
-                  sx={{ bgcolor: alpha(ac, 0.5), borderBottom: `1px solid ${alpha(p, 0.08)}`, py: 1.75, px: 2.5 }}
-                />
-                <CardContent sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {SETUP_ITEMS.map((item) => {
-                    const done = completedSteps[item.key];
-                    const Icon = item.icon;
-                    return (
-                      <Box
-                        key={item.key}
-                        onClick={() => navigate(item.route)}
-                        sx={{
-                          display: 'flex', alignItems: 'center', gap: 1.25,
-                          p: 1.5, borderRadius: 3,
-                          border: `1px solid ${done ? alpha('#16a34a', 0.3) : alpha(p, 0.12)}`,
-                          bgcolor: done ? alpha('#16a34a', 0.05) : alpha(ac, 0.4),
-                          cursor: 'pointer', transition: 'all 0.2s ease',
-                          '&:hover': {
-                            border: `1px solid ${done ? alpha('#16a34a', 0.5) : alpha(p, 0.3)}`,
-                            bgcolor: done ? alpha('#16a34a', 0.08) : alpha(p, 0.05),
-                            transform: 'translateX(4px)',
-                          },
-                        }}
-                      >
-                        <Box sx={{ width: 34, height: 34, borderRadius: 2, flexShrink: 0, bgcolor: done ? alpha('#16a34a', 0.1) : alpha(p, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <Icon sx={{ fontSize: 17, color: done ? '#16a34a' : p }} />
-                        </Box>
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: tp, lineHeight: 1.3 }}>{item.label}</Typography>
-                          <Typography sx={{ fontSize: '0.7rem', color: alpha(tp, 0.55), mt: 0.2 }}>{item.desc}</Typography>
-                        </Box>
-                        {done
-                          ? <CheckCircle sx={{ fontSize: 15, color: '#16a34a', flexShrink: 0 }} />
-                          : <OpenInNew sx={{ fontSize: 13, color: alpha(p, 0.35), flexShrink: 0 }} />
-                        }
-                      </Box>
-                    );
-                  })}
+                <Box sx={{ p: 3 }}>
+                  <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(tp, 0.45), mb: 1.5 }}>
+                    Excel column reference
+                  </Typography>
 
-                  <Box sx={{ mt: 0.25, p: 1.5, bgcolor: alpha('#f59e0b', 0.08), border: `1px solid ${alpha('#f59e0b', 0.25)}`, borderLeft: `3px solid #f59e0b`, borderRadius: '0 8px 8px 0' }}>
-                    <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start' }}>
-                      <InfoOutlined sx={{ fontSize: 13, color: '#d97706', mt: 0.2, flexShrink: 0 }} />
-                      <Typography sx={{ fontSize: '0.72rem', color: '#92400e', lineHeight: 1.5 }}>
-                        All three tables must be configured for payroll records to function correctly.
-                      </Typography>
-                    </Box>
-                  </Box>
-                </CardContent>
+                  <Grid container spacing={2} sx={{ mb: 0.5 }}>
+                    <Grid item xs={12} md={4}>
+                      <Box sx={{ p: 2, borderRadius: 3, border: `1px solid ${alpha(p, 0.14)}`, bgcolor: alpha(ac, 0.45), borderLeft: `4px solid #dc2626` }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                          <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: tp, letterSpacing: '0.04em' }}>
+                            Required columns
+                          </Typography>
+                          <Chip
+                            label="Required"
+                            size="small"
+                            sx={{
+                              height: 20,
+                              bgcolor: alpha('#dc2626', 0.12),
+                              color: '#b91c1c',
+                              fontSize: '0.62rem',
+                              fontWeight: 700,
+                              border: `1px solid ${alpha('#dc2626', 0.3)}`,
+                            }}
+                          />
+                        </Box>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 0.6 }}>
+                          {requiredChips.map((f) => (
+                            <Chip
+                              key={f.key}
+                              label={f.label}
+                              size="small"
+                              sx={{
+                                width: '100%',
+                                bgcolor: alpha('#dc2626', 0.08),
+                                color: '#991b1b',
+                                border: `1px solid ${alpha('#dc2626', 0.28)}`,
+                                fontSize: '0.68rem',
+                                fontWeight: 600,
+                                height: 22,
+                              }}
+                            />
+                          ))}
+                        </Box>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <Box sx={{ p: 2, borderRadius: 3, border: `1px solid ${alpha(p, 0.1)}`, bgcolor: alpha(ac, 0.4) }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                          <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: tp, letterSpacing: '0.04em' }}>Optional columns</Typography>
+                          <Chip
+                            label="Optional"
+                            size="small"
+                            sx={{
+                              height: 20,
+                              bgcolor: alpha(p, 0.08),
+                              color: alpha(tp, 0.75),
+                              fontSize: '0.62rem',
+                              fontWeight: 700,
+                              border: `1px solid ${alpha(p, 0.2)}`,
+                            }}
+                          />
+                        </Box>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 0.6 }}>
+                          {optionalChips.map((f) => (
+                            <Chip
+                              key={f.key}
+                              label={f.label}
+                              size="small"
+                              variant="outlined"
+                              sx={{ width: '100%', borderColor: alpha(p, 0.4), color: p, fontSize: '0.68rem', height: 22 }}
+                            />
+                          ))}
+                        </Box>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <Box sx={{ p: 2, borderRadius: 3, border: `1px solid ${alpha(p, 0.1)}`, bgcolor: alpha(ac, 0.3) }}>
+                        <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: tp, mb: 1, letterSpacing: '0.04em' }}>Employment category values</Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                          {[
+                            { label: '"JO Graduate"', color: '#F97316' },
+                            { label: '"JO UnderGrad"', color: '#EF4444' },
+                            { label: '"Regular Non-Teaching"', color: '#16A34A' },
+                            { label: '"Regular Teaching (30Hrs)"', color: '#1D4ED8' },
+                            { label: '"Regular Designated (40Hrs)"', color: '#7C3AED' },
+                            { label: '"Other"', color: '#0D9488' },
+                          ].map(({ label, color }) => (
+                            <Chip
+                              key={label}
+                              label={label}
+                              size="small"
+                              sx={{ bgcolor: alpha(color, 0.1), color, border: `1px solid ${alpha(color, 0.25)}`, fontSize: '0.67rem', height: 22, fontWeight: 600 }}
+                            />
+                          ))}
+                        </Box>
+                        {emailDomainRestricted && (
+                          <Typography sx={{ fontSize: '0.7rem', color: alpha(tp, 0.6), mt: 1 }}>
+                            Email domain restricted to <strong>@earist.edu.ph</strong>
+                          </Typography>
+                        )}
+                        <Typography sx={{ fontSize: '0.68rem', color: alpha(tp, 0.5), mt: 0.75 }}>
+                          Password defaults to last name in CAPS. "Other" requires a <strong>customCategory</strong> column.
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
+                </Box>
               </GlassCard>
             </Fade>
           </Grid>
 
-          {/* ── RIGHT: Bulk upload form ── */}
-          <Grid item xs={12} lg={9}>
+          {/* ── Bulk upload form ── */}
+          <Grid item xs={12}>
             <Fade in timeout={900}>
               <GlassCard>
                 {/* Form header */}
@@ -550,94 +699,6 @@ const BulkRegister = () => {
                 {/* Form body */}
                 <Box sx={{ p: 3 }}>
 
-                  {/* ── Column reference ── */}
-                  <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(tp, 0.45), mb: 1.75 }}>
-                    Excel column reference
-                  </Typography>
-
-                  <Grid container spacing={2} sx={{ mb: 0.5 }}>
-                    <Grid item xs={12} sm={3}>
-                      <Box sx={{ p: 2, borderRadius: 3, border: `1px solid ${alpha(p, 0.1)}`, bgcolor: alpha(ac, 0.4) }}>
-                        <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: tp, mb: 1, letterSpacing: '0.04em' }}>Required columns</Typography>
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
-                          {requiredChips.map((f) => (
-                            <Chip key={f.key} label={f.label} size="small" sx={{ bgcolor: p, color: ac, fontSize: '0.68rem', fontWeight: 600, height: 22 }} />
-                          ))}
-                        </Box>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} sm={3}>
-                      <Box sx={{ p: 2, borderRadius: 3, border: `1px solid ${alpha(p, 0.1)}`, bgcolor: alpha(ac, 0.4) }}>
-                        <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: tp, mb: 1, letterSpacing: '0.04em' }}>Optional columns</Typography>
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
-                          {optionalChips.map((f) => (
-                            <Chip key={f.key} label={f.label} size="small" variant="outlined" sx={{ borderColor: alpha(p, 0.4), color: p, fontSize: '0.68rem', height: 22 }} />
-                          ))}
-                        </Box>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-  <Box sx={{ p: 2, borderRadius: 3, border: `1px solid ${alpha(p, 0.1)}`, bgcolor: alpha(ac, 0.3) }}>
-    <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: tp, mb: 1, letterSpacing: '0.04em' }}>Employment category values</Typography>
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-      {[
-        { label: '"JO Graduate"', color: '#F97316' },
-        { label: '"JO UnderGrad"', color: '#EF4444' },
-        { label: '"Regular Non-Teaching"', color: '#16A34A' },
-        { label: '"Regular Teaching (30Hrs)"', color: '#1D4ED8' },
-        { label: '"Regular Designated (40Hrs)"', color: '#7C3AED' },
-        { label: '"Other"', color: '#0D9488' },
-      ].map(({ label, color }) => (
-        <Chip
-          key={label}
-          label={label}
-          size="small"
-          sx={{ bgcolor: alpha(color, 0.1), color, border: `1px solid ${alpha(color, 0.25)}`, fontSize: '0.67rem', height: 22, fontWeight: 600 }}
-        />
-      ))}
-    </Box>
-    {emailDomainRestricted && (
-      <Typography sx={{ fontSize: '0.7rem', color: alpha(tp, 0.6), mt: 1 }}>
-        Email domain restricted to <strong>@earist.edu.ph</strong>
-      </Typography>
-    )}
-    <Typography sx={{ fontSize: '0.68rem', color: alpha(tp, 0.5), mt: 0.75 }}>
-      Password defaults to last name in CAPS. "Other" requires a <strong>customCategory</strong> column.
-    </Typography>
-  </Box>
-</Grid>
-                  </Grid>
-
-                  {/* ── Category hint ── */}
-                  {/* <Box sx={{ mt: 1.5, mb: 0.5, p: 1.75, borderRadius: 3, border: `1px solid ${alpha(p, 0.1)}`, bgcolor: alpha(ac, 0.3) }}>
-                    <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: tp, mb: 0.75 }}>Employment category values</Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {[
-                        { label: '"JO Graduate"', color: '#F97316' },
-                        { label: '"JO UnderGrad"', color: '#EF4444' },
-                        { label: '"Regular Non-Teaching"', color: '#16A34A' },
-                        { label: '"Regular Teaching (30Hrs)"', color: '#1D4ED8' },
-                        { label: '"Regular Designated (40Hrs)"', color: '#7C3AED' },
-                        { label: '"Other"', color: '#0D9488' },
-                      ].map(({ label, color }) => (
-                        <Chip
-                          key={label}
-                          label={label}
-                          size="small"
-                          sx={{ bgcolor: alpha(color, 0.1), color, border: `1px solid ${alpha(color, 0.25)}`, fontSize: '0.67rem', height: 22, fontWeight: 600 }}
-                        />
-                      ))}
-                    </Box>
-                    {emailDomainRestricted && (
-                      <Typography sx={{ fontSize: '0.7rem', color: alpha(tp, 0.6), mt: 1 }}>
-                        Email domain restricted to <strong>@earist.edu.ph</strong>
-                      </Typography>
-                    )}
-                    <Typography sx={{ fontSize: '0.68rem', color: alpha(tp, 0.5), mt: 0.75 }}>
-                      Password auto-set to last name in CAPS (no spaces) if not provided. "Other" category requires a <strong>customCategory</strong> column.
-                    </Typography>
-                  </Box> */}
-
                   {/* Divider */}
                   <Box sx={{ borderTop: `1px dashed ${alpha(p, 0.15)}`, my: 1 }} />
 
@@ -648,19 +709,19 @@ const BulkRegister = () => {
 
                   <Box
                     sx={{
-                      p: 1, borderRadius: 3, border: `2px dashed ${alpha(p, 0.25)}`,
+                      p: 0.75, borderRadius: 3, border: `2px dashed ${alpha(p, 0.25)}`,
                       bgcolor: alpha(ac, 0.25), textAlign: 'center',
                       transition: 'all 0.2s ease',
                       '&:hover': { borderColor: alpha(p, 0.5), bgcolor: alpha(ac, 0.4) },
                     }}
                   >
-                    <FileUpload sx={{ fontSize: 44, color: alpha(p, 0.45), mb: 1 }} />
-                    <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, color: tp, mb: 0.5 }}>
+                    <FileUpload sx={{ fontSize: 32, color: alpha(p, 0.45), mb: 0.5 }} />
+                    <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, color: tp, mb: 0.25 }}>
                       {users.length > 0
                         ? `${users.length} user${users.length !== 1 ? 's' : ''} ready to register`
                         : 'Choose an Excel file to upload'}
                     </Typography>
-                    <Typography sx={{ fontSize: '0.72rem', color: alpha(tp, 0.5), mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.72rem', color: alpha(tp, 0.5), mb: 1 }}>
                       Accepted formats: .xlsx, .xls
                     </Typography>
                     <input type="file" accept=".xlsx,.xls" onChange={handleFileUpload} style={{ display: 'none' }} id="bulk-file-upload" />

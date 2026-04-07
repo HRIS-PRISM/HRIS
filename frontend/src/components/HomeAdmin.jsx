@@ -524,12 +524,54 @@ const useDashboardData = (settings) => {
       if (holidayRes.status === "fulfilled") {
         const raw = Array.isArray(holidayRes.value.data) ? holidayRes.value.data : [];
         setRawHolidays(raw);
-        const transformed = raw.map((item) => {
-          const d = new Date(item.date);
-          const normalizedDate = !isNaN(d) ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : item.date;
-          return { date: normalizedDate, name: item.description, status: item.status };
+
+        // ── FIX: expand each holiday into one entry per day in its date range ──
+        const toLocalDateStr = (rawDate) => {
+          if (!rawDate) return null;
+          const d = new Date(rawDate);
+          if (isNaN(d.getTime())) return null;
+          const offset = d.getTimezoneOffset();
+          d.setMinutes(d.getMinutes() - offset);
+          return d.toISOString().split("T")[0];
+        };
+
+        const transformed = raw.flatMap((item) => {
+          const startStr = toLocalDateStr(item.date_start || item.date);
+          const endStr   = toLocalDateStr(item.date_end   || item.date_start || item.date);
+
+          if (!startStr) return [];
+
+          // Single-day or no range — return one entry
+          if (!endStr || endStr === startStr) {
+            return [{
+              date:       startStr,
+              date_start: startStr,
+              date_end:   endStr || startStr,
+              name:       item.description || item.title || "",
+              status:     item.status,
+            }];
+          }
+
+          // Multi-day range — expand into one entry per calendar day
+          const entries = [];
+          const cur     = new Date(startStr);
+          const end     = new Date(endStr);
+          while (cur <= end) {
+            entries.push({
+              date:       cur.toISOString().split("T")[0],
+              date_start: startStr,
+              date_end:   endStr,
+              name:       item.description || item.title || "",
+              status:     item.status,
+            });
+            cur.setDate(cur.getDate() + 1);
+          }
+          return entries;
         });
-        setHolidays(transformed); writeCache("holidays_raw", raw); writeCache("holidays", transformed);
+
+        setHolidays(transformed);
+        writeCache("holidays_raw", raw);
+        writeCache("holidays", transformed);
       } else {
         const cachedRaw = readCache("holidays_raw"); const cachedHolidays = readCache("holidays");
         if (cachedRaw) setRawHolidays(cachedRaw); if (cachedHolidays) setHolidays(cachedHolidays);
@@ -743,6 +785,7 @@ const CompactCalendar = ({ calendarDate, setCalendarDate, holidays, announcement
         <Grid container spacing={0.3} sx={{ flex: 0.935 }}>
           {calendarDays.map((day, index) => {
             const currentDate = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+            // ── holidays array now has one entry per day, so a simple .find still works ──
             const holidayData = Array.isArray(holidays) ? holidays.find((h) => h.date === currentDate && h.status === "Active") : null;
             const dayAnnouncements = getAnnouncementsForDate(currentDate);
             const hasAnnouncements = dayAnnouncements.length > 0;
@@ -1559,7 +1602,6 @@ const AdminHome = () => {
     }
   };
 
-  // ── Filtered notifications ──
   // ── Derived unread count — always in sync with local array ──
   const derivedUnreadCount = notifications.filter((n) => n.read_status === 0).length;
 
@@ -2037,7 +2079,7 @@ const AdminHome = () => {
                     <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", py: 8, px: 3 }}>
                       <Box sx={{ width: 56, height: 56, borderRadius: "50%", bgcolor: `${settings.primaryColor}10`, display: "flex", alignItems: "center", justifyContent: "center", mb: 1.5 }}>
                         <NotificationsIcon sx={{ fontSize: 28, color: `${settings.primaryColor}80` }} />
-                      </Box>
+                      </Box>  
                       <Typography sx={{ fontWeight: 600, fontSize: "0.88rem", color: "#1a1a1a", mb: 0.5 }}>All caught up</Typography>
                       <Typography sx={{ fontSize: "0.75rem", color: "#777", textAlign: "center" }}>No new notifications at this time.</Typography>
                     </Box>

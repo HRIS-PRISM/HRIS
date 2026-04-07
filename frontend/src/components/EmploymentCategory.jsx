@@ -63,6 +63,70 @@ import LoadingOverlay from "./LoadingOverlay";
 import SuccessfulOverlay from "./SuccessfulOverlay";
 import { useSystemSettings } from "../hooks/useSystemSettings";
 
+// ─── Theme tokens (matching LeaveRequest) ─────────────────────────────────────
+const T = {
+  accent: "#6d2323",
+  accentDark: "#5a1d1d",
+  accentMid: "#8B4545",
+  accentFaint: "rgba(109,35,35,0.06)",
+  accentBorder: "rgba(109,35,35,0.14)",
+  accentHover: "rgba(109,35,35,0.10)",
+  headerGrad: "linear-gradient(180deg,#6d2323 0%,#7e2c2c 100%)",
+  rowEven: "#ffffff",
+  rowOdd: "rgba(109,35,35,0.025)",
+  rowHover: "rgba(109,35,35,0.055)",
+  text: "#1a1a1a",
+  muted: "#6b6b6b",
+  faint: "#a0a0a0",
+  surface: "#ffffff",
+  divider: "rgba(0,0,0,0.08)",
+};
+
+// ─── Styled primitives (matching LeaveRequest) ─────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: "0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)",
+  border: "0.5px solid rgba(0,0,0,0.09)",
+  overflow: "hidden",
+  background: T.surface,
+});
+
+const FieldInput = styled(TextField)({
+  "& .MuiOutlinedInput-root": {
+    borderRadius: 8,
+    fontSize: "0.875rem",
+    backgroundColor: "#fff",
+    "& fieldset": { borderColor: T.accentBorder },
+    "&:hover fieldset": { borderColor: T.accent },
+    "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 },
+    "& .MuiInputBase-input.Mui-disabled": { WebkitTextFillColor: T.text },
+  },
+  "& .MuiInputLabel-root.Mui-focused": { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: "none",
+  fontWeight: 600,
+  fontSize: "0.875rem",
+  letterSpacing: "0.01em",
+  transition: "all 0.18s ease",
+  "&:hover": { transform: "translateY(-1px)" },
+  "&:active": { transform: "translateY(0)" },
+});
+
+const selectSx = {
+  borderRadius: "8px",
+  fontSize: "0.875rem",
+  bgcolor: "#fff",
+  "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accentBorder },
+  "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: T.accent },
+  "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+    borderColor: T.accent,
+    borderWidth: "1.5px",
+  },
+};
+
 // ─── Shimmer keyframes ────────────────────────────────────────────────────────
 const shimmerKeyframes = `
 @keyframes ecmShimmer {
@@ -75,28 +139,172 @@ const shimmerKeyframes = `
 }
 `;
 
-const EcmShim = ({
-  width = "100%",
-  height = 16,
-  borderRadius = 8,
-  sx = {},
-}) => (
+const Bone = ({ w = "100%", h = 14, r = 6, sx = {} }) => (
   <Box
     sx={{
-      width,
-      height,
-      borderRadius: `${borderRadius}px`,
-      flexShrink: 0,
-      background:
-        "linear-gradient(90deg,rgba(137,68,68,0.08) 25%,rgba(137,68,68,0.20) 50%,rgba(137,68,68,0.08) 75%)",
+      width: w,
+      height: h,
+      borderRadius: r,
+      background: `linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)`,
       backgroundSize: "800px 100%",
-      animation: "ecmShimmer 1.5s infinite linear",
+      animation: "ecmShimmer 1.6s infinite linear",
+      flexShrink: 0,
       ...sx,
     }}
   />
 );
 
-// ─── System settings hook (inline, same pattern as BulkRegister) ──────────────
+// ─── Section label used inside form panels ─────────────────────────────────────
+const FormSectionLabel = ({ icon: Icon, children }) => (
+  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 1.5 }}>
+    <Icon sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
+    <Typography
+      sx={{
+        fontSize: "0.68rem",
+        fontWeight: 700,
+        letterSpacing: "0.09em",
+        textTransform: "uppercase",
+        color: alpha(T.accent, 0.45),
+      }}
+    >
+      {children}
+    </Typography>
+  </Box>
+);
+
+// ─── Wireframe skeleton ───────────────────────────────────────────────────────
+const EcmWireframe = () => (
+  <>
+    <style>{shimmerKeyframes}</style>
+    <Box
+      sx={{
+        py: { xs: 2, md: 4 },
+        mt: { xs: 0, md: -5 },
+        width: "100vw",
+        maxWidth: "100%",
+        position: "relative",
+        left: "63%",
+        transform: "translateX(-61%)",
+        px: { xs: 2, sm: 3, md: 6 },
+      }}
+    >
+      <Box
+        sx={{
+          mb: 3,
+          borderRadius: 3,
+          overflow: "hidden",
+          border: `1px solid ${T.accentBorder}`,
+          animation: "ecmPulse 2s ease-in-out infinite",
+        }}
+      >
+        <Box
+          sx={{
+            p: 3.5,
+            background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 2.5,
+            position: "relative",
+            overflow: "hidden",
+          }}
+        >
+          <Box
+            sx={{
+              position: "absolute",
+              top: -50,
+              right: -50,
+              width: 180,
+              height: 180,
+              borderRadius: "50%",
+              bgcolor: "rgba(109,35,35,0.06)",
+            }}
+          />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <Box
+              sx={{
+                width: 52,
+                height: 52,
+                borderRadius: "50%",
+                bgcolor: "rgba(109,35,35,0.12)",
+                flexShrink: 0,
+              }}
+            />
+            <Box sx={{ flex: 1 }}>
+              <Bone w={220} h={18} sx={{ mb: 1 }} />
+              <Bone w={360} h={11} />
+            </Box>
+          </Box>
+          <Box
+            sx={{
+              width: 32,
+              height: 32,
+              borderRadius: "50%",
+              bgcolor: "rgba(109,35,35,0.1)",
+            }}
+          />
+        </Box>
+      </Box>
+      <Grid container spacing={3}>
+        {[0, 1].map((col) => (
+          <Grid item xs={12} lg={col === 0 ? 4 : 8} key={col}>
+            <Box
+              sx={{
+                borderRadius: 3,
+                border: `1px solid ${T.accentBorder}`,
+                bgcolor: "#fff",
+                overflow: "hidden",
+                animation: `ecmPulse 2s ease-in-out ${col * 0.1}s infinite`,
+                height: "calc(100vh - 280px)",
+              }}
+            >
+              <Box
+                sx={{
+                  px: 3.5,
+                  py: 1.25,
+                  borderBottom: `1px solid ${T.divider}`,
+                  bgcolor: T.accentFaint,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1.5,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 15,
+                    height: 15,
+                    borderRadius: "50%",
+                    bgcolor: "rgba(109,35,35,0.12)",
+                  }}
+                />
+                <Bone w={180} h={13} />
+              </Box>
+              <Box
+                sx={{ p: 3.5, display: "flex", flexDirection: "column", gap: 2.5 }}
+              >
+                {[100, 160, 120, 140, 110].map((w, i) => (
+                  <Box key={i}>
+                    <Bone w={w} h={10} sx={{ mb: 1 }} />
+                    <Box
+                      sx={{
+                        height: 40,
+                        borderRadius: 2,
+                        border: `1px solid ${T.accentBorder}`,
+                        bgcolor: "#fafafa",
+                      }}
+                    />
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
+  </>
+);
+
+// ─── System settings hook (inline) ───────────────────────────────────────────
 const useLocalSystemSettings = () => {
   const [settings, setSettings] = useState(() => {
     try {
@@ -127,7 +335,10 @@ const useLocalSystemSettings = () => {
         const response = await axios.get(url);
         if (response.data && typeof response.data === "object") {
           setSettings(response.data);
-          localStorage.setItem("systemSettings", JSON.stringify(response.data));
+          localStorage.setItem(
+            "systemSettings",
+            JSON.stringify(response.data)
+          );
         }
       } catch (e) {
         console.error("Error fetching system settings:", e);
@@ -137,326 +348,6 @@ const useLocalSystemSettings = () => {
   }, []);
 
   return settings;
-};
-
-// ─── Wireframe skeleton ───────────────────────────────────────────────────────
-const EcmWireframe = ({ settings }) => {
-  const p = settings?.primaryColor || "#894444";
-  const ac = settings?.accentColor || "#FEF9E1";
-
-  return (
-    <>
-      <style>{shimmerKeyframes}</style>
-      <Box
-        sx={{
-          py: 3,
-          width: "100vw",
-          mx: "auto",
-          maxWidth: "100%",
-          overflow: "hidden",
-          position: "relative",
-          left: "50%",
-          transform: "translateX(-50%)",
-          minHeight: "92vh",
-        }}
-      >
-        <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
-          {/* Header shimmer */}
-          <Box
-            sx={{
-              mb: 3,
-              borderRadius: 20,
-              overflow: "hidden",
-              background: `${ac}F2`,
-              border: `1px solid ${alpha(p, 0.1)}`,
-              boxShadow: `0 8px 40px ${alpha(p, 0.08)}`,
-              animation: "ecmPulse 2.2s ease-in-out infinite",
-            }}
-          >
-            <Box
-              sx={{
-                px: 4,
-                py: 3,
-                position: "relative",
-                overflow: "hidden",
-                background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
-              }}
-            >
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
-                  <Box
-                    sx={{
-                      width: 52,
-                      height: 52,
-                      borderRadius: "50%",
-                      bgcolor: alpha(p, 0.12),
-                      flexShrink: 0,
-                    }}
-                  />
-                  <Box>
-                    <EcmShim
-                      width={260}
-                      height={22}
-                      borderRadius={6}
-                      sx={{ mb: 0.75 }}
-                    />
-                    <EcmShim width={300} height={12} borderRadius={4} />
-                  </Box>
-                </Box>
-                <Box
-                  sx={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: "50%",
-                    bgcolor: alpha(p, 0.1),
-                  }}
-                />
-              </Box>
-            </Box>
-          </Box>
-
-          <Grid container spacing={3}>
-            {/* Left panel shimmer */}
-            <Grid item xs={12} lg={4}>
-              <Box
-                sx={{
-                  borderRadius: 20,
-                  overflow: "hidden",
-                  background: `${ac}F2`,
-                  border: `1px solid ${alpha(p, 0.1)}`,
-                  animation: "ecmPulse 2.2s ease-in-out 0.05s infinite",
-                }}
-              >
-                <Box
-                  sx={{
-                    px: 3.5,
-                    py: 2.5,
-                    borderBottom: `1px solid ${alpha(p, 0.08)}`,
-                    bgcolor: alpha(ac, 0.5),
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 2,
-                  }}
-                >
-                  <Box
-                    sx={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: "50%",
-                      bgcolor: alpha(p, 0.12),
-                    }}
-                  />
-                  <Box>
-                    <EcmShim
-                      width={160}
-                      height={13}
-                      borderRadius={5}
-                      sx={{ mb: 0.5 }}
-                    />
-                    <EcmShim width={220} height={10} borderRadius={4} />
-                  </Box>
-                </Box>
-                <Box
-                  sx={{
-                    p: 3,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 2.5,
-                  }}
-                >
-                  <Box>
-                    <EcmShim
-                      width={160}
-                      height={11}
-                      borderRadius={4}
-                      sx={{ mb: 1.5 }}
-                    />
-                    <Grid container spacing={2}>
-                      <Grid item xs={6}>
-                        <EcmShim width="100%" height={40} borderRadius={12} />
-                      </Grid>
-                      <Grid item xs={6}>
-                        <EcmShim width="100%" height={40} borderRadius={12} />
-                      </Grid>
-                    </Grid>
-                  </Box>
-                  <Box
-                    sx={{ borderTop: `1px solid ${alpha(p, 0.1)}`, pt: 2.5 }}
-                  >
-                    <EcmShim
-                      width={180}
-                      height={11}
-                      borderRadius={4}
-                      sx={{ mb: 1.5 }}
-                    />
-                    <EcmShim
-                      width="100%"
-                      height={40}
-                      borderRadius={12}
-                      sx={{ mb: 1.5 }}
-                    />
-                  </Box>
-                  <EcmShim width="100%" height={44} borderRadius={12} />
-                </Box>
-              </Box>
-            </Grid>
-
-            {/* Right panel shimmer */}
-            <Grid item xs={12} lg={8}>
-              <Box
-                sx={{
-                  borderRadius: 20,
-                  overflow: "hidden",
-                  background: `${ac}F2`,
-                  border: `1px solid ${alpha(p, 0.1)}`,
-                  animation: "ecmPulse 2.2s ease-in-out 0.08s infinite",
-                }}
-              >
-                <Box
-                  sx={{
-                    px: 3.5,
-                    py: 2.5,
-                    background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
-                    borderBottom: `1px solid ${alpha(p, 0.1)}`,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                    <Box
-                      sx={{
-                        width: 46,
-                        height: 46,
-                        borderRadius: "50%",
-                        bgcolor: alpha(p, 0.12),
-                      }}
-                    />
-                    <Box>
-                      <EcmShim
-                        width={200}
-                        height={14}
-                        borderRadius={5}
-                        sx={{ mb: 0.5 }}
-                      />
-                      <EcmShim width={240} height={10} borderRadius={4} />
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: "flex", gap: 1 }}>
-                    <EcmShim width={36} height={36} borderRadius={8} />
-                    <EcmShim width={36} height={36} borderRadius={8} />
-                  </Box>
-                </Box>
-                <Box sx={{ p: 3 }}>
-                  <EcmShim
-                    width="100%"
-                    height={40}
-                    borderRadius={12}
-                    sx={{ mb: 2.5 }}
-                  />
-                  <Grid container spacing={1.5}>
-                    {[...Array(8)].map((_, i) => (
-                      <Grid item xs={3} key={i}>
-                        <Box
-                          sx={{
-                            p: 1.5,
-                            borderRadius: 3,
-                            border: `1px solid ${alpha(p, 0.1)}`,
-                            animation: `ecmPulse 2.2s ease-in-out ${i * 0.06}s infinite`,
-                          }}
-                        >
-                          <EcmShim
-                            width="50%"
-                            height={10}
-                            borderRadius={3}
-                            sx={{ mb: 0.75 }}
-                          />
-                          <EcmShim
-                            width="80%"
-                            height={12}
-                            borderRadius={4}
-                            sx={{ mb: 0.75 }}
-                          />
-                          <EcmShim width={70} height={20} borderRadius={10} />
-                        </Box>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </Box>
-              </Box>
-            </Grid>
-          </Grid>
-        </Box>
-      </Box>
-    </>
-  );
-};
-
-// ─── Styled components (matching BulkRegister pattern) ───────────────────────
-const getStyledComponents = (p, ac) => {
-  const GlassCard = styled(Card)(() => ({
-    borderRadius: 20,
-    background: `${ac}F2`,
-    backdropFilter: "blur(10px)",
-    boxShadow: `0 8px 40px ${alpha(p, 0.08)}`,
-    border: `1px solid ${alpha(p, 0.1)}`,
-    overflow: "hidden",
-    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    "&:hover": { boxShadow: `0 12px 48px ${alpha(p, 0.16)}` },
-  }));
-
-  const ProfessionalButton = styled(Button)(({ variant: v }) => ({
-    borderRadius: 12,
-    fontWeight: 600,
-    padding: "10px 22px",
-    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    textTransform: "none",
-    fontSize: "0.9rem",
-    letterSpacing: "0.025em",
-    boxShadow: v === "contained" ? `0 4px 14px ${alpha(p, 0.4)}` : "none",
-    "&:hover": {
-      transform: "translateY(-2px)",
-      boxShadow: v === "contained" ? `0 6px 20px ${alpha(p, 0.55)}` : "none",
-    },
-    "&:active": { transform: "translateY(0)" },
-  }));
-
-  const ModernTextField = styled(TextField)(() => ({
-    "& .MuiOutlinedInput-root": {
-      borderRadius: 12,
-      transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-      backgroundColor: "rgba(255,255,255,0.8)",
-      "&:hover": { backgroundColor: "rgba(255,255,255,0.95)" },
-      "&.Mui-focused": {
-        backgroundColor: "rgba(255,255,255,1)",
-        boxShadow: `0 4px 20px ${alpha(p, 0.12)}`,
-      },
-      "& .MuiOutlinedInput-notchedOutline": { borderColor: alpha(p, 0.25) },
-      "&:hover .MuiOutlinedInput-notchedOutline": {
-        borderColor: alpha(p, 0.45),
-      },
-      "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: p },
-    },
-    "& .MuiInputLabel-root": { fontWeight: 500 },
-  }));
-
-  const ModernSelect = styled(Select)(() => ({
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.8)",
-    "&:hover": { backgroundColor: "rgba(255,255,255,0.95)" },
-    "&.Mui-focused": { backgroundColor: "rgba(255,255,255,1)" },
-    "& .MuiOutlinedInput-notchedOutline": { borderColor: alpha(p, 0.25) },
-    "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: alpha(p, 0.45) },
-    "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: p },
-  }));
-
-  return { GlassCard, ProfessionalButton, ModernTextField, ModernSelect };
 };
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
@@ -508,23 +399,15 @@ const CATEGORY_OPTIONS = [
 ];
 
 // ─── Employee Autocomplete ────────────────────────────────────────────────────
-// FIX 2: Moved styled TextField OUTSIDE the component so it doesn't
-// get recreated on every render, which was breaking focus/typing.
-const buildEmployeeTextField = (p) =>
+const buildEmployeeTextField = () =>
   styled(TextField)(() => ({
     "& .MuiOutlinedInput-root": {
-      borderRadius: 12,
-      backgroundColor: "rgba(255,255,255,0.8)",
-      "&:hover": { backgroundColor: "rgba(255,255,255,0.95)" },
-      "&.Mui-focused": {
-        backgroundColor: "#fff",
-        boxShadow: `0 4px 20px ${alpha(p, 0.12)}`,
-      },
-      "& .MuiOutlinedInput-notchedOutline": { borderColor: alpha(p, 0.25) },
-      "&:hover .MuiOutlinedInput-notchedOutline": {
-        borderColor: alpha(p, 0.45),
-      },
-      "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: p },
+      borderRadius: 8,
+      fontSize: "0.875rem",
+      backgroundColor: "#fff",
+      "& fieldset": { borderColor: T.accentBorder },
+      "&:hover fieldset": { borderColor: T.accent },
+      "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 },
     },
   }));
 
@@ -539,9 +422,6 @@ const EmployeeAutocomplete = ({
   selectedEmployee,
   onEmployeeSelect,
   dropdownDisabled = false,
-  p,
-  ac,
-  tp,
 }) => {
   const [query, setQuery] = useState("");
   const [employees, setEmployees] = useState([]);
@@ -550,16 +430,17 @@ const EmployeeAutocomplete = ({
   const debounceRef = useRef(null);
   const dropdownRef = useRef(null);
 
-  // FIX 2: Memoize the styled component so it's stable across renders
-  const EmpTextField = useMemo(() => buildEmployeeTextField(p), [p]);
+  const EmpTextField = useMemo(() => buildEmployeeTextField(), []);
 
   useEffect(() => {
     if (value && !selectedEmployee) fetchEmployeeById(value);
-  }, [value]);
+  }, [value]); // eslint-disable-line
+
   useEffect(() => {
     if (selectedEmployee) setQuery(selectedEmployee.name || "");
     else if (!value) setQuery("");
   }, [selectedEmployee, value]);
+
   useEffect(() => {
     const handler = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target))
@@ -574,7 +455,7 @@ const EmployeeAutocomplete = ({
     try {
       const r = await axios.get(
         `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(q)}`,
-        getAuthHeaders(),
+        getAuthHeaders()
       );
       setEmployees(r.data);
     } catch {
@@ -588,7 +469,7 @@ const EmployeeAutocomplete = ({
     try {
       const r = await axios.get(
         `${API_BASE_URL}/Remittance/employees/search`,
-        getAuthHeaders(),
+        getAuthHeaders()
       );
       setEmployees(r.data);
     } catch {
@@ -601,7 +482,7 @@ const EmployeeAutocomplete = ({
     try {
       const r = await axios.get(
         `${API_BASE_URL}/Remittance/employees/${empNum}`,
-        getAuthHeaders(),
+        getAuthHeaders()
       );
       onEmployeeSelect(r.data);
       setQuery(r.data.name || "");
@@ -647,7 +528,9 @@ const EmployeeAutocomplete = ({
         autoComplete="off"
         size="small"
         InputProps={{
-          startAdornment: <PersonIcon sx={{ color: p, mr: 1, fontSize: 18 }} />,
+          startAdornment: (
+            <PersonIcon sx={{ color: T.muted, mr: 1, fontSize: 15 }} />
+          ),
           endAdornment: (
             <IconButton
               onClick={
@@ -663,12 +546,12 @@ const EmployeeAutocomplete = ({
               }
               size="small"
               disabled={dropdownDisabled}
-              sx={{ color: p }}
+              sx={{ color: T.muted }}
             >
               {showDropdown ? (
-                <ExpandLessIcon sx={{ fontSize: 18 }} />
+                <ExpandLessIcon sx={{ fontSize: 15 }} />
               ) : (
-                <ExpandMoreIcon sx={{ fontSize: 18 }} />
+                <ExpandMoreIcon sx={{ fontSize: 15 }} />
               )}
             </IconButton>
           ),
@@ -686,8 +569,8 @@ const EmployeeAutocomplete = ({
             maxHeight: 280,
             overflow: "auto",
             mt: 0.75,
-            borderRadius: 3,
-            border: `1px solid ${alpha(p, 0.15)}`,
+            borderRadius: 2,
+            border: `1px solid ${T.accentBorder}`,
           }}
         >
           {isLoading ? (
@@ -700,10 +583,10 @@ const EmployeeAutocomplete = ({
                 gap: 1,
               }}
             >
-              <CircularProgress size={16} sx={{ color: p }} />
+              <CircularProgress size={16} sx={{ color: T.accent }} />
               <Typography
                 variant="body2"
-                sx={{ fontSize: "0.8rem", color: alpha("#000", 0.5) }}
+                sx={{ fontSize: "0.8rem", color: T.muted }}
               >
                 Loading…
               </Typography>
@@ -723,26 +606,40 @@ const EmployeeAutocomplete = ({
                   sx={{
                     py: 1,
                     px: 1.5,
-                    "&:hover": { bgcolor: alpha(p, 0.05) },
-                    borderBottom: `1px solid ${alpha(p, 0.05)}`,
+                    "&:hover": { bgcolor: T.accentFaint },
+                    borderBottom: `1px solid ${T.divider}`,
                   }}
                 >
-                  <ListItemText
-                    primary={
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                    <Avatar
+                      sx={{
+                        width: 28,
+                        height: 28,
+                        fontSize: "0.72rem",
+                        bgcolor: T.accent,
+                        color: "#fff",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {emp.name?.charAt(0)?.toUpperCase() || "?"}
+                    </Avatar>
+                    <Box>
                       <Typography
-                        sx={{ fontSize: "0.82rem", fontWeight: 600, color: p }}
+                        sx={{
+                          fontSize: "0.82rem",
+                          fontWeight: 700,
+                          color: T.text,
+                        }}
                       >
                         {emp.name}
                       </Typography>
-                    }
-                    secondary={
                       <Typography
-                        sx={{ fontSize: "0.72rem", color: alpha("#000", 0.45) }}
+                        sx={{ fontSize: "0.72rem", color: T.muted }}
                       >
                         #{emp.employeeNumber}
                       </Typography>
-                    }
-                  />
+                    </Box>
+                  </Box>
                 </ListItem>
               ))}
             </List>
@@ -751,7 +648,7 @@ const EmployeeAutocomplete = ({
               <Typography
                 sx={{
                   fontSize: "0.8rem",
-                  color: alpha("#000", 0.4),
+                  color: T.faint,
                   fontStyle: "italic",
                 }}
               >
@@ -768,78 +665,56 @@ const EmployeeAutocomplete = ({
 };
 
 // ─── Category Select ──────────────────────────────────────────────────────────
-const CategorySelect = ({ value, onChange, p, disabled = false }) => {
-  return (
-    <FormControl fullWidth size="small">
-      <Select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        sx={{
-          borderRadius: 3,
-          backgroundColor: "rgba(255,255,255,0.8)",
-          "& .MuiOutlinedInput-notchedOutline": { borderColor: alpha(p, 0.25) },
-          "&:hover .MuiOutlinedInput-notchedOutline": {
-            borderColor: alpha(p, 0.45),
-          },
-          "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: p },
-          // FIX 3: Ensure the selected value renders with flex + centered alignment
-          "& .MuiSelect-select": {
-            display: "flex",
-            alignItems: "center",
-          },
-        }}
-      >
-        {CATEGORY_OPTIONS.map(({ group, items }) => [
-          <ListSubheader
-            key={group}
-            sx={{
-              fontSize: "0.68rem",
-              fontWeight: 700,
-              letterSpacing: "0.07em",
-              textTransform: "uppercase",
-              color: alpha(p, 0.5),
-              lineHeight: "2em",
-              bgcolor: alpha("#FEF9E1", 0.6),
-            }}
+const CategorySelect = ({ value, onChange, disabled = false }) => (
+  <FormControl fullWidth size="small">
+    <Select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
+      sx={{
+        ...selectSx,
+        "& .MuiSelect-select": { display: "flex", alignItems: "center" },
+      }}
+    >
+      {CATEGORY_OPTIONS.map(({ group, items }) => [
+        <ListSubheader
+          key={group}
+          sx={{
+            fontSize: "0.68rem",
+            fontWeight: 700,
+            letterSpacing: "0.07em",
+            textTransform: "uppercase",
+            color: alpha(T.accent, 0.45),
+            lineHeight: "2em",
+            bgcolor: T.accentFaint,
+          }}
+        >
+          {group}
+        </ListSubheader>,
+        ...items.map(({ value: v, label, color }) => (
+          <MenuItem
+            key={v}
+            value={v}
+            sx={{ py: 1, display: "flex", alignItems: "center" }}
           >
-            {group}
-          </ListSubheader>,
-          ...items.map(({ value: v, label, color }) => (
-            // FIX 3: Added display:flex + alignItems:center to MenuItem so dot and label are vertically aligned
-            <MenuItem
-              key={v}
-              value={v}
-              sx={{ py: 1, display: "flex", alignItems: "center" }}
+            <ListItemIcon
+              sx={{ minWidth: 26, display: "flex", alignItems: "center" }}
             >
-              <ListItemIcon
-                sx={{ minWidth: 26, display: "flex", alignItems: "center" }}
-              >
-                <Circle sx={{ fontSize: 10, color }} />
-              </ListItemIcon>
-              <Typography sx={{ fontSize: "0.85rem", lineHeight: 1 }}>
-                {label}
-              </Typography>
-            </MenuItem>
-          )),
-        ])}
-      </Select>
-    </FormControl>
-  );
-};
+              <Circle sx={{ fontSize: 8, color }} />
+            </ListItemIcon>
+            <Typography sx={{ fontSize: "0.875rem", lineHeight: 1 }}>
+              {label}
+            </Typography>
+          </MenuItem>
+        )),
+      ])}
+    </Select>
+  </FormControl>
+);
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 const EmploymentCategoryManagement = () => {
   const rawSettings = useLocalSystemSettings();
-  const p = rawSettings?.primaryColor || "#894444";
-  const s = rawSettings?.secondaryColor || "#6d2323";
-  const ac = rawSettings?.accentColor || "#FEF9E1";
-  const tp = rawSettings?.textPrimaryColor || "#6D2323";
-
-  const { GlassCard, ProfessionalButton, ModernTextField } = useMemo(
-    () => getStyledComponents(p, ac),
-    [p, ac],
-  );
 
   // ── State ──
   const [employmentCategories, setEmploymentCategories] = useState([]);
@@ -869,20 +744,18 @@ const EmploymentCategoryManagement = () => {
   const [selectedEditEmployee, setSelectedEditEmployee] = useState(null);
   const [errors, setErrors] = useState({});
 
-  useEffect(() => {
-    setPage(0);
-  }, [deferredSearch]);
+  useEffect(() => { setPage(0); }, [deferredSearch]);
 
   useEffect(() => {
     fetchEmploymentCategories().finally(() => setPageLoading(false));
-  }, []);
+  }, []); // eslint-disable-line
 
   const fetchEmploymentCategories = async () => {
     setLoading(true);
     try {
       const r = await axios.get(
         `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
-        getAuthHeaders(),
+        getAuthHeaders()
       );
       setEmploymentCategories(r.data);
     } catch {
@@ -901,10 +774,7 @@ const EmploymentCategoryManagement = () => {
       setErrors({ employeeNumber: "Required" });
       return;
     }
-    if (
-      newRecord.employmentCategory === 5 &&
-      !newRecord.customCategory.trim()
-    ) {
+    if (newRecord.employmentCategory === 5 && !newRecord.customCategory.trim()) {
       showSnackbar("Please enter a custom category description", "error");
       setErrors({ customCategory: 'Required for "Other"' });
       return;
@@ -914,13 +784,9 @@ const EmploymentCategoryManagement = () => {
       await axios.post(
         `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
         newRecord,
-        getAuthHeaders(),
+        getAuthHeaders()
       );
-      setNewRecord({
-        employeeNumber: "",
-        employmentCategory: 0,
-        customCategory: "",
-      });
+      setNewRecord({ employeeNumber: "", employmentCategory: 0, customCategory: "" });
       setSelectedEmployee(null);
       setErrors({});
       fetchEmploymentCategories();
@@ -933,7 +799,7 @@ const EmploymentCategoryManagement = () => {
     } catch (err) {
       showSnackbar(
         err.response?.data?.error || "Failed to create employment category.",
-        "error",
+        "error"
       );
       setLoading(false);
     }
@@ -944,10 +810,7 @@ const EmploymentCategoryManagement = () => {
       showSnackbar("Employee number is required.", "error");
       return;
     }
-    if (
-      editRecord.employmentCategory === 5 &&
-      !editRecord.customCategory?.trim()
-    ) {
+    if (editRecord.employmentCategory === 5 && !editRecord.customCategory?.trim()) {
       showSnackbar("Please enter a custom category description", "error");
       return;
     }
@@ -959,7 +822,7 @@ const EmploymentCategoryManagement = () => {
           employmentCategory: editRecord.employmentCategory,
           customCategory: editRecord.customCategory || "",
         },
-        getAuthHeaders(),
+        getAuthHeaders()
       );
       setEditRecord(null);
       setOriginalRecord(null);
@@ -972,7 +835,7 @@ const EmploymentCategoryManagement = () => {
     } catch (err) {
       showSnackbar(
         err.response?.data?.error || "Failed to update employment category.",
-        "error",
+        "error"
       );
     }
   };
@@ -981,7 +844,7 @@ const EmploymentCategoryManagement = () => {
     try {
       await axios.delete(
         `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${id}`,
-        getAuthHeaders(),
+        getAuthHeaders()
       );
       setEditRecord(null);
       setOriginalRecord(null);
@@ -1002,7 +865,7 @@ const EmploymentCategoryManagement = () => {
     try {
       const r = await axios.get(
         `${API_BASE_URL}/Remittance/employees/${record.employeeNumber}`,
-        getAuthHeaders(),
+        getAuthHeaders()
       );
       setSelectedEditEmployee({
         name: r.data.name,
@@ -1033,743 +896,648 @@ const EmploymentCategoryManagement = () => {
       (r) =>
         r.employeeNumber?.toString().includes(q) ||
         r.employeeName?.toLowerCase().includes(q) ||
-        r.categoryLabel?.toLowerCase().includes(q),
+        r.categoryLabel?.toLowerCase().includes(q)
     );
   }, [employmentCategories, deferredSearch]);
 
   const pagedData = useMemo(
-    () =>
-      filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
-    [filteredData, page, rowsPerPage],
+    () => filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+    [filteredData, page, rowsPerPage]
   );
 
-  // Show wireframe while initial load
-  if (pageLoading) return <EcmWireframe settings={rawSettings} />;
+  const canAdd =
+    !loading &&
+    newRecord.employeeNumber &&
+    (newRecord.employmentCategory !== 5 || newRecord.customCategory.trim());
+
+  if (pageLoading) return <EcmWireframe />;
 
   return (
     <>
       <style>{shimmerKeyframes}</style>
-      <Box
-        sx={{
-          pt: 3,
-          pb: 0,
-          width: "100vw",
-          mx: "auto",
-          maxWidth: "100%",
-          overflow: "hidden",
-          position: "relative",
-          left: "50%",
-          transform: "translateX(-50%)",
-        }}
-      >
-        <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
-          {/* ── Header ── */}
-          <Fade in timeout={500}>
-            <Box sx={{ mb: 3 }}>
-              <GlassCard>
+      <Fade in timeout={400}>
+        <Box
+          sx={{
+            py: { xs: 1, md: 2 },
+            mt: { xs: 0, md: -2 },
+            mb: { xs: 1, md: 2 },
+            width: "100vw",
+            maxWidth: "100%",
+            position: "relative",
+            left: "63%",
+            transform: "translateX(-61%)",
+            px: { xs: 2, sm: 3, md: 6 },
+          }}
+        >
+          <LoadingOverlay open={loading} message="Processing employment category…" />
+          <SuccessfulOverlay
+            open={successOpen}
+            action={successAction}
+            onClose={() => setSuccessOpen(false)}
+            showOkButton={true}
+          />
+
+          {/* ── Page Header ── */}
+          <SectionCard sx={{ mb: 2, overflow: "hidden" }}>
+            <Box
+              sx={{
+                px: 4,
+                py: 3,
+                background: "linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                position: "relative",
+                overflow: "hidden",
+              }}
+            >
+              <Box
+                sx={{
+                  position: "absolute",
+                  top: -50,
+                  right: -50,
+                  width: 200,
+                  height: 200,
+                  borderRadius: "50%",
+                  background:
+                    "radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)",
+                }}
+              />
+              <Box
+                sx={{
+                  position: "absolute",
+                  bottom: -30,
+                  left: "30%",
+                  width: 150,
+                  height: 150,
+                  borderRadius: "50%",
+                  background:
+                    "radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)",
+                }}
+              />
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 3,
+                  position: "relative",
+                  zIndex: 1,
+                }}
+              >
+                <CategoryIcon sx={{ fontSize: 32, color: T.accent }} />
+                <Box>
+                  <Typography
+                    sx={{
+                      fontSize: "1.25rem",
+                      fontWeight: 900,
+                      color: T.accent,
+                      lineHeight: 1.2,
+                      mb: 0.3,
+                    }}
+                  >
+                    Employment Category Management
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: "0.82rem",
+                      color: T.accentMid,
+                      fontWeight: 700,
+                      opacity: 0.9,
+                    }}
+                  >
+                    Administrative Panel • Assign and manage employee employment categories
+                  </Typography>
+                </Box>
+              </Box>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1.5,
+                  position: "relative",
+                  zIndex: 1,
+                }}
+              >
                 <Box
                   sx={{
-                    px: 4,
-                    py: 3,
-                    background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
-                    position: "relative",
-                    overflow: "hidden",
+                    px: 2.5,
+                    py: 0.75,
+                    borderRadius: 6,
+                    bgcolor: alpha(T.accent, 0.1),
+                    border: `1px solid ${alpha(T.accent, 0.2)}`,
                   }}
                 >
-                  <Box
-                    sx={{
-                      position: "absolute",
-                      top: -40,
-                      right: -40,
-                      width: 160,
-                      height: 160,
-                      background: `radial-gradient(circle, ${alpha(p, 0.1)} 0%, transparent 70%)`,
-                    }}
-                  />
-                  <Box
-                    sx={{
-                      position: "absolute",
-                      bottom: -25,
-                      left: "30%",
-                      width: 120,
-                      height: 120,
-                      background: `radial-gradient(circle, ${alpha(p, 0.07)} 0%, transparent 70%)`,
-                    }}
-                  />
-                  <Box
-                    display="flex"
-                    alignItems="center"
-                    justifyContent="space-between"
-                    position="relative"
-                    zIndex={1}
+                  <Typography
+                    sx={{ fontSize: "0.8rem", color: T.accent, fontWeight: 700 }}
                   >
-                    <Box display="flex" alignItems="center" gap={3}>
-                      <Avatar
-                        sx={{
-                          bgcolor: alpha(p, 0.15),
-                          width: 52,
-                          height: 52,
-                          boxShadow: `0 6px 20px ${alpha(p, 0.15)}`,
-                        }}
-                      >
-                        <CategoryIcon sx={{ fontSize: 26, color: p }} />
-                      </Avatar>
-                      <Box>
-                        <Typography
-                          variant="h5"
-                          component="h1"
-                          sx={{ fontWeight: 700, lineHeight: 1.2, color: p }}
-                        >
-                          Employment Category Management
-                        </Typography>
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            opacity: 0.75,
-                            fontWeight: 400,
-                            color: tp,
-                            mt: 0.25,
-                          }}
-                        >
-                          Manage employee employment categories and assignments
-                        </Typography>
-                      </Box>
-                    </Box>
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <Chip
-                        label="Category Management"
-                        size="small"
-                        sx={{
-                          bgcolor: alpha(p, 0.15),
-                          color: p,
-                          fontWeight: 500,
-                        }}
-                      />
-                      <Tooltip title="Refresh Data">
-                        <IconButton
-                          onClick={fetchEmploymentCategories}
-                          sx={{
-                            bgcolor: alpha(p, 0.1),
-                            "&:hover": { bgcolor: alpha(p, 0.2) },
-                            color: p,
-                            width: 44,
-                            height: 44,
-                          }}
-                        >
-                          <Refresh sx={{ fontSize: 20 }} />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </Box>
+                    {employmentCategories.length}{" "}
+                    {employmentCategories.length === 1 ? "record" : "records"}
+                  </Typography>
                 </Box>
-              </GlassCard>
+                <Tooltip title="Refresh Data">
+                  <IconButton
+                    onClick={fetchEmploymentCategories}
+                    sx={{
+                      bgcolor: alpha(T.accent, 0.08),
+                      color: T.accent,
+                      width: 36,
+                      height: 36,
+                      "&:hover": { bgcolor: alpha(T.accent, 0.15) },
+                    }}
+                  >
+                    <Refresh sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
             </Box>
-          </Fade>
+          </SectionCard>
 
-          <Grid container spacing={3} alignItems="flex-start">
+          {/* ── Two-column layout ── */}
+          <Grid container spacing={2}>
+
             {/* ── LEFT: Add New Category ── */}
             <Grid item xs={12} lg={4}>
-              <Fade in timeout={700}>
-                <GlassCard>
-                  {/* Panel header */}
-                  <Box
-                    sx={{
-                      px: 3.5,
-                      py: 2.5,
-                      background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
-                      borderBottom: `1px solid ${alpha(p, 0.1)}`,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 2,
-                      position: "relative",
-                      overflow: "hidden",
-                    }}
+              <SectionCard
+                sx={{
+                  height: "calc(100vh - 280px)",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                {/* Panel header */}
+                <Box
+                  sx={{
+                    px: 3.5,
+                    py: 1.25,
+                    borderBottom: `1px solid ${T.divider}`,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1.5,
+                    bgcolor: T.accentFaint,
+                  }}
+                >
+                  <AddIcon sx={{ fontSize: 15, color: T.accent }} />
+                  <Typography
+                    sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}
                   >
-                    <Box
+                    Add New Category
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Typography sx={{ fontSize: "0.72rem", color: T.faint }}>
+                    <Box component="span" sx={{ color: "#c62828" }}>*</Box> required
+                  </Typography>
+                </Box>
+
+                {/* Scrollable body */}
+                <Box
+                  sx={{
+                    px: 3.5,
+                    py: 3,
+                    flexGrow: 1,
+                    overflowY: "auto",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 0,
+                    "&::-webkit-scrollbar": { width: 4 },
+                    "&::-webkit-scrollbar-thumb": {
+                      bgcolor: T.accentBorder,
+                      borderRadius: 2,
+                    },
+                  }}
+                >
+                  {/* ── SECTION: Employee ── */}
+                  <FormSectionLabel icon={PersonIcon}>Employee</FormSectionLabel>
+
+                  {/* Employee Search */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography
                       sx={{
-                        position: "absolute",
-                        top: -20,
-                        right: -20,
-                        width: 90,
-                        height: 90,
-                        background: `radial-gradient(circle, ${alpha(p, 0.07)} 0%, transparent 70%)`,
-                      }}
-                    />
-                    <Avatar
-                      sx={{ bgcolor: alpha(p, 0.15), width: 42, height: 42 }}
-                    >
-                      <CategoryIcon sx={{ fontSize: 20, color: p }} />
-                    </Avatar>
-                    <Box sx={{ flex: 1, zIndex: 1 }}>
-                      <Typography
-                        sx={{
-                          fontWeight: 700,
-                          fontSize: "0.95rem",
-                          color: p,
-                          lineHeight: 1.2,
-                        }}
-                      >
-                        Add New Category
-                      </Typography>
-                      <Typography
-                        sx={{
-                          fontSize: "0.72rem",
-                          color: alpha(tp, 0.65),
-                          mt: 0.2,
-                        }}
-                      >
-                        Assign employment category to employee
-                      </Typography>
-                    </Box>
-                    <Chip
-                      label="New"
-                      size="small"
-                      sx={{
-                        bgcolor: alpha(p, 0.15),
-                        color: p,
+                        fontSize: "0.75rem",
                         fontWeight: 600,
-                        zIndex: 1,
+                        color: T.accent,
+                        mb: 0.75,
                       }}
+                    >
+                      Search Employee{" "}
+                      <Box component="span" sx={{ color: "#c62828" }}>*</Box>
+                    </Typography>
+                    <EmployeeAutocomplete
+                      value={newRecord.employeeNumber}
+                      onChange={(val) => {
+                        setNewRecord((r) => ({ ...r, employeeNumber: val }));
+                        setErrors((e) => {
+                          const n = { ...e };
+                          delete n.employeeNumber;
+                          return n;
+                        });
+                      }}
+                      selectedEmployee={selectedEmployee}
+                      onEmployeeSelect={setSelectedEmployee}
+                      placeholder="Search name or employee ID…"
+                      required
+                      error={!!errors.employeeNumber}
+                      helperText={errors.employeeNumber || ""}
                     />
                   </Box>
 
-                  <Box
-                    sx={{
-                      p: 3,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 2,
-                    }}
-                  >
-                    {/* ── Search Employee ── */}
-                    <Box>
-                      <Typography
-                        sx={{
-                          fontSize: "0.68rem",
-                          fontWeight: 700,
-                          letterSpacing: "0.09em",
-                          textTransform: "uppercase",
-                          color: alpha(tp, 0.45),
-                          mb: 1.25,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 0.75,
-                        }}
-                      >
-                        <PersonIcon sx={{ fontSize: 13 }} /> Employee
-                        Information
-                      </Typography>
-                      <Typography
-                        sx={{
-                          fontSize: "0.72rem",
-                          fontWeight: 600,
-                          color: tp,
-                          mb: 0.6,
-                        }}
-                      >
-                        Search Employee{" "}
-                        <Box component="span" sx={{ color: "red" }}>
-                          *
-                        </Box>
-                      </Typography>
-                      <EmployeeAutocomplete
-                        value={newRecord.employeeNumber}
-                        onChange={(val) => {
-                          setNewRecord((r) => ({ ...r, employeeNumber: val }));
-                          setErrors((e) => {
-                            const n = { ...e };
-                            delete n.employeeNumber;
-                            return n;
-                          });
-                        }}
-                        selectedEmployee={selectedEmployee}
-                        onEmployeeSelect={setSelectedEmployee}
-                        placeholder="Search employee…"
-                        required
-                        error={!!errors.employeeNumber}
-                        helperText={errors.employeeNumber || ""}
-                        p={p}
-                        ac={ac}
-                        tp={tp}
-                      />
-                    </Box>
-
-                    {/* ── Selected Employee display ── */}
-                    {selectedEmployee ? (
-                      <Box
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 1.25,
-                          px: 1.75,
-                          py: 1.25,
-                          borderRadius: 3,
-                          bgcolor: alpha(p, 0.05),
-                          border: `1px solid ${alpha(p, 0.15)}`,
-                        }}
-                      >
-                        <Avatar
-                          sx={{
-                            width: 32,
-                            height: 32,
-                            bgcolor: alpha(p, 0.15),
-                            fontSize: "0.8rem",
-                            color: p,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {selectedEmployee.name?.charAt(0)}
-                        </Avatar>
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography
-                            sx={{
-                              fontSize: "0.82rem",
-                              fontWeight: 700,
-                              color: p,
-                              lineHeight: 1.2,
-                            }}
-                            noWrap
-                          >
-                            {selectedEmployee.name}
-                          </Typography>
-                          <Typography
-                            sx={{ fontSize: "0.68rem", color: alpha(tp, 0.5) }}
-                          >
-                            #{selectedEmployee.employeeNumber}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    ) : (
-                      <Box
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          border: `2px dashed ${alpha(p, 0.18)}`,
-                          borderRadius: 3,
-                          py: 1.5,
-                          bgcolor: alpha(p, 0.02),
-                        }}
-                      >
-                        <Typography
-                          sx={{
-                            fontSize: "0.75rem",
-                            color: alpha(tp, 0.35),
-                            fontStyle: "italic",
-                          }}
-                        >
-                          No employee selected yet
-                        </Typography>
-                      </Box>
-                    )}
-
-                    <Box sx={{ borderTop: `1px dashed ${alpha(p, 0.12)}` }} />
-
-                    {/* ── Category Type ── */}
-                    <Box>
-                      <Typography
-                        sx={{
-                          fontSize: "0.68rem",
-                          fontWeight: 700,
-                          letterSpacing: "0.09em",
-                          textTransform: "uppercase",
-                          color: alpha(tp, 0.45),
-                          mb: 1.25,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 0.75,
-                        }}
-                      >
-                        <WorkIcon sx={{ fontSize: 13 }} /> Employment Category
-                      </Typography>
-                      <Typography
-                        sx={{
-                          fontSize: "0.72rem",
-                          fontWeight: 600,
-                          color: tp,
-                          mb: 0.6,
-                        }}
-                      >
-                        Category Type
-                      </Typography>
-                      <CategorySelect
-                        value={newRecord.employmentCategory}
-                        onChange={(v) =>
-                          setNewRecord((r) => ({
-                            ...r,
-                            employmentCategory: v,
-                            customCategory: v === 5 ? r.customCategory : "",
-                          }))
-                        }
-                        p={p}
-                      />
-
-                      {newRecord.employmentCategory === 5 && (
-                        <Fade in>
-                          <Box sx={{ mt: 1.5 }}>
-                            <Typography
-                              sx={{
-                                fontSize: "0.72rem",
-                                fontWeight: 600,
-                                color: tp,
-                                mb: 0.6,
-                              }}
-                            >
-                              Custom Category{" "}
-                              <Box component="span" sx={{ color: "red" }}>
-                                *
-                              </Box>
-                            </Typography>
-                            <ModernTextField
-                              value={newRecord.customCategory}
-                              onChange={(e) => {
-                                setNewRecord((r) => ({
-                                  ...r,
-                                  customCategory: e.target.value,
-                                }));
-                                setErrors((er) => {
-                                  const n = { ...er };
-                                  delete n.customCategory;
-                                  return n;
-                                });
-                              }}
-                              placeholder="e.g., Part-timer, OJT, Consultant…"
-                              fullWidth
-                              size="small"
-                              error={!!errors.customCategory}
-                              helperText={
-                                errors.customCategory || "Max 100 characters"
-                              }
-                              inputProps={{ maxLength: 100 }}
-                            />
-                          </Box>
-                        </Fade>
-                      )}
-                    </Box>
-
-                    {/* ── Actions ── */}
+                  {/* Employee preview pill */}
+                  {selectedEmployee ? (
                     <Box
                       sx={{
                         display: "flex",
-                        gap: 1.5,
-                        pt: 1,
-                        borderTop: `1px solid ${alpha(p, 0.08)}`,
-                        justifyContent: "flex-end",
+                        alignItems: "center",
+                        gap: 1.25,
+                        px: 1.75,
+                        py: 1.25,
+                        mb: 2.5,
+                        borderRadius: 2,
+                        bgcolor: T.accentFaint,
+                        border: `1px solid ${T.accentBorder}`,
                       }}
                     >
-                      {(selectedEmployee || newRecord.customCategory) && (
-                        <ProfessionalButton
-                          variant="outlined"
-                          onClick={() => {
-                            setNewRecord({
-                              employeeNumber: "",
-                              employmentCategory: 0,
-                              customCategory: "",
-                            });
-                            setSelectedEmployee(null);
-                            setErrors({});
-                          }}
+                      <Avatar
+                        sx={{
+                          width: 30,
+                          height: 30,
+                          bgcolor: alpha(T.accent, 0.15),
+                          fontSize: "0.78rem",
+                          color: T.accent,
+                          fontWeight: 700,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {selectedEmployee.name?.charAt(0)?.toUpperCase() || "?"}
+                      </Avatar>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography
                           sx={{
-                            borderColor: alpha(p, 0.4),
-                            color: alpha(tp, 0.6),
-                            "&:hover": {
-                              borderColor: p,
-                              bgcolor: alpha(p, 0.05),
-                            },
+                            fontSize: "0.82rem",
+                            fontWeight: 700,
+                            color: T.text,
+                            lineHeight: 1.2,
+                          }}
+                          noWrap
+                        >
+                          {selectedEmployee.name}
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.7rem", color: T.muted }}>
+                          #{selectedEmployee.employeeNumber}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  ) : (
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        border: `1.5px dashed ${T.accentBorder}`,
+                        borderRadius: 2,
+                        py: 1.5,
+                        mb: 2.5,
+                        bgcolor: alpha(T.accent, 0.02),
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontSize: "0.75rem",
+                          color: T.faint,
+                          fontStyle: "italic",
+                        }}
+                      >
+                        No employee selected yet
+                      </Typography>
+                    </Box>
+                  )}
+
+                  <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
+
+                  {/* ── SECTION: Employment Category ── */}
+                  <FormSectionLabel icon={WorkIcon}>Employment Category</FormSectionLabel>
+
+                  {/* Category Type */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography
+                      sx={{
+                        fontSize: "0.75rem",
+                        fontWeight: 600,
+                        color: T.accent,
+                        mb: 0.75,
+                      }}
+                    >
+                      Category Type
+                    </Typography>
+                    <CategorySelect
+                      value={newRecord.employmentCategory}
+                      onChange={(v) =>
+                        setNewRecord((r) => ({
+                          ...r,
+                          employmentCategory: v,
+                          customCategory: v === 5 ? r.customCategory : "",
+                        }))
+                      }
+                    />
+                  </Box>
+
+                  {/* Custom Category — only visible when "Other" is selected */}
+                  {newRecord.employmentCategory === 5 && (
+                    <Fade in>
+                      <Box sx={{ mb: 2 }}>
+                        <Typography
+                          sx={{
+                            fontSize: "0.75rem",
+                            fontWeight: 600,
+                            color: T.accent,
+                            mb: 0.75,
                           }}
                         >
-                          Clear
-                        </ProfessionalButton>
-                      )}
-                      <ProfessionalButton
-                        variant="contained"
-                        disabled={loading}
-                        onClick={handleCreate}
-                        startIcon={
-                          loading ? (
-                            <CircularProgress size={16} sx={{ color: ac }} />
-                          ) : (
-                            <AddIcon />
-                          )
-                        }
+                          Custom Description{" "}
+                          <Box component="span" sx={{ color: "#c62828" }}>*</Box>
+                        </Typography>
+                        <FieldInput
+                          value={newRecord.customCategory}
+                          onChange={(e) => {
+                            setNewRecord((r) => ({
+                              ...r,
+                              customCategory: e.target.value,
+                            }));
+                            setErrors((er) => {
+                              const n = { ...er };
+                              delete n.customCategory;
+                              return n;
+                            });
+                          }}
+                          placeholder="e.g., Part-timer, OJT, Consultant…"
+                          fullWidth
+                          size="small"
+                          error={!!errors.customCategory}
+                          helperText={errors.customCategory || "Max 100 characters"}
+                          inputProps={{ maxLength: 100 }}
+                        />
+                      </Box>
+                    </Fade>
+                  )}
+
+                  {/* Submit */}
+                  <Box sx={{ mt: "auto" }}>
+                    {selectedEmployee && (
+                      <AccentButton
+                        onClick={() => {
+                          setNewRecord({
+                            employeeNumber: "",
+                            employmentCategory: 0,
+                            customCategory: "",
+                          });
+                          setSelectedEmployee(null);
+                          setErrors({});
+                        }}
+                        variant="outlined"
+                        fullWidth
                         sx={{
-                          bgcolor: p,
-                          color: ac,
-                          "&:hover": { bgcolor: s },
-                          "&:disabled": {
-                            bgcolor: alpha(p, 0.4),
-                            color: alpha(ac, 0.7),
+                          mb: 1,
+                          height: 36,
+                          fontSize: "0.8rem",
+                          borderColor: T.accentBorder,
+                          color: T.muted,
+                          "&:hover": {
+                            bgcolor: T.accentFaint,
+                            borderColor: T.accent,
+                            color: T.accent,
                           },
                         }}
                       >
-                        {loading ? "Adding…" : "Add Category"}
-                      </ProfessionalButton>
-                    </Box>
+                        Clear Form
+                      </AccentButton>
+                    )}
+                    <AccentButton
+                      onClick={handleCreate}
+                      variant="contained"
+                      fullWidth
+                      disabled={!canAdd}
+                      startIcon={
+                        loading ? (
+                          <CircularProgress size={14} sx={{ color: "#fff" }} />
+                        ) : (
+                          <AddIcon sx={{ fontSize: "16px !important" }} />
+                        )
+                      }
+                      sx={{
+                        height: 42,
+                        bgcolor: canAdd ? T.accent : "#d0d0d0",
+                        color: canAdd ? "#fff" : "#888",
+                        boxShadow: canAdd ? `0 2px 10px ${alpha(T.accent, 0.32)}` : "none",
+                        "&:hover": {
+                          bgcolor: canAdd ? T.accentDark : "#d0d0d0",
+                          boxShadow: canAdd ? `0 4px 16px ${alpha(T.accent, 0.38)}` : "none",
+                        },
+                        "&:disabled": {
+                          bgcolor: "#d0d0d0 !important",
+                          color: "#888 !important",
+                          boxShadow: "none !important",
+                          transform: "none !important",
+                        },
+                      }}
+                    >
+                      {loading ? "Adding…" : "Add Category"}
+                    </AccentButton>
                   </Box>
-                </GlassCard>
-              </Fade>
+                </Box>
+              </SectionCard>
             </Grid>
 
             {/* ── RIGHT: Records ── */}
             <Grid item xs={12} lg={8}>
-              <Fade in timeout={900}>
-                <GlassCard>
-                  {/* Panel header */}
+              <SectionCard
+                sx={{
+                  height: "calc(100vh - 280px)",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                {/* Records header / toolbar */}
+                <Box
+                  sx={{
+                    px: 3.5,
+                    py: 2,
+                    borderBottom: `1px solid ${T.divider}`,
+                    bgcolor: T.accentFaint,
+                  }}
+                >
+                  {/* Title row */}
                   <Box
                     sx={{
-                      px: 3.5,
-                      py: 2.5,
-                      background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
-                      borderBottom: `1px solid ${alpha(p, 0.1)}`,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",
-                      position: "relative",
-                      overflow: "hidden",
+                      mb: 1.5,
                     }}
                   >
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        top: -25,
-                        right: -25,
-                        width: 110,
-                        height: 110,
-                        background: `radial-gradient(circle, ${alpha(p, 0.07)} 0%, transparent 70%)`,
-                      }}
-                    />
-                    <Box
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 2,
-                        zIndex: 1,
-                      }}
-                    >
-                      <Avatar
-                        sx={{ bgcolor: alpha(p, 0.15), width: 42, height: 42 }}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                      <ReorderIcon sx={{ fontSize: 17, color: T.accent }} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.88rem",
+                          fontWeight: 700,
+                          color: T.text,
+                        }}
                       >
-                        <ReorderIcon sx={{ fontSize: 20, color: p }} />
-                      </Avatar>
-                      <Box>
-                        <Typography
-                          sx={{
-                            fontWeight: 700,
-                            fontSize: "0.95rem",
-                            color: p,
-                            lineHeight: 1.2,
-                          }}
-                        >
-                          Employment Category Records
-                        </Typography>
+                        Employment Category Records
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                      <Box
+                        sx={{
+                          px: 1.5,
+                          py: 0.4,
+                          borderRadius: 6,
+                          bgcolor: alpha(T.accent, 0.08),
+                          border: `1px solid ${alpha(T.accent, 0.15)}`,
+                        }}
+                      >
                         <Typography
                           sx={{
                             fontSize: "0.72rem",
-                            color: alpha(tp, 0.65),
-                            mt: 0.2,
+                            color: T.accent,
+                            fontWeight: 700,
                           }}
                         >
-                          View and manage existing records
+                          {filteredData.length} records
                         </Typography>
                       </Box>
-                    </Box>
-                    <Box
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 1.5,
-                        zIndex: 1,
-                      }}
-                    >
-                      <Chip
-                        label={`${filteredData.length} records`}
-                        size="small"
-                        sx={{
-                          bgcolor: alpha(p, 0.15),
-                          color: p,
-                          fontWeight: 500,
-                        }}
-                      />
                       <ToggleButtonGroup
                         value={viewMode}
                         exclusive
-                        onChange={(_, m) => m && setViewMode(m)}
+                        onChange={(_, v) => v && setViewMode(v)}
                         size="small"
                         sx={{
-                          bgcolor: alpha(p, 0.08),
-                          borderRadius: 2,
                           "& .MuiToggleButton-root": {
-                            color: alpha(p, 0.5),
-                            border: "none",
-                            borderRadius: "8px !important",
-                            px: 1.25,
-                            py: 0.75,
+                            px: 1,
+                            py: 0.35,
+                            border: `1px solid ${T.accentBorder}`,
+                            color: T.muted,
                             "&.Mui-selected": {
-                              bgcolor: alpha(p, 0.15),
-                              color: p,
+                              bgcolor: T.accentFaint,
+                              color: T.accent,
                             },
                           },
                         }}
                       >
                         <ToggleButton value="grid">
-                          <ViewModuleIcon sx={{ fontSize: 18 }} />
+                          <ViewModuleIcon sx={{ fontSize: 14 }} />
                         </ToggleButton>
                         <ToggleButton value="list">
-                          <ViewListIcon sx={{ fontSize: 18 }} />
+                          <ViewListIcon sx={{ fontSize: 14 }} />
                         </ToggleButton>
                       </ToggleButtonGroup>
                     </Box>
                   </Box>
 
-                  <Box sx={{ p: 3 }}>
-                    {/* Search */}
-                    <Box sx={{ mb: 2 }}>
-                      <ModernTextField
-                        size="small"
-                        placeholder="Search by Employee ID, Name, or Category…"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        fullWidth
-                        InputProps={{
-                          startAdornment: (
-                            <SearchIcon
-                              sx={{ color: p, mr: 1, fontSize: 18 }}
-                            />
-                          ),
-                        }}
-                      />
-                    </Box>
+                  {/* Search */}
+                  <FieldInput
+                    size="small"
+                    placeholder="Search by employee ID, name, or category…"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    fullWidth
+                    InputProps={{
+                      startAdornment: (
+                        <SearchIcon
+                          sx={{ fontSize: 15, color: T.muted, mr: 0.5 }}
+                        />
+                      ),
+                    }}
+                  />
+                </Box>
 
-                    <Box
-                      sx={{
-                        maxHeight: 420,
-                        minHeight: 220,
-                        overflowY: "auto",
-                        pr: 0.5,
-                        "&::-webkit-scrollbar": { width: "4px" },
-                        "&::-webkit-scrollbar-track": {
-                          background: alpha(p, 0.04),
-                          borderRadius: 2,
-                        },
-                        "&::-webkit-scrollbar-thumb": {
-                          background: alpha(p, 0.25),
-                          borderRadius: 2,
-                        },
-                      }}
-                    >
-                      {viewMode === "grid" ? (
-                        <Grid container spacing={1.25}>
-                          {pagedData.map((record) => {
-                            const catColor = getCategoryColor(
-                              record.employmentCategory,
-                            );
-                            return (
-                              <Grid
-                                item
-                                xs={3}
-                                key={record.id}
-                                sx={{ mb: 0.5 }}
-                              >
-                                <Box
-                                  onClick={() => handleOpenModal(record)}
-                                  sx={{
-                                    p: 1.5,
-                                    borderRadius: 2.5,
-                                    border: `1px solid ${alpha(p, 0.09)}`,
-                                    bgcolor: alpha(ac, 0.5),
-                                    cursor: "pointer",
-                                    transition: "all 0.18s ease",
-                                    justifyContent: "space-between",
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    gap: 0.5,
-                                    "&:hover": {
-                                      border: `1px solid ${alpha(catColor, 0.4)}`,
-                                      bgcolor: alpha(ac, 0.85),
-                                      transform: "translateY(-2px)",
-                                      boxShadow: `0 4px 14px ${alpha(catColor, 0.12)}`,
-                                    },
-                                  }}
-                                >
-                                  <Typography
-                                    sx={{
-                                      fontSize: "0.63rem",
-                                      fontWeight: 700,
-                                      color: alpha(p, 0.5),
-                                      letterSpacing: "0.02em",
-                                    }}
-                                  >
-                                    #{record.employeeNumber}
-                                  </Typography>
-                                  <Typography
-                                    sx={{
-                                      fontSize: "0.78rem",
-                                      fontWeight: 700,
-                                      color: tp,
-                                      lineHeight: 1.3,
-                                    }}
-                                    noWrap
-                                  >
-                                    {record.employeeName || "Loading…"}
-                                  </Typography>
-                                  <Box sx={{ mt: 0.25 }}>
-                                    <Chip
-                                      label={record.categoryLabel}
-                                      size="small"
-                                      sx={{
-                                        width: "100%",
-                                        color: catColor,
-                                        bgcolor: alpha(catColor, 0.08),
-                                        border: `1px solid ${alpha(catColor, 0.25)}`,
-                                        fontWeight: 600,
-                                        fontSize: "0.62rem",
-                                        height: 20,
-                                        maxWidth: "100%",
-                                        "& .MuiChip-label": {
-                                          px: 0.75,
-                                          overflow: "hidden",
-                                          textOverflow: "ellipsis",
-                                        },
-                                      }}
-                                    />
-                                  </Box>
-                                </Box>
-                              </Grid>
-                            );
-                          })}
-                        </Grid>
-                      ) : (
-                        <Box
-                          sx={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 0.6,
-                          }}
-                        >
-                          {pagedData.map((record) => {
-                            const catColor = getCategoryColor(
-                              record.employmentCategory,
-                            );
-                            return (
+                {/* Records list */}
+                <Box
+                  sx={{
+                    flexGrow: 1,
+                    overflowY: "auto",
+                    p: 2,
+                    "&::-webkit-scrollbar": { width: 4 },
+                    "&::-webkit-scrollbar-thumb": {
+                      bgcolor: T.accentBorder,
+                      borderRadius: 2,
+                    },
+                  }}
+                >
+                  {pagedData.length === 0 ? (
+                    <Box sx={{ py: 10, textAlign: "center" }}>
+                      <Box
+                        sx={{
+                          width: 72,
+                          height: 72,
+                          borderRadius: "50%",
+                          bgcolor: T.accentFaint,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          mx: "auto",
+                          mb: 2,
+                        }}
+                      >
+                        <CategoryIcon
+                          sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }}
+                        />
+                      </Box>
+                      <Typography
+                        sx={{
+                          fontSize: "0.9rem",
+                          fontWeight: 600,
+                          color: T.muted,
+                          mb: 0.5,
+                        }}
+                      >
+                        {employmentCategories.length === 0
+                          ? "No categories yet"
+                          : "No records match your search"}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.78rem", color: T.faint }}>
+                        {employmentCategories.length === 0
+                          ? "Use the form on the left to add a category."
+                          : "Try a different search term."}
+                      </Typography>
+                    </Box>
+                  ) : viewMode === "grid" ? (
+                    <Grid container spacing={1.5} alignItems="stretch">
+                      {pagedData.map((record) => {
+                        const catColor = getCategoryColor(record.employmentCategory);
+                        return (
+                          <Grid
+                            item
+                            xs={12}
+                            sm={3}
+                            key={record.id}
+                            sx={{ display: "flex" }}
+                          >
+                            <Box
+                              onClick={() => handleOpenModal(record)}
+                              sx={{
+                                width: "100%",
+                                display: "flex",
+                                flexDirection: "column",
+                                p: 2,
+                                borderRadius: 2,
+                                cursor: "pointer",
+                                bgcolor: "#fff",
+                                border: `1px solid ${T.accentBorder}`,
+                                position: "relative",
+                                transition: "all 0.13s",
+                                "&:hover": {
+                                  bgcolor: T.rowHover,
+                                  borderColor: T.accent,
+                                  transform: "translateY(-2px)",
+                                  boxShadow: `0 4px 14px ${alpha(catColor, 0.12)}`,
+                                },
+                              }}
+                            >
                               <Box
-                                key={record.id}
-                                onClick={() => handleOpenModal(record)}
                                 sx={{
                                   display: "flex",
                                   alignItems: "center",
-                                  gap: 1.5,
-                                  px: 1.75,
-                                  py: 1.25,
-                                  borderRadius: 2.5,
-                                  border: `1px solid ${alpha(p, 0.09)}`,
-                                  bgcolor: alpha(ac, 0.5),
-                                  cursor: "pointer",
-                                  transition: "all 0.18s ease",
-                                  "&:hover": {
-                                    border: `1px solid ${alpha(catColor, 0.35)}`,
-                                    bgcolor: alpha(ac, 0.85),
-                                    transform: "translateX(3px)",
-                                  },
+                                  gap: 0.75,
+                                  mb: 0.5,
                                 }}
                               >
                                 <Box
@@ -1782,547 +1550,562 @@ const EmploymentCategoryManagement = () => {
                                   }}
                                 />
                                 <Typography
-                                  sx={{
-                                    fontSize: "0.68rem",
-                                    fontWeight: 700,
-                                    color: alpha(p, 0.5),
-                                    flexShrink: 0,
-                                  }}
+                                  sx={{ fontSize: "0.7rem", color: T.faint }}
                                 >
                                   #{record.employeeNumber}
                                 </Typography>
-                                <Typography
-                                  sx={{
-                                    fontSize: "0.82rem",
-                                    fontWeight: 600,
-                                    color: tp,
-                                    flex: 1,
-                                    minWidth: 0,
-                                  }}
-                                  noWrap
-                                >
-                                  {record.employeeName || "Loading…"}
-                                </Typography>
-                                <Chip
-                                  label={record.categoryLabel}
-                                  size="small"
-                                  sx={{
-                                    color: catColor,
-                                    bgcolor: alpha(catColor, 0.08),
-                                    border: `1px solid ${alpha(catColor, 0.25)}`,
-                                    fontWeight: 600,
-                                    fontSize: "0.65rem",
-                                    height: 20,
-                                    flexShrink: 0,
-                                  }}
-                                />
                               </Box>
-                            );
-                          })}
-                        </Box>
-                      )}
-
-                      {filteredData.length === 0 && (
-                        <Box sx={{ textAlign: "center", py: 6 }}>
-                          <Box
-                            sx={{
-                              width: 48,
-                              height: 48,
-                              borderRadius: "50%",
-                              bgcolor: alpha(p, 0.07),
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              mx: "auto",
-                              mb: 1.25,
-                            }}
-                          >
-                            <CategoryIcon
-                              sx={{ fontSize: 22, color: alpha(p, 0.3) }}
-                            />
-                          </Box>
-                          <Typography
-                            sx={{
-                              fontSize: "0.88rem",
-                              fontWeight: 600,
-                              color: p,
-                              mb: 0.4,
-                            }}
-                          >
-                            No Records Found
-                          </Typography>
-                          <Typography
-                            sx={{ fontSize: "0.76rem", color: alpha(tp, 0.45) }}
-                          >
-                            Try adjusting your search criteria
-                          </Typography>
-                        </Box>
-                      )}
-                    </Box>
-
-                    {/* Pagination */}
-                    <Box
-                      sx={{
-                        mt: 1.5,
-                        pt: 1.5,
-                        borderTop: `1px solid ${alpha(p, 0.08)}`,
-                      }}
-                    >
-                      <TablePagination
-                        component="div"
-                        count={filteredData.length}
-                        page={page}
-                        onPageChange={(_, newPage) => setPage(newPage)}
-                        rowsPerPage={rowsPerPage}
-                        onRowsPerPageChange={(e) => {
-                          setRowsPerPage(parseInt(e.target.value, 10));
-                          setPage(0);
-                        }}
-                        rowsPerPageOptions={[12, 24, 48, 96]}
+                              <Typography
+                                sx={{
+                                  fontSize: "0.82rem",
+                                  fontWeight: 700,
+                                  color: T.text,
+                                  mb: 1,
+                                  flexGrow: 1,
+                                }}
+                                noWrap
+                              >
+                                {record.employeeName || "Loading…"}
+                              </Typography>
+                              <Chip
+                                label={record.categoryLabel}
+                                size="small"
+                                sx={{
+                                  height: 20,
+                                  fontSize: "0.7rem",
+                                  fontWeight: 600,
+                                  color: catColor,
+                                  bgcolor: alpha(catColor, 0.08),
+                                  border: `1px solid ${alpha(catColor, 0.25)}`,
+                                  borderRadius: "4px",
+                                  "& .MuiChip-label": { px: 0.75 },
+                                }}
+                              />
+                            </Box>
+                          </Grid>
+                        );
+                      })}
+                    </Grid>
+                  ) : (
+                    <>
+                      {/* List header */}
+                      <Box
                         sx={{
-                          "& .MuiTablePagination-toolbar": {
-                            minHeight: 44,
-                            px: 0,
-                          },
-                          "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows":
-                            { fontSize: "0.75rem", color: alpha(tp, 0.6) },
+                          px: 1.5,
+                          py: 1,
+                          display: "grid",
+                          gridTemplateColumns: "110px 1fr 140px",
+                          gap: 1,
+                          alignItems: "center",
+                          bgcolor: alpha(T.accent, 0.04),
+                          borderRadius: 1.5,
+                          mb: 1,
                         }}
-                      />
-                    </Box>
-                  </Box>
-                </GlassCard>
-              </Fade>
-            </Grid>
-          </Grid>
-        </Box>
-
-        {/* ── Edit/View Modal ── */}
-        <Modal
-          open={!!editRecord}
-          onClose={() => {
-            setEditRecord(null);
-            setOriginalRecord(null);
-            setSelectedEditEmployee(null);
-            setIsEditing(false);
-          }}
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            backdropFilter: "blur(4px)",
-          }}
-        >
-          <Fade in={!!editRecord}>
-            <Box
-              sx={{
-                width: "90%",
-                maxWidth: 560,
-                maxHeight: "90vh",
-                overflowY: "auto",
-                borderRadius: 4,
-                background: `${ac}FA`,
-                border: `1px solid ${alpha(p, 0.15)}`,
-                boxShadow: `0 24px 80px ${alpha(p, 0.2)}`,
-              }}
-            >
-              {editRecord && (
-                <>
-                  {/* Modal header */}
-                  <Box
-                    sx={{
-                      px: 3.5,
-                      py: 2.5,
-                      background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
-                      borderBottom: `1px solid ${alpha(p, 0.1)}`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                      <Avatar
-                        sx={{ bgcolor: alpha(p, 0.15), width: 38, height: 38 }}
                       >
-                        <CategoryIcon sx={{ fontSize: 18, color: p }} />
-                      </Avatar>
-                      <Box>
-                        <Typography
-                          sx={{
-                            fontWeight: 700,
-                            fontSize: "0.95rem",
-                            color: p,
-                            lineHeight: 1.2,
-                          }}
-                        >
-                          {isEditing
-                            ? "Edit Employment Category"
-                            : "Category Details"}
-                        </Typography>
-                        <Typography
-                          sx={{ fontSize: "0.7rem", color: alpha(tp, 0.55) }}
-                        >
-                          {isEditing
-                            ? "Make changes and save"
-                            : "View record details"}
-                        </Typography>
-                      </Box>
-                    </Box>
-                    <IconButton
-                      onClick={() => {
-                        setEditRecord(null);
-                        setOriginalRecord(null);
-                        setSelectedEditEmployee(null);
-                        setIsEditing(false);
-                      }}
-                      sx={{
-                        color: p,
-                        bgcolor: alpha(p, 0.08),
-                        "&:hover": { bgcolor: alpha(p, 0.15) },
-                        width: 34,
-                        height: 34,
-                      }}
-                    >
-                      <Close sx={{ fontSize: 18 }} />
-                    </IconButton>
-                  </Box>
-
-                  <Box sx={{ p: 3 }}>
-                    {/* Employee section */}
-                    <Typography
-                      sx={{
-                        fontSize: "0.68rem",
-                        fontWeight: 700,
-                        letterSpacing: "0.09em",
-                        textTransform: "uppercase",
-                        color: alpha(tp, 0.45),
-                        mb: 1.75,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 0.75,
-                      }}
-                    >
-                      <PersonIcon sx={{ fontSize: 14 }} /> Employee Information
-                    </Typography>
-
-                    <Grid container spacing={2} sx={{ mb: 0.5 }}>
-                      <Grid item xs={12} sm={6}>
-                        <Box
-                          sx={{
-                            p: 2,
-                            borderRadius: 3,
-                            border: `1px solid ${alpha(p, 0.1)}`,
-                            bgcolor: alpha(ac, 0.4),
-                          }}
-                        >
+                        {["Emp. No", "Employee", "Category"].map((col) => (
                           <Typography
+                            key={col}
                             sx={{
-                              fontSize: "0.72rem",
+                              fontSize: "0.65rem",
                               fontWeight: 700,
-                              color: tp,
-                              mb: 1,
+                              color: T.accent,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.07em",
                             }}
                           >
-                            Search Employee
+                            {col}
                           </Typography>
-                          <EmployeeAutocomplete
-                            value={editRecord?.employeeNumber || ""}
-                            onChange={
-                              isEditing
-                                ? (val) =>
-                                    setEditRecord((r) => ({
-                                      ...r,
-                                      employeeNumber: val,
-                                    }))
-                                : () => {}
-                            }
-                            selectedEmployee={selectedEditEmployee}
-                            onEmployeeSelect={
-                              isEditing ? setSelectedEditEmployee : () => {}
-                            }
-                            placeholder="Search employee…"
-                            required
-                            disabled={!isEditing}
-                            dropdownDisabled={!isEditing}
-                            p={p}
-                            ac={ac}
-                            tp={tp}
-                          />
-                          {!isEditing && (
+                        ))}
+                      </Box>
+                      {pagedData.map((record, idx) => {
+                        const catColor = getCategoryColor(record.employmentCategory);
+                        return (
+                          <Box
+                            key={record.id}
+                            onClick={() => handleOpenModal(record)}
+                            sx={{
+                              px: 1.5,
+                              py: 1.25,
+                              display: "grid",
+                              gridTemplateColumns: "110px 1fr 140px",
+                              gap: 1,
+                              alignItems: "center",
+                              borderRadius: 1.5,
+                              cursor: "pointer",
+                              bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
+                              border: "1px solid transparent",
+                              transition: "background 0.13s ease",
+                              "&:hover": { bgcolor: T.rowHover },
+                            }}
+                          >
+                            <Box
+                              sx={{ display: "flex", alignItems: "center", gap: 0.75 }}
+                            >
+                              <Box
+                                sx={{
+                                  width: 6,
+                                  height: 6,
+                                  borderRadius: "50%",
+                                  bgcolor: catColor,
+                                  flexShrink: 0,
+                                }}
+                              />
+                              <Typography
+                                sx={{ fontSize: "0.75rem", color: T.muted }}
+                              >
+                                {record.employeeNumber}
+                              </Typography>
+                            </Box>
                             <Typography
                               sx={{
-                                fontSize: "0.68rem",
-                                color: alpha(tp, 0.4),
-                                fontStyle: "italic",
-                                mt: 0.5,
+                                fontSize: "0.82rem",
+                                fontWeight: 500,
+                                color: T.text,
                               }}
+                              noWrap
                             >
-                              Contact administrator to change employee.
+                              {record.employeeName || "Loading…"}
                             </Typography>
-                          )}
-                        </Box>
-                      </Grid>
-                      <Grid item xs={12} sm={6}>
+                            <Chip
+                              label={record.categoryLabel}
+                              size="small"
+                              sx={{
+                                height: 20,
+                                fontSize: "0.68rem",
+                                fontWeight: 600,
+                                color: catColor,
+                                bgcolor: alpha(catColor, 0.08),
+                                border: `1px solid ${alpha(catColor, 0.25)}`,
+                                borderRadius: "4px",
+                                "& .MuiChip-label": { px: 0.75 },
+                              }}
+                            />
+                          </Box>
+                        );
+                      })}
+                    </>
+                  )}
+                </Box>
+
+                {/* Pagination */}
+                {filteredData.length > 0 && (
+                  <Box sx={{ px: 2, py: 0.5, borderTop: `1px solid ${T.divider}` }}>
+                    <TablePagination
+                      component="div"
+                      count={filteredData.length}
+                      page={page}
+                      onPageChange={(_, newPage) => setPage(newPage)}
+                      rowsPerPage={rowsPerPage}
+                      onRowsPerPageChange={(e) => {
+                        setRowsPerPage(parseInt(e.target.value, 10));
+                        setPage(0);
+                      }}
+                      rowsPerPageOptions={[12, 24, 48, 96]}
+                      sx={{
+                        "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows":
+                          { fontSize: "0.78rem", fontWeight: 600 },
+                      }}
+                    />
+                  </Box>
+                )}
+              </SectionCard>
+            </Grid>
+          </Grid>
+
+          {/* ── Edit / View Modal ── */}
+          <Modal
+            open={!!editRecord}
+            onClose={() => {
+              setEditRecord(null);
+              setOriginalRecord(null);
+              setSelectedEditEmployee(null);
+              setIsEditing(false);
+            }}
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              p: 2,
+            }}
+          >
+            <Fade in={!!editRecord}>
+              <Box
+                sx={{
+                  width: "100%",
+                  maxWidth: 560,
+                  maxHeight: "90vh",
+                  borderRadius: 3,
+                  overflow: "hidden",
+                  boxShadow: "0 24px 64px rgba(0,0,0,0.22)",
+                  bgcolor: T.surface,
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                {editRecord && (
+                  <>
+                    {/* Modal header */}
+                    <Box
+                      sx={{
+                        px: 3.5,
+                        py: 2.5,
+                        background: T.headerGrad,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        position: "relative",
+                        overflow: "hidden",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          position: "absolute",
+                          top: -40,
+                          right: -30,
+                          width: 140,
+                          height: 140,
+                          borderRadius: "50%",
+                          bgcolor: "rgba(255,255,255,0.04)",
+                        }}
+                      />
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 2,
+                          position: "relative",
+                          zIndex: 1,
+                        }}
+                      >
                         <Box
                           sx={{
-                            p: 2,
-                            borderRadius: 3,
-                            border: `1px solid ${alpha(p, 0.1)}`,
-                            bgcolor: alpha(ac, 0.4),
-                            height: "100%",
+                            width: 38,
+                            height: 38,
+                            borderRadius: 2,
+                            bgcolor: "rgba(255,255,255,0.15)",
+                            border: "1px solid rgba(255,255,255,0.2)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
                           }}
                         >
+                          <CategoryIcon sx={{ fontSize: 18, color: "#fff" }} />
+                        </Box>
+                        <Box>
                           <Typography
                             sx={{
-                              fontSize: "0.72rem",
                               fontWeight: 700,
-                              color: tp,
-                              mb: 1,
+                              color: "#fff",
+                              fontSize: "0.95rem",
+                              lineHeight: 1.2,
+                              mb: 0.3,
                             }}
                           >
-                            Selected Employee
+                            {isEditing ? "Edit Category" : "Category Details"}
                           </Typography>
-                          {selectedEditEmployee ? (
-                            <Box
+                          <Box
+                            sx={{ display: "flex", alignItems: "center", gap: 0.75 }}
+                          >
+                            <Typography
                               sx={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 1.25,
-                                p: 1.25,
-                                borderRadius: 2,
-                                bgcolor: alpha(p, 0.05),
-                                border: `1px solid ${alpha(p, 0.15)}`,
+                                fontSize: "0.72rem",
+                                color: "rgba(255,255,255,0.68)",
                               }}
                             >
-                              <Avatar
+                              #{editRecord.employeeNumber} •{" "}
+                              {selectedEditEmployee?.name || "—"}
+                            </Typography>
+                            {!isEditing && (
+                              <Chip
+                                label="View mode"
+                                size="small"
                                 sx={{
-                                  width: 30,
-                                  height: 30,
-                                  bgcolor: alpha(p, 0.15),
-                                  fontSize: "0.75rem",
-                                  color: p,
+                                  height: 16,
+                                  fontSize: "0.62rem",
+                                  bgcolor: "rgba(255,255,255,0.1)",
+                                  color: "rgba(255,255,255,0.7)",
+                                  fontWeight: 500,
+                                }}
+                              />
+                            )}
+                            {isEditing && (
+                              <Chip
+                                label="Editing"
+                                size="small"
+                                sx={{
+                                  height: 16,
+                                  fontSize: "0.62rem",
+                                  bgcolor: "rgba(255,200,0,0.22)",
+                                  color: "#ffe082",
+                                  fontWeight: 600,
+                                }}
+                              />
+                            )}
+                          </Box>
+                        </Box>
+                      </Box>
+                      <IconButton
+                        onClick={() => {
+                          setEditRecord(null);
+                          setOriginalRecord(null);
+                          setSelectedEditEmployee(null);
+                          setIsEditing(false);
+                        }}
+                        size="small"
+                        sx={{
+                          color: "rgba(255,255,255,0.75)",
+                          position: "relative",
+                          zIndex: 1,
+                          "&:hover": { bgcolor: "rgba(255,255,255,0.12)" },
+                        }}
+                      >
+                        <Close sx={{ fontSize: 17 }} />
+                      </IconButton>
+                    </Box>
+
+                    {/* Modal body */}
+                    <Box
+                      sx={{
+                        px: 3.5,
+                        py: 3,
+                        overflowY: "auto",
+                        flexGrow: 1,
+                        "&::-webkit-scrollbar": { width: 4 },
+                        "&::-webkit-scrollbar-thumb": {
+                          bgcolor: T.accentBorder,
+                          borderRadius: 2,
+                        },
+                      }}
+                    >
+                      <Divider sx={{ mb: 2.5, borderColor: T.divider }} />
+
+                      <Grid container spacing={2.5}>
+                        {/* Employee */}
+                        <Grid item xs={12} sm={5}>
+                          <Typography
+                            sx={{
+                              fontSize: "0.75rem",
+                              fontWeight: 600,
+                              color: T.accent,
+                              mb: 0.75,
+                            }}
+                          >
+                            Employee
+                          </Typography>
+                          {isEditing ? (
+                            <EmployeeAutocomplete
+                              value={editRecord?.employeeNumber || ""}
+                              onChange={(val) =>
+                                setEditRecord((r) => ({
+                                  ...r,
+                                  employeeNumber: val,
+                                }))
+                              }
+                              selectedEmployee={selectedEditEmployee}
+                              onEmployeeSelect={setSelectedEditEmployee}
+                              placeholder="Search employee…"
+                              required
+                            />
+                          ) : (
+                            <Box
+                              sx={{
+                                p: 1.5,
+                                bgcolor: T.accentFaint,
+                                borderRadius: 2,
+                                border: `1px solid ${T.accentBorder}`,
+                              }}
+                            >
+                              <Typography
+                                sx={{
+                                  fontSize: "0.82rem",
+                                  fontWeight: 700,
+                                  color: T.accent,
                                 }}
                               >
-                                {selectedEditEmployee.name?.charAt(0)}
-                              </Avatar>
-                              <Box sx={{ flex: 1, minWidth: 0 }}>
-                                <Typography
-                                  sx={{
-                                    fontSize: "0.8rem",
-                                    fontWeight: 700,
-                                    color: p,
-                                    lineHeight: 1.2,
-                                  }}
-                                  noWrap
-                                >
-                                  {selectedEditEmployee.name}
-                                </Typography>
-                                <Typography
-                                  sx={{
-                                    fontSize: "0.68rem",
-                                    color: alpha(tp, 0.5),
-                                  }}
-                                >
-                                  #{selectedEditEmployee.employeeNumber}
-                                </Typography>
-                              </Box>
+                                #{editRecord.employeeNumber}
+                              </Typography>
+                              <Typography
+                                sx={{ fontSize: "0.72rem", color: T.muted }}
+                              >
+                                {selectedEditEmployee?.name ||
+                                  editRecord.employeeName}
+                              </Typography>
                             </Box>
+                          )}
+                        </Grid>
+
+                        {/* Category */}
+                        <Grid item xs={12} sm={7}>
+                          <Typography
+                            sx={{
+                              fontSize: "0.75rem",
+                              fontWeight: 600,
+                              color: T.accent,
+                              mb: 0.75,
+                            }}
+                          >
+                            Category Type
+                          </Typography>
+                          {isEditing ? (
+                            <CategorySelect
+                              value={editRecord.employmentCategory}
+                              onChange={(v) =>
+                                setEditRecord((r) => ({
+                                  ...r,
+                                  employmentCategory: v,
+                                  customCategory:
+                                    v === 5 ? r.customCategory : "",
+                                }))
+                              }
+                            />
                           ) : (
                             <Box
                               sx={{
                                 display: "flex",
                                 alignItems: "center",
-                                justifyContent: "center",
-                                border: `2px dashed ${alpha(p, 0.2)}`,
+                                gap: 1,
+                                p: 1.5,
+                                bgcolor: T.accentFaint,
                                 borderRadius: 2,
-                                minHeight: 52,
-                                bgcolor: alpha(p, 0.02),
+                                border: `1px solid ${T.accentBorder}`,
                               }}
                             >
+                              <Box
+                                sx={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: "50%",
+                                  bgcolor: getCategoryColor(
+                                    editRecord.employmentCategory
+                                  ),
+                                  flexShrink: 0,
+                                }}
+                              />
                               <Typography
                                 sx={{
-                                  fontSize: "0.75rem",
-                                  color: alpha(tp, 0.4),
-                                  fontStyle: "italic",
+                                  fontSize: "0.82rem",
+                                  fontWeight: 700,
+                                  color: getCategoryColor(
+                                    editRecord.employmentCategory
+                                  ),
                                 }}
                               >
-                                No employee selected
+                                {editRecord.categoryLabel}
                               </Typography>
                             </Box>
                           )}
-                        </Box>
-                      </Grid>
-                    </Grid>
+                        </Grid>
 
-                    <Box
-                      sx={{ borderTop: `1px dashed ${alpha(p, 0.15)}`, my: 2 }}
-                    />
-
-                    {/* Category section */}
-                    <Typography
-                      sx={{
-                        fontSize: "0.68rem",
-                        fontWeight: 700,
-                        letterSpacing: "0.09em",
-                        textTransform: "uppercase",
-                        color: alpha(tp, 0.45),
-                        mb: 1.75,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 0.75,
-                      }}
-                    >
-                      <WorkIcon sx={{ fontSize: 14 }} /> Employment Category
-                    </Typography>
-
-                    <Box
-                      sx={{
-                        p: 2,
-                        borderRadius: 3,
-                        border: `1px solid ${alpha(p, 0.1)}`,
-                        bgcolor: alpha(ac, 0.4),
-                      }}
-                    >
-                      {isEditing ? (
-                        <>
-                          <Typography
-                            sx={{
-                              fontSize: "0.72rem",
-                              fontWeight: 700,
-                              color: tp,
-                              mb: 1,
-                            }}
-                          >
-                            Category Type
-                          </Typography>
-                          <CategorySelect
-                            value={editRecord.employmentCategory}
-                            onChange={(v) =>
-                              setEditRecord((r) => ({
-                                ...r,
-                                employmentCategory: v,
-                                customCategory: v === 5 ? r.customCategory : "",
-                              }))
-                            }
-                            p={p}
-                          />
-                          {editRecord.employmentCategory === 5 && (
-                            <Fade in>
-                              <Box sx={{ mt: 1.5 }}>
+                        {/* Custom category — only when "Other" */}
+                        {(isEditing
+                          ? editRecord.employmentCategory === 5
+                          : editRecord.employmentCategory === 5) && (
+                          <Grid item xs={12}>
+                            <Typography
+                              sx={{
+                                fontSize: "0.75rem",
+                                fontWeight: 600,
+                                color: T.accent,
+                                mb: 0.75,
+                              }}
+                            >
+                              Custom Description{" "}
+                              {isEditing && (
+                                <Box component="span" sx={{ color: "#c62828" }}>
+                                  *
+                                </Box>
+                              )}
+                            </Typography>
+                            {isEditing ? (
+                              <FieldInput
+                                value={editRecord.customCategory || ""}
+                                onChange={(e) =>
+                                  setEditRecord((r) => ({
+                                    ...r,
+                                    customCategory: e.target.value,
+                                  }))
+                                }
+                                placeholder="e.g., Part-timer, OJT, Consultant…"
+                                fullWidth
+                                size="small"
+                                helperText="Max 100 characters"
+                                inputProps={{ maxLength: 100 }}
+                              />
+                            ) : (
+                              <Box
+                                sx={{
+                                  p: 1.5,
+                                  bgcolor: T.accentFaint,
+                                  borderRadius: 2,
+                                  border: `1px solid ${T.accentBorder}`,
+                                }}
+                              >
                                 <Typography
                                   sx={{
-                                    fontSize: "0.72rem",
-                                    fontWeight: 700,
-                                    color: tp,
-                                    mb: 0.75,
+                                    fontSize: "0.82rem",
+                                    color: T.text,
                                   }}
                                 >
-                                  Custom Category{" "}
-                                  <Box component="span" sx={{ color: "red" }}>
-                                    *
-                                  </Box>
+                                  {editRecord.customCategory || "—"}
                                 </Typography>
-                                <ModernTextField
-                                  value={editRecord.customCategory || ""}
-                                  onChange={(e) =>
-                                    setEditRecord((r) => ({
-                                      ...r,
-                                      customCategory: e.target.value,
-                                    }))
-                                  }
-                                  placeholder="e.g., Part-timer, OJT, Consultant…"
-                                  fullWidth
-                                  size="small"
-                                  helperText="Max 100 characters"
-                                  inputProps={{ maxLength: 100 }}
-                                />
                               </Box>
-                            </Fade>
-                          )}
-                        </>
-                      ) : (
-                        <Box
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 1.5,
-                            p: 1.25,
-                            borderRadius: 2,
-                            border: `1px solid ${alpha(getCategoryColor(editRecord.employmentCategory), 0.3)}`,
-                            bgcolor: alpha(
-                              getCategoryColor(editRecord.employmentCategory),
-                              0.05,
-                            ),
-                          }}
-                        >
-                          <Circle
-                            sx={{
-                              fontSize: 10,
-                              color: getCategoryColor(
-                                editRecord.employmentCategory,
-                              ),
-                            }}
-                          />
-                          <Typography
-                            sx={{
-                              fontSize: "0.85rem",
-                              fontWeight: 700,
-                              color: getCategoryColor(
-                                editRecord.employmentCategory,
-                              ),
-                            }}
-                          >
-                            {editRecord.categoryLabel}
-                          </Typography>
-                        </Box>
-                      )}
+                            )}
+                          </Grid>
+                        )}
+                      </Grid>
                     </Box>
 
-                    {/* Modal actions */}
+                    {/* Modal footer */}
                     <Box
                       sx={{
+                        px: 3.5,
+                        py: 2,
+                        borderTop: `1px solid ${T.divider}`,
+                        bgcolor: "#f9f9f9",
                         display: "flex",
-                        gap: 1.5,
-                        mt: 2.5,
-                        pt: 2,
-                        borderTop: `1px solid ${alpha(p, 0.08)}`,
                         justifyContent: "flex-end",
+                        gap: 1.25,
+                        flexShrink: 0,
                       }}
                     >
                       {!isEditing ? (
                         <>
-                          <ProfessionalButton
-                            variant="outlined"
-                            startIcon={<DeleteIcon />}
+                          <AccentButton
                             onClick={() => handleDelete(editRecord.id)}
+                            variant="outlined"
+                            startIcon={<DeleteIcon sx={{ fontSize: "14px !important" }} />}
                             sx={{
-                              color: "#dc2626",
-                              borderColor: alpha("#dc2626", 0.4),
+                              fontSize: "0.8rem",
+                              borderColor: "#e57373",
+                              color: "#c62828",
                               "&:hover": {
-                                bgcolor: alpha("#dc2626", 0.06),
-                                borderColor: "#dc2626",
+                                bgcolor: "rgba(198,40,40,0.04)",
+                                borderColor: "#c62828",
+                                transform: "none",
                               },
                             }}
                           >
                             Delete
-                          </ProfessionalButton>
-                          <ProfessionalButton
-                            variant="contained"
-                            startIcon={<EditIcon />}
+                          </AccentButton>
+                          <AccentButton
                             onClick={() => setIsEditing(true)}
+                            variant="contained"
+                            startIcon={<EditIcon sx={{ fontSize: "14px !important" }} />}
                             sx={{
-                              bgcolor: p,
-                              color: ac,
-                              "&:hover": { bgcolor: s },
+                              fontSize: "0.8rem",
+                              bgcolor: T.accent,
+                              color: "#fff",
+                              boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                              "&:hover": { bgcolor: T.accentDark },
                             }}
                           >
-                            Edit
-                          </ProfessionalButton>
+                            Edit Record
+                          </AccentButton>
                         </>
                       ) : (
                         <>
-                          <ProfessionalButton
-                            variant="outlined"
-                            startIcon={<CancelIcon />}
+                          <AccentButton
                             onClick={() => {
                               setEditRecord({ ...originalRecord });
                               setSelectedEditEmployee({
@@ -2331,70 +2114,61 @@ const EmploymentCategoryManagement = () => {
                               });
                               setIsEditing(false);
                             }}
+                            variant="outlined"
+                            startIcon={<CancelIcon sx={{ fontSize: "14px !important" }} />}
                             sx={{
-                              color: alpha(tp, 0.5),
-                              borderColor: alpha(tp, 0.25),
+                              fontSize: "0.8rem",
+                              borderColor: T.accentBorder,
+                              color: T.muted,
                               "&:hover": {
-                                borderColor: alpha(tp, 0.45),
-                                bgcolor: alpha(p, 0.04),
+                                bgcolor: T.accentFaint,
+                                borderColor: T.accent,
+                                color: T.accent,
                               },
                             }}
                           >
                             Cancel
-                          </ProfessionalButton>
-                          <ProfessionalButton
-                            variant="contained"
-                            startIcon={<SaveIcon />}
-                            disabled={!hasChanges()}
+                          </AccentButton>
+                          <AccentButton
                             onClick={handleUpdate}
+                            disabled={!hasChanges()}
+                            variant="contained"
+                            startIcon={<SaveIcon sx={{ fontSize: "14px !important" }} />}
                             sx={{
-                              bgcolor: p,
-                              color: ac,
-                              "&:hover": { bgcolor: s },
-                              "&:disabled": {
-                                bgcolor: alpha(p, 0.4),
-                                color: alpha(ac, 0.7),
-                              },
+                              fontSize: "0.8rem",
+                              bgcolor: T.accent,
+                              color: "#fff",
+                              boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                              "&:hover": { bgcolor: T.accentDark },
                             }}
                           >
                             Save Changes
-                          </ProfessionalButton>
+                          </AccentButton>
                         </>
                       )}
                     </Box>
-                  </Box>
-                </>
-              )}
-            </Box>
-          </Fade>
-        </Modal>
+                  </>
+                )}
+              </Box>
+            </Fade>
+          </Modal>
 
-        <LoadingOverlay
-          open={loading}
-          message="Processing employment category…"
-        />
-        <SuccessfulOverlay
-          open={successOpen}
-          action={successAction}
-          onClose={() => setSuccessOpen(false)}
-          showOkButton={true}
-        />
-
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={3000}
-          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-          anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-        >
-          <Alert
+          <Snackbar
+            open={snackbar.open}
+            autoHideDuration={3000}
             onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-            severity={snackbar.severity}
-            sx={{ width: "100%", borderRadius: 3 }}
+            anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
           >
-            {snackbar.message}
-          </Alert>
-        </Snackbar>
-      </Box>
+            <Alert
+              onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
+              severity={snackbar.severity}
+              sx={{ width: "100%", borderRadius: 2 }}
+            >
+              {snackbar.message}
+            </Alert>
+          </Snackbar>
+        </Box>
+      </Fade>
     </>
   );
 };

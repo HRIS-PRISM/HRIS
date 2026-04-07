@@ -70,6 +70,7 @@ import {
   ErrorOutline as ErrorOutlineIcon,
   HelpOutline as HelpOutlineIcon,
   Lock as LockIcon,
+  Work as WorkIcon,
 } from '@mui/icons-material';
 
 import SuccessfulOverlay from '../SuccessfulOverlay';
@@ -411,6 +412,19 @@ const ErrorModal = ({ open, onClose, title, message, icon: Icon = ErrorOutlineIc
   </Modal>
 );
 
+// ─── Section label used inside form panels ─────────────────────────────────────
+const FormSectionLabel = ({ icon: Icon, children }) => (
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5 }}>
+    <Icon sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
+    <Typography sx={{
+      fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em',
+      textTransform: 'uppercase', color: alpha(T.accent, 0.45),
+    }}>
+      {children}
+    </Typography>
+  </Box>
+);
+
 // ─── Main component ────────────────────────────────────────────────────────────
 const LeaveRequest = () => {
   const { hasAccess, loading: accessLoading } = usePageAccess('leave-request');
@@ -527,7 +541,6 @@ const LeaveRequest = () => {
                 firstName: u.firstName || '',
                 lastName: u.lastName || '',
                 sex: (empNum ? sexMap[empNum] : null) || u.sex || u.gender || null,
-                // ── search key for fast filtering (same pattern as LeaveAssignment) ──
                 _searchKey: `${fullName} ${empNum}`.toLowerCase(),
               };
             })
@@ -801,13 +814,11 @@ const LeaveRequest = () => {
     return raw.charAt(0).toUpperCase() + raw.slice(1) + (raw.endsWith('.') ? '' : '.');
   };
 
-  // ── Render tx sentence with name/empNo bolded, rest normal weight ──────────────
   const renderTxSentence = (log) => {
     const sentence = buildTxSentence(log);
     const empNum = log.employee_id || log.employeeNumber;
     const empName = empNum ? employeeNames[empNum] : null;
 
-    // Collect candidate bold terms (name first, then #empNum, then raw empNum)
     const candidates = [];
     if (empName && empName !== 'Unknown') candidates.push(empName);
     if (empNum) {
@@ -815,13 +826,11 @@ const LeaveRequest = () => {
       candidates.push(empNum);
     }
 
-    // Find which terms actually appear in the sentence, in order of first occurrence
     const found = candidates
       .filter((term) => sentence.includes(term))
       .sort((a, b) => sentence.indexOf(a) - sentence.indexOf(b));
 
     if (!found.length) {
-      // Nothing to bold — render plain at normal weight
       return (
         <Typography sx={{ fontSize: '0.86rem', fontWeight: 400, color: T.text, lineHeight: 1.6 }}>
           {sentence}
@@ -829,7 +838,6 @@ const LeaveRequest = () => {
       );
     }
 
-    // Split sentence into segments, marking which ones should be bolded
     const segments = [];
     let remaining = sentence;
 
@@ -893,6 +901,9 @@ const LeaveRequest = () => {
   if (accessLoading) return <Wireframe />;
   if (!hasAccess) return <AccessDenied />;
   if (pageLoading) return <Wireframe />;
+
+  // ── Selected employee object (for preview pill) ────────────────────────────
+  const selectedEmployeeObj = employeeOptions.find((o) => o.employeeNumber === newRequest.employeeNumber) || null;
 
   return (
     <Fade in timeout={400}>
@@ -971,7 +982,7 @@ const LeaveRequest = () => {
                 onClick={() => { setTxModalOpen(true); setAuditPage(1); }}
                 variant="contained"
                 startIcon={<HistoryToggleOff sx={{ fontSize: '15px !important' }} />}
-                sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: "#FFFFFFF", '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent } }}
+                sx={{ fontSize: '0.8rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, '&:hover': { bgcolor: T.accentDark } }}
               >
                 Transaction Logs
               </AccentButton>
@@ -985,51 +996,52 @@ const LeaveRequest = () => {
           {/* ── LEFT: Add New Request ── */}
           <Grid item xs={12} lg={4}>
             <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
-              <Box
-                sx={{
-                  px: 3.5, py: 1.25,
-                  borderBottom: `1px solid ${T.divider}`,
-                  display: 'flex', alignItems: 'center', gap: 1.5,
-                  bgcolor: T.accentFaint,
-                }}
-              >
+
+              {/* Panel header */}
+              <Box sx={{
+                px: 3.5, py: 1.25,
+                borderBottom: `1px solid ${T.divider}`,
+                display: 'flex', alignItems: 'center', gap: 1.5,
+                bgcolor: T.accentFaint,
+              }}>
                 <AddIcon sx={{ fontSize: 15, color: T.accent }} />
                 <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>
                   Add New Leave Request
                 </Typography>
                 <Box sx={{ flex: 1 }} />
                 <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>
-                  <Box component="span" sx={{ color: '#c62828' }}>*</Box> required fields
+                  <Box component="span" sx={{ color: '#c62828' }}>*</Box> required
                 </Typography>
               </Box>
 
+              {/* Scrollable body */}
               <Box
                 sx={{
                   px: 3.5, py: 3, flexGrow: 1, overflowY: 'auto',
-                  display: 'flex', flexDirection: 'column', gap: 2.5,
+                  display: 'flex', flexDirection: 'column', gap: 0,
                   '&::-webkit-scrollbar': { width: 4 },
                   '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
                 }}
               >
-                {/* ── Employee Autocomplete (fixed — matches LeaveAssignment pattern) ── */}
-                <Box>
+                {/* ── SECTION: Employee ── */}
+                <FormSectionLabel icon={PersonIcon}>Employee</FormSectionLabel>
+
+                <Box sx={{ mb: 2 }}>
                   <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
-                    Employee <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+                    Search Employee <Box component="span" sx={{ color: '#c62828' }}>*</Box>
                   </Typography>
                   <Autocomplete
-                    value={employeeOptions.find((o) => o.employeeNumber === newRequest.employeeNumber) || null}
+                    value={selectedEmployeeObj}
                     onChange={(e, v) => {
                       setNewRequest({ ...newRequest, employeeNumber: v?.employeeNumber || '' });
                       setSelectedDates([]);
                     }}
                     options={employeeOptions}
                     autoHighlight
-                    // Display name + ID in the input box when an option is selected
                     getOptionLabel={(o) =>
                       o.fullName ? `${o.fullName} (${o.employeeNumber || ''})` : ''
                     }
                     isOptionEqualToValue={(o, v) => o.employeeNumber === v.employeeNumber}
-                    // Fast filter using pre-built _searchKey (same as LeaveAssignment)
                     filterOptions={(options, { inputValue }) => {
                       const s = inputValue.toLowerCase().trim();
                       if (!s) return options.slice(0, 80);
@@ -1039,7 +1051,6 @@ const LeaveRequest = () => {
                     }}
                     renderOption={(props, option) => {
                       const { key, ...rest } = props;
-                      // First-char initials from first + last name (same as LeaveAssignment)
                       const initials = (
                         `${option.firstName?.[0] || ''}${option.lastName?.[0] || ''}`
                       ).toUpperCase() || (option.fullName?.[0] || '?').toUpperCase();
@@ -1064,8 +1075,6 @@ const LeaveRequest = () => {
                         size="small"
                         placeholder="Search name or employee ID…"
                         InputProps={{
-                          // Spread params.InputProps FIRST so we don't clobber
-                          // the Autocomplete's own adornments (clear button, etc.)
                           ...params.InputProps,
                           startAdornment: (
                             <>
@@ -1081,18 +1090,47 @@ const LeaveRequest = () => {
                     sx={{ width: '100%' }}
                     noOptionsText="No employees found"
                   />
-                  {/* Show selected employee number beneath the field */}
-                  {newRequest.employeeNumber && (
-                    <Typography sx={{ fontSize: '0.7rem', color: T.muted, mt: 0.5, pl: 0.5 }}>
-                      Employee #{newRequest.employeeNumber}
-                    </Typography>
-                  )}
                 </Box>
 
-                <Divider sx={{ borderColor: T.divider }} />
+                {/* Employee preview pill — only show when selected */}
+                {selectedEmployeeObj ? (
+                  <Box sx={{
+                    display: 'flex', alignItems: 'center', gap: 1.25,
+                    px: 1.75, py: 1.25, mb: 2.5,
+                    borderRadius: 2, bgcolor: T.accentFaint,
+                    border: `1px solid ${T.accentBorder}`,
+                  }}>
+                    <Avatar sx={{ width: 30, height: 30, bgcolor: alpha(T.accent, 0.15), fontSize: '0.78rem', color: T.accent, fontWeight: 700, flexShrink: 0 }}>
+                      {`${selectedEmployeeObj.firstName?.[0] || ''}${selectedEmployeeObj.lastName?.[0] || ''}`.toUpperCase() || '?'}
+                    </Avatar>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>
+                        {selectedEmployeeObj.fullName}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.7rem', color: T.muted }}>
+                        #{selectedEmployeeObj.employeeNumber}
+                      </Typography>
+                    </Box>
+                  </Box>
+                ) : (
+                  <Box sx={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2,
+                    py: 1.5, mb: 2.5, bgcolor: alpha(T.accent, 0.02),
+                  }}>
+                    <Typography sx={{ fontSize: '0.75rem', color: T.faint, fontStyle: 'italic' }}>
+                      No employee selected yet
+                    </Typography>
+                  </Box>
+                )}
+
+                <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
+
+                {/* ── SECTION: Leave Details ── */}
+                <FormSectionLabel icon={WorkIcon}>Leave Details</FormSectionLabel>
 
                 {/* Leave Type */}
-                <Box>
+                <Box sx={{ mb: 2 }}>
                   <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
                     Leave Type <Box component="span" sx={{ color: '#c62828' }}>*</Box>
                   </Typography>
@@ -1133,7 +1171,7 @@ const LeaveRequest = () => {
                 </Box>
 
                 {/* Leave Date(s) */}
-                <Box>
+                <Box sx={{ mb: 2 }}>
                   <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
                     Leave Date(s) <Box component="span" sx={{ color: '#c62828' }}>*</Box>
                   </Typography>
@@ -1173,7 +1211,7 @@ const LeaveRequest = () => {
                 </Box>
 
                 {/* Initial Status */}
-                <Box>
+                <Box sx={{ mb: 2.5 }}>
                   <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
                     Initial Status
                   </Typography>
@@ -1192,7 +1230,7 @@ const LeaveRequest = () => {
                 </Box>
 
                 {/* Submit */}
-                <Box sx={{ mt: 'auto', pt: 1 }}>
+                <Box sx={{ mt: 'auto' }}>
                   <AccentButton
                     onClick={handleAdd}
                     variant="contained"
@@ -1673,7 +1711,6 @@ const LeaveRequest = () => {
                               )}
                             </Box>
 
-                            {/* Employee badge */}
                             {(log.employee_id || log.employeeNumber) && (
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1, px: 1.25, py: 0.6, bgcolor: alpha('#1565C0', 0.05), borderRadius: 1.5, border: '1px solid rgba(21,101,192,0.15)', width: 'fit-content' }}>
                                 <PersonIcon sx={{ fontSize: 13, color: '#1565C0' }} />
@@ -1683,7 +1720,6 @@ const LeaveRequest = () => {
                               </Box>
                             )}
 
-                            {/* ── FIX: only name & employee# are bold, rest is normal weight ── */}
                             {renderTxSentence(log)}
                           </Box>
                         );
