@@ -1,6 +1,6 @@
 import API_BASE_URL from '../apiConfig';
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { getAuthHeaders } from '../utils/auth';
 import usePageAccess from '../hooks/usePageAccess';
 import {
@@ -18,12 +18,16 @@ import {
   ListItemIcon,
   Tooltip,
   TextField,
+  Tab,
+  Tabs,
   Button,
   Card,
   CardContent,
   CardHeader,
   Avatar,
   Chip,
+  Checkbox,
+  FormControlLabel,
   styled,
   alpha,
 } from '@mui/material';
@@ -33,7 +37,6 @@ import {
   BadgeOutlined,
   LockOutlined,
   PersonAddAlt1,
-  GroupAdd,
   CheckCircleOutline,
   ErrorOutline,
   WorkOutline,
@@ -124,7 +127,13 @@ const RegistrationWireframe = ({ settings }) => {
   return (
     <>
       <style>{shimmerKeyframes}</style>
-      <Box sx={{ py: 3, width: '100vw', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '50%', transform: 'translateX(-50%)', minHeight: '92vh' }}>
+      <Box sx={{
+        py: 3,
+        width: '100%',
+        minHeight: '100vh',
+        overflow: 'hidden',
+        background: `linear-gradient(180deg, ${alpha(ac, 0.12)} 0%, ${alpha(ac, 0.28)} 100%)`,
+      }}>
         <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
           <Box sx={{ mb: 3, borderRadius: 20, overflow: 'hidden', background: `${ac}F2`, border: `1px solid ${alpha(p, 0.1)}`, boxShadow: `0 8px 40px ${alpha(p, 0.08)}`, animation: 'regPulse 2.2s ease-in-out infinite' }}>
             <Box sx={{ px: 4, py: 3, position: 'relative', overflow: 'hidden', background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)` }}>
@@ -185,9 +194,9 @@ const RegistrationWireframe = ({ settings }) => {
 };
 
 const SETUP_ITEMS = [
-  { key: 'remittance', label: 'Remittances',          desc: 'Configure employee remittance settings', route: '/remittance-table',     icon: AccountBalanceWallet },
-  { key: 'department', label: 'Department assignment', desc: 'Set up department designations',        route: '/department-assignment', icon: Business },
-  { key: 'itemTable',  label: 'Item table',            desc: 'Configure Plantilla items',             route: '/item-table',            icon: AssignmentOutlined },
+  { key: 'remittance', label: 'Remittances',          desc: 'Set up employee remittance details',    route: '/remittance-table',     icon: AccountBalanceWallet },
+  { key: 'department', label: 'Department assignment', desc: 'Add and manage departments',            route: '/department-assignment', icon: Business },
+  { key: 'itemTable',  label: 'Item table',            desc: 'Set up Plantilla items',                route: '/item-table',            icon: AssignmentOutlined },
 ];
 
 const EMPTY_FORM = {
@@ -211,6 +220,9 @@ const Registration = () => {
     border: `1px solid ${alpha(p, 0.1)}`,
     overflow: 'hidden',
     transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    height: '100%',
+    display: 'flex',
+    flexDirection: 'column',
     '&:hover': { boxShadow: `0 12px 48px ${alpha(p, 0.16)}`, transform: 'translateY(-4px)' },
   })), [p, ac]);
 
@@ -239,6 +251,7 @@ const Registration = () => {
   const [errMessage, setErrorMessage]             = useState('');
   const [successMessage, setSuccessMessage]       = useState('');
   const [isLoading, setIsLoading]                 = useState(false);
+  const [isInformationConfirmed, setIsInformationConfirmed] = useState(false);
   const [completedSteps, setCompletedSteps]       = useState({ remittance: false, department: false, itemTable: false });
   const [fieldRequirements, setFieldRequirements] = useState({
     firstName: true, lastName: true, email: true, employeeNumber: true,
@@ -247,6 +260,24 @@ const Registration = () => {
   const [emailDomainRestricted, setEmailDomainRestricted] = useState(false);
   const [departmentCodes, setDepartmentCodes]             = useState([]);
   const navigate = useNavigate();
+  const location = useLocation();
+  const apiBase = useMemo(
+    () => (API_BASE_URL.includes('/api') ? API_BASE_URL : `${API_BASE_URL}/api`),
+    []
+  );
+
+  useEffect(() => {
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem('setupCompletedSteps');
@@ -257,15 +288,35 @@ const Registration = () => {
     const run = async () => {
       try {
         const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-        const res = await fetch(`${API_BASE_URL}/api/system-settings/registration_field_requirements`, { headers: { Authorization: `Bearer ${token}` } });
+        const res = await fetch(`${apiBase}/system-settings/registration_field_requirements`, { headers: { Authorization: `Bearer ${token}` } });
         if (res.ok) {
           const data = await res.json();
           if (data?.setting_value) { try { setFieldRequirements(JSON.parse(data.setting_value)); } catch {} }
+          return;
+        }
+
+        if (res.status === 404) {
+          // Fallback to full settings endpoint when the single key row does not exist yet.
+          const allSettingsRes = await fetch(`${apiBase}/system-settings`, { headers: { Authorization: `Bearer ${token}` } });
+          if (!allSettingsRes.ok) return;
+
+          const allSettings = await allSettingsRes.json();
+          const raw = allSettings?.registration_field_requirements;
+          if (!raw) return;
+
+          if (typeof raw === 'string') {
+            try { setFieldRequirements(JSON.parse(raw)); } catch {}
+            return;
+          }
+
+          if (typeof raw === 'object') {
+            setFieldRequirements(raw);
+          }
         }
       } catch {}
     };
     run();
-  }, []);
+  }, [apiBase]);
 
   useEffect(() => {
     const run = async () => {
@@ -341,6 +392,7 @@ const Registration = () => {
           setSuccessMessage('User registered successfully. Login credentials have been sent to their email address.');
           setTimeout(() => setSuccessMessage(''), 5000);
           setFormData(EMPTY_FORM);
+          setIsInformationConfirmed(false);
         }, 500);
       } else {
         const err = await res.json();
@@ -377,8 +429,35 @@ const Registration = () => {
 
   const selectControlSx = { '& .MuiInputLabel-root': { fontWeight: 500 } };
 
+  const requiredInputLabels = [
+    { key: 'firstName', label: 'First Name' },
+    { key: 'lastName', label: 'Last Name' },
+    { key: 'email', label: 'Email' },
+    { key: 'employeeNumber', label: 'Employee Number' },
+    { key: 'employmentCategory', label: 'Employment Category' },
+    { key: 'password', label: 'Password' },
+    { key: 'department', label: 'Department' },
+  ].filter((field) => fieldRequirements[field.key]);
+
   return (
-<Box sx={{ pt: 3, pb: 0, width: '100vw', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '50%', transform: 'translateX(-50%)' }}>
+    <Box
+      sx={{
+        pt: 3,
+        pb: 3,
+        width: '100%',
+        mx: 'auto',
+        maxWidth: '100%',
+        overflowX: 'hidden',
+        overflowY: 'hidden',
+        scrollbarWidth: 'none',
+        msOverflowStyle: 'none',
+        '&::-webkit-scrollbar': { display: 'none' },
+        // ── KEY FIX: fill the full remaining viewport height ──
+        minHeight: '100vh',
+        boxSizing: 'border-box',
+        background: `linear-gradient(180deg, ${alpha(ac, 0.12)} 0%, ${alpha(ac, 0.28)} 100%)`,
+      }}
+    >
       <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
 
         {/* ── Header ── */}
@@ -399,15 +478,48 @@ const Registration = () => {
                     </Box>
                   </Box>
                   <Box display="flex" alignItems="center" gap={2}>
-                    <Chip label="Single Registration" size="small" sx={{ bgcolor: alpha(p, 0.15), color: p, fontWeight: 500 }} />
-                    <ProfessionalButton
-                      variant="outlined"
-                      startIcon={<GroupAdd />}
-                      onClick={() => navigate('/bulk-register')}
-                      sx={{ borderColor: p, color: p, '&:hover': { borderColor: s, bgcolor: alpha(p, 0.08) } }}
+                    <Tabs
+                      value={location.pathname === '/bulk-register' ? 'bulk' : 'single'}
+                      onChange={(_, value) => navigate(value === 'bulk' ? '/bulk-register' : '/registration')}
+                      sx={{
+                        minHeight: 36,
+                        bgcolor: alpha(p, 0.08),
+                        borderRadius: 2,
+                        px: 0.5,
+                        '& .MuiTabs-indicator': { display: 'none' },
+                      }}
                     >
-                      Bulk Registration
-                    </ProfessionalButton>
+                      <Tab
+                        value="single"
+                        label="Single"
+                        sx={{
+                          minHeight: 30,
+                          py: 0.35,
+                          px: 1.4,
+                          textTransform: 'none',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          borderRadius: 1.5,
+                          color: alpha(tp, 0.75),
+                          '&.Mui-selected': { bgcolor: p, color: ac },
+                        }}
+                      />
+                      <Tab
+                        value="bulk"
+                        label="Bulk"
+                        sx={{
+                          minHeight: 30,
+                          py: 0.35,
+                          px: 1.4,
+                          textTransform: 'none',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          borderRadius: 1.5,
+                          color: alpha(tp, 0.75),
+                          '&.Mui-selected': { bgcolor: p, color: ac },
+                        }}
+                      />
+                    </Tabs>
                   </Box>
                 </Box>
               </Box>
@@ -416,68 +528,101 @@ const Registration = () => {
         </Fade>
 
         {/* ── Two-column layout ── */}
-        <Grid container spacing={3} alignItems="flex-start">
+        <Grid container spacing={3} alignItems="stretch">
 
           {/* ── LEFT: Setup checklist ── */}
-          <Grid item xs={12} lg={3}>
-            <Fade in timeout={700}>
-              <GlassCard>
+          <Grid item xs={12} lg={3} sx={{ display: 'flex' }}>
+            <Fade in timeout={700} style={{ width: '100%' }}>
+              <GlassCard sx={{ width: '100%' }}>
                 <CardHeader
                   title={
                     <Box>
                       <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: alpha(tp, 0.5), mb: 0.4 }}>
-                        Pre-setup checklist
+                        Next steps
+
+
                       </Typography>
                       <Typography sx={{ fontSize: '0.8rem', color: tp, lineHeight: 1.4, fontWeight: 400 }}>
-                        Configure these before registering users
-                      </Typography>
+Complete these after registering a user                      </Typography>
                     </Box>
                   }
                   sx={{ bgcolor: alpha(ac, 0.5), borderBottom: `1px solid ${alpha(p, 0.08)}`, py: 1.75, px: 2.5 }}
                 />
-                <CardContent sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {SETUP_ITEMS.map((item) => {
-                    const done = completedSteps[item.key];
-                    const Icon = item.icon;
-                    return (
-                      <Box
-                        key={item.key}
-                        onClick={() => navigate(item.route)}
-                        sx={{
-                          display: 'flex', alignItems: 'center', gap: 1.25,
-                          p: 1.5, borderRadius: 3,
-                          border: `1px solid ${done ? alpha('#16a34a', 0.3) : alpha(p, 0.12)}`,
-                          bgcolor: done ? alpha('#16a34a', 0.05) : alpha(ac, 0.4),
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease',
-                          '&:hover': {
-                            border: `1px solid ${done ? alpha('#16a34a', 0.5) : alpha(p, 0.3)}`,
-                            bgcolor: done ? alpha('#16a34a', 0.08) : alpha(p, 0.05),
-                            transform: 'translateX(4px)',
-                          },
-                        }}
-                      >
-                        <Box sx={{ width: 34, height: 34, borderRadius: 2, flexShrink: 0, bgcolor: done ? alpha('#16a34a', 0.1) : alpha(p, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <Icon sx={{ fontSize: 17, color: done ? '#16a34a' : p }} />
-                        </Box>
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: tp, lineHeight: 1.3 }}>{item.label}</Typography>
-                          <Typography sx={{ fontSize: '0.7rem', color: alpha(tp, 0.55), mt: 0.2 }}>{item.desc}</Typography>
-                        </Box>
-                        {done
-                          ? <CheckCircle sx={{ fontSize: 15, color: '#16a34a', flexShrink: 0 }} />
-                          : <OpenInNew sx={{ fontSize: 13, color: alpha(p, 0.35), flexShrink: 0 }} />
-                        }
-                      </Box>
-                    );
-                  })}
+                <CardContent sx={{ p: 2.75, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <Box sx={{ p: 1.9, borderRadius: 3, border: `1px solid ${alpha(p, 0.12)}`, bgcolor: alpha(ac, 0.35) }}>
+                    <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.05em', textTransform: 'uppercase', color: alpha(tp, 0.6), mb: 0.9 }}>
+                      After registration
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.35 }}>
+                      {SETUP_ITEMS.map((item) => {
+                        const done = completedSteps[item.key];
+                        const Icon = item.icon;
+                        return (
+                          <Box
+                            key={item.key}
+                            onClick={() => navigate(item.route)}
+                            sx={{
+                              display: 'flex', alignItems: 'center', gap: 1.25,
+                              p: 1.5, borderRadius: 3,
+                              border: `1px solid ${done ? alpha('#16a34a', 0.3) : alpha(p, 0.12)}`,
+                              bgcolor: done ? alpha('#16a34a', 0.05) : alpha(ac, 0.4),
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                              '&:hover': {
+                                border: `1px solid ${done ? alpha('#16a34a', 0.5) : alpha(p, 0.3)}`,
+                                bgcolor: done ? alpha('#16a34a', 0.08) : alpha(p, 0.05),
+                                transform: 'translateX(4px)',
+                              },
+                            }}
+                          >
+                            <Box sx={{ width: 34, height: 34, borderRadius: 2, flexShrink: 0, bgcolor: done ? alpha('#16a34a', 0.1) : alpha(p, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <Icon sx={{ fontSize: 17, color: done ? '#16a34a' : p }} />
+                            </Box>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: tp, lineHeight: 1.3 }}>{item.label}</Typography>
+                              <Typography sx={{ fontSize: '0.7rem', color: alpha(tp, 0.55), mt: 0.2 }}>{item.desc}</Typography>
+                            </Box>
+                            {done
+                              ? <CheckCircle sx={{ fontSize: 15, color: '#16a34a', flexShrink: 0 }} />
+                              : <OpenInNew sx={{ fontSize: 13, color: alpha(p, 0.35), flexShrink: 0 }} />
+                            }
+                          </Box>
+                        );
+                      })}
 
-                  <Box sx={{ mt: 0.25, p: 1.5, bgcolor: alpha('#f59e0b', 0.08), border: `1px solid ${alpha('#f59e0b', 0.25)}`, borderLeft: `3px solid #f59e0b`, borderRadius: '0 8px 8px 0' }}>
-                    <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start' }}>
-                      <InfoOutlined sx={{ fontSize: 13, color: '#d97706', mt: 0.2, flexShrink: 0 }} />
-                      <Typography sx={{ fontSize: '0.72rem', color: '#92400e', lineHeight: 1.5 }}>
-                        All three tables must be configured for payroll records to function correctly.
-                      </Typography>
+                      <Box sx={{ mt: 0.25, p: 1.5, bgcolor: alpha('#f59e0b', 0.08), border: `1px solid ${alpha('#f59e0b', 0.25)}`, borderLeft: `3px solid #f59e0b`, borderRadius: '0 8px 8px 0' }}>
+                        <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start' }}>
+                          <InfoOutlined sx={{ fontSize: 13, color: '#d97706', mt: 0.2, flexShrink: 0 }} />
+                          <Typography sx={{ fontSize: '0.72rem', color: '#92400e', lineHeight: 1.5 }}>
+                            All three tables must be configured for payroll records to function correctly.
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Box>
+                  </Box>
+
+                  <Box sx={{ mt: 1.1, p: 1.85, borderRadius: 3, border: `1px solid ${alpha('#dc2626', 0.28)}`, bgcolor: alpha('#dc2626', 0.06) }}>
+                    <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#991b1b', mb: 0.75 }}>
+                      Important required inputs
+                    </Typography>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 0.6 }}>
+                      {requiredInputLabels.map((field) => (
+                        <Chip
+                          key={field.key}
+                          label={field.label}
+                          size="small"
+                          sx={{
+                            width: '100%',
+                            bgcolor: alpha('#dc2626', 0.12),
+                            color: '#991b1b',
+                            border: `1px solid ${alpha('#dc2626', 0.32)}`,
+                            fontSize: '0.68rem',
+                            fontWeight: 800,
+                            height: 22,
+                            '& .MuiChip-label': { px: 0.8, textAlign: 'center', width: '100%' },
+                          }}
+                        />
+                      ))}
                     </Box>
                   </Box>
                 </CardContent>
@@ -486,22 +631,22 @@ const Registration = () => {
           </Grid>
 
           {/* ── RIGHT: Registration form ── */}
-          <Grid item xs={12} lg={9}>
-            <Fade in timeout={900}>
-              <GlassCard>
+          <Grid item xs={12} lg={9} sx={{ display: 'flex' }}>
+            <Fade in timeout={900} style={{ width: '100%' }}>
+              <GlassCard sx={{ width: '100%' }}>
                 {/* Form header */}
-                <Box sx={{ px: 3.5, py: 2.5, background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`, borderBottom: `1px solid ${alpha(p, 0.1)}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
+                <Box sx={{ px: 3.5, pt: 2.25, pb: 1.9, background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`, borderBottom: `1px solid ${alpha(p, 0.1)}`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
                   <Box sx={{ position: 'absolute', top: -25, right: -25, width: 110, height: 110, background: `radial-gradient(circle, ${alpha(p, 0.07)} 0%, transparent 70%)` }} />
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
-                    <Avatar sx={{ bgcolor: alpha(p, 0.15), width: 46, height: 46, boxShadow: `0 4px 14px ${alpha(p, 0.15)}` }}>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2.25, position: 'relative', zIndex: 1 }}>
+                    <Avatar sx={{ bgcolor: alpha(p, 0.15), width: 44, height: 44, boxShadow: `0 4px 14px ${alpha(p, 0.15)}`, mt: 0.15 }}>
                       <PersonAdd sx={{ fontSize: 22, color: p }} />
                     </Avatar>
                     <Box>
                       <Typography variant="h6" sx={{ fontWeight: 700, color: p, lineHeight: 1.2 }}>Register new user</Typography>
-                      <Typography variant="caption" sx={{ color: tp, opacity: 0.7 }}>Add a single employee record with credentials</Typography>
+                      <Typography variant="caption" sx={{ color: tp, opacity: 0.7, display: 'block', mt: 0.35 }}>Add a single employee record with credentials</Typography>
                     </Box>
                   </Box>
-                  <Chip label="Single" size="small" sx={{ bgcolor: alpha(p, 0.15), color: p, fontWeight: 600, position: 'relative', zIndex: 1 }} />
+                  <Chip label="Single" size="small" sx={{ bgcolor: alpha(p, 0.15), color: p, fontWeight: 600, position: 'relative', zIndex: 1, mt: 0.3 }} />
                 </Box>
 
                 {/* Form body */}
@@ -512,7 +657,6 @@ const Registration = () => {
                     Personal information
                   </Typography>
 
-                  {/* All four name fields in one row + email below */}
                   <Grid container spacing={2} sx={{ mb: 0.5 }}>
                     <Grid item xs={12} sm={3}>
                       <ModernTextField
@@ -550,10 +694,10 @@ const Registration = () => {
                       />
                     </Grid>
                     <Grid item xs={12} sm={2}>
-                 <FormControl fullWidth size="small" sx={selectControlSx}>
-  <InputLabel shrink sx={{ fontWeight: 500 }}>Ext.</InputLabel>
-  <Select
-    name="nameExtension"
+                      <FormControl fullWidth size="small" sx={selectControlSx}>
+                        <InputLabel shrink sx={{ fontWeight: 500 }}>Ext.</InputLabel>
+                        <Select
+                          name="nameExtension"
                           value={formData.nameExtension}
                           label="Ext."
                           onChange={handleChanges}
@@ -598,8 +742,7 @@ const Registration = () => {
                     Employment details
                   </Typography>
 
-                  {/* Category + Employee No. + Department — all three in one row */}
-                  <Grid container spacing={2}>
+                  <Grid container spacing={2.25}>
                     <Grid item xs={12} sm={4}>
                       <FormControl fullWidth size="small" sx={selectControlSx}>
                         <InputLabel sx={{ fontWeight: 500 }}>
@@ -688,7 +831,7 @@ const Registration = () => {
                     )}
 
                     {/* ── Auto-generated password banner ── */}
-                    <Grid item xs={12}>
+                    <Grid item xs={12} sx={{ mt: 0.35 }}>
                       <Box sx={{
                         display: 'flex', alignItems: 'center', gap: 2,
                         px: 2.5, py: 1.5,
@@ -696,28 +839,27 @@ const Registration = () => {
                         border: `1px dashed ${alpha(p, 0.3)}`,
                         bgcolor: alpha(p, 0.04),
                       }}>
-                        {/* Icon block */}
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexShrink: 0 }}>
                           <Box sx={{ width: 34, height: 34, borderRadius: 2, bgcolor: alpha(p, 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                             <LockOutlined sx={{ fontSize: 17, color: p }} />
                           </Box>
                           <Box>
-                            <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: tp, lineHeight: 1.2 }}>Default password</Typography>
+                            <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: tp, lineHeight: 1.2 }}>Password</Typography>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, mt: 0.15 }}>
-                              <Typography sx={{ fontSize: '0.65rem', color: alpha(tp, 0.5), fontWeight: 500 }}>Auto-generated from last name</Typography>
+                              <Typography sx={{ fontSize: '0.65rem', color: alpha(tp, 0.5), fontWeight: 500 }}>From last name</Typography>
                             </Box>
                           </Box>
                         </Box>
 
-                        {/* Vertical separator */}
                         <Box sx={{ width: '1px', height: 30, bgcolor: alpha(p, 0.15), flexShrink: 0 }} />
 
-                        {/* Live password preview */}
                         <Box sx={{ flex: 1, minWidth: 0 }}>
                           {formData.password ? (
-                            <Typography sx={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: '0.9rem', fontWeight: 600, color: p, letterSpacing: '0.08em' }}>
-                              {formData.password}
-                            </Typography>
+                            <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1.2, py: 0.55, borderRadius: 1.5, bgcolor: alpha('#16a34a', 0.12), border: `1px solid ${alpha('#16a34a', 0.35)}` }}>
+                              <Typography sx={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: '0.9rem', fontWeight: 700, color: '#166534', letterSpacing: '0.08em' }}>
+                                {formData.password}
+                              </Typography>
+                            </Box>
                           ) : (
                             <Typography sx={{ fontSize: '0.8rem', color: alpha(tp, 0.38), fontStyle: 'italic' }}>
                               Enter a last name above to preview…
@@ -725,7 +867,6 @@ const Registration = () => {
                           )}
                         </Box>
 
-                        {/* Auto badge */}
                         <Chip
                           icon={<CheckCircleOutline sx={{ fontSize: '13px !important' }} />}
                           label="Auto"
@@ -733,12 +874,12 @@ const Registration = () => {
                           sx={{ bgcolor: alpha(p, 0.1), color: p, fontWeight: 700, fontSize: '0.68rem', flexShrink: 0, height: 24, '& .MuiChip-icon': { color: p } }}
                         />
 
-                        {/* Tooltip hint */}
                         <Tooltip title="Derived from last name — uppercase, no spaces. The employee can change this after their first login." placement="top" arrow>
                           <InfoOutlined sx={{ fontSize: 16, color: alpha(tp, 0.3), cursor: 'help', flexShrink: 0 }} />
                         </Tooltip>
                       </Box>
                     </Grid>
+
                   </Grid>
 
                   {/* ── Alerts ── */}
@@ -759,23 +900,57 @@ const Registration = () => {
                     </Fade>
                   )}
 
-                  {/* ── Footer ── */}
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pt: 2.5, mt: 2.5, borderTop: `1px solid ${alpha(p, 0.1)}`, flexWrap: 'wrap', gap: 2 }}>
-                    <Typography sx={{ fontSize: '0.72rem', color: alpha(tp, 0.5) }}>
-                      Fields marked{' '}
-                      <Box component="span" sx={{ color: p, fontWeight: 700 }}>*</Box>
-                      {' '}are required
-                    </Typography>
-                    <ProfessionalButton
-                      type="submit"
-                      variant="contained"
-                      disabled={isLoading}
-                      startIcon={isLoading ? <CircularProgress size={16} sx={{ color: ac }} /> : <PersonAddAlt1 />}
-                      sx={{ bgcolor: p, color: ac, '&:hover': { bgcolor: s }, '&:disabled': { bgcolor: alpha(p, 0.4), color: alpha(ac, 0.7) } }}
-                    >
-                      {isLoading ? 'Registering…' : 'Register user'}
-                    </ProfessionalButton>
+                  <Box sx={{ mt: 2.5, pt: 2.25, borderTop: `1px solid ${alpha(p, 0.1)}` }}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={isInformationConfirmed}
+                          onChange={(e) => setIsInformationConfirmed(e.target.checked)}
+                          disabled={isLoading}
+                          sx={{
+                            p: 0.5,
+                            mr: 1,
+                            color: alpha(p, 0.55),
+                            '&.Mui-checked': { color: p },
+                          }}
+                        />
+                      }
+                      label={
+                        <Typography sx={{ fontSize: '0.8rem', color: tp, lineHeight: 1.4 }}>
+                          I certify that the employee information entered above is accurate, complete, and ready for official record.
+                        </Typography>
+                      }
+                      sx={{
+                        ml: 0,
+                        mr: 0,
+                        alignItems: 'center',
+                        '& .MuiFormControlLabel-label': {
+                          display: 'flex',
+                          alignItems: 'center',
+                        },
+                      }}
+                    />
+
+                    <Box sx={{ mt: 3 }}>
+                      <ProfessionalButton
+                        type="submit"
+                        variant="contained"
+                        disabled={isLoading || !isInformationConfirmed}
+                        startIcon={isLoading ? <CircularProgress size={16} sx={{ color: ac }} /> : <PersonAddAlt1 />}
+                        sx={{
+                          width: '100%',
+                          minHeight: 58,
+                          bgcolor: p,
+                          color: ac,
+                          '&:hover': { bgcolor: s },
+                          '&:disabled': { bgcolor: alpha(p, 0.4), color: alpha(ac, 0.7) },
+                        }}
+                      >
+                        {isLoading ? 'Registering…' : 'Register User'}
+                      </ProfessionalButton>
+                    </Box>
                   </Box>
+
                 </Box>
               </GlassCard>
             </Fade>

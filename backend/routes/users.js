@@ -599,8 +599,7 @@ router.post('/register', async (req, res) => {
                       },
                     );
 
-                    // ✅ SEND EMAIL WITH CREDENTIALS (NULL-safe label)
-                    const categoryLabel = getCategoryLabel(empCatValue);
+                    // ✅ SEND EMAIL WITH CREDENTIALS
 
                     try {
                       await transporter.sendMail({
@@ -632,71 +631,67 @@ router.post('/register', async (req, res) => {
                             .credential-value { font-size: 15px; color: #2c3e50; font-weight: 500; }
                             .credential-value.highlight { background: #fff8e1; padding: 10px 15px; border-radius: 4px; font-family: 'Courier New', Courier, monospace; font-size: 16px; letter-spacing: 1px; color: #856404; border: 2px solid #ffc107; display: inline-block; margin-top: 5px; font-weight: 700; }
                             .credential-value.empnum { font-family: 'Courier New', Courier, monospace; font-size: 16px; color: #6d2323; font-weight: 700; }
+                            .note-box { background: #fff8e1; border-left: 4px solid #6d2323; padding: 15px 20px; margin: 25px 0; border-radius: 4px; }
+                            .note-box p { font-size: 13px; color: #555555; margin: 0; line-height: 1.6; }
+                            .note-box strong { color: #6d2323; }
+                            .action-section { text-align: center; margin: 30px 0 25px; }
+                            .action-button { display: inline-block; background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); color: #ffffff !important; padding: 14px 40px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 12px rgba(109, 35, 35, 0.25); }
+                            .support-text { font-size: 13px; color: #777777; text-align: center; margin-top: 25px; padding-top: 20px; border-top: 1px solid #eeeeee; }
+                            .email-footer { background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 25px; text-align: center; }
+                            .footer-text { font-size: 12px; color: #f5e6e6; margin: 5px 0; }
+                            @media only screen and (max-width: 600px) { .email-wrapper { padding: 20px 10px; } .email-body { padding: 25px 20px; } .email-header h1 { font-size: 22px; } .credentials-box { padding: 20px; } }
                           </style>
                           </head>
-                          <body>
-                            <div class="email-wrapper">
-                              <div class="email-container">
-                                <div class="email-header">
-                                  <h1>Welcome to EARIST HRIS</h1>
+                          <body style="margin: 0; padding: 0; background-color: #f4f4f4; color: #333333; line-height: 1.6;">
+                            <div class="email-wrapper" style="width: 100%; background-color: #f4f4f4; padding: 30px 15px;">
+                              <div class="email-container" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                                <div class="email-header" style="background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 30px; text-align: center;">
+                                  <h1 style="color: #ffffff; font-size: 24px; font-weight: 600; margin: 0;">Welcome to EARIST HRIS</h1>
                                 </div>
-                                <div class="email-body">
-                                  <p class="greeting">Hello <strong>${fullName}</strong>,</p>
-                                  <p class="intro-text">
+                                <div class="email-body" style="padding: 35px 30px;">
+                                  <p class="greeting" style="font-size: 15px; color: #333333; margin-bottom: 15px;">Hello <strong style="color: #6d2323;">${fullName}</strong>,</p>
+                                  <p class="intro-text" style="font-size: 14px; color: #555555; margin-bottom: 25px; line-height: 1.7;">
                                     Your account has been created. Below are your login credentials.
                                   </p>
 
-                                  <div class="credentials-box">
-                                    <div class="credential-row">
-                                      <div class="credential-label">Employee Number</div>
-                                      <div class="credential-value empnum">${employeeNumber}</div>
+                                  <div class="credentials-box" style="background: #fafafa; border: 2px solid #f5e6e6; border-radius: 6px; padding: 25px; margin: 25px 0;">
+                                    <div class="credential-row" style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eeeeee;">
+                                      <div class="credential-label" style="font-size: 12px; color: #6d2323; font-weight: 600; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 0.5px;">Employee Number</div>
+                                      <div class="credential-value empnum" style="font-family: 'Courier New', Courier, monospace; font-size: 16px; color: #6d2323; font-weight: 700;">${employeeNumber}</div>
                                     </div>
-                                    <div class="credential-row">
-                                      <div class="credential-label">Password</div>
-                                      <div class="credential-value highlight">${password}</div>
+                                    <div class="credential-row" style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eeeeee;">
+                                      <div class="credential-label" style="font-size: 12px; color: #6d2323; font-weight: 600; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 0.5px;">Password</div>
+                                      <div class="credential-value highlight" style="background: #fff8e1; padding: 10px 15px; border-radius: 4px; font-family: 'Courier New', Courier, monospace; font-size: 16px; letter-spacing: 1px; color: #856404; border: 2px solid #ffc107; display: inline-block; margin-top: 5px; font-weight: 700;">${password}</div>
+                                      <div style="font-size: 12px; color: #6b7280; margin-top: 8px; line-height: 1.5;">
+                                        
+                                      </div>
                                     </div>
                                   </div>
-<<<<<<< HEAD
-                                </div>
-                                <div class="credential-row">
-                                  <div class="credential-label">Employment Type</div>
-                                  <div class="credential-value">${categoryLabel}</div>
-=======
 
-                                  <p class="intro-text">
-                                    Please change your password after logging in.
+                                  <div class="note-box" style="background: #fff8e1; border-left: 4px solid #6d2323; padding: 15px 20px; margin: 25px 0; border-radius: 4px;">
+                                    <p style="font-size: 13px; color: #555555; margin: 0; line-height: 1.6;">
+                                      <strong>Important:</strong> Change your password after signing in.
+                                      Never share your login details with anyone.
+                                    </p>
+                                  </div>
+
+                                  <div class="action-section" style="text-align: center; margin: 30px 0 25px;">
+                                    <a href="${process.env.FRONTEND_URL || 'http://localhost:5137'}" class="action-button" style="display: inline-block; background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); color: #ffffff !important; padding: 14px 40px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 12px rgba(109, 35, 35, 0.25);">
+                                      LOGIN NOW
+                                    </a>
+                                  </div>
+
+                                  <p class="support-text" style="font-size: 13px; color: #777777; text-align: center; margin-top: 25px; padding-top: 20px; border-top: 1px solid #eeeeee;">
+                                    Need help? Contact HR Department during office hours or send a message to earisthrmstesting@gmail.com
                                   </p>
->>>>>>> 3dc75ae7938388e2db808a80a23cefa6412b2fa8
+                                </div>
+
+                                <div class="email-footer" style="background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 25px; text-align: center;">
+                                  <p class="footer-text" style="font-size: 12px; color: #f5e6e6; margin: 5px 0;">Human Resources Information System</p>
+                                  <p class="footer-text" style="font-size: 12px; color: #f5e6e6; margin: 5px 0;">© ${new Date().getFullYear()} Eulogio "Amang" Rodriguez Institute of Science and Technology. All rights reserved.</p>
                                 </div>
                               </div>
-                              <!-- Security Note -->
-                              <div class="note-box">
-                                <p>
-                                  <strong>Important:</strong> Change your password after signing in. 
-                                  Never share your login details with anyone.
-                                </p>
-                              </div>
-                              <!-- Login Button -->
-                              <div class="action-section">
-                                <a href="${
-                                  process.env.API_BASE_URL ||
-                                  'http://localhost:5137'
-                                }" class="action-button">
-                                  LOGIN NOW
-                                </a>
-                              </div>
-                              <!-- Support -->
-                              <p class="support-text">
-                                Need help? Contact HR Department during office hours or send a message to earisthrmstesting@gmail.com
-                              </p>
                             </div>
-                            <!-- Footer -->
-                            <div class="email-footer">
-                              <p class="footer-text">Human Resources Information System</p>
-                              <p class="footer-text">© ${new Date().getFullYear()} Eulogio "Amang" Rodriguez Institute of Science and Technology. All rights reserved.</p>
-                            </div>
-                          </div>
-                        </div>
                       </body>
                       </html>
                     `,

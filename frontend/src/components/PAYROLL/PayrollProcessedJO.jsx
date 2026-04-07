@@ -62,6 +62,7 @@ import {
   Snackbar,
   Checkbox,
   Badge,
+  Slide,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
@@ -688,6 +689,10 @@ const PayrollProcessed = () => {
     setOpenReleaseConfirm(true);
   };
 
+  const handleClearSelection = () => {
+    setSelectedRows([]);
+  };
+
   if (accessLoading) {
     return (
       <Container maxWidth="md" sx={{ py: 8 }}>
@@ -1084,9 +1089,96 @@ const PayrollProcessed = () => {
           <ProfessionalButton variant="outlined" onClick={() => (window.location.href = '/payroll-released')} size="large" sx={{ borderColor: accentColor, color: textPrimaryColor, '&:hover': { borderColor: accentDark, backgroundColor: alpha(accentColor, 0.1) } }} startIcon={<BusinessCenterIcon />}>
             View Released Payroll
           </ProfessionalButton>
-          <ProfessionalButton variant="contained" startIcon={<PublishIcon />} onClick={initiateRelease} disabled={selectedRows.length === 0} size="large" sx={{ backgroundColor: accentColor, color: textSecondaryColor, '&:hover': { backgroundColor: accentDark }, '&:disabled': { backgroundColor: alpha(accentColor, 0.3), color: alpha(textSecondaryColor, 0.5) } }}>
-            Release Selected ({selectedRows.length})
-          </ProfessionalButton>
+        </Box>
+
+        <Box
+          sx={{
+            position: 'fixed',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            display: 'flex',
+            justifyContent: 'center',
+            zIndex: 1300,
+            pointerEvents: 'none',
+          }}
+        >
+          <Slide direction="up" in={selectedRows.length > 0} mountOnEnter unmountOnExit>
+            <Box
+              sx={{
+                pointerEvents: 'auto',
+                width: 'min(760px, calc(100vw - 32px))',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: 1.5,
+                flexWrap: 'wrap',
+                px: 2,
+                py: 1.5,
+                mb: 2,
+                borderRadius: 2,
+                bgcolor: 'rgba(255,255,255,0.95)',
+                border: `1px solid ${alpha(accentColor, 0.15)}`,
+                boxShadow: `0 12px 30px ${alpha(accentColor, 0.16)}`,
+              }}
+            >
+              <Typography
+                variant="body2"
+                sx={{
+                  fontWeight: 700,
+                  color: textPrimaryColor,
+                  px: 2,
+                  py: 1,
+                  borderRadius: 999,
+                  bgcolor: alpha(accentColor, 0.07),
+                  border: `1px solid ${alpha(accentColor, 0.15)}`,
+                }}
+              >
+                Selected: {selectedRows.length}
+              </Typography>
+
+              <Box sx={{ flex: 1 }} />
+
+              <ProfessionalButton
+                variant="outlined"
+                onClick={handleClearSelection}
+                size="large"
+                sx={{
+                  borderColor: alpha(accentColor, 0.3),
+                  color: textPrimaryColor,
+                  bgcolor: 'rgba(255,255,255,0.9)',
+                  px: 2.2,
+                  py: 1,
+                  borderRadius: '12px',
+                  '&:hover': {
+                    borderColor: accentColor,
+                    bgcolor: 'rgba(255,255,255,0.94)',
+                  },
+                }}
+              >
+                Cancel
+              </ProfessionalButton>
+
+              <ProfessionalButton
+                variant="contained"
+                startIcon={<PublishIcon />}
+                onClick={initiateRelease}
+                disabled={selectedRows.length === 0}
+                size="large"
+                sx={{
+                  backgroundColor: accentColor,
+                  color: textSecondaryColor,
+                  '&:hover': { backgroundColor: accentDark },
+                  '&:disabled': {
+                    backgroundColor: alpha(accentColor, 0.3),
+                    color: alpha(textSecondaryColor, 0.5),
+                  },
+                }}
+              >
+                Release Payroll ({selectedRows.length})
+              </ProfessionalButton>
+            </Box>
+          </Slide>
         </Box>
 
         {/* Delete Confirm Modal */}
