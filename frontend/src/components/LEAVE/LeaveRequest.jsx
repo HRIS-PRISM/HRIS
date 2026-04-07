@@ -210,34 +210,66 @@ const Wireframe = () => (
         </Box>
       </Box>
       <Grid container spacing={3}>
-        {[0, 1].map((col) => (
-          <Grid item xs={12} lg={6} key={col}>
-            <Box
-              sx={{
-                borderRadius: 3,
-                border: `1px solid ${T.accentBorder}`,
-                bgcolor: '#fff',
-                overflow: 'hidden',
-                animation: `blink 2s ease-in-out ${col * 0.1}s infinite`,
-                height: 'calc(100vh - 220px)',
-              }}
-            >
-              <Box sx={{ px: 3.5, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
-                <Bone w={180} h={13} />
-              </Box>
-              <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-                {[100, 160, 120, 140, 110].map((w, i) => (
-                  <Box key={i}>
-                    <Bone w={w} h={10} sx={{ mb: 1 }} />
-                    <Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-          </Grid>
+  {/* Left column (1/3 width, lg=4) */}
+  <Grid item xs={12} lg={4}>
+    <Box
+      sx={{
+        borderRadius: 3,
+        border: `1px solid ${T.accentBorder}`,
+        bgcolor: '#fff',
+        overflow: 'hidden',
+        animation: `blink 2s ease-in-out 0s infinite`,
+        height: 'calc(100vh - 280px)',
+      }}
+    >
+      {/* header */}
+      <Box sx={{ px: 3.5, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
+        <Bone w={180} h={13} />
+      </Box>
+
+      {/* content */}
+      <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+        {[100, 160, 120, 140, 110].map((w, i) => (
+          <Box key={i}>
+            <Bone w={w} h={10} sx={{ mb: 1 }} />
+            <Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
+          </Box>
         ))}
-      </Grid>
+      </Box>
+    </Box>
+  </Grid>
+
+  {/* Right column (2/3 width, lg=8) */}
+  <Grid item xs={12} lg={8}>
+    <Box
+      sx={{
+        borderRadius: 3,
+        border: `1px solid ${T.accentBorder}`,
+        bgcolor: '#fff',
+        overflow: 'hidden',
+        animation: `blink 2s ease-in-out 0.1s infinite`,
+        height: 'calc(100vh - 280px)',
+      }}
+    >
+      {/* header */}
+      <Box sx={{ px: 3.5, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
+        <Bone w={240} h={13} />
+      </Box>
+
+      {/* content */}
+      <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+        {[200, 160, 180, 140, 150, 170].map((w, i) => (
+          <Box key={i}>
+            <Bone w={w} h={10} sx={{ mb: 1 }} />
+            <Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  </Grid>
+</Grid>
     </Box>
   </>
 );
@@ -1687,6 +1719,11 @@ const LeaveRequest = () => {
                               return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
                             })()
                           : null;
+
+                        // ── Resolve employee number + name for this log entry ──
+                        const logEmpNum = log.employee_id || log.employeeNumber;
+                        const logEmpName = logEmpNum ? employeeNames[logEmpNum] : null;
+
                         return (
                           <Box
                             key={`log-${log.id}`}
@@ -1698,6 +1735,7 @@ const LeaveRequest = () => {
                               '&:hover': { boxShadow: `0 4px 12px ${alpha(color, 0.12)}` },
                             }}
                           >
+                            {/* ── Top row: kind badge (left) + timestamp (right) ── */}
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.25, flexWrap: 'wrap', gap: 1 }}>
                               <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, px: 1.25, py: 0.35, borderRadius: '6px', bgcolor: bg, border: `1px solid ${alpha(color, 0.2)}` }}>
                                 <Icon sx={{ fontSize: 12, color }} />
@@ -1711,15 +1749,35 @@ const LeaveRequest = () => {
                               )}
                             </Box>
 
-                            {(log.employee_id || log.employeeNumber) && (
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1, px: 1.25, py: 0.6, bgcolor: alpha('#1565C0', 0.05), borderRadius: 1.5, border: '1px solid rgba(21,101,192,0.15)', width: 'fit-content' }}>
-                                <PersonIcon sx={{ fontSize: 13, color: '#1565C0' }} />
-                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: '#1565C0' }}>
-                                  #{log.employee_id || log.employeeNumber}
-                                </Typography>
+                            {/* ── Employee pill — right-aligned, shows #number + name ── */}
+                            {logEmpNum && (
+                              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                                <Box
+                                  sx={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 0.75,
+                                    px: 1.25, py: 0.5,
+                                    bgcolor: alpha('#1565C0', 0.05),
+                                    borderRadius: 1.5,
+                                    border: '1px solid rgba(21,101,192,0.15)',
+                                  }}
+                                >
+                                  <PersonIcon sx={{ fontSize: 13, color: '#1565C0' }} />
+                                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: '#1565C0', lineHeight: 1 }}>
+                                    #{logEmpNum}
+                                  </Typography>
+                                  {logEmpName && logEmpName !== 'Unknown' && (
+                                    <>
+                                      <Box sx={{ width: '1px', height: 12, bgcolor: 'rgba(21,101,192,0.3)', flexShrink: 0 }} />
+                                      <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#1565C0', lineHeight: 1 }}>
+                                        {logEmpName}
+                                      </Typography>
+                                    </>
+                                  )}
+                                </Box>
                               </Box>
                             )}
 
+                            {/* ── Log message ── */}
                             {renderTxSentence(log)}
                           </Box>
                         );

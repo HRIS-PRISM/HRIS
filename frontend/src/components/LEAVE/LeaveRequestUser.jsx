@@ -750,6 +750,7 @@ const LeaveRequestUser = () => {
   const [leaveTypeFilter, setLeaveTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [personID, setPersonID] = useState("");
+  const [userName, setUserName] = useState(""); // ← full name resolved from token/API
   const [dateModalOpen, setDateModalOpen] = useState(false);
   const [transactionLogsModalOpen, setTransactionLogsModalOpen] =
     useState(false);
@@ -893,16 +894,45 @@ const LeaveRequestUser = () => {
     { value: "4", label: "Cancelled" },
   ];
 
+  // ── Decode token and resolve name ──────────────────────────────────────────
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {
       try {
-        setPersonID(jwtDecode(token).employeeNumber);
+        const decoded = jwtDecode(token);
+        setPersonID(decoded.employeeNumber);
+        // Try common JWT name fields first; fall back to a personal-info fetch below
+        const nameFromToken =
+          decoded.fullName ||
+          decoded.name ||
+          [decoded.firstName, decoded.lastName].filter(Boolean).join(" ") ||
+          "";
+        if (nameFromToken) setUserName(nameFromToken);
       } catch (e) {
         console.error(e);
       }
     }
   }, []);
+
+  // ── Fetch full name from personal-info API if token didn't carry it ────────
+  useEffect(() => {
+    if (!personID || userName) return;
+    const fetchName = async () => {
+      try {
+        const res = await axios.get(
+          `${API_BASE_URL}/personalinfo/person_table/${personID}`,
+          getAuthHeaders(),
+        );
+        const name = [res.data.firstName, res.data.lastName]
+          .filter(Boolean)
+          .join(" ");
+        if (name) setUserName(name);
+      } catch (e) {
+        console.error("Could not resolve user name", e);
+      }
+    };
+    fetchName();
+  }, [personID, userName]); // eslint-disable-line
 
   useEffect(() => {
     if (!personID || initialLoadDone.current) return;
@@ -1192,7 +1222,7 @@ const LeaveRequestUser = () => {
     });
   };
 
-  // ── Tx log helpers (same as LeaveRequest admin) ────────────────────────────
+  // ── Tx log helpers ─────────────────────────────────────────────────────────
   const getTxKind = (log) => {
     const lower = (log.message || "").toLowerCase();
     if (lower.includes("deleted")) return "deleted";
@@ -1527,90 +1557,83 @@ const LeaveRequestUser = () => {
                   const barColor =
                     pct > 60 ? "#2E7D32" : pct > 30 ? "#F57C00" : "#C62828";
                   return (
-  <Box
-  key={balance.code}
-  sx={{
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    px: 2,      // slightly more horizontal padding
-    py: 1,      // slightly more vertical padding
-    borderRadius: 2,
-    bgcolor: "#fff",
-    border: `1px solid ${T.accentBorder}`,
-    minWidth: 80,  // slightly wider for readability
-  }}
->
-  {/* Code */}
-  <Chip
-    label={balance.code}
-    size="small"
-    sx={{
-      bgcolor: T.accentFaint,
-      color: T.accent,
-      fontWeight: 700,
-      fontSize: "0.75rem", // larger
-      height: 20,
-      mb: 0.5,
-    }}
-  />
-
-  {/* Description */}
-  <Typography
-    sx={{
-      fontSize: "0.7rem",  // larger
-      color: T.muted,
-      textAlign: "center",
-      lineHeight: 1.2,
-      mb: 0.5,
-    }}
-  >
-    {balance.description}
-  </Typography>
-
-  {/* Value */}
-  <Typography
-    sx={{
-      fontWeight: 700,
-      color: T.accent,
-      fontSize: "0.85rem", // larger
-      lineHeight: 1.2,
-    }}
-  >
-    {balance.totalDays}
-    <Box
-      component="span"
-      sx={{
-        color: T.faint,
-        fontWeight: 400,
-        fontSize: "0.7rem",
-        ml: 0.3,
-      }}
-    >
-      / {maxAssignment.toFixed(1)}
-    </Box>
-  </Typography>
-
-  {/* Progress Bar */}
-  <Box
-    sx={{
-      mt: 0.6,
-      height: 3,
-      width: "100%",
-      bgcolor: "#e8e8e8",
-      borderRadius: 2,
-    }}
-  >
-    <Box
-      sx={{
-        height: "100%",
-        width: `${pct}%`,
-        bgcolor: barColor,
-        borderRadius: 2,
-      }}
-    />
-  </Box>
-</Box>
+                    <Box
+                      key={balance.code}
+                      sx={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        px: 2,
+                        py: 1,
+                        borderRadius: 2,
+                        bgcolor: "#fff",
+                        border: `1px solid ${T.accentBorder}`,
+                        minWidth: 80,
+                      }}
+                    >
+                      <Chip
+                        label={balance.code}
+                        size="small"
+                        sx={{
+                          bgcolor: T.accentFaint,
+                          color: T.accent,
+                          fontWeight: 700,
+                          fontSize: "0.75rem",
+                          height: 20,
+                          mb: 0.5,
+                        }}
+                      />
+                      <Typography
+                        sx={{
+                          fontSize: "0.7rem",
+                          color: T.muted,
+                          textAlign: "center",
+                          lineHeight: 1.2,
+                          mb: 0.5,
+                        }}
+                      >
+                        {balance.description}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontWeight: 700,
+                          color: T.accent,
+                          fontSize: "0.85rem",
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        {balance.totalDays}
+                        <Box
+                          component="span"
+                          sx={{
+                            color: T.faint,
+                            fontWeight: 400,
+                            fontSize: "0.7rem",
+                            ml: 0.3,
+                          }}
+                        >
+                          / {maxAssignment.toFixed(1)}
+                        </Box>
+                      </Typography>
+                      <Box
+                        sx={{
+                          mt: 0.6,
+                          height: 3,
+                          width: "100%",
+                          bgcolor: "#e8e8e8",
+                          borderRadius: 2,
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            height: "100%",
+                            width: `${pct}%`,
+                            bgcolor: barColor,
+                            borderRadius: 2,
+                          }}
+                        />
+                      </Box>
+                    </Box>
                   );
                 })}
               </Box>
@@ -2619,6 +2642,16 @@ const LeaveRequestUser = () => {
                             raw.charAt(0).toUpperCase() +
                             raw.slice(1) +
                             (raw.endsWith(".") ? "" : ".");
+
+                          // ── Resolve employee number for this log entry ──
+                          // In the user-facing view all logs belong to the current user,
+                          // so we fall back to personID if the log doesn't carry one.
+                          const logEmpNum =
+                            log.employee_id || log.employeeNumber || personID;
+                          // Use the resolved full name; gracefully omit if blank
+                          const logEmpName =
+                            userName && userName !== "Unknown" ? userName : null;
+
                           return (
                             <Box
                               key={`log-${log.id}`}
@@ -2634,6 +2667,7 @@ const LeaveRequestUser = () => {
                                 },
                               }}
                             >
+                              {/* ── Top row: kind badge (left) + timestamp (right) ── */}
                               <Box
                                 sx={{
                                   display: "flex",
@@ -2690,6 +2724,69 @@ const LeaveRequestUser = () => {
                                   </Box>
                                 )}
                               </Box>
+
+                              {/* ── Employee pill — right-aligned, shows #number + name ── */}
+                              {logEmpNum && (
+                                <Box
+                                  sx={{
+                                    display: "flex",
+                                    justifyContent: "flex-end",
+                                    mb: 1,
+                                  }}
+                                >
+                                  <Box
+                                    sx={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 0.75,
+                                      px: 1.25,
+                                      py: 0.5,
+                                      bgcolor: alpha("#1565C0", 0.05),
+                                      borderRadius: 1.5,
+                                      border:
+                                        "1px solid rgba(21,101,192,0.15)",
+                                    }}
+                                  >
+                                    <PersonIcon
+                                      sx={{ fontSize: 13, color: "#1565C0" }}
+                                    />
+                                    <Typography
+                                      sx={{
+                                        fontSize: "0.75rem",
+                                        fontWeight: 700,
+                                        color: "#1565C0",
+                                        lineHeight: 1,
+                                      }}
+                                    >
+                                      #{logEmpNum}
+                                    </Typography>
+                                    {logEmpName && (
+                                      <>
+                                        <Box
+                                          sx={{
+                                            width: "1px",
+                                            height: 12,
+                                            bgcolor: "rgba(21,101,192,0.3)",
+                                            flexShrink: 0,
+                                          }}
+                                        />
+                                        <Typography
+                                          sx={{
+                                            fontSize: "0.75rem",
+                                            fontWeight: 600,
+                                            color: "#1565C0",
+                                            lineHeight: 1,
+                                          }}
+                                        >
+                                          {logEmpName}
+                                        </Typography>
+                                      </>
+                                    )}
+                                  </Box>
+                                </Box>
+                              )}
+
+                              {/* ── Log message ── */}
                               <Typography
                                 sx={{
                                   fontSize: "0.86rem",
@@ -2703,6 +2800,7 @@ const LeaveRequestUser = () => {
                             </Box>
                           );
                         })}
+
                         {totalPages > 1 && (
                           <Box
                             sx={{
