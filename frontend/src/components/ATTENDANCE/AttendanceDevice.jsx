@@ -4,364 +4,290 @@ import axios from 'axios';
 import { useSocket } from '../../contexts/SocketContext';
 import {
   Box,
-  TextField,
-  Button,
   Typography,
+  Alert,
+  Collapse,
+  Chip,
+  CircularProgress,
+  Fade,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Snackbar,
+  alpha,
+  styled,
+  Card,
+  Button,
+  Fab,
+  Zoom,
+  Avatar,
+  Checkbox,
+  Dialog,
+  LinearProgress,
+  Backdrop,
+  IconButton,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Card,
-  CardContent,
-  Grid,
-  InputAdornment,
-  Divider,
-  Avatar,
-  IconButton,
-  Fade,
-  Alert,
-  alpha,
-  Chip,
-  styled,
-  Backdrop,
-  CircularProgress,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Checkbox,
-  Snackbar,
-  Dialog,
-  LinearProgress,
-  Container,
-  Paper,
   Tooltip,
 } from '@mui/material';
 import {
   Search,
   Person,
   CalendarToday,
+  AccessTime,
+  CheckCircle,
+  Cancel,
+  Info,
+  Refresh,
   Today,
   ArrowBackIos,
   Clear,
-  Send,
-  Refresh,
-  Info,
-  Assignment,
+  KeyboardArrowUp,
+  KeyboardArrowDown,
   FilterList,
+  NewReleases,
+  Send,
   People,
-  CheckCircle,
+  Assignment,
   ArrowBack,
   ArrowForward,
   SearchOutlined,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
-import AccessDenied from '../AccessDenied';
 import usePageAccess from '../../hooks/usePageAccess';
+import AccessDenied from '../AccessDenied';
 
-// ─────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
-    : '109, 35, 35';
+// ─── Theme tokens (mirrors AttendanceUserState T object) ───────────────────
+const T = {
+  accent:       '#6d2323',
+  accentDark:   '#5a1d1d',
+  accentMid:    '#8B4545',
+  accentFaint:  'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  accentHover:  'rgba(109,35,35,0.10)',
+  rowOdd:       'rgba(109,35,35,0.025)',
+  rowHover:     'rgba(109,35,35,0.055)',
+  text:         '#1a1a1a',
+  muted:        '#6b6b6b',
+  faint:        '#a0a0a0',
+  surface:      '#ffffff',
+  divider:      'rgba(0,0,0,0.08)',
 };
 
-// ─────────────────────────────────────────────
-// WIREFRAME  — same shimmer pattern as DailyTimeRecord
-// ─────────────────────────────────────────────
-const SHIMMER_CSS = `
-@keyframes varShimmer {
-  0%   { background-position: -900px 0; }
-  100% { background-position:  900px 0; }
+// ─── Shimmer keyframes ─────────────────────────────────────────────────────
+const shimmerKf = `
+@keyframes shimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
 }
-@keyframes varPulse {
+@keyframes blink {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.55; }
 }`;
 
-const S = ({ w = '100%', h = 14, r = 6, sx = {}, accent = '#6d2323' }) => (
+// ─── Shimmer bone ──────────────────────────────────────────────────────────
+const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
   <Box sx={{
-    width: w, height: h, borderRadius: r, flexShrink: 0,
-    background: `linear-gradient(90deg,
-      ${alpha(accent, 0.07)} 25%,
-      ${alpha(accent, 0.18)} 50%,
-      ${alpha(accent, 0.07)} 75%)`,
-    backgroundSize: '900px 100%',
-    animation: 'varShimmer 1.6s infinite linear',
-    ...sx,
+    width: w, height: h, borderRadius: r,
+    background: 'linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)',
+    backgroundSize: '800px 100%',
+    animation: 'shimmer 1.6s infinite linear',
+    flexShrink: 0, ...sx,
   }} />
 );
 
-const Placeholder = ({ w, h, r = 4, color = 'rgba(109,35,35,0.08)', sx = {} }) => (
-  <Box sx={{ width: w, height: h, borderRadius: r, bgcolor: color, flexShrink: 0, ...sx }} />
-);
-
-const ViewAttendanceWireframe = ({
-  accentColor    = '#6d2323',
-  primaryColor   = '#FEF9E1',
-  secondaryColor = '#FFF8E7',
-}) => {
-  const ac   = accentColor;
-  const grad = `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`;
-
-  return (
-    <>
-      <style>{SHIMMER_CSS}</style>
-      <Box sx={{ py: { xs: 2, md: 4 }, width: '100vw', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '53%', transform: 'translateX(-51%)', px: { xs: 2, sm: 3, md: 6 } }}>
-
-          {/* 1. Hero header */}
-          <Box sx={{
-            mb: 4, borderRadius: '20px', overflow: 'hidden',
-            border: `1px solid ${alpha(ac, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-            animation: 'varPulse 2.2s ease-in-out infinite',
-          }}>
-            <Box sx={{ p: 5, background: grad, position: 'relative', overflow: 'hidden' }}>
-              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle,${alpha(ac,0.1)} 0%,${alpha(ac,0)} 70%)` }} />
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Placeholder w={64} h={64} r="50%" color={alpha(ac, 0.13)} />
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <S w={260} h={26} r={6} accent={ac} />
-                    <S w={320} h={13} r={4} accent={ac} />
-                  </Box>
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <S w={145} h={26} r={13} accent={ac} />
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <S w={105} h={40} r={12} accent={ac} />
-                    <S w={95}  h={40} r={12} accent={ac} />
-                  </Box>
-                </Box>
-              </Box>
-            </Box>
-          </Box>
-
-          {/* 2. Controls card */}
-          <Box sx={{
-            mb: 4, borderRadius: '20px', overflow: 'hidden',
-            border: `1px solid ${alpha(ac, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-            animation: 'varPulse 2.2s ease-in-out 0.08s infinite',
-            bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
-          }}>
-            <Box sx={{ p: 4, background: grad, display: 'flex', alignItems: 'center', gap: 2, boxShadow: '0 2px 4px rgba(0,0,0,0.08)' }}>
-              <Placeholder w={28} h={28} r="50%" color={alpha(ac, 0.2)} />
-              <S w={270} h={13} r={4} accent={ac} />
-            </Box>
-            <Box sx={{ p: 4 }}>
-              {/* 3-field input row */}
-              <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-                {[110, 70, 70].map((lw, fi) => (
-                  <Box key={fi} sx={{ flex: 1, minWidth: 160, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <S w={lw} h={12} r={3} accent={ac} />
-                    <Box sx={{ height: 56, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', px: 1.5 }}>
-                      <S w={fi === 0 ? '40%' : '60%'} h={13} r={4} accent={ac} />
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-
-              {/* Divider */}
-              <Box sx={{ height: 1, bgcolor: alpha(ac, 0.1), my: 3 }} />
-
-              {/* Section label */}
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5 }}>
-                <Placeholder w={20} h={20} r="50%" color={alpha(ac, 0.15)} />
-                <S w={210} h={14} r={4} accent={ac} />
-              </Box>
-
-              {/* Dept filter */}
-              <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-                <Box sx={{ width: 320, height: 52, borderRadius: '4px', border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: '#fff', display: 'flex', alignItems: 'center', px: 2 }}>
-                  <S w="55%" h={11} r={3} accent={ac} />
-                </Box>
-                <Box sx={{ width: 180, height: 48, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.20)}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5 }}>
-                  <Placeholder w={18} h={18} r="50%" color={alpha(ac, 0.12)} />
-                  <S w={110} h={11} r={3} accent={ac} />
-                </Box>
-              </Box>
-
-              {/* Quick buttons */}
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
-                {[80, 100, 108, 108, 114].map((w, i) => (
-                  <Box key={i} sx={{ width: w, height: 48, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.20)}`, bgcolor: 'transparent', animation: `varPulse 2.2s ease-in-out ${i * 0.07}s infinite` }} />
-                ))}
-              </Box>
-
-              {/* Month picker */}
-              <Box sx={{ p: 3, borderRadius: 2, border: `2px dashed ${alpha(ac, 0.20)}`, bgcolor: alpha(primaryColor, 0.30) }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <S w={185} h={14} r={4} accent={ac} />
-                    <S w={270} h={11} r={3} accent={ac} />
-                  </Box>
-                  <Box sx={{ width: 140, height: 40, borderRadius: '8px', border: `1px solid ${alpha(ac, 0.25)}`, bgcolor: 'white', display: 'flex', alignItems: 'center', px: 1.5, gap: 1 }}>
-                    <S w="50%" h={12} r={3} accent={ac} />
-                    <Placeholder w={18} h={18} r={3} color={alpha(ac, 0.15)} sx={{ ml: 'auto' }} />
-                  </Box>
-                </Box>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
-                  {Array.from({ length: 12 }, (_, i) => (
-                    <S key={i} w={64} h={44} r={10} accent={ac} sx={{ animation: `varShimmer 1.6s infinite linear ${i * 0.05}s` }} />
-                  ))}
-                </Box>
-              </Box>
-
-              {/* Clear button */}
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
-                <Box sx={{ width: 150, height: 48, borderRadius: '12px', border: '1px solid rgba(211,47,47,0.30)', bgcolor: 'transparent' }} />
-              </Box>
-            </Box>
-          </Box>
-
-          {/* 3. All Users table card */}
-          <Box sx={{
-            mb: 4, borderRadius: '20px', overflow: 'hidden',
-            border: `1px solid ${alpha(ac, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-            animation: 'varPulse 2.2s ease-in-out 0.15s infinite',
-            bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
-          }}>
-            <Box sx={{ p: 4, background: grad, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, boxShadow: '0 2px 4px rgba(0,0,0,0.08)' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Placeholder w={48} h={48} r="50%" color={alpha(ac, 0.15)} />
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <S w={210} h={16} r={4} accent={ac} />
-                  <S w={130} h={11} r={3} accent={ac} />
-                </Box>
-              </Box>
-              <Box sx={{ display: 'flex', gap: 1.5 }}>
-                <S w={140} h={44} r={12} accent={ac} />
-                <S w={140} h={44} r={12} accent="#4caf50" sx={{ background: 'linear-gradient(90deg,rgba(76,175,80,0.15) 25%,rgba(76,175,80,0.30) 50%,rgba(76,175,80,0.15) 75%)', backgroundSize: '900px 100%' }} />
-              </Box>
-            </Box>
-
-            <Box sx={{ p: 4 }}>
-              {/* Toolbar */}
-              <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-                <Box sx={{ width: 300, height: 52, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: '#fff', display: 'flex', alignItems: 'center', px: 1.5, gap: 1 }}>
-                  <Placeholder w={18} h={18} r="50%" color={alpha(ac, 0.12)} />
-                  <S w="55%" h={11} r={3} accent={ac} />
-                </Box>
-                <Box sx={{ width: 160, height: 52, borderRadius: '4px', border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: '#fff', display: 'flex', alignItems: 'center', px: 1.5 }}>
-                  <S w="58%" h={11} r={3} accent={ac} />
-                </Box>
-                <Box sx={{ width: 118, height: 48, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.22)}`, bgcolor: 'transparent' }} />
-              </Box>
-
-              {/* Table */}
-              <Box sx={{ borderRadius: '16px', overflow: 'hidden', border: `1px solid ${alpha(ac, 0.08)}`, boxShadow: `0 4px 24px ${alpha(ac, 0.06)}` }}>
-                <Box sx={{ display: 'grid', gridTemplateColumns: '52px 1.1fr 1fr 2fr 1fr 1.1fr 1fr', gap: 2, px: 3, py: 2, bgcolor: alpha(primaryColor, 0.7), borderBottom: `2px solid ${alpha(ac, 0.08)}`, alignItems: 'center' }}>
-                  <Placeholder w={20} h={20} r={4} color={alpha(ac, 0.10)} />
-                  {[88, 75, 75, 100, 78, 68].map((w, i) => <S key={i} w={w} h={10} r={3} accent={ac} />)}
-                </Box>
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <Box key={i} sx={{
-                    display: 'grid', gridTemplateColumns: '52px 1.1fr 1fr 2fr 1fr 1.1fr 1fr',
-                    gap: 2, px: 3, py: 2.25, alignItems: 'center',
-                    borderBottom: i < 7 ? '1px solid rgba(0,0,0,0.05)' : 'none',
-                    bgcolor: i % 2 === 0 ? '#fff' : alpha(primaryColor, 0.3),
-                    animation: `varPulse 2.2s ease-in-out ${i * 0.06}s infinite`,
-                  }}>
-                    <Placeholder w={20} h={20} r={4} color={alpha(ac, 0.10)} />
-                    <S w={60} h={11} r={3} accent={ac} />
-                    <Box sx={{ width: 66, height: 24, borderRadius: '12px', bgcolor: alpha(ac, 0.09), border: `1px solid ${alpha(ac, 0.14)}` }} />
-                    <Box><S w={140} h={12} r={3} accent={ac} sx={{ mb: 0.4 }} /><S w={72} h={9} r={2} accent={ac} /></Box>
-                    <S w={28} h={11} r={3} accent={ac} />
-                    <Box sx={{ width: 82, height: 24, borderRadius: '12px', bgcolor: 'rgba(76,175,80,0.12)', border: '1px solid rgba(76,175,80,0.22)' }} />
-                    <Box sx={{ width: 84, height: 32, borderRadius: '12px', bgcolor: 'rgba(76,175,80,0.18)' }} />
-                  </Box>
-                ))}
-              </Box>
-
-              {/* Pagination */}
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2.5, flexWrap: 'wrap', gap: 2 }}>
-                <S w={210} h={11} r={3} accent={ac} />
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Box sx={{ width: 140, height: 44, borderRadius: '4px', border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: '#fff', display: 'flex', alignItems: 'center', px: 1.5 }}>
-                    <S w="50%" h={11} r={3} accent={ac} />
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Placeholder w={36} h={36} r="50%" color={alpha(ac, 0.10)} />
-                    <S w={38} h={11} r={3} accent={ac} />
-                    <Placeholder w={36} h={36} r="50%" color={alpha(ac, 0.10)} />
-                  </Box>
-                </Box>
-              </Box>
-            </Box>
-          </Box>
-
+// ─── Wireframe skeleton ────────────────────────────────────────────────────
+const ViewAttendanceWireframe = () => (
+  <>
+    <style>{shimmerKf}</style>
+    <Box sx={{
+      py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 },
+      width: '100vw', maxWidth: '100%',
+      position: 'relative', left: '63%', transform: 'translateX(-61%)',
+      px: { xs: 2, sm: 3, md: 6 },
+    }}>
+      {/* Header */}
+      <Box sx={{ mb: 2, borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', animation: 'blink 2s ease-in-out infinite' }}>
+        <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', gap: 2.5 }}>
+          <Box sx={{ width: 30, height: 30, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
+          <Box><Bone w={280} h={18} sx={{ mb: 1 }} /><Bone w={380} h={11} /></Box>
+        </Box>
       </Box>
-
-      {/* FAB placeholders */}
-      <Box sx={{ position: 'fixed', bottom: 60, right: 24, display: 'flex', gap: 1.5, zIndex: 1300, animation: 'varPulse 2.2s ease-in-out 0.3s infinite' }}>
-        {[0, 1].map((i) => (
-          <Placeholder key={i} w={52} h={52} r="50%" color="rgba(255,255,255,0.9)" sx={{ border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.12)' }} />
+      {/* Controls */}
+      <Box sx={{ mb: 2, borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff', animation: 'blink 2s ease-in-out 0.1s infinite' }}>
+        <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1.25, minHeight: 42 }}>
+          <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.2)' }} />
+          <Bone w={180} h={12} />
+        </Box>
+        <Box sx={{ px: 2.5, py: 2.5 }}>
+          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+            {[1,2,3].map(i => <Box key={i} sx={{ flex: 1, height: 40, borderRadius: '8px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }} />)}
+          </Box>
+          <Box sx={{ border: `2px dashed ${T.accentBorder}`, borderRadius: '8px', p: 3 }}>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
+              {Array.from({ length: 12 }).map((_, i) => <Box key={i} sx={{ width: 64, height: 36, borderRadius: '6px', bgcolor: T.accentFaint }} />)}
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+      {/* Table */}
+      <Box sx={{ borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff', animation: 'blink 2s ease-in-out 0.2s infinite' }}>
+        <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accent, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 2 }}>
+          {[100, 80, 80, 80].map((w, i) => <Box key={i} sx={{ height: 10, width: w, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.22)' }} />)}
+        </Box>
+        {[...Array(5)].map((_, i) => (
+          <Box key={i} sx={{ px: 2.5, py: 2, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 2, alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.05)', bgcolor: i % 2 === 0 ? '#fff' : T.rowOdd }}>
+            <Bone w={120} h={12} /><Bone w={80} h={12} /><Bone w={80} h={12} /><Box sx={{ width: 90, height: 24, borderRadius: '12px', bgcolor: T.accentFaint }} />
+          </Box>
         ))}
       </Box>
-    </>
-  );
-};
+    </Box>
+  </>
+);
 
-// ─────────────────────────────────────────────
-// STYLED COMPONENTS  (matches DailyTimeRecord)
-// ─────────────────────────────────────────────
-const GlassCard = styled(Card)(({ theme }) => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-}));
-
-const ProfessionalButton = styled(Button)(({ variant }) => ({
+// ─── Styled primitives (mirrors AttendanceUserState) ───────────────────────
+const SectionCard = styled(Card)({
   borderRadius: 12,
-  fontWeight: 600,
-  padding: '12px 24px',
-  transition: 'box-shadow 0.2s ease-in-out, background-color 0.2s',
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  overflow: 'hidden',
+  background: '#fff',
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
   textTransform: 'none',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-  boxShadow: variant === 'contained' ? '0 4px 14px rgba(254,249,225,0.25)' : 'none',
-  '&:hover': { boxShadow: variant === 'contained' ? '0 6px 20px rgba(254,249,225,0.35)' : 'none' },
-  '&:active': { boxShadow: 'none' },
-}));
+  fontWeight: 600,
+  fontSize: '0.8rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  '&:hover':  { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
 
-const ModernTextField = styled(TextField)(() => ({
-  '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition: 'box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s',
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    '&:hover': { backgroundColor: 'rgba(255,255,255,0.95)' },
-    '&.Mui-focused': { boxShadow: '0 4px 20px rgba(254,249,225,0.25)', backgroundColor: 'rgba(255,255,255,1)' },
-  },
-  '& .MuiInputLabel-root': { fontWeight: 500 },
-}));
+// ─── Shared panel header bar ───────────────────────────────────────────────
+const PanelHeader = ({ icon: Icon, title, right }) => (
+  <Box sx={{
+    px: 2.5, py: 1.25,
+    borderBottom: `1px solid ${T.divider}`,
+    display: 'flex', alignItems: 'center', gap: 1.25,
+    bgcolor: T.accentFaint, minHeight: 42,
+  }}>
+    <Icon sx={{ fontSize: 14, color: T.accent }} />
+    <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.accent }}>
+      {title}
+    </Typography>
+    {right && <><Box sx={{ flex: 1 }} />{right}</>}
+  </Box>
+);
 
-const PremiumTableContainer = styled(TableContainer)(() => ({
-  borderRadius: 16,
+// ─── Native input ──────────────────────────────────────────────────────────
+const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, icon }) => (
+  <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+    {icon && (
+      <Box sx={{ position: 'absolute', left: 10, color: T.accentMid, display: 'flex', alignItems: 'center', zIndex: 1, pointerEvents: 'none' }}>
+        {icon}
+      </Box>
+    )}
+    <input
+      type={type}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      disabled={disabled}
+      style={{
+        width: '100%',
+        padding: icon ? '9px 13px 9px 34px' : '9px 13px',
+        borderRadius: '8px',
+        border: `1px solid ${T.accentBorder}`,
+        fontSize: '0.875rem',
+        outline: 'none',
+        fontFamily: 'inherit',
+        boxSizing: 'border-box',
+        transition: 'border-color 0.18s',
+        background: disabled ? '#f5f5f5' : '#fff',
+        color: T.text,
+        cursor: disabled ? 'not-allowed' : 'text',
+      }}
+      onFocus={e => { if (!disabled) { e.target.style.borderColor = T.accent; e.target.style.boxShadow = `0 0 0 1.5px ${T.accent}22`; } }}
+      onBlur={e => { e.target.style.borderColor = T.accentBorder; e.target.style.boxShadow = 'none'; }}
+    />
+  </Box>
+);
+
+// ─── Row action button ─────────────────────────────────────────────────────
+const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    style={{
+      background: 'transparent',
+      border: `1px solid ${color}40`,
+      borderRadius: '6px',
+      padding: '4px 10px',
+      cursor: disabled ? 'default' : 'pointer',
+      color,
+      display: 'flex', alignItems: 'center', gap: '4px',
+      fontSize: '0.72rem', fontWeight: 700,
+      fontFamily: 'inherit',
+      transition: 'background-color 0.15s, border-color 0.15s',
+      whiteSpace: 'nowrap',
+      opacity: disabled ? 0.5 : 1,
+    }}
+    onMouseEnter={e => { if (!disabled) { e.currentTarget.style.backgroundColor = hoverBg; e.currentTarget.style.borderColor = color; }}}
+    onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.borderColor = `${color}40`; }}
+  >
+    {icon}{label}
+  </button>
+);
+
+// ─── Quick filter button ───────────────────────────────────────────────────
+const QuickBtn = ({ label, icon, onClick, active }) => (
+  <button
+    onClick={onClick}
+    style={{
+      background: active ? T.accent : 'transparent',
+      border: `1px solid ${active ? T.accent : T.accentBorder}`,
+      borderRadius: '6px',
+      padding: '6px 14px',
+      cursor: 'pointer',
+      color: active ? '#fff' : T.accent,
+      display: 'flex', alignItems: 'center', gap: '5px',
+      fontSize: '0.78rem', fontWeight: 700,
+      fontFamily: 'inherit',
+      transition: 'all 0.15s ease',
+      whiteSpace: 'nowrap',
+    }}
+    onMouseEnter={e => { if (!active) { e.currentTarget.style.backgroundColor = T.accentFaint; e.currentTarget.style.borderColor = T.accent; }}}
+    onMouseLeave={e => { if (!active) { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.borderColor = T.accentBorder; }}}
+  >
+    {icon}{label}
+  </button>
+);
+
+// ─── Styled table primitives ───────────────────────────────────────────────
+const CompactTableContainer = styled(TableContainer)({
+  borderRadius: 0,
   overflowX: 'auto',
-  boxShadow: '0 4px 24px rgba(109,35,35,0.06)',
-  border: '1px solid rgba(109,35,35,0.08)',
+});
+
+const CompactTableCell = styled(TableCell)(({ isHeader }) => ({
+  fontWeight: isHeader ? 700 : 500,
+  padding: '10px 14px',
+  borderBottom: isHeader ? `1px solid ${T.divider}` : `1px solid ${T.divider}`,
+  fontSize: isHeader ? '0.65rem' : '0.8rem',
+  letterSpacing: isHeader ? '0.08em' : '0.01em',
+  color: isHeader ? '#fff' : T.text,
+  whiteSpace: 'nowrap',
 }));
 
-const PremiumTableCell = styled(TableCell)(({ isHeader = false }) => ({
-  fontWeight: isHeader ? 600 : 500,
-  padding: '18px 20px',
-  borderBottom: isHeader ? '2px solid rgba(254,249,225,0.5)' : '1px solid rgba(109,35,35,0.06)',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-}));
-
-// ─────────────────────────────────────────────
-// UTILITY FUNCTIONS
-// ─────────────────────────────────────────────
+// ─── Utility functions ─────────────────────────────────────────────────────
 const formatTime = (time) => {
   if (!time) return 'N/A';
   if (time.includes('AM') || time.includes('PM')) {
@@ -412,9 +338,7 @@ const highlightMatch = (text, q) => {
   );
 };
 
-// ─────────────────────────────────────────────
-// MAIN COMPONENT
-// ─────────────────────────────────────────────
+// ─── Main Component ────────────────────────────────────────────────────────
 const ViewAttendanceRecord = () => {
   const { socket, connected } = useSocket();
   const { settings }          = useSystemSettings();
@@ -428,7 +352,7 @@ const ViewAttendanceRecord = () => {
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState('');
 
-  const [snackbar, setSnackbar]               = useState({ open: false, message: '', severity: 'success' });
+  const [snackbar, setSnackbar]                   = useState({ open: false, message: '', severity: 'success' });
   const [snackbarCountdown, setSnackbarCountdown] = useState(6);
 
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -440,18 +364,17 @@ const ViewAttendanceRecord = () => {
   const [viewMode, setViewMode]               = useState('single');
   const [selectedMonth, setSelectedMonth]     = useState(null);
 
-  // ── Year selector — same pattern as DailyTimeRecord ──
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
-  const [departments, setDepartments]                             = useState([]);
-  const [departmentAssignmentsMap, setDepartmentAssignmentsMap]   = useState({});
-  const [departmentCodeFilter, setDepartmentCodeFilter]           = useState('');
-  const [loadingDepartments, setLoadingDepartments]               = useState(false);
+  const [departments, setDepartments]                           = useState([]);
+  const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
+  const [departmentCodeFilter, setDepartmentCodeFilter]         = useState('');
+  const [loadingDepartments, setLoadingDepartments]             = useState(false);
 
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage]   = useState(10);
+  const [currentPage, setCurrentPage]   = useState(1);
   const [recordFilter, setRecordFilter] = useState('all');
   const [searchQuery, setSearchQuery]   = useState('');
 
@@ -466,22 +389,14 @@ const ViewAttendanceRecord = () => {
   const [progressTotal, setProgressTotal] = useState(0);
   const [progressDone, setProgressDone]   = useState(0);
 
-  const [pageLoading, setPageLoading] = useState(true);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [pageLoading, setPageLoading]     = useState(true);
 
   const fetchRecordsRef     = useRef(null);
   const fetchAllUsersDTRRef = useRef(null);
-  // ── AUTO-SCROLL ref — points to the Single User Results card ──
   const resultsRef          = useRef(null);
 
   const { hasAccess, loading: accessLoading } = usePageAccess('view-attendance');
-
-  // ── Theme ──
-  const primaryColor       = settings.accentColor        || '#FEF9E1';
-  const secondaryColor     = settings.backgroundColor    || '#FFF8E7';
-  const accentColor        = settings.primaryColor       || '#6d2323';
-  const accentDark         = settings.secondaryColor     || '#8B3333';
-  const textPrimaryColor   = settings.textPrimaryColor   || '#6d2323';
-  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
 
   const today          = new Date();
   const formattedToday = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
@@ -495,7 +410,6 @@ const ViewAttendanceRecord = () => {
     setSnackbar({ open: true, message, severity });
     setSnackbarCountdown(6);
   };
-
   const handleCloseSnackbar = () => setSnackbar((p) => ({ ...p, open: false }));
 
   useEffect(() => {
@@ -505,10 +419,8 @@ const ViewAttendanceRecord = () => {
     return () => clearInterval(timer);
   }, [snackbar.open, snackbarCountdown]);
 
-  // Dismiss wireframe once access resolves
   useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
 
-  // ── AUTO-SCROLL: when records load in single-user mode, scroll to results ──
   useEffect(() => {
     if (records.length > 0 && viewMode === 'single' && resultsRef.current) {
       setTimeout(() => {
@@ -516,6 +428,12 @@ const ViewAttendanceRecord = () => {
       }, 30);
     }
   }, [records, viewMode]);
+
+  useEffect(() => {
+    const handleScroll = () => setShowScrollTop(window.scrollY > 300);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const fetchDepartmentsAndAssignments = async () => {
     setLoadingDepartments(true);
@@ -683,7 +601,6 @@ const ViewAttendanceRecord = () => {
 
   const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 
-  // ── Month click — same as DailyTimeRecord ──
   const handleMonthClick = (monthIndex) => {
     const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
     const end   = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
@@ -698,10 +615,10 @@ const ViewAttendanceRecord = () => {
     setDepartmentCodeFilter(''); setSelectedMonth(null); setSearchQuery(''); setCurrentPage(1);
   };
 
-  // ── Wireframe guard ──
-  if (pageLoading || accessLoading) return (
-    <ViewAttendanceWireframe accentColor={accentColor} primaryColor={primaryColor} secondaryColor={secondaryColor} />
-  );
+  const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  // ── Guards ──
+  if (pageLoading || accessLoading) return <ViewAttendanceWireframe />;
 
   if (hasAccess === false) return (
     <AccessDenied title="Access Denied" message="You do not have permission to access Device Attendance Records." returnPath="/admin-home" returnButtonText="Return to Home" />
@@ -710,412 +627,675 @@ const ViewAttendanceRecord = () => {
   const pct = progressTotal > 0 ? Math.min(100, Math.round((progressDone / progressTotal) * 100)) : 0;
 
   return (
-    <Fade in timeout={500}>
-      <Box sx={{ py: { xs: 2, md: 4 }, width: '100vw', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '53%', transform: 'translateX(-51%)', px: { xs: 2, sm: 3, md: 6 } }}>
+    <Fade in timeout={400}>
+      <Box sx={{
+        py: { xs: 1, md: 2 },
+        mt: { xs: 0, md: -2 },
+        mb: { xs: 1, md: 2 },
+        width: '100vw', maxWidth: '100%',
+        position: 'relative', left: '63%',
+        transform: 'translateX(-61%)',
+        px: { xs: 2, sm: 3, md: 6 },
+      }}>
+        <style>{shimmerKf}</style>
 
-          {/* ── Snackbar ── */}
-          <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
-            <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled"
-              sx={{ width: '100%', fontWeight: 600, backgroundColor: snackbar.severity === 'success' ? '#4caf50' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, '& .MuiAlert-icon': { color: snackbar.severity === 'success' ? '#ffffff' : undefined } }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <span>{snackbar.message}</span>
-                {snackbar.open && snackbarCountdown > 0 && (
-                  <Chip label={`${snackbarCountdown}s`} size="small" sx={{ backgroundColor: snackbar.severity === 'success' ? 'rgba(255,255,255,0.3)' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, fontWeight: 700 }} />
-                )}
+        {/* ── Snackbar ── */}
+        <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
+          <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled"
+            sx={{ width: '100%', fontWeight: 600, backgroundColor: snackbar.severity === 'success' ? '#4caf50' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, '& .MuiAlert-icon': { color: snackbar.severity === 'success' ? '#ffffff' : undefined } }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <span>{snackbar.message}</span>
+              {snackbar.open && snackbarCountdown > 0 && (
+                <Chip label={`${snackbarCountdown}s`} size="small"
+                  sx={{ backgroundColor: snackbar.severity === 'success' ? 'rgba(255,255,255,0.3)' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, fontWeight: 700 }} />
+              )}
+            </Box>
+          </Alert>
+        </Snackbar>
+
+        {/* ── Progress Dialog ── */}
+        <Dialog open={progressOpen} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
+          <Box sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2 }}>
+            <Typography sx={{ fontWeight: 800, fontSize: '1.1rem', color: T.text }}>Loading All Users</Typography>
+            <CircularProgress size={72} thickness={4} sx={{ color: '#2e7d32', my: 0.5 }} />
+            <Typography sx={{ fontWeight: 900, fontSize: '1.4rem', color: '#2e7d32' }}>{pct}%</Typography>
+            <Box sx={{ width: '100%' }}>
+              <LinearProgress variant="determinate" value={pct}
+                sx={{ height: 10, borderRadius: 99, bgcolor: T.divider, '& .MuiLinearProgress-bar': { borderRadius: 99, bgcolor: '#2e7d32' } }} />
+            </Box>
+            <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 600 }}>{progressDone} / {progressTotal} processed</Typography>
+            <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>Please wait while records are being fetched and auto-saved…</Typography>
+          </Box>
+        </Dialog>
+
+        {/* ── Success Modal ── */}
+        <Dialog open={showSuccessModal} onClose={() => setShowSuccessModal(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+          <Box sx={{ p: 4, textAlign: 'center', background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)' }}>
+            <Avatar sx={{ width: 64, height: 64, mx: 'auto', mb: 2, bgcolor: '#4caf50' }}>
+              <CheckCircle sx={{ fontSize: 36, color: '#fff' }} />
+            </Avatar>
+            <Typography sx={{ fontWeight: 800, fontSize: '1.1rem', color: T.accent, mb: 1.5 }}>Records Auto-Saved Successfully!</Typography>
+            <Typography sx={{ fontSize: '0.85rem', color: T.muted, mb: 3, lineHeight: 1.6 }}>{modalMessage}</Typography>
+            <button
+              onClick={() => setShowSuccessModal(false)}
+              style={{
+                background: T.accent, color: '#fff', border: 'none', borderRadius: '8px',
+                padding: '10px 32px', fontWeight: 700, fontSize: '0.875rem',
+                fontFamily: 'inherit', cursor: 'pointer', transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.accentDark; }}
+              onMouseLeave={e => { e.currentTarget.style.background = T.accent; }}
+            >
+              OK
+            </button>
+          </Box>
+        </Dialog>
+
+        {/* ── Page Header ── */}
+        <SectionCard sx={{ mb: 2 }}>
+          <Box sx={{
+            px: 4, py: 3,
+            background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            position: 'relative', overflow: 'hidden',
+          }}>
+            <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)' }} />
+            <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)' }} />
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
+              <Search sx={{ fontSize: 30, color: T.accent }} />
+              <Box>
+                <Typography sx={{ fontSize: '1.2rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25 }}>
+                  Device Attendance Records
+                </Typography>
+                <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontWeight: 600 }}>
+                  Auto-saved records from biometric devices · Ready for DTR
+                </Typography>
               </Box>
-            </Alert>
-          </Snackbar>
+            </Box>
 
-          {/* ── Progress Dialog ── */}
-          <Dialog open={progressOpen} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4, backgroundColor: '#ffffff', boxShadow: `0 10px 50px ${alpha(accentColor,0.12)}`, overflow: 'hidden' } }}>
-            <Box sx={{ p: 4, minHeight: 320, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', gap: 2 }}>
-              <Typography sx={{ fontWeight: 900, fontSize: '1.4rem', color: '#111', mb: 0.5 }}>Loading All Users</Typography>
-              <CircularProgress size={90} thickness={4.2} sx={{ color: '#2e7d32', my: 1 }} />
-              <Typography sx={{ fontWeight: 1000, fontSize: '1.5rem', lineHeight: 1, color: '#2e7d32', letterSpacing: '-0.02em' }}>{pct}%</Typography>
-              <Box sx={{ width: '100%', maxWidth: 420, mt: 1 }}>
-                <LinearProgress variant="determinate" value={pct} sx={{ height: 14, borderRadius: 99, backgroundColor: '#eeeeee', '& .MuiLinearProgress-bar': { borderRadius: 99, backgroundColor: '#2e7d32' } }} />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+              {/* View mode toggle */}
+              <Box sx={{ display: 'flex', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, overflow: 'hidden' }}>
+                {['single', 'multiple'].map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setViewMode(mode)}
+                    style={{
+                      background: viewMode === mode ? T.accent : 'transparent',
+                      border: 'none',
+                      padding: '7px 14px',
+                      cursor: 'pointer',
+                      color: viewMode === mode ? '#fff' : T.accent,
+                      fontSize: '0.75rem', fontWeight: 700,
+                      fontFamily: 'inherit',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {mode === 'single' ? 'Single User' : 'All Users'}
+                  </button>
+                ))}
               </Box>
-              <Typography variant="body2" sx={{ color: '#444', fontWeight: 700, mt: 1 }}>{progressDone} / {progressTotal} processed</Typography>
-              <Typography variant="caption" sx={{ color: '#666' }}>Please wait while records are being fetched and auto-saved...</Typography>
-            </Box>
-          </Dialog>
 
-          {/* ── Success Modal ── */}
-          <Dialog open={showSuccessModal} onClose={() => setShowSuccessModal(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 4, boxShadow: `0 8px 40px ${alpha(accentColor,0.2)}` } }}>
-            <Box sx={{ p: 4, textAlign: 'center', background: `linear-gradient(135deg, ${alpha(primaryColor,0.3)} 0%, ${alpha(secondaryColor,0.5)} 100%)` }}>
-              <Avatar sx={{ width: 80, height: 80, margin: '0 auto 20px', backgroundColor: '#4caf50' }}><CheckCircle sx={{ fontSize: 48, color: '#ffffff' }} /></Avatar>
-              <Typography variant="h5" sx={{ fontWeight: 700, color: textPrimaryColor, mb: 2 }}>Records Auto-Saved Successfully!</Typography>
-              <Typography variant="body1" sx={{ color: alpha(textPrimaryColor,0.8), mb: 4, lineHeight: 1.6 }}>{modalMessage}</Typography>
-              <ProfessionalButton variant="contained" onClick={() => setShowSuccessModal(false)}
-                sx={{ backgroundColor: accentColor, color: textSecondaryColor, px: 6, py: 1.5, fontSize: '1rem', fontWeight: 700, '&:hover': { backgroundColor: accentDark, transform: 'scale(1.05)' }, transition: 'all 0.3s ease' }}>
-                OK
-              </ProfessionalButton>
-            </Box>
-          </Dialog>
+              <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha('#4caf50', 0.12), border: '1px solid rgba(76,175,80,0.25)' }}>
+                <Typography sx={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <CheckCircle sx={{ fontSize: 12 }} /> Auto-Save Enabled
+                </Typography>
+              </Box>
 
-          {/* ── Hero Header ── */}
-          <Fade in timeout={500}>
-            <Box sx={{ mb: 4 }}>
-              <GlassCard sx={{ background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
-                <Box sx={{ p: 5, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, color: textPrimaryColor, position: 'relative', overflow: 'hidden' }}>
-                  <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle,${alpha(accentColor,0.1)} 0%,${alpha(accentColor,0)} 70%)` }} />
-                  <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, background: `radial-gradient(circle,${alpha(accentColor,0.08)} 0%,${alpha(accentColor,0)} 70%)` }} />
-                  <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
-                    <Box display="flex" alignItems="center">
-                      <Avatar sx={{ bgcolor: alpha(accentColor,0.15), mr: 4, width: 64, height: 64, boxShadow: `0 8px 24px ${alpha(accentColor,0.15)}` }}>
-                        <Search sx={{ color: textPrimaryColor, fontSize: 32 }} />
-                      </Avatar>
-                      <Box>
-                        <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}>Device Attendance Records</Typography>
-                        <Typography variant="body1" sx={{ opacity: 0.8, color: textPrimaryColor }}>Auto-saved records from biometric devices - ready for DTR</Typography>
-                      </Box>
-                    </Box>
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <Chip icon={<CheckCircle />} label="Auto-Save Enabled" size="small" sx={{ bgcolor: alpha('#4caf50',0.2), color: '#2e7d32', fontWeight: 600 }} />
-                      <Box display="flex" gap={1}>
-                        <ProfessionalButton variant={viewMode === 'single' ? 'contained' : 'outlined'} onClick={() => setViewMode('single')}
-                          sx={{ backgroundColor: viewMode === 'single' ? accentColor : 'transparent', color: viewMode === 'single' ? textSecondaryColor : textPrimaryColor, borderColor: accentColor, py: 0.75, px: 2 }}>
-                          Single User
-                        </ProfessionalButton>
-                        <ProfessionalButton variant={viewMode === 'multiple' ? 'contained' : 'outlined'} onClick={() => setViewMode('multiple')}
-                          sx={{ backgroundColor: viewMode === 'multiple' ? accentColor : 'transparent', color: viewMode === 'multiple' ? textSecondaryColor : textPrimaryColor, borderColor: accentColor, py: 0.75, px: 2 }}>
-                          All Users
-                        </ProfessionalButton>
-                      </Box>
-                    </Box>
-                  </Box>
+              <button
+                onClick={() => fetchRecords(true)}
+                style={{
+                  background: alpha(T.accent, 0.08),
+                  border: `1px solid ${T.accentBorder}`,
+                  borderRadius: '8px',
+                  padding: '7px 10px',
+                  cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '5px',
+                  color: T.accent, fontSize: '0.75rem', fontWeight: 700,
+                  fontFamily: 'inherit', transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.backgroundColor = alpha(T.accent, 0.14); }}
+                onMouseLeave={e => { e.currentTarget.style.backgroundColor = alpha(T.accent, 0.08); }}
+              >
+                <Refresh sx={{ fontSize: 15 }} /> Refresh
+              </button>
+            </Box>
+          </Box>
+        </SectionCard>
+
+        {/* ── Alerts ── */}
+        <Collapse in={!!error}>
+          <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}>
+            {error}
+          </Alert>
+        </Collapse>
+
+        {/* ── Controls Card ── */}
+        <SectionCard sx={{ mb: 2 }}>
+          <PanelHeader icon={FilterList} title="Filter Attendance Records" />
+
+          <Box sx={{ px: 2.5, pt: 2, pb: 2.5 }}>
+
+            {/* Input fields */}
+            <Box sx={{ display: 'flex', gap: 1.5, mb: 2.5, flexWrap: 'wrap' }}>
+              {viewMode === 'single' && (
+                <Box sx={{ flex: 1, minWidth: 160 }}>
+                  <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Employee Number
+                  </Typography>
+                  <NativeInput
+                    value={personID}
+                    onChange={(e) => setPersonID(e.target.value)}
+                    placeholder="Employee number"
+                    icon={<Person sx={{ fontSize: 16 }} />}
+                  />
                 </Box>
-              </GlassCard>
+              )}
+              <Box sx={{ flex: 1, minWidth: 160 }}>
+                <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  Start Date
+                </Typography>
+                <NativeInput
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  icon={<CalendarToday sx={{ fontSize: 15 }} />}
+                />
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 160 }}>
+                <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  End Date
+                </Typography>
+                <NativeInput
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  icon={<CalendarToday sx={{ fontSize: 15 }} />}
+                />
+              </Box>
             </Box>
-          </Fade>
 
-          {/* ── Controls Card ── */}
-          <Fade in timeout={700}>
-            <GlassCard sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
-              <CardContent sx={{ p: 4 }}>
-                <Box component="form" onSubmit={handleSubmit}>
-
-                  {/* Date inputs */}
-                  {viewMode === 'single' ? (
-                    <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-                      {[
-                        { label: 'Employee Number', value: personID,   onChange: (e) => setPersonID(e.target.value),   type: 'text', icon: <Person sx={{ color: textPrimaryColor }} /> },
-                        { label: 'Start Date',      value: startDate,  onChange: (e) => setStartDate(e.target.value),  type: 'date', icon: <CalendarToday sx={{ color: textPrimaryColor }} /> },
-                        { label: 'End Date',        value: endDate,    onChange: (e) => setEndDate(e.target.value),    type: 'date', icon: <CalendarToday sx={{ color: textPrimaryColor }} /> },
-                      ].map(({ label, value, onChange, type, icon }) => (
-                        <Box key={label} sx={{ flex: 1, minWidth: 160 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}>{label}</Typography>
-                          <ModernTextField type={type} value={value} onChange={onChange} InputLabelProps={type === 'date' ? { shrink: true } : {}}
-                            InputProps={{ startAdornment: <InputAdornment position="start">{icon}</InputAdornment> }} fullWidth required />
-                        </Box>
+            {/* Department filter (All Users mode) */}
+            {viewMode === 'multiple' && (
+              <Box sx={{ mb: 2.5, display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <Box sx={{ flex: 1, minWidth: 220 }}>
+                  <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Department
+                  </Typography>
+                  <FormControl fullWidth size="small" disabled={loadingDepartments}>
+                    <Select
+                      value={departmentCodeFilter}
+                      onChange={(e) => { setDepartmentCodeFilter(e.target.value); setCurrentPage(1); }}
+                      displayEmpty
+                      sx={{
+                        borderRadius: '8px', fontSize: '0.875rem', bgcolor: '#fff',
+                        '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+                        '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
+                      }}
+                    >
+                      <MenuItem value="" sx={{ fontSize: '0.875rem' }}>All Departments</MenuItem>
+                      <MenuItem value="__UNASSIGNED__" sx={{ fontSize: '0.875rem' }}>Unassigned</MenuItem>
+                      {departments.map((d) => (
+                        <MenuItem key={d.id ?? d.code} value={d.code} sx={{ fontSize: '0.875rem' }}>
+                          {d.code}{d.description ? ` - ${d.description}` : ''}
+                        </MenuItem>
                       ))}
-                    </Box>
-                  ) : (
-                    <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-                      {[
-                        { label: 'Start Date', value: startDate, onChange: (e) => setStartDate(e.target.value) },
-                        { label: 'End Date',   value: endDate,   onChange: (e) => setEndDate(e.target.value) },
-                      ].map(({ label, value, onChange }) => (
-                        <Box key={label} sx={{ flex: 1, minWidth: 160 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}>{label}</Typography>
-                          <ModernTextField type="date" value={value} onChange={onChange} InputLabelProps={{ shrink: true }}
-                            InputProps={{ startAdornment: <InputAdornment position="start"><CalendarToday sx={{ color: textPrimaryColor }} /></InputAdornment> }} fullWidth required />
-                        </Box>
-                      ))}
-                    </Box>
-                  )}
-
-                  <Divider sx={{ my: 3, borderColor: alpha(accentColor,0.1) }} />
-
-                  {/* Quick Date Selection */}
-                  <Box sx={{ mb: 4 }}>
-                    <Typography variant="h6" sx={{ color: textPrimaryColor, fontWeight: 600, display: 'flex', alignItems: 'center', mb: 2 }}>
-                      <FilterList sx={{ mr: 2 }} />Select date range to filter records
-                    </Typography>
-
-                    {/* Department filter */}
-                    {viewMode === 'multiple' && (
-                      <Box sx={{ mb: 3, display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-                        <FormControl sx={{ minWidth: 320, backgroundColor: 'white' }} disabled={loadingDepartments}>
-                          <InputLabel>Department</InputLabel>
-                          <Select value={departmentCodeFilter} label="Department" onChange={(e) => { setDepartmentCodeFilter(e.target.value); setCurrentPage(1); }}>
-                            <MenuItem value="">All Departments</MenuItem>
-                            <MenuItem value="__UNASSIGNED__">Unassigned</MenuItem>
-                            {departments.map((d) => <MenuItem key={d.id??d.code} value={d.code}>{d.code}{d.description ? ` - ${d.description}` : ''}</MenuItem>)}
-                          </Select>
-                        </FormControl>
-                        <ProfessionalButton variant="outlined" onClick={fetchDepartmentsAndAssignments} disabled={loadingDepartments}
-                          startIcon={loadingDepartments ? <CircularProgress size={18} /> : <Refresh />}
-                          sx={{ borderColor: accentColor, color: textPrimaryColor }}>
-                          Refresh Departments
-                        </ProfessionalButton>
-                      </Box>
-                    )}
-
-                    {/* Quick buttons */}
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-                      {[
-                        { label: 'Today',        icon: <Today />,        fn: () => { setStartDate(formattedToday); setEndDate(formattedToday); } },
-                        { label: 'Yesterday',    icon: <ArrowBackIos />, fn: () => { const y = new Date(today); y.setDate(y.getDate()-1); const s = y.toISOString().substring(0,10); setStartDate(s); setEndDate(s); } },
-                        { label: 'Last 7 Days',  icon: null,             fn: () => { const d = new Date(today); d.setDate(d.getDate()-7); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); } },
-                        { label: 'Last 15 Days', icon: null,             fn: () => { const d = new Date(today); d.setDate(d.getDate()-15); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); } },
-                        { label: 'Last 30 Days', icon: null,             fn: () => { const d = new Date(today); d.setMonth(d.getMonth()-1); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); } },
-                      ].map(({ label, icon, fn }) => (
-                        <ProfessionalButton key={label} variant="outlined" size="medium" onClick={fn}
-                          startIcon={icon || undefined}
-                          sx={{ borderColor: accentColor, color: textPrimaryColor, fontWeight: 600, py: 1.5, '&:hover':{ backgroundColor: alpha(accentColor,0.07), borderWidth: 2 }, transition: 'all 0.3s ease' }}>
-                          {label}
-                        </ProfessionalButton>
-                      ))}
-                    </Box>
-
-                    {/* Month picker — layout matches DailyTimeRecord exactly */}
-                    <Box sx={{ p: 3, borderRadius: 2, border: `2px dashed ${alpha(accentColor,0.2)}`, backgroundColor: alpha(primaryColor,0.3) }}>
-                      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2, mb: 2 }}>
-                        <Box>
-                          <Typography variant="subtitle1" sx={{ color: textPrimaryColor, fontWeight: 600, mb: 0.5 }}>Select Entire Month</Typography>
-                          <Typography variant="body2" sx={{ color: alpha(textPrimaryColor,0.7) }}>Choose a year, then click any month to set the range</Typography>
-                        </Box>
-
-                        {/* ── Year selector ── */}
-                        <FormControl sx={{ minWidth: 140 }}>
-                          <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>
-                          <Select
-                            value={selectedYear}
-                            label="Year"
-                            onChange={(e) => {
-                              setSelectedYear(e.target.value);
-                              setSelectedMonth(null);
-                              showSnackbar('Year changed — please click a month to load records.', 'info');
-                            }}
-                            sx={{ backgroundColor: 'white', '& .MuiOutlinedInput-notchedOutline':{ borderColor: accentColor }, borderRadius: 2, fontWeight: 600 }}
-                          >
-                            {yearOptions.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
-                          </Select>
-                        </FormControl>
-                      </Box>
-
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
-                        {months.map((month, index) => {
-                          const sel = selectedMonth === index;
-                          return (
-                            <ProfessionalButton key={month} variant={sel ? 'contained' : 'outlined'} size="medium" onClick={() => handleMonthClick(index)}
-                              sx={{ borderColor: accentColor, backgroundColor: sel ? accentColor : 'transparent', color: sel ? textSecondaryColor : textPrimaryColor, py: 1.5, px: 4.5, fontWeight: 600, '&:hover':{ backgroundColor: sel ? accentDark : alpha(accentColor,0.1), borderWidth: 2 }, transition: 'all 0.3s ease', boxShadow: sel ? `0 4px 12px ${alpha(accentColor,0.3)}` : 'none' }}>
-                              {month}
-                            </ProfessionalButton>
-                          );
-                        })}
-                      </Box>
-                    </Box>
-                  </Box>
-
-                  {/* Clear button */}
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <ProfessionalButton variant="outlined" startIcon={<Clear />} onClick={handleClearFilters}
-                      sx={{ borderColor: '#d32f2f', color: '#d32f2f', '&:hover':{ borderColor: '#b71c1c', backgroundColor: alpha('#d32f2f',0.05) } }}>
-                      Clear All Filters
-                    </ProfessionalButton>
-                  </Box>
+                    </Select>
+                  </FormControl>
                 </Box>
-              </CardContent>
-            </GlassCard>
-          </Fade>
+                <RowBtn
+                  icon={loadingDepartments ? <CircularProgress size={12} /> : <Refresh sx={{ fontSize: 13 }} />}
+                  label="Refresh Depts"
+                  color={T.accent}
+                  hoverBg={T.accentFaint}
+                  onClick={fetchDepartmentsAndAssignments}
+                  disabled={loadingDepartments}
+                />
+              </Box>
+            )}
 
-          {/* ── All Users Card ── */}
-          {viewMode === 'multiple' && (
-            <Fade in timeout={1000}>
-              <GlassCard sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
-                <Box sx={{ p: 4, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, color: textPrimaryColor, display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 2px 4px rgba(0,0,0,0.08)' }}>
-                  <Typography variant="h6" sx={{ fontWeight: 700, color: textPrimaryColor }}>All Users DTR List (Auto-Saved)</Typography>
-                  <Box display="flex" gap={2} flexWrap="wrap">
-                    <ProfessionalButton variant="contained" onClick={fetchAllUsersDTR} disabled={loadingAllUsers || !startDate || !endDate}
-                      startIcon={loadingAllUsers ? <CircularProgress size={20} /> : <People />}
-                      sx={{ backgroundColor: accentColor, color: textSecondaryColor }}>
-                      {loadingAllUsers ? 'Loading...' : 'Load All Users'}
-                    </ProfessionalButton>
+            <Box sx={{ height: 1, bgcolor: T.divider, mb: 2 }} />
+
+            <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 1.25, letterSpacing: '0.06em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <FilterList sx={{ fontSize: 13 }} />
+              Quick Date Selection
+            </Typography>
+
+            {/* Quick buttons */}
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2.5 }}>
+              {[
+                { label: 'Today',        icon: <Today sx={{ fontSize: 13 }} />,        fn: () => { setStartDate(formattedToday); setEndDate(formattedToday); setSelectedMonth(null); } },
+                { label: 'Yesterday',    icon: <ArrowBackIos sx={{ fontSize: 11 }} />, fn: () => { const y = new Date(today); y.setDate(y.getDate()-1); const s = y.toISOString().substring(0,10); setStartDate(s); setEndDate(s); setSelectedMonth(null); } },
+                { label: 'Last 7 Days',  icon: null, fn: () => { const d = new Date(today); d.setDate(d.getDate()-7); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); setSelectedMonth(null); } },
+                { label: 'Last 15 Days', icon: null, fn: () => { const d = new Date(today); d.setDate(d.getDate()-15); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); setSelectedMonth(null); } },
+                { label: 'Last 30 Days', icon: null, fn: () => { const d = new Date(today); d.setMonth(d.getMonth()-1); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); setSelectedMonth(null); } },
+              ].map(({ label, icon, fn }) => (
+                <QuickBtn key={label} label={label} icon={icon} onClick={fn} />
+              ))}
+            </Box>
+
+            {/* Month picker */}
+            <Box sx={{ p: 2.5, borderRadius: 2, border: `2px dashed ${T.accentBorder}`, bgcolor: T.accentFaint }}>
+              <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2, mb: 2 }}>
+                <Box>
+                  <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.accent, mb: 0.3 }}>
+                    Select Entire Month
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                    Choose a year, then click any month to set the date range
+                  </Typography>
+                </Box>
+                <FormControl sx={{ minWidth: 130 }} size="small">
+                  <InputLabel sx={{ fontWeight: 600, fontSize: '0.8rem' }}>Year</InputLabel>
+                  <Select
+                    value={selectedYear}
+                    label="Year"
+                    onChange={(e) => { setSelectedYear(e.target.value); setSelectedMonth(null); showSnackbar('Year changed — please click a month to load records.', 'info'); }}
+                    sx={{ bgcolor: '#fff', borderRadius: 2, fontWeight: 600, fontSize: '0.85rem', '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder } }}
+                  >
+                    {yearOptions.map((y) => <MenuItem key={y} value={y} sx={{ fontSize: '0.85rem' }}>{y}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Box>
+
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, justifyContent: 'center' }}>
+                {months.map((month, index) => {
+                  const sel = selectedMonth === index;
+                  return (
+                    <button
+                      key={month}
+                      onClick={() => handleMonthClick(index)}
+                      style={{
+                        background: sel ? T.accent : '#fff',
+                        border: `1px solid ${sel ? T.accent : T.accentBorder}`,
+                        borderRadius: '6px',
+                        padding: '7px 14px',
+                        cursor: 'pointer',
+                        color: sel ? '#fff' : T.accent,
+                        fontSize: '0.75rem', fontWeight: 700,
+                        fontFamily: 'inherit',
+                        transition: 'all 0.15s ease',
+                        boxShadow: sel ? `0 2px 8px ${alpha(T.accent, 0.25)}` : 'none',
+                        letterSpacing: '0.04em',
+                      }}
+                      onMouseEnter={e => { if (!sel) { e.currentTarget.style.backgroundColor = T.accentFaint; e.currentTarget.style.borderColor = T.accent; }}}
+                      onMouseLeave={e => { if (!sel) { e.currentTarget.style.backgroundColor = '#fff'; e.currentTarget.style.borderColor = T.accentBorder; }}}
+                    >
+                      {month}
+                    </button>
+                  );
+                })}
+              </Box>
+            </Box>
+
+            {/* Clear + Submit */}
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 1 }}>
+              <RowBtn
+                icon={<Clear sx={{ fontSize: 13 }} />}
+                label="Clear All Filters"
+                color="#C62828"
+                hoverBg="rgba(198,40,40,0.08)"
+                onClick={handleClearFilters}
+              />
+              {viewMode === 'single' && (
+                <RowBtn
+                  icon={<Search sx={{ fontSize: 13 }} />}
+                  label="Fetch Records"
+                  color={T.accent}
+                  hoverBg={T.accentFaint}
+                  onClick={() => fetchRecords(true)}
+                />
+              )}
+            </Box>
+          </Box>
+        </SectionCard>
+
+        {/* ── Loading indicator ── */}
+        {(loading || loadingAllUsers) && (
+          <Box sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <CircularProgress size={16} sx={{ color: T.accent }} />
+            <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>
+              {loadingAllUsers ? 'Fetching all users…' : 'Fetching attendance records…'}
+            </Typography>
+          </Box>
+        )}
+
+        {/* ── All Users Card ── */}
+        {viewMode === 'multiple' && (
+          <Fade in timeout={400}>
+            <SectionCard sx={{ mb: 2 }}>
+              <PanelHeader
+                icon={People}
+                title="All Users DTR List (Auto-Saved)"
+                right={
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <RowBtn
+                      icon={loadingAllUsers ? <CircularProgress size={12} /> : <People sx={{ fontSize: 13 }} />}
+                      label={loadingAllUsers ? 'Loading…' : 'Load All Users'}
+                      color={T.accent}
+                      hoverBg={T.accentFaint}
+                      onClick={fetchAllUsersDTR}
+                      disabled={loadingAllUsers || !startDate || !endDate}
+                    />
                     {allUsersDTR.length > 0 && (
-                      <ProfessionalButton variant="contained" onClick={handleBulkSendToDTR} disabled={selectedCountInFiltered === 0} startIcon={<Send />}
-                        sx={{ backgroundColor: '#4caf50', color: '#ffffff', '&:hover':{ backgroundColor: '#45a049' } }}>
-                        View DTR ({selectedCountInFiltered})
-                      </ProfessionalButton>
+                      <RowBtn
+                        icon={<Send sx={{ fontSize: 13 }} />}
+                        label={`View DTR (${selectedCountInFiltered})`}
+                        color="#2e7d32"
+                        hoverBg="rgba(46,125,50,0.08)"
+                        onClick={handleBulkSendToDTR}
+                        disabled={selectedCountInFiltered === 0}
+                      />
                     )}
                   </Box>
-                </Box>
+                }
+              />
 
-                <Box sx={{ p: 4 }}>
-                  {allUsersDTR.length > 0 ? (
-                    <>
-                      {/* Toolbar */}
-                      <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <ModernTextField label="Search users" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                          InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment>, endAdornment: searchQuery ? (<InputAdornment position="end"><IconButton size="small" onClick={() => { setSearchQuery(''); setCurrentPage(1); }}><Clear /></IconButton></InputAdornment>) : null }}
-                          sx={{ minWidth: 300 }} />
-                        <FormControl sx={{ minWidth: 160, backgroundColor: 'white' }}>
-                          <InputLabel>Records</InputLabel>
-                          <Select value={recordFilter} label="Records" onChange={(e) => { setRecordFilter(e.target.value); setCurrentPage(1); }}>
-                            <MenuItem value="all">All</MenuItem>
-                            <MenuItem value="has">Has Records</MenuItem>
-                            <MenuItem value="no">No Records</MenuItem>
-                          </Select>
-                        </FormControl>
-                        <ProfessionalButton variant="outlined" onClick={() => handleSelectAll(selectedCountInFiltered !== filteredUsers.length)}
-                          sx={{ borderColor: accentColor, color: accentColor }}>
-                          {selectedCountInFiltered === filteredUsers.length ? 'Deselect All' : 'Select All'}
-                        </ProfessionalButton>
+              <Box sx={{ px: 2.5, pt: 2, pb: 2.5 }}>
+                {allUsersDTR.length > 0 ? (
+                  <>
+                    {/* Toolbar */}
+                    <Box sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {/* Search */}
+                      <Box sx={{ flex: 1, minWidth: 220 }}>
+                        <NativeInput
+                          value={searchQuery}
+                          onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                          placeholder="Search by name or employee number…"
+                          icon={<SearchOutlined sx={{ fontSize: 16 }} />}
+                        />
                       </Box>
 
-                      {/* Table */}
-                      <PremiumTableContainer sx={{ maxHeight: 520, overflowY: 'auto' }}>
-                        <Table sx={{ minWidth: 800 }} stickyHeader>
+                      {/* Record filter */}
+                      <FormControl size="small" sx={{ minWidth: 140 }}>
+                        <Select
+                          value={recordFilter}
+                          onChange={(e) => { setRecordFilter(e.target.value); setCurrentPage(1); }}
+                          displayEmpty
+                          sx={{ borderRadius: '8px', fontSize: '0.82rem', bgcolor: '#fff', '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder } }}
+                        >
+                          <MenuItem value="all"  sx={{ fontSize: '0.82rem' }}>All</MenuItem>
+                          <MenuItem value="has"  sx={{ fontSize: '0.82rem' }}>Has Records</MenuItem>
+                          <MenuItem value="no"   sx={{ fontSize: '0.82rem' }}>No Records</MenuItem>
+                        </Select>
+                      </FormControl>
+
+                      <RowBtn
+                        icon={null}
+                        label={selectedCountInFiltered === filteredUsers.length ? 'Deselect All' : 'Select All'}
+                        color={T.accent}
+                        hoverBg={T.accentFaint}
+                        onClick={() => handleSelectAll(selectedCountInFiltered !== filteredUsers.length)}
+                      />
+                    </Box>
+
+                    {/* Table */}
+                    <Box sx={{ borderRadius: '8px', overflow: 'hidden', border: `1px solid ${T.divider}` }}>
+                      <Box sx={{ maxHeight: 480, overflowY: 'auto' }}>
+                        <Table sx={{ minWidth: 700 }} stickyHeader>
                           <TableHead>
-                            <TableRow sx={{ bgcolor: alpha(primaryColor,0.7) }}>
-                              <PremiumTableCell isHeader>
-                                <Checkbox checked={selectedCountInFiltered === filteredUsers.length && filteredUsers.length > 0} indeterminate={selectedCountInFiltered > 0 && selectedCountInFiltered < filteredUsers.length} onChange={(e) => handleSelectAll(e.target.checked)}
-                                  sx={{ color: alpha(accentColor,0.5), '&.Mui-checked':{ color: accentColor }, '&.MuiCheckbox-indeterminate':{ color: accentColor } }} />
-                              </PremiumTableCell>
-                              {['Employee Number','Department','Full Name','Records Count','Status','Action'].map((h) => (
-                                <PremiumTableCell key={h} isHeader sx={{ color: textPrimaryColor }}>{h}</PremiumTableCell>
+                            <TableRow>
+                              <CompactTableCell isHeader sx={{ bgcolor: T.accent, width: 48 }}>
+                                <Checkbox
+                                  size="small"
+                                  checked={selectedCountInFiltered === filteredUsers.length && filteredUsers.length > 0}
+                                  indeterminate={selectedCountInFiltered > 0 && selectedCountInFiltered < filteredUsers.length}
+                                  onChange={(e) => handleSelectAll(e.target.checked)}
+                                  sx={{ color: 'rgba(255,255,255,0.6)', '&.Mui-checked': { color: '#fff' }, '&.MuiCheckbox-indeterminate': { color: '#fff' }, p: 0 }}
+                                />
+                              </CompactTableCell>
+                              {['Employee #', 'Department', 'Full Name', 'Records', 'Status', 'Action'].map((h) => (
+                                <CompactTableCell key={h} isHeader sx={{ bgcolor: T.accent }}>{h}</CompactTableCell>
                               ))}
                             </TableRow>
                           </TableHead>
                           <TableBody>
-                            {paginatedUsers.map((user) => (
-                              <TableRow key={user.employeeNumber} sx={{ '&:nth-of-type(even)':{ bgcolor: alpha(primaryColor,0.3) }, '&:hover':{ bgcolor: alpha(accentColor,0.05) }, transition: 'all 0.2s ease' }}>
-                                <PremiumTableCell><Checkbox checked={selectedUsers.has(user.employeeNumber)} onChange={() => handleUserSelect(user.employeeNumber)} /></PremiumTableCell>
-                                <PremiumTableCell>{user.employeeNumber}</PremiumTableCell>
-                                <PremiumTableCell>{(() => { const d = departmentAssignmentsMap?.[user.employeeNumber]||''; return d ? <Chip label={d} size="small" /> : <Chip label="Unassigned" size="small" variant="outlined" />; })()}</PremiumTableCell>
-                                <PremiumTableCell>{trimmedSearch ? highlightMatch(formatFullName(user.fullName), trimmedSearch) : formatFullName(user.fullName)}</PremiumTableCell>
-                                <PremiumTableCell>{user.recordsCount || 0}</PremiumTableCell>
-                                <PremiumTableCell><Chip label={user.hasRecords ? 'Auto-Saved' : 'No Records'} color={user.hasRecords ? 'success' : 'default'} size="small" icon={user.hasRecords ? <CheckCircle /> : undefined} /></PremiumTableCell>
-                                <PremiumTableCell>
-                                  <ProfessionalButton variant="contained" size="small" startIcon={<Send />} disabled={!user.hasRecords}
+                            {paginatedUsers.map((user, idx) => (
+                              <TableRow
+                                key={user.employeeNumber}
+                                sx={{ bgcolor: idx % 2 === 0 ? '#fff' : T.rowOdd, '&:hover': { bgcolor: T.rowHover }, transition: 'background 0.12s', '&:last-child td': { borderBottom: 'none' } }}
+                              >
+                                <CompactTableCell sx={{ width: 48 }}>
+                                  <Checkbox
+                                    size="small"
+                                    checked={selectedUsers.has(user.employeeNumber)}
+                                    onChange={() => handleUserSelect(user.employeeNumber)}
+                                    sx={{ color: alpha(T.accent, 0.4), '&.Mui-checked': { color: T.accent }, p: 0 }}
+                                  />
+                                </CompactTableCell>
+                                <CompactTableCell sx={{ color: T.text, fontSize: '0.8rem', fontWeight: 600 }}>
+                                  {user.employeeNumber}
+                                </CompactTableCell>
+                                <CompactTableCell>
+                                  {(() => {
+                                    const d = departmentAssignmentsMap?.[user.employeeNumber] || '';
+                                    return d
+                                      ? <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1.25, py: 0.3, borderRadius: '12px', bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}><Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent }}>{d}</Typography></Box>
+                                      : <Typography sx={{ fontSize: '0.72rem', color: T.faint, fontStyle: 'italic' }}>Unassigned</Typography>;
+                                  })()}
+                                </CompactTableCell>
+                                <CompactTableCell sx={{ color: T.text, fontSize: '0.8rem' }}>
+                                  {trimmedSearch ? highlightMatch(formatFullName(user.fullName), trimmedSearch) : formatFullName(user.fullName)}
+                                </CompactTableCell>
+                                <CompactTableCell sx={{ color: T.muted, fontSize: '0.8rem', fontWeight: 600 }}>
+                                  {user.recordsCount || 0}
+                                </CompactTableCell>
+                                <CompactTableCell>
+                                  <Box sx={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 0.5,
+                                    px: 1.25, py: 0.3, borderRadius: '12px',
+                                    bgcolor: user.hasRecords ? 'rgba(76,175,80,0.1)' : T.accentFaint,
+                                    border: `1px solid ${user.hasRecords ? 'rgba(76,175,80,0.25)' : T.accentBorder}`,
+                                  }}>
+                                    {user.hasRecords
+                                      ? <CheckCircle sx={{ fontSize: 11, color: '#4caf50' }} />
+                                      : <Cancel sx={{ fontSize: 11, color: T.faint }} />
+                                    }
+                                    <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: user.hasRecords ? '#2e7d32' : T.faint }}>
+                                      {user.hasRecords ? 'Auto-Saved' : 'No Records'}
+                                    </Typography>
+                                  </Box>
+                                </CompactTableCell>
+                                <CompactTableCell>
+                                  <RowBtn
+                                    icon={<Send sx={{ fontSize: 11 }} />}
+                                    label="View DTR"
+                                    color="#2e7d32"
+                                    hoverBg="rgba(46,125,50,0.08)"
+                                    disabled={!user.hasRecords}
                                     onClick={() => navigate('/daily_time_record_faculty', { state: { employeeNumber: user.employeeNumber, fullName: user.fullName, startDate, endDate } })}
-                                    sx={{ backgroundColor: '#4caf50', color: '#ffffff', py: 0.5, px: 1.5, '&:hover':{ backgroundColor: '#45a049' }, '&:disabled':{ backgroundColor: alpha('#4caf50',0.3), color: alpha('#ffffff',0.5) } }}>
-                                    View DTR
-                                  </ProfessionalButton>
-                                </PremiumTableCell>
+                                  />
+                                </CompactTableCell>
                               </TableRow>
                             ))}
                           </TableBody>
                         </Table>
-                      </PremiumTableContainer>
+                      </Box>
+                    </Box>
 
-                      {/* Pagination */}
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, gap: 2, flexWrap: 'wrap' }}>
-                        <Typography variant="body2" sx={{ color: textPrimaryColor }}>
-                          Showing {filteredUsers.length === 0 ? 0 : Math.min(filteredUsers.length,(currentPage-1)*rowsPerPage+1)} - {Math.min(filteredUsers.length,currentPage*rowsPerPage)} of {filteredUsers.length} users
-                        </Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                          <FormControl sx={{ minWidth: 140, backgroundColor: 'white' }}>
-                            <InputLabel>Rows</InputLabel>
-                            <Select value={rowsPerPage} label="Rows" onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}>
-                              {[10,20,50,100].map((n) => <MenuItem key={n} value={n}>{n}</MenuItem>)}
-                            </Select>
-                          </FormControl>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <IconButton onClick={() => goToPage(currentPage-1)} disabled={currentPage === 1} sx={{ bgcolor: 'white', border: `1px solid ${alpha(accentColor,0.15)}` }}><ArrowBack /></IconButton>
-                            <Typography sx={{ minWidth: 36, textAlign: 'center', fontWeight: 600, color: textPrimaryColor }}>{currentPage} / {totalPages}</Typography>
-                            <IconButton onClick={() => goToPage(currentPage+1)} disabled={currentPage === totalPages} sx={{ bgcolor: 'white', border: `1px solid ${alpha(accentColor,0.15)}` }}><ArrowForward /></IconButton>
-                          </Box>
+                    {/* Pagination */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 1.5 }}>
+                      <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>
+                        Showing {filteredUsers.length === 0 ? 0 : Math.min(filteredUsers.length,(currentPage-1)*rowsPerPage+1)}–{Math.min(filteredUsers.length,currentPage*rowsPerPage)} of {filteredUsers.length} users
+                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <FormControl size="small" sx={{ minWidth: 110 }}>
+                          <Select
+                            value={rowsPerPage}
+                            onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}
+                            displayEmpty
+                            sx={{ borderRadius: '8px', fontSize: '0.82rem', bgcolor: '#fff', '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder } }}
+                          >
+                            {[10,20,50,100].map((n) => <MenuItem key={n} value={n} sx={{ fontSize: '0.82rem' }}>{n} rows</MenuItem>)}
+                          </Select>
+                        </FormControl>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                          <IconButton size="small" onClick={() => goToPage(currentPage-1)} disabled={currentPage === 1}
+                            sx={{ border: `1px solid ${T.accentBorder}`, width: 30, height: 30, '&:hover': { bgcolor: T.accentFaint } }}>
+                            <ArrowBack sx={{ fontSize: 14, color: T.accent }} />
+                          </IconButton>
+                          <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: T.accent, minWidth: 50, textAlign: 'center' }}>
+                            {currentPage} / {totalPages}
+                          </Typography>
+                          <IconButton size="small" onClick={() => goToPage(currentPage+1)} disabled={currentPage === totalPages}
+                            sx={{ border: `1px solid ${T.accentBorder}`, width: 30, height: 30, '&:hover': { bgcolor: T.accentFaint } }}>
+                            <ArrowForward sx={{ fontSize: 14, color: T.accent }} />
+                          </IconButton>
                         </Box>
                       </Box>
-                    </>
-                  ) : (
-                    <Box sx={{ textAlign: 'center', py: 4, color: textPrimaryColor, opacity: 0.7 }}>
-                      <Typography variant="body1">Click "Load All Users" to fetch and auto-save all users' DTR data</Typography>
                     </Box>
-                  )}
-                </Box>
-              </GlassCard>
-            </Fade>
-          )}
-
-          {/* ── Loading Backdrop ── */}
-          <Backdrop sx={{ color: textSecondaryColor, zIndex: (theme) => theme.zIndex.drawer + 1 }} open={loading}>
-            <Box sx={{ textAlign: 'center' }}>
-              <CircularProgress color="inherit" size={60} thickness={4} />
-              <Typography variant="h6" sx={{ mt: 2, color: textSecondaryColor }}>Fetching and auto-saving records...</Typography>
-            </Box>
-          </Backdrop>
-
-          {error && <Fade in timeout={300}><Alert severity="error" sx={{ mb: 3, borderRadius: 3 }}>{error}</Alert></Fade>}
-
-          {/* ── Single User Results ── */}
-          {viewMode === 'single' && personName && (
-            <Fade in={!loading} timeout={500}>
-              {/* ref attached here so the page auto-scrolls when records arrive */}
-              <GlassCard ref={resultsRef} sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
-                <Box sx={{ p: 4, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, color: textPrimaryColor, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Box>
-                    <Typography variant="body2" sx={{ opacity: 0.8, mb: 1, textTransform: 'uppercase', letterSpacing: '0.1em', color: textPrimaryColor }}>Device Record Summary (Auto-Saved)</Typography>
-                    <Typography variant="h4" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}>{personName}</Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
-                      <Chip icon={<Assignment />} label={`${records.length} Records`} size="small" sx={{ bgcolor: alpha(accentColor,0.15), color: textPrimaryColor, fontWeight: 500 }} />
-                      <Chip icon={<CheckCircle />} label="Auto-Saved" size="small" sx={{ bgcolor: alpha('#4caf50',0.2), color: '#2e7d32', fontWeight: 500 }} />
-                      <Typography variant="body2" sx={{ opacity: 0.8, color: textPrimaryColor }}>{startDate} to {endDate}</Typography>
+                  </>
+                ) : (
+                  <Box sx={{ py: 6, textAlign: 'center' }}>
+                    <Box sx={{ width: 52, height: 52, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 1.5 }}>
+                      <People sx={{ fontSize: 24, color: alpha(T.accent, 0.3) }} />
                     </Box>
+                    <Typography sx={{ fontSize: '0.88rem', fontWeight: 600, color: T.muted, mb: 0.4 }}>No data loaded</Typography>
+                    <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>Click "Load All Users" to fetch and auto-save all users' DTR data.</Typography>
                   </Box>
-                  <Box display="flex" flexDirection="column" alignItems="flex-end" gap={2}>
-                    <Avatar sx={{ bgcolor: alpha(accentColor,0.15), width: 80, height: 80, fontSize: '2rem', fontWeight: 700, color: textPrimaryColor, boxShadow: `0 8px 24px ${alpha(accentColor,0.15)}` }}>
-                      {personName.split(' ').map((n) => n[0]).join('').toUpperCase()}
-                    </Avatar>
-                    <ProfessionalButton variant="contained" startIcon={<Send />} onClick={handleSendToDTR} disabled={records.length === 0}
-                      sx={{ backgroundColor: '#4caf50', color: '#ffffff', py: 1.5, px: 3, '&:hover':{ backgroundColor: '#45a049' } }}>
-                      View DTR Module
-                    </ProfessionalButton>
-                  </Box>
-                </Box>
+                )}
+              </Box>
+            </SectionCard>
+          </Fade>
+        )}
 
-                <PremiumTableContainer>
-                  <Table sx={{ minWidth: 800 }}>
-                    <TableHead>
-                      <TableRow sx={{ bgcolor: alpha(primaryColor,0.7) }}>
-                        {['Employee ID','Date','Day','Time IN','Break IN','Break OUT','Time OUT','Special Type','Special Time IN','Special Time OUT'].map((h) => (
-                          <PremiumTableCell key={h} isHeader sx={{ color: textPrimaryColor }}>{h}</PremiumTableCell>
-                        ))}
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {records.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={10} align="center" sx={{ py: 8 }}>
-                            <Box sx={{ textAlign: 'center' }}>
-                              <Info sx={{ fontSize: 80, color: alpha(accentColor,0.3), mb: 3 }} />
-                              <Typography variant="h5" sx={{ color: alpha(accentColor,0.6), fontWeight: 600, mb: 1 }}>No Records Found</Typography>
-                              <Typography variant="body1" sx={{ color: alpha(accentColor,0.4) }}>Try adjusting your date range or search for a different employee</Typography>
-                            </Box>
-                          </TableCell>
-                        </TableRow>
-                      ) : records.map((record, index) => {
-                        let specialTypeBadge = null;
-                        if (record.Time5 || record.Time6) {
-                          const type       = record.specialType || 'UNCATEGORIZED';
-                          const typeLabels = { HONORARIUM: 'Honorarium', SERVICE: 'Service Credit', OVERTIME: 'Overtime', UNCATEGORIZED: 'Uncategorized' };
-                          const colors     = { HONORARIUM: { bg: '#4CAF50', text: '#fff' }, SERVICE: { bg: '#2196F3', text: '#fff' }, OVERTIME: { bg: '#FF9800', text: '#fff' }, UNCATEGORIZED: { bg: '#9E9E9E', text: '#fff' } };
-                          const bc         = colors[type] || colors.UNCATEGORIZED;
-                          specialTypeBadge = <Chip label={typeLabels[type]||'Uncategorized'} size="small" sx={{ bgcolor: bc.bg, color: bc.text, fontWeight: 600, fontSize: '0.75rem' }} />;
-                        }
-                        return (
-                          <TableRow key={index} sx={{ '&:nth-of-type(even)':{ bgcolor: alpha(primaryColor,0.3) }, '&:hover':{ bgcolor: alpha(accentColor,0.05) }, transition: 'all 0.2s ease' }}>
-                            <PremiumTableCell>{record.PersonID}</PremiumTableCell>
-                            <PremiumTableCell>{record.Date}</PremiumTableCell>
-                            <PremiumTableCell>{getDayOfWeek(record.Date)}</PremiumTableCell>
-                            <PremiumTableCell>{formatTime(record.Time1)}</PremiumTableCell>
-                            <PremiumTableCell>{formatTime(record.Time3)}</PremiumTableCell>
-                            <PremiumTableCell>{formatTime(record.Time2)}</PremiumTableCell>
-                            <PremiumTableCell>{formatTime(record.Time4)}</PremiumTableCell>
-                            <PremiumTableCell>{specialTypeBadge || '-'}</PremiumTableCell>
-                            <PremiumTableCell>{record.Time5 ? formatTime(record.Time5) : '-'}</PremiumTableCell>
-                            <PremiumTableCell>{record.Time6 ? formatTime(record.Time6) : '-'}</PremiumTableCell>
-                          </TableRow>
+        {/* ── Single User Results ── */}
+        {viewMode === 'single' && personName && (
+          <Fade in={!loading} timeout={400}>
+            <SectionCard ref={resultsRef} sx={{ mb: 2 }}>
+              <PanelHeader
+                icon={Assignment}
+                title={`Records for ${personName}`}
+                right={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>
+                      {startDate} → {endDate}
+                    </Typography>
+                    <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
+                      <Typography sx={{ fontSize: '0.72rem', color: T.accent, fontWeight: 700 }}>
+                        {records.length} {records.length === 1 ? 'record' : 'records'}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: 'rgba(76,175,80,0.1)', border: '1px solid rgba(76,175,80,0.25)' }}>
+                      <Typography sx={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.4 }}>
+                        <CheckCircle sx={{ fontSize: 11 }} /> Auto-Saved
+                      </Typography>
+                    </Box>
+                    <RowBtn
+                      icon={<Send sx={{ fontSize: 11 }} />}
+                      label="View DTR Module"
+                      color="#2e7d32"
+                      hoverBg="rgba(46,125,50,0.08)"
+                      disabled={records.length === 0}
+                      onClick={handleSendToDTR}
+                    />
+                  </Box>
+                }
+              />
+
+              {/* Sticky column headers */}
+              <Box sx={{ overflowX: 'auto' }}>
+                <Box sx={{ minWidth: 900 }}>
+                  <Box sx={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr',
+                    px: 2.5, py: 1.25,
+                    bgcolor: T.accent,
+                    gap: 1.5,
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 2,
+                  }}>
+                    {['EMP ID','DATE','DAY','TIME IN','BREAK IN','BREAK OUT','TIME OUT','SPECIAL TYPE','SP. TIME IN','SP. TIME OUT'].map((h) => (
+                      <Typography key={h} sx={{ color: '#fff', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.07em' }}>
+                        {h}
+                      </Typography>
+                    ))}
+                  </Box>
+
+                  <Box sx={{ maxHeight: 440, overflowY: 'auto' }}>
+                    {records.length === 0 ? (
+                      <Box sx={{ py: 8, textAlign: 'center' }}>
+                        <Box sx={{ width: 60, height: 60, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                          <Info sx={{ fontSize: 28, color: alpha(T.accent, 0.3) }} />
+                        </Box>
+                        <Typography sx={{ fontSize: '0.88rem', fontWeight: 600, color: T.muted, mb: 0.4 }}>No records found</Typography>
+                        <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>Try adjusting your date range or employee number.</Typography>
+                      </Box>
+                    ) : records.map((record, index) => {
+                      let specialTypeBadge = null;
+                      if (record.Time5 || record.Time6) {
+                        const type       = record.specialType || 'UNCATEGORIZED';
+                        const typeLabels = { HONORARIUM: 'Honorarium', SERVICE: 'Service Credit', OVERTIME: 'Overtime', UNCATEGORIZED: 'Uncategorized' };
+                        const colors     = { HONORARIUM: '#4CAF50', SERVICE: '#2196F3', OVERTIME: '#FF9800', UNCATEGORIZED: '#9E9E9E' };
+                        const bc         = colors[type] || colors.UNCATEGORIZED;
+                        specialTypeBadge = (
+                          <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1, py: 0.3, borderRadius: '10px', bgcolor: alpha(bc, 0.12), border: `1px solid ${alpha(bc, 0.3)}` }}>
+                            <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: bc }}>{typeLabels[type] || 'Uncategorized'}</Typography>
+                          </Box>
                         );
-                      })}
-                    </TableBody>
-                  </Table>
-                </PremiumTableContainer>
-              </GlassCard>
-            </Fade>
-          )}
+                      }
+                      return (
+                        <Box
+                          key={index}
+                          sx={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr',
+                            px: 2.5, py: 1.5, gap: 1.5,
+                            alignItems: 'center',
+                            bgcolor: index % 2 === 0 ? '#fff' : T.rowOdd,
+                            borderBottom: `1px solid ${T.divider}`,
+                            transition: 'background 0.12s',
+                            '&:hover': { bgcolor: T.rowHover },
+                            '&:last-child': { borderBottom: 'none' },
+                          }}
+                        >
+                          <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 500 }}>{record.PersonID}</Typography>
+                          <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>{record.Date}</Typography>
+                          <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>{getDayOfWeek(record.Date)}</Typography>
+                          <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{formatTime(record.Time1)}</Typography>
+                          <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{formatTime(record.Time3)}</Typography>
+                          <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{formatTime(record.Time2)}</Typography>
+                          <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{formatTime(record.Time4)}</Typography>
+                          <Box>{specialTypeBadge || <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>—</Typography>}</Box>
+                          <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{record.Time5 ? formatTime(record.Time5) : '—'}</Typography>
+                          <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{record.Time6 ? formatTime(record.Time6) : '—'}</Typography>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Box>
+              </Box>
+
+              {/* Footer legend */}
+              {records.length > 0 && (
+                <Box sx={{ px: 2.5, py: 1.75, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', gap: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {[
+                    { icon: <CheckCircle sx={{ fontSize: 13, color: '#4caf50' }} />, label: 'Auto-saved records from biometric device' },
+                    { icon: <Info sx={{ fontSize: 13, color: T.accent }} />, label: 'Times displayed in 12-hour format' },
+                  ].map((item, i) => (
+                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+                      {item.icon}
+                      <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{item.label}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </SectionCard>
+          </Fade>
+        )}
+
+        {/* ── Scroll to Top FAB ── */}
+        <Zoom in={showScrollTop}>
+          <Fab
+            size="small"
+            sx={{ position: 'fixed', bottom: 24, right: 45, zIndex: 1000, bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}` }}
+            onClick={scrollToTop}
+          >
+            <KeyboardArrowUp />
+          </Fab>
+        </Zoom>
 
       </Box>
     </Fade>
