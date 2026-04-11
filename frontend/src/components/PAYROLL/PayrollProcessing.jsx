@@ -677,7 +677,7 @@ const PayrollProcess = () => {
         return { h: hh, m: mm, s: ss, text: `${pad(hh)}:${pad(mm)}:${pad(ss)}` };
       };
       const computeVLTimeOffset = (item) => {
-        const tevl = ParseFloat(item.tevl) + 10;
+        const tevl = parseFloat(item.tevl) + 10;
         const tevlSeconds = ParseFloat(tevl) * 3600;
         const tardySeconds = toSecondsFromHMS(item.h, item.m, item.s);
         const dvltSeconds = Math.min(tevlSeconds, tardySeconds);
@@ -706,7 +706,7 @@ const PayrollProcess = () => {
           h: toInt(item.h),
           m: toInt(item.m),
           s: toInt(item.s),
-          tevl: ParseFloat(item.tevl) + 10,
+          tevl: parseFloat(item.tevl) + 10,
           dvlt,
           vlb,
           grossSalary: parseFloat(item.grossSalary) || 0,
