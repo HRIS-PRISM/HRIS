@@ -503,7 +503,7 @@ const PayrollProcess = () => {
       const normalizedData = res.data.map((item) => {
         const normalizedItem = {
           ...item,
-          tevl: Number(item.tevl) || 0,
+          tevl: parseFloat(item.tevl) || 0,
           increment: item.increment ?? 0,
           gsisSalaryLoan: item.gsisSalaryLoan ?? 0,
           gsisPolicyLoan: item.gsisPolicyLoan ?? 0,
@@ -677,8 +677,8 @@ const PayrollProcess = () => {
         return { h: hh, m: mm, s: ss, text: `${pad(hh)}:${pad(mm)}:${pad(ss)}` };
       };
       const computeVLTimeOffset = (item) => {
-        const tevl = toInt(item.tevl) + 10;
-        const tevlSeconds = toInt(tevl) * 3600;
+        const tevl = ParseFloat(item.tevl) + 10;
+        const tevlSeconds = ParseFloat(tevl) * 3600;
         const tardySeconds = toSecondsFromHMS(item.h, item.m, item.s);
         const dvltSeconds = Math.min(tevlSeconds, tardySeconds);
         const vlbSeconds = tevlSeconds - dvltSeconds;
@@ -706,7 +706,7 @@ const PayrollProcess = () => {
           h: toInt(item.h),
           m: toInt(item.m),
           s: toInt(item.s),
-          tevl: toInt(item.tevl) + 10,
+          tevl: ParseFloat(item.tevl) + 10,
           dvlt,
           vlb,
           grossSalary: parseFloat(item.grossSalary) || 0,
