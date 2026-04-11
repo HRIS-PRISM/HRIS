@@ -467,7 +467,7 @@ const SalaryGradeTable = () => {
 
             {/* ── LEFT: Add Form ── */}
             <Grid item xs={12} lg={3}>
-              <SectionCard sx={{ height: 'calc(100vh - 220px)', display: 'flex', flexDirection: 'column' }}>
+              <SectionCard sx={{ height: 'calc(100vh - 270px)', display: 'flex', flexDirection: 'column' }}>
                 {/* Panel header */}
                 <Box sx={{ px: 3, py: 1.5, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: T.accentFaint, flexShrink: 0 }}>
                   <AddIcon sx={{ fontSize: 15, color: T.accent }} />
@@ -579,7 +579,7 @@ const SalaryGradeTable = () => {
 
             {/* ── RIGHT: Table / Records ── */}
             <Grid item xs={12} lg={9}>
-              <SectionCard sx={{ height: 'calc(100vh - 220px)', display: 'flex', flexDirection: 'column' }}>
+              <SectionCard sx={{ height: 'calc(100vh - 270px)', display: 'flex', flexDirection: 'column' }}>
 
                 {/* Toolbar */}
                 <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
