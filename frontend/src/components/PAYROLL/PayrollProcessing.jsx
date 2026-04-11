@@ -906,7 +906,7 @@ const PayrollProcess = () => {
       totalPagibigDeds: (parseFloat(calculatedItem.totalPagibigDeds) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       totalOtherDeds: (parseFloat(calculatedItem.totalOtherDeds) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       grossSalary: (parseFloat(calculatedItem.grossSalary) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-      tevl: (parseFloat(calculatedItem.tevl) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      tevl: (parseFloat(calculatedItem.tevl) || 0).toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 }),
       abs: (parseFloat(calculatedItem.abs) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       netSalary: (parseFloat(calculatedItem.netSalary) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       totalDeductions: (parseFloat(calculatedItem.totalDeductions) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
