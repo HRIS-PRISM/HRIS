@@ -197,23 +197,25 @@ router.get('/payroll/search', authenticateToken, (req, res) => {
       GROUP BY employeeID
     ) itt_max ON p.employeeNumber = itt_max.employeeID
     LEFT JOIN item_table itt ON itt.employeeID = p.employeeNumber AND itt.id = itt_max.max_id
-    LEFT JOIN (
-      SELECT la.employeeNumber, la.remaining_hours
-      FROM leave_assignment la
-      WHERE (la.carried_forward_hours IS NULL OR la.carried_forward_hours = 0)
-        AND la.id = (
-          SELECT id FROM leave_assignment la2
-          WHERE la2.employeeNumber = la.employeeNumber
-            AND (la2.carried_forward_hours IS NULL OR la2.carried_forward_hours = 0)
-          ORDER BY la2.period_year DESC,
-            CASE
-              WHEN la2.period_semester LIKE '%2nd%' THEN 2
-              WHEN la2.period_semester LIKE '%1st%' THEN 1
-              ELSE 0
-            END DESC
-          LIMIT 1
-        )
-    ) lav ON lav.employeeNumber = p.employeeNumber
+LEFT JOIN (
+  SELECT la.employeeNumber, la.remaining_hours
+  FROM leave_assignment la
+  WHERE la.leave_code = 'VL'                          -- ← ADD THIS
+    AND (la.carried_forward_hours IS NULL OR la.carried_forward_hours = 0)
+    AND la.id = (
+      SELECT id FROM leave_assignment la2
+      WHERE la2.employeeNumber = la.employeeNumber
+        AND la2.leave_code = 'VL'                     -- ← AND THIS
+        AND (la2.carried_forward_hours IS NULL OR la2.carried_forward_hours = 0)
+      ORDER BY la2.period_year DESC,
+        CASE
+          WHEN la2.period_semester LIKE '%2nd%' THEN 2
+          WHEN la2.period_semester LIKE '%1st%' THEN 1
+          ELSE 0
+        END DESC
+      LIMIT 1
+    )
+) lav ON lav.employeeNumber = p.employeeNumber
     LEFT JOIN salary_grade_table sgt ON sgt.sg_number = itt.salary_grade
       AND sgt.effectivityDate = itt.effectivityDate
     LEFT JOIN (
@@ -372,23 +374,25 @@ router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
         GROUP BY employeeID
       ) itt_max ON p.employeeNumber = itt_max.employeeID
       LEFT JOIN item_table itt ON itt.employeeID = p.employeeNumber AND itt.id = itt_max.max_id
-      LEFT JOIN (
-        SELECT la.employeeNumber, la.remaining_hours
-        FROM leave_assignment la
-        WHERE (la.carried_forward_hours IS NULL OR la.carried_forward_hours = 0)
-          AND la.id = (
-            SELECT id FROM leave_assignment la2
-            WHERE la2.employeeNumber = la.employeeNumber
-              AND (la2.carried_forward_hours IS NULL OR la2.carried_forward_hours = 0)
-            ORDER BY la2.period_year DESC,
-              CASE
-                WHEN la2.period_semester LIKE '%2nd%' THEN 2
-                WHEN la2.period_semester LIKE '%1st%' THEN 1
-                ELSE 0
-              END DESC
-            LIMIT 1
-          )
-      ) lav ON lav.employeeNumber = p.employeeNumber
+LEFT JOIN (
+  SELECT la.employeeNumber, la.remaining_hours
+  FROM leave_assignment la
+  WHERE la.leave_code = 'VL'                          -- ← ADD THIS
+    AND (la.carried_forward_hours IS NULL OR la.carried_forward_hours = 0)
+    AND la.id = (
+      SELECT id FROM leave_assignment la2
+      WHERE la2.employeeNumber = la.employeeNumber
+        AND la2.leave_code = 'VL'                     -- ← AND THIS
+        AND (la2.carried_forward_hours IS NULL OR la2.carried_forward_hours = 0)
+      ORDER BY la2.period_year DESC,
+        CASE
+          WHEN la2.period_semester LIKE '%2nd%' THEN 2
+          WHEN la2.period_semester LIKE '%1st%' THEN 1
+          ELSE 0
+        END DESC
+      LIMIT 1
+    )
+) lav ON lav.employeeNumber = p.employeeNumber
       LEFT JOIN salary_grade_table sgt ON sgt.sg_number = itt.salary_grade
         AND sgt.effectivityDate = itt.effectivityDate
       LEFT JOIN (
