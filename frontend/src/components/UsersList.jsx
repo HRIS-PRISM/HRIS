@@ -221,7 +221,6 @@ const UsersListWireframe = () => (
       position: 'relative', left: '63%', transform: 'translateX(-61%)',
       px: { xs: 2, sm: 3, md: 6 },
     }}>
-      {/* Header skeleton */}
       <Box sx={{ mb: 2, borderRadius: 3, overflow: 'hidden', border: `1px solid ${T.accentBorder}`, animation: 'ulBlink 2s ease-in-out infinite' }}>
         <Box sx={{ p: 3.5, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -231,7 +230,6 @@ const UsersListWireframe = () => (
           <Box sx={{ display: 'flex', gap: 1.5 }}><Bone w={100} h={32} r={8} /><Bone w={160} h={32} r={8} /></Box>
         </Box>
       </Box>
-      {/* Stats skeleton */}
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 2, mb: 2 }}>
         {[1,2,3,4,5].map(i => (
           <Box key={i} sx={{ borderRadius: 3, border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', p: 2.5, animation: `ulBlink 2s ease-in-out ${i*0.08}s infinite` }}>
@@ -242,7 +240,6 @@ const UsersListWireframe = () => (
           </Box>
         ))}
       </Box>
-      {/* Table skeleton */}
       <Box sx={{ borderRadius: 3, border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', overflow: 'hidden', animation: 'ulBlink 2s ease-in-out 0.2s infinite', height: 'calc(100vh - 320px)' }}>
         <Box sx={{ px: 3.5, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
           <Bone w={180} h={13} />
@@ -295,6 +292,7 @@ const useSystemSettings = () => {
   return settings;
 };
 
+// ─── UPDATED: dynamic emp-cat info from API map, fallback to legacy hardcoded ──
 const getEmploymentCategoryInfo = (category, customCategory) => {
   switch (parseInt(category)) {
     case 0: return { label: "JO - Graduate",         color: "#F57C00", bgcolor: alpha("#F57C00", 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
@@ -305,6 +303,18 @@ const getEmploymentCategoryInfo = (category, customCategory) => {
     case 5: return { label: customCategory ? `Other (${String(customCategory).trim()})` : "Other (specify)", color: "#455A64", bgcolor: alpha("#455A64", 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
     default: return { label: "Not Set", color: "#757575", bgcolor: alpha("#757575", 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
   }
+};
+
+// ─── UPDATED: build category display from empCatMap entry ─────────────────────
+const getCategoryDisplayFromMap = (empCatEntry) => {
+  if (!empCatEntry) return null;
+  const color = empCatEntry.colorHex || "#757575";
+  return {
+    label:  empCatEntry.label,
+    color,
+    bgcolor: alpha(color, 0.1),
+    icon:   <Circle sx={{ fontSize: 12 }} />,
+  };
 };
 
 const getDescriptionColor = (description, settings) => {
@@ -351,7 +361,7 @@ const ModalHeader = ({ icon: Icon, title, subtitle, onClose }) => (
   </Box>
 );
 
-// ─── Inline dialog accent bar (for simpler dialogs) ───────────────────────────
+// ─── Inline dialog accent bar ─────────────────────────────────────────────────
 const DialogAccentBar = () => (
   <Box sx={{ height: 4, background: `linear-gradient(90deg, ${T.accent} 0%, ${T.accentMid} 60%, ${alpha(T.accent, 0.4)} 100%)` }} />
 );
@@ -445,6 +455,10 @@ const UsersList = () => {
   const [pwRowsPerPage, setPwRowsPerPage]       = useState(10);
   const [pwNavSection, setPwNavSection]         = useState("all");
 
+  // ─── UPDATED: dynamic employment category map ──────────────────────────────
+  // empCatMap: employeeNumber (string) → { label: "Academic | CAS", colorHex: "#..." }
+  const [empCatMap, setEmpCatMap] = useState({});
+
   const theme    = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const navigate = useNavigate();
@@ -458,7 +472,7 @@ const UsersList = () => {
   const ac = settings?.accentColor     || "#FEF9E1";
   const tp = settings?.textPrimaryColor || "#6D2323";
 
-  // ─── Styled components (dynamic, depend on p) ──────────────────────────────
+  // ─── Styled components (dynamic) ──────────────────────────────────────────
   const EnterpriseCard = useMemo(() => styled(Card)(() => ({
     borderRadius: 12,
     background: '#ffffff',
@@ -570,12 +584,38 @@ const UsersList = () => {
 
   const clearRetryTimers = useCallback(() => { if (retryTimerRef.current) clearTimeout(retryTimerRef.current); if (countdownRef.current) clearInterval(countdownRef.current); }, []);
 
+  // ─── UPDATED: fetchEmpCatMap — mirrors LeaveAssignment exactly ─────────────
+  const fetchEmpCatMap = useCallback(async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const r = await axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const map = {};
+      (Array.isArray(r.data) ? r.data : []).forEach((item) => {
+        if (!item.employeeNumber) return;
+        const label = item.parentGroup && item.typeName
+          ? `${item.parentGroup} | ${item.typeName}`
+          : item.categoryLabel || "";
+        if (label) {
+          map[String(item.employeeNumber)] = {
+            label,
+            colorHex: item.colorHex || "#757575",
+          };
+        }
+      });
+      setEmpCatMap(map);
+    } catch {
+      // non-fatal — falls back to legacy hardcoded categories
+    }
+  }, []);
+
   const doFetchUsers = useCallback(async () => {
     const authHeaders = getAuthHeaders();
     const [usersResp, personsResp, empCatsResp] = await Promise.all([
-      fetch(`${API_BASE_URL}/users`,                                                                    { method: "GET", ...authHeaders }),
-      fetch(`${API_BASE_URL}/personalinfo/person_table`,                                                { method: "GET", ...authHeaders }),
-      fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,                             { method: "GET", ...authHeaders }),
+      fetch(`${API_BASE_URL}/users`,                                                        { method: "GET", ...authHeaders }),
+      fetch(`${API_BASE_URL}/personalinfo/person_table`,                                    { method: "GET", ...authHeaders }),
+      fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,                 { method: "GET", ...authHeaders }),
     ]);
     if (!usersResp.ok) { const err = await usersResp.json().catch(() => ({})); throw new Error(err.error || "Failed to fetch users"); }
     const usersDataRaw   = await usersResp.json();
@@ -584,13 +624,47 @@ const UsersList = () => {
     const usersArray   = Array.isArray(usersDataRaw)   ? usersDataRaw   : usersDataRaw.users   || usersDataRaw.data   || [];
     const personsArray = Array.isArray(personsDataRaw) ? personsDataRaw : personsDataRaw.persons || personsDataRaw.data || [];
     const empCatsArray = Array.isArray(empCatsDataRaw) ? empCatsDataRaw : empCatsDataRaw.data   || empCatsDataRaw.records || [];
-    const empCatsMap   = (empCatsArray || []).reduce((acc, row) => { const key = String(row.employeeNumber ?? row.employee_number ?? ""); if (key) acc[key] = row; return acc; }, {});
+
+    // ─── UPDATED: build empCatMap from the same fetch and store it ────────────
+    const newEmpCatMap = {};
+    (empCatsArray || []).forEach((item) => {
+      if (!item.employeeNumber) return;
+      const label = item.parentGroup && item.typeName
+        ? `${item.parentGroup} | ${item.typeName}`
+        : item.categoryLabel || "";
+      if (label) {
+        newEmpCatMap[String(item.employeeNumber)] = {
+          label,
+          colorHex: item.colorHex || "#757575",
+        };
+      }
+    });
+    setEmpCatMap(newEmpCatMap);
+
+    const empCatsMap = (empCatsArray || []).reduce((acc, row) => {
+      const key = String(row.employeeNumber ?? row.employee_number ?? "");
+      if (key) acc[key] = row;
+      return acc;
+    }, {});
+
     return (usersArray || []).map((user) => {
       const person    = (personsArray || []).find((p) => String(p.agencyEmployeeNum) === String(user.employeeNumber));
       const empCatRow = empCatsMap[String(user.employeeNumber)] || null;
       const fullName  = person ? `${person.firstName || ""} ${person.middleName || ""} ${person.lastName || ""} ${person.nameExtension || ""}`.trim() : user.fullName || user.username || `${user.firstName || ""} ${user.lastName || ""}`.trim();
       const avatar    = person?.profile_picture ? `${API_BASE_URL}${person.profile_picture}` : user.avatar ? String(user.avatar).startsWith("http") ? user.avatar : `${API_BASE_URL}${user.avatar}` : null;
-      return { ...user, fullName: fullName || "Username", avatar: avatar || null, personData: person || {}, employmentCategory: empCatRow?.employmentCategory !== undefined && empCatRow?.employmentCategory !== null ? empCatRow.employmentCategory : user.employmentCategory !== undefined ? user.employmentCategory : null, customCategory: empCatRow?.customCategory ?? empCatRow?.custom_category ?? user.customCategory ?? user.custom_category ?? null, departmentCode: user.departmentCode || null, departmentDescription: user.departmentDescription || null };
+      return {
+        ...user,
+        fullName: fullName || "Username",
+        avatar: avatar || null,
+        personData: person || {},
+        employmentCategory: empCatRow?.employmentCategory !== undefined && empCatRow?.employmentCategory !== null ? empCatRow.employmentCategory : user.employmentCategory !== undefined ? user.employmentCategory : null,
+        customCategory: empCatRow?.customCategory ?? empCatRow?.custom_category ?? user.customCategory ?? user.custom_category ?? null,
+        // ─── UPDATED: attach dynamic label/color directly on the user object ──
+        empCatLabel:  empCatRow ? (empCatRow.parentGroup && empCatRow.typeName ? `${empCatRow.parentGroup} | ${empCatRow.typeName}` : empCatRow.categoryLabel || null) : null,
+        empCatColor:  empCatRow?.colorHex || null,
+        departmentCode: user.departmentCode || null,
+        departmentDescription: user.departmentDescription || null,
+      };
     });
   }, []); // eslint-disable-line
 
@@ -694,8 +768,8 @@ const UsersList = () => {
         if (existingAccessResponse.ok) {
           const existingAccess = await existingAccessResponse.json();
           const existingRecord = (existingAccess || []).find((access) => access.page_id === pageId);
-          if (!existingRecord) { await fetch(`${API_BASE_URL}/page_access`,                                                 { method: "POST", ...authHeaders, body: JSON.stringify({ employeeNumber: selectedUser.employeeNumber, page_id: pageId, page_privilege: newAccess ? "1" : "0" }) }); }
-          else                 { await fetch(`${API_BASE_URL}/page_access/${selectedUser.employeeNumber}/${pageId}`,        { method: "PUT",  ...authHeaders, body: JSON.stringify({ page_privilege: newAccess ? "1" : "0" }) }); }
+          if (!existingRecord) { await fetch(`${API_BASE_URL}/page_access`,                                          { method: "POST", ...authHeaders, body: JSON.stringify({ employeeNumber: selectedUser.employeeNumber, page_id: pageId, page_privilege: newAccess ? "1" : "0" }) }); }
+          else                 { await fetch(`${API_BASE_URL}/page_access/${selectedUser.employeeNumber}/${pageId}`, { method: "PUT",  ...authHeaders, body: JSON.stringify({ page_privilege: newAccess ? "1" : "0" }) }); }
         }
       } else { await fetch(`${API_BASE_URL}/page_access/${selectedUser.employeeNumber}/${pageId}`, { method: "PUT", ...authHeaders, body: JSON.stringify({ page_privilege: newAccess ? "1" : "0" }) }); }
       setPageAccess((prev) => ({ ...prev, [pageId]: newAccess }));
@@ -808,6 +882,18 @@ const UsersList = () => {
     }
   };
   const getInitials = (n) => { if (!n) return "U"; const parts = n.trim().split(" ").filter(Boolean); if (parts.length === 1) return parts[0][0].toUpperCase(); return (parts[0][0] + parts[1][0]).toUpperCase(); };
+
+  // ─── UPDATED: resolve category display for a user row ─────────────────────
+  // Prefers dynamic empCatMap (parentGroup | typeName + colorHex),
+  // falls back to the legacy hardcoded helper if no dynamic entry exists.
+  const resolveCategoryDisplay = useCallback((user) => {
+    const dynamicEntry = empCatMap[String(user.employeeNumber)];
+    if (dynamicEntry) {
+      return getCategoryDisplayFromMap(dynamicEntry);
+    }
+    // legacy fallback
+    return getEmploymentCategoryInfo(user.employmentCategory, user.customCategory || user.custom_category);
+  }, [empCatMap]);
 
   // ─── Guards ────────────────────────────────────────────────────────────────
   if (!moduleAuthorized) {
@@ -1048,7 +1134,8 @@ const UsersList = () => {
             </TableHead>
             <TableBody>
               {paginatedUsers.length > 0 ? paginatedUsers.map((user, idx) => {
-                const categoryInfo = getEmploymentCategoryInfo(user.employmentCategory, user.customCategory || user.custom_category);
+                // ─── UPDATED: use dynamic resolver ────────────────────────────
+                const categoryInfo = resolveCategoryDisplay(user);
                 const isIncomplete = tableTab === 1;
                 return (
                   <TableRow key={user.employeeNumber} sx={{ bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd, '&:hover': { bgcolor: T.rowHover }, transition: 'background-color 0.12s', borderBottom: `1px solid ${T.divider}` }}>
@@ -1094,6 +1181,7 @@ const UsersList = () => {
                         </Select>
                       )}
                     </TableCell>
+                    {/* ─── UPDATED: employment category cell uses resolveCategoryDisplay ── */}
                     <TableCell sx={{ py: 1.5, px: 2, borderBottom: 'none' }}>
                       <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, px: 1.5, py: 0.4, bgcolor: categoryInfo.bgcolor, border: `1px solid ${alpha(categoryInfo.color, 0.3)}`, borderRadius: '20px' }}>
                         <Circle sx={{ fontSize: 7, color: categoryInfo.color }} />
@@ -1169,13 +1257,10 @@ const UsersList = () => {
       ════════════════════════════════════════════════════════════ */}
       <Dialog open={pwMgmtOpen} onClose={closePwMgmt} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3, bgcolor: '#f9f5f5', height: '90vh', maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' } }}>
 
-        {/* Modal header */}
         <ModalHeader icon={LockResetIcon} title="Password Management" subtitle={`${pwUsers.length} users registered • Resets password to surname (ALL CAPS)`} onClose={closePwMgmt} />
 
-        {/* Modal body */}
         <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', p: 2.5, gap: 2, minHeight: 0 }}>
 
-          {/* Stat pills row */}
           <Box sx={{ display: 'flex', gap: 1.25, flexShrink: 0 }}>
             {[
               { label: `${pwUsers.length} total`,             color: T.accent  },
@@ -1194,16 +1279,12 @@ const UsersList = () => {
             </Tooltip>
           </Box>
 
-          {/* Feedback banners */}
           {pwErrMessage  && <Fade in><Alert severity="error"   icon={<Cancel />}       onClose={() => setPwErrMessage("")}  sx={{ borderRadius: 2, flexShrink: 0 }}>{pwErrMessage}</Alert></Fade>}
           {pwSuccessOpen && <Fade in><Alert severity="success" icon={<CheckCircle />}  onClose={() => setPwSuccessOpen(false)} sx={{ borderRadius: 2, flexShrink: 0 }}>Password has been reset successfully.</Alert></Fade>}
 
-          {/* Table card */}
           <SectionCard sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
 
-            {/* Toolbar */}
             <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
-              {/* Title + count */}
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
                   <LockResetIcon sx={{ fontSize: 14, color: T.accent }} />
@@ -1218,7 +1299,6 @@ const UsersList = () => {
                 <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{pwFilteredUsers.length} of {pwSourceUsers.length} shown</Typography>
               </Box>
 
-              {/* Filter tabs */}
               <Tabs value={pwNavSection} onChange={(_, v) => { setPwNavSection(v); setPwSearchTerm(""); setPwPage(0); }}
                 sx={{ mb: 1.5, minHeight: 30, '& .MuiTabs-indicator': { backgroundColor: T.accent, height: 2.5, borderRadius: '2px 2px 0 0' } }}>
                 {[
@@ -1240,12 +1320,10 @@ const UsersList = () => {
                 ))}
               </Tabs>
 
-              {/* Search */}
               <FieldInput fullWidth size="small" placeholder="Search by name, email, or employee number…" value={pwSearchTerm} onChange={(e) => setPwSearchTerm(e.target.value)}
                 InputProps={{ startAdornment: <InputAdornment position="start"><Search sx={{ fontSize: 15, color: T.muted }} /></InputAdornment> }} />
             </Box>
 
-            {/* Incomplete notice */}
             {pwNavSection === 'incomplete' && pwIncompleteUsers.length > 0 && (
               <Box sx={{ px: 3, py: 1.1, bgcolor: '#FFF8E1', borderBottom: `1px solid rgba(245,124,0,0.18)`, display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
                 <WarningAmberRounded sx={{ fontSize: 13, color: '#F57C00', flexShrink: 0 }} />
@@ -1255,7 +1333,6 @@ const UsersList = () => {
               </Box>
             )}
 
-            {/* Table */}
             <Box sx={{ flex: 1, overflowY: 'auto', '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
               <Table sx={{ minWidth: 600 }} stickyHeader>
                 <TableHead>
@@ -1333,7 +1410,6 @@ const UsersList = () => {
               </Table>
             </Box>
 
-            {/* Pagination */}
             {pwFilteredUsers.length > 0 && (
               <Box sx={{ px: 2, py: 0.5, borderTop: `1px solid ${T.divider}`, flexShrink: 0 }}>
                 <TablePagination component="div" count={pwFilteredUsers.length} page={pwPage} onPageChange={(_, np) => setPwPage(np)} rowsPerPage={pwRowsPerPage} onRowsPerPageChange={(e) => { setPwRowsPerPage(parseInt(e.target.value, 10)); setPwPage(0); }} rowsPerPageOptions={[5, 10, 25, 50]}
@@ -1601,9 +1677,18 @@ const UsersList = () => {
                             <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: T.accent }}>{(selectedUserForDetails.role || "").toUpperCase()}</Typography>
                           </Box>
                         </Box>
+                        {/* ─── UPDATED: drawer also uses dynamic resolver ─────────────── */}
                         <Box>
                           <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.faint, textTransform: 'uppercase', letterSpacing: '0.07em', mb: 0.5 }}>Employment Category</Typography>
-                          {(() => { const info = getEmploymentCategoryInfo(selectedUserForDetails.employmentCategory, selectedUserForDetails.customCategory); return <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, px: 1.5, py: 0.35, bgcolor: info.bgcolor, border: `1px solid ${alpha(info.color, 0.3)}`, borderRadius: '20px' }}><Circle sx={{ fontSize: 7, color: info.color }} /><Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: info.color }}>{info.label}</Typography></Box>; })()}
+                          {(() => {
+                            const info = resolveCategoryDisplay(selectedUserForDetails);
+                            return (
+                              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, px: 1.5, py: 0.35, bgcolor: info.bgcolor, border: `1px solid ${alpha(info.color, 0.3)}`, borderRadius: '20px' }}>
+                                <Circle sx={{ fontSize: 7, color: info.color }} />
+                                <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: info.color }}>{info.label}</Typography>
+                              </Box>
+                            );
+                          })()}
                         </Box>
                       </Stack>
                     </Box>
