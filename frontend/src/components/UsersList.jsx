@@ -398,7 +398,6 @@ const UsersList = () => {
   const [selectedEmployeeNumbers, setSelectedEmployeeNumbers] = useState([]);
   const [bulkCategoryDialog, setBulkCategoryDialog]         = useState(false);
   const [bulkEmploymentCategory, setBulkEmploymentCategory] = useState("");
-  const [bulkCustomCategory, setBulkCustomCategory]         = useState("");
   const [bulkEditLoading, setBulkEditLoading]               = useState(false);
   const [pageAccessDialog, setPageAccessDialog]             = useState(false);
   const [selectedUser, setSelectedUser]                     = useState(null);
@@ -455,9 +454,11 @@ const UsersList = () => {
   const [pwRowsPerPage, setPwRowsPerPage]       = useState(10);
   const [pwNavSection, setPwNavSection]         = useState("all");
 
-  // ─── UPDATED: dynamic employment category map ──────────────────────────────
+  // ─── dynamic employment category map ──────────────────────────────────────
   // empCatMap: employeeNumber (string) → { label: "Academic | CAS", colorHex: "#..." }
-  const [empCatMap, setEmpCatMap] = useState({});
+  const [empCatMap, setEmpCatMap]       = useState({});
+  // typeConfigs: flat array from /employment-type-config — drives the bulk select
+  const [typeConfigs, setTypeConfigs]   = useState([]);
 
   const theme    = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -584,7 +585,7 @@ const UsersList = () => {
 
   const clearRetryTimers = useCallback(() => { if (retryTimerRef.current) clearTimeout(retryTimerRef.current); if (countdownRef.current) clearInterval(countdownRef.current); }, []);
 
-  // ─── UPDATED: fetchEmpCatMap — mirrors LeaveAssignment exactly ─────────────
+  // ─── fetchEmpCatMap — mirrors LeaveAssignment exactly ─────────────────────
   const fetchEmpCatMap = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
@@ -594,19 +595,38 @@ const UsersList = () => {
       const map = {};
       (Array.isArray(r.data) ? r.data : []).forEach((item) => {
         if (!item.employeeNumber) return;
-        const label = item.parentGroup && item.typeName
-          ? `${item.parentGroup} | ${item.typeName}`
-          : item.categoryLabel || "";
-        if (label) {
-          map[String(item.employeeNumber)] = {
-            label,
-            colorHex: item.colorHex || "#757575",
-          };
-        }
+       let label = "";
+let colorHex = "#757575";
+if (item.parentGroup && item.typeName) {
+  label = `${item.parentGroup} | ${item.typeName}`;
+  colorHex = item.colorHex || "#757575";
+} else if (item.customCategory && item.customCategory.trim()) {
+  label = `Other (${item.customCategory.trim()})`;
+} else if (item.categoryLabel && item.categoryLabel !== "Unassigned") {
+  label = item.categoryLabel;
+}
+if (label) {
+  map[String(item.employeeNumber)] = { label, colorHex };
+}
       });
       setEmpCatMap(map);
     } catch {
       // non-fatal — falls back to legacy hardcoded categories
+    }
+  }, []);
+
+  // ─── fetchTypeConfigs — powers the dynamic bulk-edit select ───────────────
+  const fetchTypeConfigs = useCallback(async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const r = await axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      // API may return { flat: [...] } or a plain array
+      const configs = Array.isArray(r.data) ? r.data : r.data?.flat || [];
+      setTypeConfigs(configs);
+    } catch {
+      // non-fatal — bulk select will show empty state
     }
   }, []);
 
@@ -626,20 +646,26 @@ const UsersList = () => {
     const empCatsArray = Array.isArray(empCatsDataRaw) ? empCatsDataRaw : empCatsDataRaw.data   || empCatsDataRaw.records || [];
 
     // ─── UPDATED: build empCatMap from the same fetch and store it ────────────
-    const newEmpCatMap = {};
-    (empCatsArray || []).forEach((item) => {
-      if (!item.employeeNumber) return;
-      const label = item.parentGroup && item.typeName
-        ? `${item.parentGroup} | ${item.typeName}`
-        : item.categoryLabel || "";
-      if (label) {
-        newEmpCatMap[String(item.employeeNumber)] = {
-          label,
-          colorHex: item.colorHex || "#757575",
-        };
-      }
-    });
-    setEmpCatMap(newEmpCatMap);
+ const newEmpCatMap = {};
+(empCatsArray || []).forEach((item) => {
+  if (!item.employeeNumber) return;
+  // Only use dynamic label if a real type config was joined (parentGroup + typeName exist)
+  // Otherwise fall back to customCategory, then categoryLabel
+  let label = "";
+  let colorHex = "#757575";
+  if (item.parentGroup && item.typeName) {
+    label = `${item.parentGroup} | ${item.typeName}`;
+    colorHex = item.colorHex || "#757575";
+  } else if (item.customCategory && item.customCategory.trim()) {
+    label = `Other (${item.customCategory.trim()})`;
+  } else if (item.categoryLabel && item.categoryLabel !== "Unassigned") {
+    label = item.categoryLabel;
+  }
+  if (label) {
+    newEmpCatMap[String(item.employeeNumber)] = { label, colorHex };
+  }
+});
+setEmpCatMap(newEmpCatMap);
 
     const empCatsMap = (empCatsArray || []).reduce((acc, row) => {
       const key = String(row.employeeNumber ?? row.employee_number ?? "");
@@ -690,17 +716,28 @@ const UsersList = () => {
     }
   }, [doFetchUsers, clearRetryTimers, users.length]); // eslint-disable-line
 
-  useEffect(() => { mountedRef.current = true; if (isTechnicalUser) fetchUsers(); return () => { mountedRef.current = false; clearRetryTimers(); }; }, []); // eslint-disable-line
+  useEffect(() => { mountedRef.current = true; if (isTechnicalUser) { fetchUsers(); fetchTypeConfigs(); } return () => { mountedRef.current = false; clearRetryTimers(); }; }, []); // eslint-disable-line
   useEffect(() => { const h = () => { if (mountedRef.current && offline) { clearRetryTimers(); fetchUsers(false, 0); } }; window.addEventListener("online", h); return () => window.removeEventListener("online", h); }, [offline, fetchUsers, clearRetryTimers]);
-  useEffect(() => { if (moduleAuthorized && !isTechnicalUser) fetchUsers(); }, [moduleAuthorized]); // eslint-disable-line
+  useEffect(() => { if (moduleAuthorized && !isTechnicalUser) { fetchUsers(); fetchTypeConfigs(); } }, [moduleAuthorized]); // eslint-disable-line
 
   useEffect(() => {
     const sourceUsers = tableTab === 0 ? properUsers : incompleteUsers;
     const filtered    = sourceUsers.filter((user) => {
       const matchesSearch     = (user.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) || (user.email || "").toLowerCase().includes(searchTerm.toLowerCase()) || String(user.employeeNumber || "").includes(searchTerm) || (user.role || "").toLowerCase().includes(searchTerm.toLowerCase());
       const matchesRole       = roleFilter       ? (user.role || "").toLowerCase() === roleFilter.toLowerCase() : true;
-      const matchesCategory   = categoryFilter !== "" ? String(user.employmentCategory) === String(categoryFilter) : true;
-      const matchesDepartment = departmentFilter !== "" ? (user.departmentCode || "") === departmentFilter : true;
+const matchesCategory = categoryFilter !== "" 
+  ? (() => {
+      const entry = empCatMap[String(user.employeeNumber)];
+      if (entry) {
+        const matched = typeConfigs.find((t) => String(t.id) === String(categoryFilter));
+        if (matched) {
+          const matchLabel = matched.parentGroup && matched.typeName ? `${matched.parentGroup} | ${matched.typeName}` : matched.typeName || "";
+          return entry.label === matchLabel;
+        }
+      }
+      return false;
+    })()
+  : true;      const matchesDepartment = departmentFilter !== "" ? (user.departmentCode || "") === departmentFilter : true;
       return matchesSearch && matchesRole && matchesCategory && matchesDepartment;
     });
     setFilteredUsers(filtered); setPage(0);
@@ -797,10 +834,29 @@ const UsersList = () => {
     finally { setRoleChangeLoading(false); }
   };
 
-  const handleEditUser = (user) => { setUserToEdit(user); setEditedEmployeeNumber(user.employeeNumber); setEditedFirstName(user.firstName || ""); setEditedMiddleName(user.middleName || ""); setEditedLastName(user.lastName || ""); setEditedNameExtension(user.nameExtension || ""); setEditedEmail(user.email || ""); setEditedEmploymentCategory(user.employmentCategory !== undefined && user.employmentCategory !== null ? user.employmentCategory : ""); setEditedCustomCategory(user.customCategory || user.custom_category || ""); setEditDialog(true); };
-  const handleSaveEdit = async () => {
+const handleEditUser = (user) => {
+  setUserToEdit(user);
+  setEditedEmployeeNumber(user.employeeNumber);
+  setEditedFirstName(user.firstName || "");
+  setEditedMiddleName(user.middleName || "");
+  setEditedLastName(user.lastName || "");
+  setEditedNameExtension(user.nameExtension || "");
+  setEditedEmail(user.email || "");
+  // Resolve the type-config ID for this user from empCatMap, matching by label
+  const dynamicEntry = empCatMap[String(user.employeeNumber)];
+  let resolvedCategoryId = "";
+  if (dynamicEntry) {
+    const matched = typeConfigs.find((t) => {
+      const label = t.parentGroup && t.typeName ? `${t.parentGroup} | ${t.typeName}` : t.typeName || "";
+      return label === dynamicEntry.label;
+    });
+    if (matched) resolvedCategoryId = String(matched.id);
+  }
+  setEditedEmploymentCategory(resolvedCategoryId);
+  setEditedCustomCategory(user.customCategory || user.custom_category || "");
+  setEditDialog(true);
+};  const handleSaveEdit = async () => {
     if (!editedEmployeeNumber || !editedFirstName || !editedLastName) { setError("Employee Number, First Name, and Last Name are required"); return; }
-    if (parseInt(editedEmploymentCategory) === 5 && !String(editedCustomCategory || "").trim()) { setError("Please enter a custom category description for Other (specify)"); return; }
     setEditLoading(true);
     try {
       const authHeaders = getAuthHeaders();
@@ -809,11 +865,16 @@ const UsersList = () => {
       if (!r2.ok) { const e = await r2.json().catch(() => ({})); setError(e.error || "Failed to update user name"); setEditLoading(false); return; }
       const currentEmail = (userToEdit.email || "").trim(); const newEmail = (editedEmail || "").trim();
       if (newEmail !== currentEmail) { const r3 = await fetch(`${API_BASE_URL}/users/${editedEmployeeNumber}/email`, { method: "PUT", ...authHeaders, body: JSON.stringify({ email: newEmail || null }) }); if (!r3.ok) { const e = await r3.json().catch(() => ({})); setError(e.error || "Failed to update email"); setEditLoading(false); return; } }
-      const currentCategory = userToEdit.employmentCategory; const newCategory = editedEmploymentCategory;
-      if (newCategory !== currentCategory && newCategory !== "") {
+      const newCategory = editedEmploymentCategory;
+      if (newCategory !== "") {
+        const categoryId = parseInt(newCategory, 10);
         const checkResponse = await fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${editedEmployeeNumber}`, { method: "GET", ...authHeaders });
-        if (checkResponse.ok) { const categoryData = await checkResponse.json(); await fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${categoryData.id}`, { method: "PUT", ...authHeaders, body: JSON.stringify({ employeeNumber: editedEmployeeNumber, employmentCategory: parseInt(newCategory), customCategory: parseInt(newCategory) === 5 ? String(editedCustomCategory || "").trim() : "" }) }); }
-        else { await fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employee-category`, { method: "POST", ...authHeaders, body: JSON.stringify({ employeeNumber: editedEmployeeNumber, employmentCategory: parseInt(newCategory), customCategory: parseInt(newCategory) === 5 ? String(editedCustomCategory || "").trim() : "" }) }); }
+        if (checkResponse.ok) {
+          const categoryData = await checkResponse.json();
+          await fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${categoryData.id}`, { method: "PUT", ...authHeaders, body: JSON.stringify({ employeeNumber: editedEmployeeNumber, employmentCategory: categoryId, customCategory: "" }) });
+        } else {
+          await fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employee-category`, { method: "POST", ...authHeaders, body: JSON.stringify({ employeeNumber: editedEmployeeNumber, employmentCategory: categoryId, customCategory: "" }) });
+        }
       }
       await fetchUsers(); setSuccessAction("edit"); setSuccessOpen(true); setEditDialog(false); setUserToEdit(null);
     } catch { setError("Network error while updating user"); }
@@ -825,19 +886,30 @@ const UsersList = () => {
   const isAllCurrentPageSelected   = (cur) => cur?.length > 0 && cur.every((u) => selectedEmployeeNumbers.includes(u.employeeNumber));
   const isSomeCurrentPageSelected  = (cur) => { const any = cur?.some((u) => selectedEmployeeNumbers.includes(u.employeeNumber)); const all = cur?.every((u) => selectedEmployeeNumbers.includes(u.employeeNumber)); return any && !all; };
   const toggleSelectAllCurrentPage = (cur) => { if (!cur?.length) return; if (isAllCurrentPageSelected(cur)) { const set = new Set(cur.map((u) => u.employeeNumber)); setSelectedEmployeeNumbers((prev) => prev.filter((n) => !set.has(n))); } else { setSelectedEmployeeNumbers((prev) => { const set = new Set(prev); cur.forEach((u) => set.add(u.employeeNumber)); return Array.from(set); }); } };
-  const openBulkCategoryEdit  = () => { if (!selectedEmployeeNumbers.length) { setSnackbarMessage("Please select at least 1 employee."); setSnackbarOpen(true); return; } setBulkEmploymentCategory(""); setBulkCustomCategory(""); setBulkCategoryDialog(true); };
-  const closeBulkCategoryEdit = () => { setBulkCategoryDialog(false); setBulkEmploymentCategory(""); setBulkCustomCategory(""); };
+  const openBulkCategoryEdit  = () => { if (!selectedEmployeeNumbers.length) { setSnackbarMessage("Please select at least 1 employee."); setSnackbarOpen(true); return; } setBulkEmploymentCategory(""); setBulkCategoryDialog(true); };
+  const closeBulkCategoryEdit = () => { setBulkCategoryDialog(false); setBulkEmploymentCategory(""); };
   const handleSaveBulkCategoryEdit = async () => {
     if (bulkEmploymentCategory === "" || bulkEmploymentCategory === null) { setError("Please select an employment category to apply."); return; }
-    if (parseInt(bulkEmploymentCategory) === 5 && !String(bulkCustomCategory || "").trim()) { setError("Please enter a custom category description for Other (specify)"); return; }
     if (!selectedEmployeeNumbers.length) { setError("No employees selected."); return; }
     setBulkEditLoading(true);
     try {
       const authHeaders = getAuthHeaders();
+      // bulkEmploymentCategory is now the type-config id (integer)
+      const categoryId = parseInt(bulkEmploymentCategory, 10);
       for (const empNo of [...selectedEmployeeNumbers]) {
         const checkResponse = await fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${empNo}`, { method: "GET", ...authHeaders });
-        if (checkResponse.ok) { const categoryData = await checkResponse.json(); await fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${categoryData.id}`, { method: "PUT", ...authHeaders, body: JSON.stringify({ employeeNumber: empNo, employmentCategory: parseInt(bulkEmploymentCategory), customCategory: parseInt(bulkEmploymentCategory) === 5 ? String(bulkCustomCategory || "").trim() : "" }) }); }
-        else { await fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employee-category`, { method: "POST", ...authHeaders, body: JSON.stringify({ employeeNumber: empNo, employmentCategory: parseInt(bulkEmploymentCategory), customCategory: parseInt(bulkEmploymentCategory) === 5 ? String(bulkCustomCategory || "").trim() : "" }) }); }
+        if (checkResponse.ok) {
+          const categoryData = await checkResponse.json();
+          await fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${categoryData.id}`, {
+            method: "PUT", ...authHeaders,
+            body: JSON.stringify({ employeeNumber: empNo, employmentCategory: categoryId, customCategory: "" }),
+          });
+        } else {
+          await fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employee-category`, {
+            method: "POST", ...authHeaders,
+            body: JSON.stringify({ employeeNumber: empNo, employmentCategory: categoryId, customCategory: "" }),
+          });
+        }
       }
       await fetchUsers(); setSuccessAction("bulk-edit"); setSuccessOpen(true); setSelectedEmployeeNumbers([]); setBulkCategoryDialog(false);
     } catch (err) { setError(err?.message || "Network error while bulk updating employment category"); }
@@ -1026,23 +1098,33 @@ const UsersList = () => {
                 <MenuItem value="Staff">Staff</MenuItem>
               </CleanTextField>
             </Grid>
-            <Grid item xs={6} md={3}>
-              <FormControl fullWidth size="small">
-                <InputLabel sx={{ fontSize: '0.82rem' }}>Employment Category</InputLabel>
-                <Select value={categoryFilter} label="Employment Category" onChange={(e) => setCategoryFilter(e.target.value)} sx={{ borderRadius: 2, bgcolor: '#fafafa', fontSize: '0.875rem', '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e5e7eb' }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent } }}>
-                  <MenuItem value="">All Categories</MenuItem>
-                  <ListSubheader sx={{ fontSize: '0.7rem' }}>Job Order (JO)</ListSubheader>
-                  <MenuItem value="0"><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 10, color: '#F57C00' }} /></ListItemIcon>Graduate</MenuItem>
-                  <MenuItem value="1"><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 10, color: '#E64A19' }} /></ListItemIcon>UnderGrad</MenuItem>
-                  <ListSubheader sx={{ fontSize: '0.7rem' }}>Regular</ListSubheader>
-                  <MenuItem value="2"><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 10, color: '#2E7D32' }} /></ListItemIcon>Non-Teaching</MenuItem>
-                  <MenuItem value="3"><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 10, color: '#1565C0' }} /></ListItemIcon>Teaching (30Hrs)</MenuItem>
-                  <MenuItem value="4"><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 10, color: '#7B1FA2' }} /></ListItemIcon>Designated (40Hrs)</MenuItem>
-                  <ListSubheader sx={{ fontSize: '0.7rem' }}>Custom</ListSubheader>
-                  <MenuItem value="5"><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 10, color: '#00796B' }} /></ListItemIcon>Other (specify)</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
+          <Grid item xs={6} md={3}>
+  <FormControl fullWidth size="small">
+    <InputLabel sx={{ fontSize: '0.82rem' }}>Employment Category</InputLabel>
+    <Select value={categoryFilter} label="Employment Category" onChange={(e) => setCategoryFilter(e.target.value)}
+      sx={{ borderRadius: 2, bgcolor: '#fafafa', fontSize: '0.875rem', '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e5e7eb' }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent } }}>
+      <MenuItem value="">All Categories</MenuItem>
+      {(() => {
+        const grouped = {};
+        typeConfigs.filter((t) => t.isActive !== false).forEach((t) => {
+          if (!grouped[t.parentGroup]) grouped[t.parentGroup] = [];
+          grouped[t.parentGroup].push(t);
+        });
+        return Object.entries(grouped).flatMap(([group, items]) => [
+          <ListSubheader key={`hdr-${group}`} sx={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: alpha(T.accent, 0.55), lineHeight: '2em', bgcolor: T.accentFaint }}>
+            {group}
+          </ListSubheader>,
+          ...items.map((item) => (
+            <MenuItem key={item.id} value={String(item.id)} sx={{ py: 0.75 }}>
+              <ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 10, color: item.colorHex }} /></ListItemIcon>
+              {item.typeName}
+            </MenuItem>
+          )),
+        ]);
+      })()}
+    </Select>
+  </FormControl>
+</Grid>
             <Grid item xs={12} md={3}>
               <FormControl fullWidth size="small">
                 <InputLabel sx={{ fontSize: '0.82rem' }}>Department</InputLabel>
@@ -1784,21 +1866,69 @@ const UsersList = () => {
                   <Grid item xs={12} sm={6}><FieldInput fullWidth label="Name Extension"   value={editedNameExtension}  onChange={(e) => setEditedNameExtension(e.target.value)}  size="small" /></Grid>
                 </Grid>
                 <FieldInput fullWidth label="Email" type="email" value={editedEmail} onChange={(e) => setEditedEmail(e.target.value)} sx={{ mt: 2 }} size="small" />
-                <FormControl fullWidth sx={{ mt: 2 }} size="small">
-                  <InputLabel sx={{ fontSize: '0.82rem' }}>Employment Category</InputLabel>
-                  <Select value={editedEmploymentCategory} label="Employment Category" onChange={(e) => { setEditedEmploymentCategory(e.target.value); if (parseInt(e.target.value) !== 5) setEditedCustomCategory(""); }} sx={{ borderRadius: 2, bgcolor: '#fff', fontSize: '0.875rem', '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent } }}>
-                    <ListSubheader>Job Order (JO)</ListSubheader>
-                    <MenuItem value={0}><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 12, color: '#F57C00' }} /></ListItemIcon>Graduate</MenuItem>
-                    <MenuItem value={1}><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 12, color: '#E64A19' }} /></ListItemIcon>UnderGrad</MenuItem>
-                    <ListSubheader>Regular</ListSubheader>
-                    <MenuItem value={2}><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 12, color: '#2E7D32' }} /></ListItemIcon>Non-Teaching</MenuItem>
-                    <MenuItem value={3}><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 12, color: '#1565C0' }} /></ListItemIcon>Teaching (30Hrs)</MenuItem>
-                    <MenuItem value={4}><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 12, color: '#7B1FA2' }} /></ListItemIcon>Designated (40Hrs)</MenuItem>
-                    <ListSubheader>Custom</ListSubheader>
-                    <MenuItem value={5}><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 12, color: '#00796B' }} /></ListItemIcon>Other (specify)</MenuItem>
-                  </Select>
-                </FormControl>
-                {parseInt(editedEmploymentCategory) === 5 && <Fade in><FieldInput fullWidth label="Custom Category Description *" value={editedCustomCategory} onChange={(e) => setEditedCustomCategory(e.target.value)} sx={{ mt: 2 }} required size="small" /></Fade>}
+               <FormControl fullWidth sx={{ mt: 2 }} size="small">
+  <InputLabel shrink sx={{ fontSize: '0.82rem' }}>Employment Category</InputLabel>
+  {typeConfigs.length === 0 ? (
+    <Box sx={{ p: 2.5, textAlign: 'center', border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, bgcolor: alpha(T.accent, 0.02), mt: 1 }}>
+      <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>No employment types configured yet.</Typography>
+    </Box>
+  ) : (
+    <Select
+      value={editedEmploymentCategory}
+      label="Employment Category"
+      onChange={(e) => setEditedEmploymentCategory(e.target.value)}
+      displayEmpty
+      sx={{ borderRadius: 2, bgcolor: '#fff', fontSize: '0.875rem', '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent } }}
+      renderValue={(val) => {
+        if (!val) return <Typography sx={{ color: T.faint, fontSize: '0.875rem' }}>Select a category…</Typography>;
+        const found = typeConfigs.find((t) => String(t.id) === String(val));
+        if (!found) return val;
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Circle sx={{ fontSize: 8, color: found.colorHex }} />
+            <Typography sx={{ fontSize: '0.875rem' }}>{found.parentGroup} | {found.typeName}</Typography>
+          </Box>
+        );
+      }}
+    >
+      <MenuItem value="" disabled>
+        <Typography sx={{ color: T.faint, fontSize: '0.875rem' }}>Select a category…</Typography>
+      </MenuItem>
+      {(() => {
+        const grouped = {};
+        typeConfigs.filter((t) => t.isActive !== false).forEach((t) => {
+          if (!grouped[t.parentGroup]) grouped[t.parentGroup] = [];
+          grouped[t.parentGroup].push(t);
+        });
+        return Object.entries(grouped).flatMap(([group, items]) => [
+          <ListSubheader key={`hdr-${group}`} sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: alpha(T.accent, 0.55), lineHeight: '2em', bgcolor: T.accentFaint }}>
+            {group}
+          </ListSubheader>,
+          ...items.map((item) => (
+            <MenuItem key={item.id} value={String(item.id)} sx={{ py: 1, display: 'flex', alignItems: 'center' }}>
+              <ListItemIcon sx={{ minWidth: 26, display: 'flex', alignItems: 'center' }}>
+                <Circle sx={{ fontSize: 8, color: item.colorHex }} />
+              </ListItemIcon>
+              <Typography sx={{ fontSize: '0.875rem' }}>{item.typeName}</Typography>
+            </MenuItem>
+          )),
+        ]);
+      })()}
+    </Select>
+  )}
+</FormControl>
+{/* preview chip for selected type */}
+{editedEmploymentCategory && (() => {
+  const cfg = typeConfigs.find((t) => String(t.id) === String(editedEmploymentCategory));
+  return cfg ? (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1.5, px: 1.5, py: 1, borderRadius: 2, bgcolor: alpha(cfg.colorHex, 0.06), border: `1px solid ${alpha(cfg.colorHex, 0.2)}` }}>
+      <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: cfg.colorHex, flexShrink: 0 }} />
+      <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: cfg.colorHex }}>
+        {cfg.parentGroup} | {cfg.typeName}
+      </Typography>
+    </Box>
+  ) : null;
+})()}
               </Box>
               <Alert severity="info" sx={{ borderRadius: 2 }} icon={<Info />}>Changes will be reflected across all modules and records.</Alert>
             </>
@@ -1829,21 +1959,70 @@ const UsersList = () => {
           <Box sx={{ mb: 2.5, p: 2, borderRadius: 2, border: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
             <Typography sx={{ fontSize: '0.82rem', color: T.muted }}>This will apply the selected category to all selected employees.</Typography>
           </Box>
-          <FormControl fullWidth size="small">
-            <InputLabel sx={{ fontSize: '0.82rem' }}>Employment Category</InputLabel>
-            <Select value={bulkEmploymentCategory} label="Employment Category" onChange={(e) => { setBulkEmploymentCategory(e.target.value); if (parseInt(e.target.value) !== 5) setBulkCustomCategory(""); }} sx={{ borderRadius: 2, bgcolor: '#fafafa', fontSize: '0.875rem', '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent } }}>
-              <ListSubheader>Job Order (JO)</ListSubheader>
-              <MenuItem value={0}><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 12, color: '#F57C00' }} /></ListItemIcon>Graduate</MenuItem>
-              <MenuItem value={1}><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 12, color: '#E64A19' }} /></ListItemIcon>UnderGrad</MenuItem>
-              <ListSubheader>Regular</ListSubheader>
-              <MenuItem value={2}><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 12, color: '#2E7D32' }} /></ListItemIcon>Non-Teaching</MenuItem>
-              <MenuItem value={3}><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 12, color: '#1565C0' }} /></ListItemIcon>Teaching (30Hrs)</MenuItem>
-              <MenuItem value={4}><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 12, color: '#7B1FA2' }} /></ListItemIcon>Designated (40Hrs)</MenuItem>
-              <ListSubheader>Custom</ListSubheader>
-              <MenuItem value={5}><ListItemIcon sx={{ minWidth: 28 }}><Circle sx={{ fontSize: 12, color: '#00796B' }} /></ListItemIcon>Other (specify)</MenuItem>
-            </Select>
-          </FormControl>
-          {parseInt(bulkEmploymentCategory) === 5 && <Fade in><FieldInput fullWidth label="Custom Category Description *" value={bulkCustomCategory} onChange={(e) => setBulkCustomCategory(e.target.value)} sx={{ mt: 2 }} required size="small" /></Fade>}
+          {typeConfigs.length === 0 ? (
+            <Box sx={{ p: 2.5, textAlign: 'center', border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, bgcolor: alpha(T.accent, 0.02) }}>
+              <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>No employment types configured yet. Set them up in Employment Category Management.</Typography>
+            </Box>
+          ) : (
+            <FormControl fullWidth size="small">
+              <InputLabel shrink sx={{ fontSize: '0.82rem' }}>Employment Category</InputLabel>
+              <Select
+                value={bulkEmploymentCategory}
+                label="Employment Category"
+                onChange={(e) => setBulkEmploymentCategory(e.target.value)}
+                displayEmpty
+                sx={{ borderRadius: 2, bgcolor: '#fafafa', fontSize: '0.875rem', '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent } }}
+                renderValue={(val) => {
+                  if (!val) return <Typography sx={{ color: T.faint, fontSize: '0.875rem' }}>Select a category…</Typography>;
+                  const found = typeConfigs.find((t) => String(t.id) === String(val));
+                  if (!found) return val;
+                  return (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Circle sx={{ fontSize: 8, color: found.colorHex }} />
+                      <Typography sx={{ fontSize: '0.875rem' }}>{found.parentGroup} | {found.typeName}</Typography>
+                    </Box>
+                  );
+                }}
+              >
+                <MenuItem value="" disabled>
+                  <Typography sx={{ color: T.faint, fontSize: '0.875rem' }}>Select a category…</Typography>
+                </MenuItem>
+                {(() => {
+                  // group active configs by parentGroup, preserve insertion order
+                  const grouped = {};
+                  typeConfigs.filter((t) => t.isActive !== false).forEach((t) => {
+                    if (!grouped[t.parentGroup]) grouped[t.parentGroup] = [];
+                    grouped[t.parentGroup].push(t);
+                  });
+                  return Object.entries(grouped).flatMap(([group, items]) => [
+                    <ListSubheader key={`hdr-${group}`} sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: alpha(T.accent, 0.55), lineHeight: '2em', bgcolor: T.accentFaint }}>
+                      {group}
+                    </ListSubheader>,
+                    ...items.map((item) => (
+                      <MenuItem key={item.id} value={String(item.id)} sx={{ py: 1, display: 'flex', alignItems: 'center' }}>
+                        <ListItemIcon sx={{ minWidth: 26, display: 'flex', alignItems: 'center' }}>
+                          <Circle sx={{ fontSize: 8, color: item.colorHex }} />
+                        </ListItemIcon>
+                        <Typography sx={{ fontSize: '0.875rem' }}>{item.typeName}</Typography>
+                      </MenuItem>
+                    )),
+                  ]);
+                })()}
+              </Select>
+            </FormControl>
+          )}
+          {/* preview chip for selected type */}
+          {bulkEmploymentCategory && (() => {
+            const cfg = typeConfigs.find((t) => String(t.id) === String(bulkEmploymentCategory));
+            return cfg ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1.5, px: 1.5, py: 1, borderRadius: 2, bgcolor: alpha(cfg.colorHex, 0.06), border: `1px solid ${alpha(cfg.colorHex, 0.2)}` }}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: cfg.colorHex, flexShrink: 0 }} />
+                <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: cfg.colorHex }}>
+                  {cfg.parentGroup} | {cfg.typeName}
+                </Typography>
+              </Box>
+            ) : null;
+          })()}
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2.5, gap: 1.25, borderTop: `1px solid ${T.divider}` }}>
           <AccentButton onClick={closeBulkCategoryEdit} startIcon={<Close sx={{ fontSize: 14 }} />} disabled={bulkEditLoading} variant="outlined" sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>Cancel</AccentButton>
