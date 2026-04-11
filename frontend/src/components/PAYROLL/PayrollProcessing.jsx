@@ -678,7 +678,7 @@ const PayrollProcess = () => {
       };
       const computeVLTimeOffset = (item) => {
         const tevl = parseFloat(item.tevl) + 10;
-        const tevlSeconds = ParseFloat(tevl) * 3600;
+        const tevlSeconds = parseFloat(tevl) * 3600;
         const tardySeconds = toSecondsFromHMS(item.h, item.m, item.s);
         const dvltSeconds = Math.min(tevlSeconds, tardySeconds);
         const vlbSeconds = tevlSeconds - dvltSeconds;
