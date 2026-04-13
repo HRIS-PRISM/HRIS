@@ -108,6 +108,7 @@ import {
   ChevronRight,
   WarningAmberRounded,
   LockReset as LockResetIcon,
+  KeyboardArrowUp,
 } from "@mui/icons-material";
 import SearchIcon from "@mui/icons-material/Search";
 import WifiOffIcon from "@mui/icons-material/WifiOff";
@@ -434,7 +435,6 @@ const UsersList = () => {
     administrator: { color: "#9333EA", bgcolor: alpha("#9333EA", 0.08) },
     superadmin:    { color: "#C2410C", bgcolor: alpha("#C2410C", 0.08) },
   };
-  // ─── UPDATED: categoryFilter now stores compound "group||value" or "type||id" ──
   const [categoryFilter, setCategoryFilter]     = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [tableTab, setTableTab]                 = useState(0);
@@ -454,6 +454,9 @@ const UsersList = () => {
   const [empCatMap, setEmpCatMap]       = useState({});
   const [typeConfigs, setTypeConfigs]   = useState([]);
 
+  // ─── Scroll-to-top state ───────────────────────────────────────────────────
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
   const theme    = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const navigate = useNavigate();
@@ -466,6 +469,15 @@ const UsersList = () => {
   const s  = settings?.secondaryColor  || "#6d2323";
   const ac = settings?.accentColor     || "#FEF9E1";
   const tp = settings?.textPrimaryColor || "#6D2323";
+
+  // ─── Scroll-to-top effect ──────────────────────────────────────────────────
+  useEffect(() => {
+    const handleScroll = () => setShowScrollTop(window.scrollY > 300);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
   const EnterpriseCard = useMemo(() => styled(Card)(() => ({
     borderRadius: 12,
@@ -702,7 +714,6 @@ const UsersList = () => {
   useEffect(() => { const h = () => { if (mountedRef.current && offline) { clearRetryTimers(); fetchUsers(false, 0); } }; window.addEventListener("online", h); return () => window.removeEventListener("online", h); }, [offline, fetchUsers, clearRetryTimers]);
   useEffect(() => { if (moduleAuthorized && !isTechnicalUser) { fetchUsers(); fetchTypeConfigs(); } }, [moduleAuthorized]); // eslint-disable-line
 
-  // ─── UPDATED: filter logic now handles compound "group||" and "type||" keys ──
   useEffect(() => {
     const sourceUsers = tableTab === 0 ? properUsers : incompleteUsers;
     const filtered    = sourceUsers.filter((user) => {
@@ -715,7 +726,6 @@ const UsersList = () => {
         ? (user.role || "").toLowerCase() === roleFilter.toLowerCase()
         : true;
 
-      // ─── UPDATED matchesCategory: supports "group||GroupName" and "type||id" ──
       const matchesCategory = categoryFilter !== ''
         ? (() => {
             const [filterType, filterValue] = categoryFilter.split('||');
@@ -723,8 +733,6 @@ const UsersList = () => {
             if (!entry) return false;
 
             if (filterType === 'group') {
-              // Match any type whose parentGroup equals filterValue
-              // e.g. "All Non-Teaching" matches all users whose label starts with "Non-Teaching | ..."
               const groupItems = typeConfigs.filter((t) => t.parentGroup === filterValue);
               return groupItems.some((t) => {
                 const label = t.parentGroup && t.typeName
@@ -734,7 +742,6 @@ const UsersList = () => {
               });
             }
 
-            // filterType === 'type': exact match by type config id
             const matched = typeConfigs.find((t) => String(t.id) === filterValue);
             if (!matched) return false;
             const matchLabel = matched.parentGroup && matched.typeName
@@ -974,7 +981,6 @@ const UsersList = () => {
     return getEmploymentCategoryInfo(user.employmentCategory, user.customCategory || user.custom_category);
   }, [empCatMap]);
 
-  // ─── Grouped typeConfigs for the filter dropdown (same as ECM) ─────────────
   const groupedTypeConfigs = useMemo(() => {
     const g = {};
     typeConfigs.filter((t) => t.isActive !== false).forEach((t) => {
@@ -1099,7 +1105,6 @@ const UsersList = () => {
         <Box sx={{ px: 3.5, py: 1.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1.25 }}>
           <FilterList sx={{ fontSize: 14, color: T.accent }} />
           <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>Search & Filter</Typography>
-          {/* ─── Active filter pill ─────────────────────────────────────── */}
           {categoryFilter && (() => {
             const [filterType, filterValue] = categoryFilter.split('||');
             let label = '';
@@ -1136,7 +1141,6 @@ const UsersList = () => {
               </CleanTextField>
             </Grid>
 
-            {/* ─── UPDATED: hierarchical Employment Category filter ─────────── */}
             <Grid item xs={6} md={3}>
               <FormControl fullWidth size="small">
                 <InputLabel shrink sx={{ fontSize: '0.82rem' }}>Employment Category</InputLabel>
@@ -1175,7 +1179,6 @@ const UsersList = () => {
                     ) : <Typography sx={{ fontSize: '0.8rem' }}>{filterValue}</Typography>;
                   }}
                 >
-                  {/* All Categories option */}
                   <MenuItem value="">
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Circle sx={{ fontSize: 8, color: T.faint }} />
@@ -1183,9 +1186,7 @@ const UsersList = () => {
                     </Box>
                   </MenuItem>
 
-                  {/* Grouped options — mirrors EmploymentCategoryManagement exactly */}
                   {Object.entries(groupedTypeConfigs).flatMap(([group, items]) => [
-                    // Group subheader
                     <ListSubheader
                       key={`hdr-${group}`}
                       sx={{
@@ -1198,7 +1199,6 @@ const UsersList = () => {
                       <Circle sx={{ fontSize: 7 }} /> {group}
                     </ListSubheader>,
 
-                    // "All in group" shortcut — e.g. "All Non-Teaching"
                     <MenuItem key={`group-all-${group}`} value={`group||${group}`} sx={{ py: 0.75, pl: 2.5 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: alpha(T.accent, 0.35), flexShrink: 0 }} />
@@ -1208,7 +1208,6 @@ const UsersList = () => {
                       </Box>
                     </MenuItem>,
 
-                    // Individual sub-types
                     ...items.map((item) => (
                       <MenuItem key={item.id} value={`type||${String(item.id)}`} sx={{ py: 0.75, pl: 3.5 }}>
                         <ListItemIcon sx={{ minWidth: 26 }}>
@@ -1238,7 +1237,6 @@ const UsersList = () => {
       {/* ── Users Table ── */}
       <SectionCard sx={{ overflow: 'hidden' }}>
 
-        {/* Table header bar */}
         <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1.5 }}>
           <Box>
             <Typography sx={{ fontWeight: 700, fontSize: '0.88rem', color: T.text }}>Registered Users</Typography>
@@ -1272,7 +1270,6 @@ const UsersList = () => {
           </Box>
         </Box>
 
-        {/* Account type tabs */}
         <Box sx={{ px: 3.5, borderBottom: `1px solid ${T.divider}`, display: 'flex' }}>
           {[
             { label: 'Accounts',            count: properUsers.length,     color: '#2E7D32', icon: <CheckCircle sx={{ fontSize: 13 }} />         },
@@ -2162,6 +2159,45 @@ const UsersList = () => {
       <Snackbar open={snackbarOpen} autoHideDuration={4000} onClose={() => setSnackbarOpen(false)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
         <Alert onClose={() => setSnackbarOpen(false)} severity="error" sx={{ borderRadius: 2 }}>{snackbarMessage}</Alert>
       </Snackbar>
+
+      {/* ════════════════════════════════════════════════════════════
+          SCROLL TO TOP BUTTON
+      ════════════════════════════════════════════════════════════ */}
+      <Fade in={showScrollTop} timeout={300}>
+        <Tooltip title="Back to top" placement="left">
+          <Box
+            onClick={scrollToTop}
+            sx={{
+              position: 'fixed',
+              bottom: 28,
+              right: 28,
+              zIndex: 9999,
+              width: 40,
+              height: 40,
+              borderRadius: '12px',
+              bgcolor: T.accent,
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              border: '1.5px solid rgba(255,255,255,0.15)',
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                bgcolor: T.accentDark,
+                transform: 'translateY(-3px)',
+                boxShadow: `0 8px 28px ${alpha(T.accent, 0.5)}`,
+              },
+              '&:active': {
+                transform: 'translateY(-1px)',
+              },
+            }}
+          >
+            <KeyboardArrowUp sx={{ fontSize: 22 }} />
+          </Box>
+        </Tooltip>
+      </Fade>
+
     </Box>
   );
 };
