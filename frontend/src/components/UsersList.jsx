@@ -628,21 +628,29 @@ const UsersList = () => {
     } catch {}
   }, []);
 
+  // ─── doFetchUsers — now also fetches /api/department-assignment ────────────
   const doFetchUsers = useCallback(async () => {
     const authHeaders = getAuthHeaders();
-    const [usersResp, personsResp, empCatsResp] = await Promise.all([
-      fetch(`${API_BASE_URL}/users`,                                                        { method: "GET", ...authHeaders }),
-      fetch(`${API_BASE_URL}/personalinfo/person_table`,                                    { method: "GET", ...authHeaders }),
-      fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,                 { method: "GET", ...authHeaders }),
+    const [usersResp, personsResp, empCatsResp, deptAssignResp] = await Promise.all([
+      fetch(`${API_BASE_URL}/users`,                                                    { method: "GET", ...authHeaders }),
+      fetch(`${API_BASE_URL}/personalinfo/person_table`,                                { method: "GET", ...authHeaders }),
+      fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,             { method: "GET", ...authHeaders }),
+      fetch(`${API_BASE_URL}/api/department-assignment`,                                { method: "GET", ...authHeaders }), // ← NEW
     ]);
-    if (!usersResp.ok) { const err = await usersResp.json().catch(() => ({})); throw new Error(err.error || "Failed to fetch users"); }
-    const usersDataRaw   = await usersResp.json();
-    const personsDataRaw = await personsResp.json().catch(() => []);
-    const empCatsDataRaw = empCatsResp?.ok ? await empCatsResp.json().catch(() => []) : [];
-    const usersArray   = Array.isArray(usersDataRaw)   ? usersDataRaw   : usersDataRaw.users   || usersDataRaw.data   || [];
-    const personsArray = Array.isArray(personsDataRaw) ? personsDataRaw : personsDataRaw.persons || personsDataRaw.data || [];
-    const empCatsArray = Array.isArray(empCatsDataRaw) ? empCatsDataRaw : empCatsDataRaw.data   || empCatsDataRaw.records || [];
 
+    if (!usersResp.ok) { const err = await usersResp.json().catch(() => ({})); throw new Error(err.error || "Failed to fetch users"); }
+
+    const usersDataRaw      = await usersResp.json();
+    const personsDataRaw    = await personsResp.json().catch(() => []);
+    const empCatsDataRaw    = empCatsResp?.ok    ? await empCatsResp.json().catch(() => [])    : [];
+    const deptAssignDataRaw = deptAssignResp?.ok ? await deptAssignResp.json().catch(() => []) : []; // ← NEW
+
+    const usersArray      = Array.isArray(usersDataRaw)      ? usersDataRaw      : usersDataRaw.users      || usersDataRaw.data      || [];
+    const personsArray    = Array.isArray(personsDataRaw)    ? personsDataRaw    : personsDataRaw.persons   || personsDataRaw.data    || [];
+    const empCatsArray    = Array.isArray(empCatsDataRaw)    ? empCatsDataRaw    : empCatsDataRaw.data      || empCatsDataRaw.records || [];
+    const deptAssignArray = Array.isArray(deptAssignDataRaw) ? deptAssignDataRaw : deptAssignDataRaw.data   || []; // ← NEW
+
+    // ── Build employment category map ─────────────────────────────────────────
     const newEmpCatMap = {};
     (empCatsArray || []).forEach((item) => {
       if (!item.employeeNumber) return;
@@ -668,22 +676,46 @@ const UsersList = () => {
       return acc;
     }, {});
 
+    // ── Build department assignment map: employeeNumber → { code, description } ──
+    // ← NEW BLOCK
+    const deptAssignMap = {};
+    (deptAssignArray || []).forEach((a) => {
+      if (!a.employeeNumber) return;
+      deptAssignMap[String(a.employeeNumber)] = {
+        code:        a.code        || null,
+        description: a.name        || a.description || null,
+      };
+    });
+
     return (usersArray || []).map((user) => {
-      const person    = (personsArray || []).find((p) => String(p.agencyEmployeeNum) === String(user.employeeNumber));
-      const empCatRow = empCatsMap[String(user.employeeNumber)] || null;
-      const fullName  = person ? `${person.firstName || ""} ${person.middleName || ""} ${person.lastName || ""} ${person.nameExtension || ""}`.trim() : user.fullName || user.username || `${user.firstName || ""} ${user.lastName || ""}`.trim();
-      const avatar    = person?.profile_picture ? `${API_BASE_URL}${person.profile_picture}` : user.avatar ? String(user.avatar).startsWith("http") ? user.avatar : `${API_BASE_URL}${user.avatar}` : null;
+      const person     = (personsArray || []).find((p) => String(p.agencyEmployeeNum) === String(user.employeeNumber));
+      const empCatRow  = empCatsMap[String(user.employeeNumber)] || null;
+      const deptAssign = deptAssignMap[String(user.employeeNumber)] || null; // ← NEW
+
+      const fullName = person
+        ? `${person.firstName || ""} ${person.middleName || ""} ${person.lastName || ""} ${person.nameExtension || ""}`.trim()
+        : user.fullName || user.username || `${user.firstName || ""} ${user.lastName || ""}`.trim();
+
+      const avatar = person?.profile_picture
+        ? `${API_BASE_URL}${person.profile_picture}`
+        : user.avatar
+          ? String(user.avatar).startsWith("http") ? user.avatar : `${API_BASE_URL}${user.avatar}`
+          : null;
+
       return {
         ...user,
         fullName: fullName || "Username",
         avatar: avatar || null,
         personData: person || {},
-        employmentCategory: empCatRow?.employmentCategory !== undefined && empCatRow?.employmentCategory !== null ? empCatRow.employmentCategory : user.employmentCategory !== undefined ? user.employmentCategory : null,
+        employmentCategory: empCatRow?.employmentCategory !== undefined && empCatRow?.employmentCategory !== null
+          ? empCatRow.employmentCategory
+          : user.employmentCategory !== undefined ? user.employmentCategory : null,
         customCategory: empCatRow?.customCategory ?? empCatRow?.custom_category ?? user.customCategory ?? user.custom_category ?? null,
         empCatLabel:  empCatRow ? (empCatRow.parentGroup && empCatRow.typeName ? `${empCatRow.parentGroup} | ${empCatRow.typeName}` : empCatRow.categoryLabel || null) : null,
         empCatColor:  empCatRow?.colorHex || null,
-        departmentCode: user.departmentCode || null,
-        departmentDescription: user.departmentDescription || null,
+        // ── Department: prefer assignment table, fall back to /users fields ──
+        departmentCode:        deptAssign?.code        ?? user.departmentCode        ?? null, // ← UPDATED
+        departmentDescription: deptAssign?.description ?? user.departmentDescription ?? null, // ← UPDATED
       };
     });
   }, []);
@@ -2169,11 +2201,11 @@ const UsersList = () => {
             onClick={scrollToTop}
             sx={{
               position: 'fixed',
-              bottom: 28,
-              right: 28,
+              bottom: 5,
+              right: 33,
               zIndex: 9999,
-              width: 40,
-              height: 40,
+              width: 35,
+              height: 35,
               borderRadius: '12px',
               bgcolor: T.accent,
               color: '#fff',
@@ -2193,7 +2225,7 @@ const UsersList = () => {
               },
             }}
           >
-            <KeyboardArrowUp sx={{ fontSize: 22 }} />
+            <KeyboardArrowUp sx={{ fontSize: 25 }} />
           </Box>
         </Tooltip>
       </Fade>
