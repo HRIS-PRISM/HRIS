@@ -152,6 +152,9 @@ const filterSelectSx = {
   },
 };
 
+const TABLE_HEADER_HEIGHT = 56;
+const TABLE_BODY_ROW_HEIGHT = 52;
+
 const ExcelTableCell = ({ children, header, ...props }) => (
   <TableCell
     {...props}
@@ -944,7 +947,9 @@ const PayrollProcess = () => {
     return groupName
       .split(/\s+/)
       .map((word) =>
-        skip.includes(word.toLowerCase()) ? null : word.slice(0, 3).toUpperCase(),
+        skip.includes(word.toLowerCase())
+          ? null
+          : word.slice(0, 3).toUpperCase(),
       )
       .filter(Boolean)
       .join('.');
@@ -978,18 +983,49 @@ const PayrollProcess = () => {
     );
   };
 
+  const quickViewMeta = useMemo(() => {
+    if (!activeQuickTab) return null;
+    const [group = '', type = ''] = activeQuickTab.split('|');
+    const abbr = abbreviateGroup(group);
+    return {
+      group,
+      type,
+      badge: `${abbr} ${type}`.trim(),
+    };
+  }, [activeQuickTab]);
+
+  const money2 = (value) => {
+    const n = parseFloat(String(value ?? 0).replace(/,/g, ''));
+    return Number.isFinite(n)
+      ? n.toLocaleString('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+      : '0.00';
+  };
+
   const computedRows = filteredData.map((item) => {
     const c = calculatePayroll(item) || item;
     return {
-      ...c, h: c.h || 0, m: c.m || 0,
+      ...c,
+      h: c.h || 0,
+      m: c.m || 0,
       // ── Store raw tevl hours BEFORE formatting so the days label stays accurate
       _tevlRawHours: parseFloat(c.tevl) || 0,
-      totalGsisDeds: fmt(c.totalGsisDeds), totalPagibigDeds: fmt(c.totalPagibigDeds),
-      totalOtherDeds: fmt(c.totalOtherDeds), grossSalary: fmt(c.grossSalary),
-      tevl: fmt(c.tevl), abs: fmt(c.abs), netSalary: fmt(c.netSalary),
-      totalDeductions: fmt(c.totalDeductions), PhilHealthContribution: fmt(c.PhilHealthContribution),
-      personalLifeRetIns: fmt(c.personalLifeRetIns), pay1stCompute: fmt(c.pay1stCompute),
-      pay2ndCompute: fmt(c.pay2ndCompute), pay1st: fmt(c.pay1st, 0), pay2nd: fmt(c.pay2nd),
+      totalGsisDeds: fmt(c.totalGsisDeds),
+      totalPagibigDeds: fmt(c.totalPagibigDeds),
+      totalOtherDeds: fmt(c.totalOtherDeds),
+      grossSalary: fmt(c.grossSalary),
+      tevl: fmt(c.tevl),
+      abs: fmt(c.abs),
+      netSalary: fmt(c.netSalary),
+      totalDeductions: fmt(c.totalDeductions),
+      PhilHealthContribution: fmt(c.PhilHealthContribution),
+      personalLifeRetIns: fmt(c.personalLifeRetIns),
+      pay1stCompute: fmt(c.pay1stCompute),
+      pay2ndCompute: fmt(c.pay2ndCompute),
+      pay1st: fmt(c.pay1st, 0),
+      pay2nd: fmt(c.pay2nd),
       rtIns: fmt(c.rtIns),
     };
   });
@@ -1881,371 +1917,153 @@ const PayrollProcess = () => {
             gap: 1.5,
           }}
         >
-          <Box>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              flexWrap: 'wrap',
+            }}
+          >
             <Typography
               sx={{ fontWeight: 700, fontSize: '0.88rem', color: T.text }}
             >
               Employee Payroll Data
             </Typography>
-            <Typography sx={{ fontSize: '0.72rem', color: T.faint, mt: 0.1 }}>
-              Total {filteredData.length} records · {selectedRows.length}{' '}
-              selected
-            </Typography>
-          </Box>
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-            {selectedRows.length > 0 && (
-              <Box
+            {quickViewMeta && (
+              <Chip
+                label={quickViewMeta.badge}
+                size="small"
                 sx={{
-                  px: 1.5,
-                  py: 0.35,
-                  bgcolor: T.accentFaint,
-                  border: `1px solid ${T.accentBorder}`,
-                  borderRadius: '20px',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  bgcolor: alpha('#f59e0b', 0.11),
+                  color: '#7a4b00',
+                  border: '1px solid rgba(245,158,11,0.45)',
+                }}
+              />
+            )}
+            {!quickViewMeta && (
+              <Typography
+                sx={{
+                  fontSize: '0.72rem',
+                  color: T.faint,
+                  mt: 0.1,
+                  width: '100%',
                 }}
               >
-                <Typography
-                  sx={{ fontSize: '0.68rem', fontWeight: 700, color: T.accent }}
-                >
-                  {selectedRows.length} selected
-                </Typography>
-              </Box>
+                Total {filteredData.length} records · {selectedRows.length}{' '}
+                selected
+              </Typography>
             )}
-            <AccentButton
-              variant="outlined"
-              size="small"
-              startIcon={<Refresh sx={{ fontSize: 14 }} />}
-              onClick={() => fetchPayrollData()}
-              sx={{
-                fontSize: '0.72rem',
-                px: 1.25,
-                py: 0.35,
-                height: 28,
-                borderColor: T.accentBorder,
-                color: T.accent,
-                '&:hover': {
-                  bgcolor: T.accentFaint,
-                  borderColor: T.accent,
-                  transform: 'none',
-                },
-              }}
-            >
-              Refresh
-            </AccentButton>
           </Box>
+          {quickViewMeta ? (
+            <Typography
+              sx={{ fontSize: '0.72rem', color: T.muted, fontWeight: 600 }}
+            >
+              {filteredData.length} records &nbsp;·&nbsp; {selectedRows.length}{' '}
+              selected
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              {selectedRows.length > 0 && (
+                <Box
+                  sx={{
+                    px: 1.5,
+                    py: 0.35,
+                    bgcolor: T.accentFaint,
+                    border: `1px solid ${T.accentBorder}`,
+                    borderRadius: '20px',
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      color: T.accent,
+                    }}
+                  >
+                    {selectedRows.length} selected
+                  </Typography>
+                </Box>
+              )}
+              <AccentButton
+                variant="outlined"
+                size="small"
+                startIcon={<Refresh sx={{ fontSize: 14 }} />}
+                onClick={() => fetchPayrollData()}
+                sx={{
+                  fontSize: '0.72rem',
+                  px: 1.25,
+                  py: 0.35,
+                  height: 28,
+                  borderColor: T.accentBorder,
+                  color: T.accent,
+                  '&:hover': {
+                    bgcolor: T.accentFaint,
+                    borderColor: T.accent,
+                    transform: 'none',
+                  },
+                }}
+              >
+                Refresh
+              </AccentButton>
+            </Box>
+          )}
         </Box>
 
         {/* Scrollable table + frozen columns */}
-        <Box sx={{ display: 'flex', width: '100%', position: 'relative' }}>
-          <Box
-            sx={{
-              overflowX: 'auto',
-              flex: 1,
-              minWidth: 0,
-              '&::-webkit-scrollbar': { height: 8 },
-              '&::-webkit-scrollbar-track': {
-                background: T.accentFaint,
-                borderRadius: 4,
-              },
-              '&::-webkit-scrollbar-thumb': {
-                background: alpha(T.accent, 0.35),
-                borderRadius: 4,
-                '&:hover': { background: alpha(T.accent, 0.55) },
-              },
-            }}
-          >
+        {quickViewMeta ? (
+          <Box sx={{ width: '100%' }}>
             <TableContainer
               component={Paper}
               elevation={0}
-              sx={{
-                overflowX: 'auto',
-                width: 'max-content',
-                minWidth: '100%',
-                borderRadius: 0,
-              }}
+              sx={{ borderRadius: 0 }}
             >
-              <Table sx={{ minWidth: 'max-content', tableLayout: 'auto' }}>
+              <Table sx={{ tableLayout: 'fixed', minWidth: 960 }}>
                 <TableHead>
                   <TableRow sx={{ bgcolor: alpha(T.accent, 0.03) }}>
-                    <TableCell
-                      padding="checkbox"
-                      sx={{
-                        borderBottom: `2px solid ${T.accentBorder}`,
-                        bgcolor: alpha(T.accent, 0.03),
-                        py: 1.5,
-                      }}
-                    >
-                      <Checkbox
-                        size="small"
-                        sx={{
-                          color: T.accentBorder,
-                          '&.Mui-checked': { color: T.accent },
-                          '&.MuiCheckbox-indeterminate': { color: T.accent },
-                          p: 0,
-                        }}
-                        indeterminate={
-                          selectedRows.length > 0 &&
-                          selectedRows.length <
-                            computedRows.filter(
-                              (row) =>
-                                !finalizedPayroll.some(
-                                  (fp) =>
-                                    fp.employeeNumber === row.employeeNumber &&
-                                    fp.startDate === row.startDate &&
-                                    fp.endDate === row.endDate,
-                                ),
-                            ).length
-                        }
-                        checked={
-                          selectedRows.length > 0 &&
-                          selectedRows.length ===
-                            computedRows.filter(
-                              (row) =>
-                                !finalizedPayroll.some(
-                                  (fp) =>
-                                    fp.employeeNumber === row.employeeNumber &&
-                                    fp.startDate === row.startDate &&
-                                    fp.endDate === row.endDate,
-                                ),
-                            ).length
-                        }
-                        onChange={(e) => {
-                          if (e.target.checked)
-                            setSelectedRows(
-                              computedRows
-                                .filter(
-                                  (row) =>
-                                    !finalizedPayroll.some(
-                                      (fp) =>
-                                        fp.employeeNumber ===
-                                          row.employeeNumber &&
-                                        fp.startDate === row.startDate &&
-                                        fp.endDate === row.endDate,
-                                    ),
-                                )
-                                .map(
-                                  (row) =>
-                                    `${row.employeeNumber}|${row.startDate}|${row.endDate}`,
-                                ),
-                            );
-                          else setSelectedRows([]);
-                        }}
-                      />
-                    </TableCell>
-                    {[
-                      ['No.', null, null],
-                      ['Department', null, null],
-                      ['Employee Number', null, null],
-                      ['Start Date', null, null],
-                      ['End Date', null, null],
-                      ['Name', null, null],
-                      ['Position', null, null],
-                      [
-                        'Rate NBC 594',
-                        'rateNbc594',
-                        'Salary Rate per National Budget Circular 594',
-                      ],
-                      [
-                        "NBC DIFF'L 597",
-                        'nbcDiffl597',
-                        'NBC Differential 597 — Salary Adjustment',
-                      ],
-                      [
-                        'Increment',
-                        'increment',
-                        'Salary Increment / Step Increment',
-                      ],
-                      [
-                        'Gross Salary',
-                        'grossSalary',
-                        'Gross Salary — Total salary before any deductions',
-                      ],
-                      [
-                        'TEVL',
-                        'tevl',
-                        'Total Earned Vacation Leave (hrs / days)',
-                      ],
-                      ['H', 'h', 'Hours Late / Undertime'],
-                      ['M', 'm', 'Minutes Late / Undertime'],
-                      [
-                        'ABS',
-                        'abs',
-                        'Absence Deductions — Amount deducted for absences',
-                      ],
-                      [
-                        'Net Salary',
-                        'netSalary',
-                        'Net Salary — Take-home pay after all deductions',
-                      ],
-                      [
-                        'Withholding Tax',
-                        'withholdingTax',
-                        'Withholding Tax — BIR income tax withheld',
-                      ],
-                      [
-                        'Total GSIS Deductions',
-                        'totalGsisDeds',
-                        'Total GSIS Deductions',
-                      ],
-                      [
-                        'Total Pag-ibig Deductions',
-                        'totalPagibigDeds',
-                        'Total Pag-IBIG Deductions',
-                      ],
-                      [
-                        'PhilHealth',
-                        'PhilHealthContribution',
-                        'PhilHealth Contribution',
-                      ],
-                      [
-                        'Total Other Deductions',
-                        'totalOtherDeds',
-                        'Total Other Deductions',
-                      ],
-                      [
-                        'Total Deductions',
-                        'totalDeductions',
-                        'Total Deductions — Grand total of all deductions',
-                      ],
-                      [
-                        '1st Pay',
-                        'pay1st',
-                        '1st Pay — First half salary release amount',
-                      ],
-                      [
-                        '2nd Pay',
-                        'pay2nd',
-                        '2nd Pay — Second half salary release amount',
-                      ],
-                      ['No.', null, null],
-                      [
-                        'RT Ins.',
-                        'rtIns',
-                        'Retirement Insurance — GSIS retirement and insurance premium',
-                      ],
-                      [
-                        'EC',
-                        'ec',
-                        "Employees' Compensation — EC program contribution",
-                      ],
-                      [
-                        'PhilHealth',
-                        'PhilHealthContribution',
-                        'PhilHealth Contribution',
-                      ],
-                      [
-                        'Pag-Ibig',
-                        'pagibigFundCont',
-                        'Pag-IBIG Fund Contribution',
-                      ],
-                    ].map(([label, key, fullName], i) => (
+                    {(quickViewMeta.type === 'PAY'
+                      ? [
+                          'NO.',
+                          'NAME',
+                          'DEPARTMENT',
+                          'GROSS SALARY',
+                          'NET SALARY',
+                          '1ST PAY',
+                          '2ND PAY',
+                          'STATUS',
+                        ]
+                      : quickViewMeta.type === 'WTAX'
+                        ? [
+                            'NO.',
+                            'NAME',
+                            'DEPARTMENT',
+                            'GROSS SALARY',
+                            'W. TAX',
+                            'TOTAL DEDS.',
+                            'NET SALARY',
+                            'STATUS',
+                          ]
+                        : [
+                            'NO.',
+                            'NAME',
+                            'DEPARTMENT',
+                            'GROSS SALARY',
+                            'NET SALARY',
+                            'W. TAX',
+                            'TOTAL DEDS.',
+                            '1ST PAY',
+                            'STATUS',
+                          ]
+                    ).map((header) => (
                       <TableCell
-                        key={`th-${i}-${label}`}
+                        key={`qv-h-${header}`}
                         sx={{
                           borderBottom: `2px solid ${T.accentBorder}`,
-                          py: 1.5,
+                          py: 1.25,
                           px: 2,
-                          fontSize: '0.62rem',
-                          fontWeight: 700,
-                          color: T.accent,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.08em',
-                          whiteSpace: 'nowrap',
-                          bgcolor: alpha(T.accent, 0.03),
-                          ...(label === 'Pay1st Compute' ||
-                          label === 'Pay2nd Compute'
-                            ? { borderLeft: '2px solid rgba(0,0,0,0.15)' }
-                            : {}),
-                        }}
-                      >
-                        {key && fullName ? (
-                          <HeaderTooltip fieldKey={key} fullName={fullName}>
-                            {label}
-                          </HeaderTooltip>
-                        ) : (
-                          label
-                        )}
-                      </TableCell>
-                    ))}
-                    <TableCell
-                      sx={{
-                        borderBottom: `2px solid ${T.accentBorder}`,
-                        borderLeft: '2px solid rgba(0,0,0,0.15)',
-                        py: 1.5,
-                        px: 2,
-                        fontSize: '0.62rem',
-                        fontWeight: 700,
-                        color: T.accent,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.08em',
-                        whiteSpace: 'nowrap',
-                        bgcolor: alpha(T.accent, 0.03),
-                      }}
-                    >
-                      <HeaderTooltip
-                        fieldKey="pay1stCompute"
-                        fullName="1st Pay Computed Amount"
-                      >
-                        Pay1st Compute
-                      </HeaderTooltip>
-                    </TableCell>
-                    <TableCell
-                      sx={{
-                        borderBottom: `2px solid ${T.accentBorder}`,
-                        py: 1.5,
-                        px: 2,
-                        fontSize: '0.62rem',
-                        fontWeight: 700,
-                        color: T.accent,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.08em',
-                        whiteSpace: 'nowrap',
-                        bgcolor: alpha(T.accent, 0.03),
-                      }}
-                    >
-                      <HeaderTooltip
-                        fieldKey="pay2ndCompute"
-                        fullName="2nd Pay Computed Amount"
-                      >
-                        Pay2nd Compute
-                      </HeaderTooltip>
-                    </TableCell>
-                    {[
-                      'No.',
-                      'Name',
-                      'Position',
-                      'Withholding Tax',
-                      'Personal Life Ret Ins',
-                      'GSIS Salary Loan',
-                      'GSIS Policy Loan',
-                      'gsisArrears',
-                      'CPL',
-                      'MPL',
-                      'EAL',
-                      'MPL LITE',
-                      'Emergency Loan (ELA)',
-                      'Total GSIS Deductions',
-                      'Pag-ibig Fund Contribution',
-                      'Pag-ibig 2',
-                      'Multi-Purpose Loan',
-                      'Total Pag-Ibig Deduction',
-                      'PhilHealth',
-                      'liquidatingCash',
-                      'LandBank Salary Loan',
-                      'Earist Credit COOP.',
-                      'FEU',
-                      'Total Other Deductions',
-                      'Total Deductions',
-                    ].map((h, i) => (
-                      <TableCell
-                        key={`th2-${i}-${h}`}
-                        sx={{
-                          borderBottom: `2px solid ${T.accentBorder}`,
-                          ...(i === 0
-                            ? { borderLeft: '2px solid rgba(0,0,0,0.15)' }
-                            : {}),
-                          py: 1.5,
-                          px: 2,
-                          fontSize: '0.62rem',
+                          fontSize: '0.64rem',
                           fontWeight: 700,
                           color: T.accent,
                           textTransform: 'uppercase',
@@ -2254,127 +2072,201 @@ const PayrollProcess = () => {
                           bgcolor: alpha(T.accent, 0.03),
                         }}
                       >
-                        {h}
+                        {header}
                       </TableCell>
                     ))}
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredData.length > 0 ? computedRows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((row, index) => {
-                    const isDuplicate = duplicateEmployeeNumbers.includes(`${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`);
+                  {filteredData.length > 0 ? (
+                    computedRows
+                      .slice(
+                        page * rowsPerPage,
+                        page * rowsPerPage + rowsPerPage,
+                      )
+                      .map((row, index) => (
+                        <TableRow
+                          key={`qv-r-${row.id ?? `${row.employeeNumber}-${row.startDate}-${row.endDate}`}`}
+                          sx={{
+                            bgcolor: index % 2 === 0 ? T.rowEven : T.rowOdd,
+                            borderBottom: `1px solid ${T.divider}`,
+                          }}
+                        >
+                          <TableCell
+                            sx={{
+                              borderBottom: 'none',
+                              fontSize: '0.78rem',
+                              py: 1.75,
+                              px: 2,
+                            }}
+                          >
+                            {page * rowsPerPage + index + 1}
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              borderBottom: 'none',
+                              fontSize: '0.78rem',
+                              fontWeight: 600,
+                              py: 1.75,
+                              px: 2,
+                              lineHeight: 1.15,
+                            }}
+                          >
+                            {row.name}
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              borderBottom: 'none',
+                              fontSize: '0.78rem',
+                              py: 1.75,
+                              px: 2,
+                            }}
+                          >
+                            {row.department}
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              borderBottom: 'none',
+                              fontSize: '0.78rem',
+                              py: 1.75,
+                              px: 2,
+                            }}
+                          >
+                            {money2(row.grossSalary)}
+                          </TableCell>
 
-                    // ── FIX: use the stored raw hours value (before fmt truncation)
-                    // so that dividing by 8 gives the same days as Leave Assignment shows.
-                    const tevlDays = (row._tevlRawHours / 8).toFixed(3);
+                          {quickViewMeta.type !== 'WTAX' && (
+                            <TableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                py: 1.75,
+                                px: 2,
+                              }}
+                            >
+                              {money2(row.netSalary)}
+                            </TableCell>
+                          )}
 
-                    return (
-                      <TableRow key={row.id ?? `${row.employeeNumber}-${row.startDate}-${row.endDate}`}
-                        sx={{ bgcolor: isDuplicate ? 'rgba(255,0,0,0.05)' : index % 2 === 0 ? T.rowEven : T.rowOdd, '&:hover': { bgcolor: `${T.rowHover} !important` }, transition: 'background-color 0.12s', borderBottom: `1px solid ${T.divider}` }}>
-                        <TableCell padding="checkbox" sx={{ borderBottom: 'none', py: 1.5 }}>
-                          <Checkbox size="small" checked={selectedRows.includes(`${row.employeeNumber}|${row.startDate}|${row.endDate}`)}
-                            onChange={() => { const k = `${row.employeeNumber}|${row.startDate}|${row.endDate}`; if (selectedRows.includes(k)) setSelectedRows((prev) => prev.filter((id) => id !== k)); else setSelectedRows((prev) => [...prev, k]); }}
-                            disabled={isRowProcessed(row)} sx={{ color: T.accentBorder, '&.Mui-checked': { color: T.accent }, p: 0 }} />
-                        </TableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', color: T.muted }}>{page * rowsPerPage + index + 1}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.department}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontFamily: 'monospace', fontWeight: 600 }}>{row.employeeNumber}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.startDate}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.endDate}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem', fontWeight: 600, color: T.text }}>{row.name}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.position}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.rateNbc594 ? Number(row.rateNbc594).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.nbcDiffl597 ? Number(row.nbcDiffl597).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.increment ? Number(row.increment).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.grossSalary}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none' }}>
-                          {/* ── TEVL cell: formatted hours for display, precise days underneath ── */}
-                          <Typography sx={{ fontSize: '0.78rem', fontWeight: 700 }}>{row.tevl}</Typography>
-                          <Typography sx={{ fontSize: '0.62rem', color: T.faint, whiteSpace: 'nowrap' }}>({tevlDays} days)</Typography>
-                        </ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.h}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.m}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 700 }}>{row.abs}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.netSalary}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.withholdingTax}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.totalGsisDeds}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.totalPagibigDeds}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.PhilHealthContribution}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.totalOtherDeds}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.totalDeductions}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', color: T.accent, fontWeight: 700 }}>{row.pay1st}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', color: T.accent, fontWeight: 700 }}>{row.pay2nd}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', color: T.muted }}>{index + 1}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.rtIns}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.ec}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.PhilHealthContribution}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.pagibigFundCont}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', borderLeft: '2px solid rgba(0,0,0,0.12)', fontSize: '0.78rem', color: T.accent, fontWeight: 700 }}>{row.pay1stCompute}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', color: T.accent, fontWeight: 700 }}>{row.pay2ndCompute}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', borderLeft: '2px solid rgba(0,0,0,0.12)', fontSize: '0.78rem', color: T.muted }}>{index + 1}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem', fontWeight: 600 }}>{row.name}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.position}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.withholdingTax ? Number(row.withholdingTax).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.personalLifeRetIns}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.gsisSalaryLoan ? Number(row.gsisSalaryLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.gsisPolicyLoan ? Number(row.gsisPolicyLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.gsisArrears ? Number(row.gsisArrears).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.cpl ? Number(row.cpl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.mpl ? Number(row.mpl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.eal ? Number(row.eal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.mplLite ? Number(row.mplLite).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.emergencyLoan ? Number(row.emergencyLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.totalGsisDeds}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.pagibigFundCont ? Number(row.pagibigFundCont).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.pagibig2 ? Number(row.pagibig2).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.multiPurpLoan ? Number(row.multiPurpLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.totalPagibigDeds}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.PhilHealthContribution}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.liquidatingCash ? Number(row.liquidatingCash).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.landbankSalaryLoan ? Number(row.landbankSalaryLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.earistCreditCoop ? Number(row.earistCreditCoop).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.feu ? Number(row.feu).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.totalOtherDeds}</ExcelTableCell>
-                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.totalDeductions}</ExcelTableCell>
-                      </TableRow>
-                    );
-                  }) : (
+                          {quickViewMeta.type === 'WTAX' && (
+                            <TableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                py: 1.75,
+                                px: 2,
+                              }}
+                            >
+                              {money2(row.withholdingTax)}
+                            </TableCell>
+                          )}
+
+                          {quickViewMeta.type === 'DEDS' && (
+                            <TableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                py: 1.75,
+                                px: 2,
+                              }}
+                            >
+                              {money2(row.withholdingTax)}
+                            </TableCell>
+                          )}
+
+                          {(quickViewMeta.type === 'WTAX' ||
+                            quickViewMeta.type === 'DEDS') && (
+                            <TableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                py: 1.75,
+                                px: 2,
+                              }}
+                            >
+                              {money2(row.totalDeductions)}
+                            </TableCell>
+                          )}
+
+                          {quickViewMeta.type === 'WTAX' && (
+                            <TableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                py: 1.75,
+                                px: 2,
+                              }}
+                            >
+                              {money2(row.netSalary)}
+                            </TableCell>
+                          )}
+
+                          {(quickViewMeta.type === 'PAY' ||
+                            quickViewMeta.type === 'DEDS') && (
+                            <TableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                color: '#a05500',
+                                fontWeight: 700,
+                                py: 1.75,
+                                px: 2,
+                              }}
+                            >
+                              {money2(row.pay1st)}
+                            </TableCell>
+                          )}
+
+                          {quickViewMeta.type === 'PAY' && (
+                            <TableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                color: '#a05500',
+                                fontWeight: 700,
+                                py: 1.75,
+                                px: 2,
+                              }}
+                            >
+                              {money2(row.pay2nd)}
+                            </TableCell>
+                          )}
+
+                          <TableCell
+                            sx={{ borderBottom: 'none', py: 1.75, px: 2 }}
+                          >
+                            <Chip
+                              label={row.status}
+                              size="small"
+                              sx={{
+                                fontWeight: 700,
+                                fontSize: '0.65rem',
+                                bgcolor:
+                                  row.status === 'Processed'
+                                    ? alpha('#4caf50', 0.12)
+                                    : alpha('#ff9800', 0.12),
+                                color:
+                                  row.status === 'Processed'
+                                    ? '#2e7d32'
+                                    : '#e65100',
+                                border: `1px solid ${row.status === 'Processed' ? alpha('#4caf50', 0.3) : alpha('#ff9800', 0.3)}`,
+                              }}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))
+                  ) : (
                     <TableRow>
                       <TableCell
-                        colSpan={60}
-                        sx={{ textAlign: 'center', py: 10, border: 'none' }}
+                        colSpan={9}
+                        sx={{
+                          textAlign: 'center',
+                          py: 8,
+                          border: 'none',
+                          color: T.faint,
+                        }}
                       >
-                        <Box
-                          sx={{
-                            width: 72,
-                            height: 72,
-                            borderRadius: '50%',
-                            bgcolor: T.accentFaint,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            mx: 'auto',
-                            mb: 2,
-                          }}
-                        >
-                          <Info
-                            sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }}
-                          />
-                        </Box>
-                        <Typography
-                          sx={{
-                            fontWeight: 700,
-                            fontSize: '0.9rem',
-                            color: T.muted,
-                            mb: 0.5,
-                          }}
-                        >
-                          No Records Found
-                        </Typography>
-                        <Typography
-                          sx={{ fontSize: '0.78rem', color: T.faint }}
-                        >
-                          No payroll records match your current filters.
-                        </Typography>
+                        No records found for this quick view.
                       </TableCell>
                     </TableRow>
                   )}
@@ -2382,197 +2274,1292 @@ const PayrollProcess = () => {
               </Table>
             </TableContainer>
           </Box>
-
-          {/* Frozen: Status column */}
-          <Box
-            sx={{
-              width: 120,
-              minWidth: 120,
-              borderLeft: `2px solid ${T.accentBorder}`,
-              bgcolor: alpha(T.accent, 0.02),
-              position: 'sticky',
-              right: 120,
-              zIndex: 1,
-              boxShadow: `-2px 0 6px ${alpha(T.accent, 0.07)}`,
-            }}
-          >
-            <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
-              <TableHead>
-                <TableRow>
-                  <TableCell
-                    sx={{
-                      bgcolor: alpha(T.accent, 0.03),
-                      fontWeight: 700,
-                      fontSize: '0.62rem',
-                      color: T.accent,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.08em',
-                      textAlign: 'center',
-                      borderBottom: `2px solid ${T.accentBorder}`,
-                      py: 1.5,
-                      px: 1,
-                    }}
-                  >
-                    Status
-                  </TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {filteredData.length > 0 ? (
-                  computedRows
-                    .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                    .map((row, idx) => (
-                      <TableRow
-                        key={`status-${row.id ?? `${row.employeeNumber}-${row.startDate}-${row.endDate}`}`}
-                        sx={{
-                          bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
-                          borderBottom: `1px solid ${T.divider}`,
-                        }}
-                      >
-                        <TableCell
-                          sx={{
-                            textAlign: 'center',
-                            borderBottom: 'none',
-                            py: 1.75,
-                            px: 1,
-                          }}
-                        >
-                          <Chip
-                            label={row.status}
-                            size="small"
-                            sx={{
-                              fontWeight: 700,
-                              fontSize: '0.65rem',
-                              bgcolor:
-                                row.status === 'Processed'
-                                  ? alpha('#4caf50', 0.12)
-                                  : alpha('#ff9800', 0.12),
-                              color:
-                                row.status === 'Processed'
-                                  ? '#2e7d32'
-                                  : '#e65100',
-                              border: `1px solid ${row.status === 'Processed' ? alpha('#4caf50', 0.3) : alpha('#ff9800', 0.3)}`,
-                            }}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))
-                ) : (
-                  <TableRow>
-                    <TableCell
+        ) : (
+          <Box sx={{ display: 'flex', width: '100%', position: 'relative' }}>
+            <Box
+              sx={{
+                overflowX: 'auto',
+                flex: 1,
+                minWidth: 0,
+                '&::-webkit-scrollbar': { height: 8 },
+                '&::-webkit-scrollbar-track': {
+                  background: T.accentFaint,
+                  borderRadius: 4,
+                },
+                '&::-webkit-scrollbar-thumb': {
+                  background: alpha(T.accent, 0.35),
+                  borderRadius: 4,
+                  '&:hover': { background: alpha(T.accent, 0.55) },
+                },
+              }}
+            >
+              <TableContainer
+                component={Paper}
+                elevation={0}
+                sx={{
+                  overflowX: 'auto',
+                  width: 'max-content',
+                  minWidth: '100%',
+                  borderRadius: 0,
+                }}
+              >
+                <Table sx={{ minWidth: 'max-content', tableLayout: 'auto' }}>
+                  <TableHead>
+                    <TableRow
                       sx={{
-                        textAlign: 'center',
-                        py: 1.5,
-                        color: T.faint,
-                        fontSize: '0.75rem',
+                        bgcolor: alpha(T.accent, 0.03),
+                        height: TABLE_HEADER_HEIGHT,
                       }}
                     >
-                      —
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </Box>
-
-          {/* Frozen: Actions column */}
-          <Box
-            sx={{
-              width: 116,
-              minWidth: 116,
-              borderLeft: `2px solid ${T.accentBorder}`,
-              bgcolor: alpha(T.accent, 0.02),
-              position: 'sticky',
-              right: 0,
-              zIndex: 1,
-              boxShadow: `-2px 0 6px ${alpha(T.accent, 0.07)}`,
-            }}
-          >
-            <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
-              <TableHead>
-                <TableRow>
-                  <TableCell
-                    sx={{
-                      bgcolor: alpha(T.accent, 0.03),
-                      fontWeight: 700,
-                      fontSize: '0.62rem',
-                      color: T.accent,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.08em',
-                      textAlign: 'center',
-                      borderBottom: `2px solid ${T.accentBorder}`,
-                      py: 1.5,
-                      px: 1,
-                    }}
-                  >
-                    Actions
-                  </TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {filteredData.length > 0 ? (
-                  computedRows
-                    .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                    .map((row, idx) => (
-                      <TableRow
-                        key={`actions-${row.id ?? `${row.employeeNumber}-${row.startDate}-${row.endDate}`}`}
+                      <TableCell
+                        padding="checkbox"
                         sx={{
-                          bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
-                          borderBottom: `1px solid ${T.divider}`,
+                          borderBottom: `2px solid ${T.accentBorder}`,
+                          bgcolor: alpha(T.accent, 0.03),
+                          height: TABLE_HEADER_HEIGHT,
+                          py: 0,
                         }}
                       >
-                        <TableCell
+                        <Checkbox
+                          size="small"
                           sx={{
-                            textAlign: 'center',
-                            borderBottom: 'none',
-                            py: 1.25,
-                            px: 1,
+                            color: T.accentBorder,
+                            '&.Mui-checked': { color: T.accent },
+                            '&.MuiCheckbox-indeterminate': { color: T.accent },
+                            p: 0,
                           }}
+                          indeterminate={
+                            selectedRows.length > 0 &&
+                            selectedRows.length <
+                              computedRows.filter(
+                                (row) =>
+                                  !finalizedPayroll.some(
+                                    (fp) =>
+                                      fp.employeeNumber ===
+                                        row.employeeNumber &&
+                                      fp.startDate === row.startDate &&
+                                      fp.endDate === row.endDate,
+                                  ),
+                              ).length
+                          }
+                          checked={
+                            selectedRows.length > 0 &&
+                            selectedRows.length ===
+                              computedRows.filter(
+                                (row) =>
+                                  !finalizedPayroll.some(
+                                    (fp) =>
+                                      fp.employeeNumber ===
+                                        row.employeeNumber &&
+                                      fp.startDate === row.startDate &&
+                                      fp.endDate === row.endDate,
+                                  ),
+                              ).length
+                          }
+                          onChange={(e) => {
+                            if (e.target.checked)
+                              setSelectedRows(
+                                computedRows
+                                  .filter(
+                                    (row) =>
+                                      !finalizedPayroll.some(
+                                        (fp) =>
+                                          fp.employeeNumber ===
+                                            row.employeeNumber &&
+                                          fp.startDate === row.startDate &&
+                                          fp.endDate === row.endDate,
+                                      ),
+                                  )
+                                  .map(
+                                    (row) =>
+                                      `${row.employeeNumber}|${row.startDate}|${row.endDate}`,
+                                  ),
+                              );
+                            else setSelectedRows([]);
+                          }}
+                        />
+                      </TableCell>
+                      {[
+                        ['No.', null, null],
+                        ['Department', null, null],
+                        ['Employee Number', null, null],
+                        ['Start Date', null, null],
+                        ['End Date', null, null],
+                        ['Name', null, null],
+                        ['Position', null, null],
+                        [
+                          'NBC 597',
+                          'rateNbc594',
+                          'Salary Rate per National Budget Circular 597 (2nd Tranche)',
+                        ],
+                        [
+                          "NBC DIFF'L 597",
+                          'nbcDiffl597',
+                          'NBC Differential 597 — Salary Adjustment',
+                        ],
+                        [
+                          'Increment',
+                          'increment',
+                          'Salary Increment / Step Increment',
+                        ],
+                        [
+                          'Gross Salary',
+                          'grossSalary',
+                          'Gross Salary — Total salary before any deductions',
+                        ],
+                        [
+                          'TEVL',
+                          'tevl',
+                          'Total Earned Vacation Leave (hrs / days)',
+                        ],
+                        ['H', 'h', 'Hours Late / Undertime'],
+                        ['M', 'm', 'Minutes Late / Undertime'],
+                        [
+                          'ABS',
+                          'abs',
+                          'Absence Deductions — Amount deducted for absences',
+                        ],
+                        [
+                          'Net Salary',
+                          'netSalary',
+                          'Net Salary — Take-home pay after all deductions',
+                        ],
+                        [
+                          'Withholding Tax',
+                          'withholdingTax',
+                          'Withholding Tax — BIR income tax withheld',
+                        ],
+                        [
+                          'Total GSIS Deductions',
+                          'totalGsisDeds',
+                          'Total GSIS Deductions',
+                        ],
+                        [
+                          'Total Pag-ibig Deductions',
+                          'totalPagibigDeds',
+                          'Total Pag-IBIG Deductions',
+                        ],
+                        [
+                          'PhilHealth',
+                          'PhilHealthContribution',
+                          'PhilHealth Contribution',
+                        ],
+                        [
+                          'Total Other Deductions',
+                          'totalOtherDeds',
+                          'Total Other Deductions',
+                        ],
+                        [
+                          'Total Deductions',
+                          'totalDeductions',
+                          'Total Deductions — Grand total of all deductions',
+                        ],
+                        [
+                          '1st Pay',
+                          'pay1st',
+                          '1st Pay — First half salary release amount',
+                        ],
+                        [
+                          '2nd Pay',
+                          'pay2nd',
+                          '2nd Pay — Second half salary release amount',
+                        ],
+                        ['No.', null, null],
+                        [
+                          'RT Ins.',
+                          'rtIns',
+                          'Retirement Insurance — GSIS retirement and insurance premium',
+                        ],
+                        [
+                          'EC',
+                          'ec',
+                          "Employees' Compensation — EC program contribution",
+                        ],
+                        [
+                          'PhilHealth',
+                          'PhilHealthContribution',
+                          'PhilHealth Contribution',
+                        ],
+                        [
+                          'Pag-Ibig',
+                          'pagibigFundCont',
+                          'Pag-IBIG Fund Contribution',
+                        ],
+                      ].map(([label, key, fullName], i) => (
+                        <TableCell
+                          key={`th-${i}-${label}`}
+                          sx={{
+                            borderBottom: `2px solid ${T.accentBorder}`,
+                            height: TABLE_HEADER_HEIGHT,
+                            py: 0,
+                            px: 2,
+                            fontSize: '0.62rem',
+                            fontWeight: 700,
+                            color: T.accent,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.08em',
+                            whiteSpace: 'nowrap',
+                            bgcolor: alpha(T.accent, 0.03),
+                            ...(label === 'Pay1st Compute' ||
+                            label === 'Pay2nd Compute'
+                              ? { borderLeft: '2px solid rgba(0,0,0,0.15)' }
+                              : {}),
+                          }}
+                        >
+                          {key && fullName ? (
+                            <HeaderTooltip fieldKey={key} fullName={fullName}>
+                              {key === 'rateNbc594' ? (
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    lineHeight: 1.1,
+                                  }}
+                                >
+                                  <span>{label}</span>
+                                  <span
+                                    style={{
+                                      fontSize: '0.58rem',
+                                      textTransform: 'none',
+                                      letterSpacing: '0.02em',
+                                      opacity: 0.9,
+                                    }}
+                                  >
+                                    (2nd Tranche)
+                                  </span>
+                                </Box>
+                              ) : (
+                                label
+                              )}
+                            </HeaderTooltip>
+                          ) : (
+                            label
+                          )}
+                        </TableCell>
+                      ))}
+                      <TableCell
+                        sx={{
+                          borderBottom: `2px solid ${T.accentBorder}`,
+                          borderLeft: '2px solid rgba(0,0,0,0.15)',
+                          height: TABLE_HEADER_HEIGHT,
+                          py: 0,
+                          px: 2,
+                          fontSize: '0.62rem',
+                          fontWeight: 700,
+                          color: T.accent,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                          whiteSpace: 'nowrap',
+                          bgcolor: alpha(T.accent, 0.03),
+                        }}
+                      >
+                        <HeaderTooltip
+                          fieldKey="pay1stCompute"
+                          fullName="1st Pay Computed Amount"
+                        >
+                          Pay1st Compute
+                        </HeaderTooltip>
+                      </TableCell>
+                      <TableCell
+                        sx={{
+                          borderBottom: `2px solid ${T.accentBorder}`,
+                          height: TABLE_HEADER_HEIGHT,
+                          py: 0,
+                          px: 2,
+                          fontSize: '0.62rem',
+                          fontWeight: 700,
+                          color: T.accent,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                          whiteSpace: 'nowrap',
+                          bgcolor: alpha(T.accent, 0.03),
+                        }}
+                      >
+                        <HeaderTooltip
+                          fieldKey="pay2ndCompute"
+                          fullName="2nd Pay Computed Amount"
+                        >
+                          Pay2nd Compute
+                        </HeaderTooltip>
+                      </TableCell>
+                      {[
+                        'No.',
+                        'Name',
+                        'Position',
+                        'Withholding Tax',
+                        'Personal Life Ret Ins',
+                        'GSIS Salary Loan',
+                        'GSIS Policy Loan',
+                        'gsisArrears',
+                        'CPL',
+                        'MPL',
+                        'EAL',
+                        'MPL LITE',
+                        'Emergency Loan (ELA)',
+                        'Total GSIS Deductions',
+                        'Pag-ibig Fund Contribution',
+                        'Pag-ibig 2',
+                        'Multi-Purpose Loan',
+                        'Total Pag-Ibig Deduction',
+                        'PhilHealth',
+                        'liquidatingCash',
+                        'LandBank Salary Loan',
+                        'Earist Credit COOP.',
+                        'FEU',
+                        'Total Other Deductions',
+                        'Total Deductions',
+                      ].map((h, i) => (
+                        <TableCell
+                          key={`th2-${i}-${h}`}
+                          sx={{
+                            borderBottom: `2px solid ${T.accentBorder}`,
+                            ...(i === 0
+                              ? { borderLeft: '2px solid rgba(0,0,0,0.15)' }
+                              : {}),
+                            height: TABLE_HEADER_HEIGHT,
+                            py: 0,
+                            px: 2,
+                            fontSize: '0.62rem',
+                            fontWeight: 700,
+                            color: T.accent,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.08em',
+                            whiteSpace: 'nowrap',
+                            bgcolor: alpha(T.accent, 0.03),
+                          }}
+                        >
+                          {h}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {filteredData.length > 0 ? (
+                      computedRows
+                        .slice(
+                          page * rowsPerPage,
+                          page * rowsPerPage + rowsPerPage,
+                        )
+                        .map((row, index) => {
+                          const isDuplicate = duplicateEmployeeNumbers.includes(
+                            `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`,
+                          );
+
+                          // ── FIX: use the stored raw hours value (before fmt truncation)
+                          // so that dividing by 8 gives the same days as Leave Assignment shows.
+                          const tevlDays = (row._tevlRawHours / 8).toFixed(3);
+
+                          return (
+                            <TableRow
+                              key={
+                                row.id ??
+                                `${row.employeeNumber}-${row.startDate}-${row.endDate}`
+                              }
+                              sx={{
+                                height: TABLE_BODY_ROW_HEIGHT,
+                                bgcolor: isDuplicate
+                                  ? 'rgba(255,0,0,0.05)'
+                                  : index % 2 === 0
+                                    ? T.rowEven
+                                    : T.rowOdd,
+                                '&:hover': {
+                                  bgcolor: `${T.rowHover} !important`,
+                                },
+                                transition: 'background-color 0.12s',
+                                borderBottom: `1px solid ${T.divider}`,
+                              }}
+                            >
+                              <TableCell
+                                padding="checkbox"
+                                sx={{
+                                  borderBottom: 'none',
+                                  py: 0,
+                                  height: TABLE_BODY_ROW_HEIGHT,
+                                }}
+                              >
+                                <Checkbox
+                                  size="small"
+                                  checked={selectedRows.includes(
+                                    `${row.employeeNumber}|${row.startDate}|${row.endDate}`,
+                                  )}
+                                  onChange={() => {
+                                    const k = `${row.employeeNumber}|${row.startDate}|${row.endDate}`;
+                                    if (selectedRows.includes(k))
+                                      setSelectedRows((prev) =>
+                                        prev.filter((id) => id !== k),
+                                      );
+                                    else
+                                      setSelectedRows((prev) => [...prev, k]);
+                                  }}
+                                  disabled={isRowProcessed(row)}
+                                  sx={{
+                                    color: T.accentBorder,
+                                    '&.Mui-checked': { color: T.accent },
+                                    p: 0,
+                                  }}
+                                />
+                              </TableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                  color: T.muted,
+                                }}
+                              >
+                                {page * rowsPerPage + index + 1}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.department}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                  fontFamily: 'monospace',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {row.employeeNumber}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.startDate}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.endDate}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.82rem',
+                                  fontWeight: 600,
+                                  color: T.text,
+                                }}
+                              >
+                                {row.name}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.position}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.rateNbc594
+                                  ? Number(row.rateNbc594).toLocaleString(
+                                      'en-US',
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      },
+                                    )
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.nbcDiffl597
+                                  ? Number(row.nbcDiffl597).toLocaleString(
+                                      'en-US',
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      },
+                                    )
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.increment
+                                  ? Number(row.increment).toLocaleString(
+                                      'en-US',
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      },
+                                    )
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {row.grossSalary}
+                              </ExcelTableCell>
+                              <ExcelTableCell sx={{ borderBottom: 'none' }}>
+                                {/* ── TEVL cell: formatted hours for display, precise days underneath ── */}
+                                <Typography
+                                  sx={{ fontSize: '0.78rem', fontWeight: 700 }}
+                                >
+                                  {row.tevl}
+                                </Typography>
+                                <Typography
+                                  sx={{
+                                    fontSize: '0.62rem',
+                                    color: T.faint,
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  ({tevlDays} days)
+                                </Typography>
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.h}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.m}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {row.abs}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {row.netSalary}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.withholdingTax}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.totalGsisDeds}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.totalPagibigDeds}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.PhilHealthContribution}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.totalOtherDeds}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {row.totalDeductions}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                  color: T.accent,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {row.pay1st}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                  color: T.accent,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {row.pay2nd}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                  color: T.muted,
+                                }}
+                              >
+                                {index + 1}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.rtIns}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.ec}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.PhilHealthContribution}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.pagibigFundCont}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  borderLeft: '2px solid rgba(0,0,0,0.12)',
+                                  fontSize: '0.78rem',
+                                  color: T.accent,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {row.pay1stCompute}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                  color: T.accent,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {row.pay2ndCompute}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  borderLeft: '2px solid rgba(0,0,0,0.12)',
+                                  fontSize: '0.78rem',
+                                  color: T.muted,
+                                }}
+                              >
+                                {index + 1}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.82rem',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {row.name}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.position}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.withholdingTax
+                                  ? Number(row.withholdingTax).toLocaleString(
+                                      'en-US',
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      },
+                                    )
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.personalLifeRetIns}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.gsisSalaryLoan
+                                  ? Number(row.gsisSalaryLoan).toLocaleString(
+                                      'en-US',
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      },
+                                    )
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.gsisPolicyLoan
+                                  ? Number(row.gsisPolicyLoan).toLocaleString(
+                                      'en-US',
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      },
+                                    )
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.gsisArrears
+                                  ? Number(row.gsisArrears).toLocaleString(
+                                      'en-US',
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      },
+                                    )
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.cpl
+                                  ? Number(row.cpl).toLocaleString('en-US', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.mpl
+                                  ? Number(row.mpl).toLocaleString('en-US', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.eal
+                                  ? Number(row.eal).toLocaleString('en-US', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.mplLite
+                                  ? Number(row.mplLite).toLocaleString(
+                                      'en-US',
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      },
+                                    )
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.emergencyLoan
+                                  ? Number(row.emergencyLoan).toLocaleString(
+                                      'en-US',
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      },
+                                    )
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {row.totalGsisDeds}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.pagibigFundCont
+                                  ? Number(row.pagibigFundCont).toLocaleString(
+                                      'en-US',
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      },
+                                    )
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.pagibig2
+                                  ? Number(row.pagibig2).toLocaleString(
+                                      'en-US',
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      },
+                                    )
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.multiPurpLoan
+                                  ? Number(row.multiPurpLoan).toLocaleString(
+                                      'en-US',
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      },
+                                    )
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {row.totalPagibigDeds}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.PhilHealthContribution}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.liquidatingCash
+                                  ? Number(row.liquidatingCash).toLocaleString(
+                                      'en-US',
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      },
+                                    )
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.landbankSalaryLoan
+                                  ? Number(
+                                      row.landbankSalaryLoan,
+                                    ).toLocaleString('en-US', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.earistCreditCoop
+                                  ? Number(row.earistCreditCoop).toLocaleString(
+                                      'en-US',
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      },
+                                    )
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.feu
+                                  ? Number(row.feu).toLocaleString('en-US', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {row.totalOtherDeds}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {row.totalDeductions}
+                              </ExcelTableCell>
+                            </TableRow>
+                          );
+                        })
+                    ) : (
+                      <TableRow>
+                        <TableCell
+                          colSpan={60}
+                          sx={{ textAlign: 'center', py: 10, border: 'none' }}
                         >
                           <Box
                             sx={{
+                              width: 72,
+                              height: 72,
+                              borderRadius: '50%',
+                              bgcolor: T.accentFaint,
                               display: 'flex',
+                              alignItems: 'center',
                               justifyContent: 'center',
-                              gap: 0.5,
+                              mx: 'auto',
+                              mb: 2,
                             }}
                           >
-                            <Tooltip title="View Record">
-                              <IconButton
+                            <Info
+                              sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }}
+                            />
+                          </Box>
+                          <Typography
+                            sx={{
+                              fontWeight: 700,
+                              fontSize: '0.9rem',
+                              color: T.muted,
+                              mb: 0.5,
+                            }}
+                          >
+                            No Records Found
+                          </Typography>
+                          <Typography
+                            sx={{ fontSize: '0.78rem', color: T.faint }}
+                          >
+                            No payroll records match your current filters.
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+
+            {/* Frozen: Status column */}
+            <Box
+              sx={{
+                width: 120,
+                minWidth: 120,
+                borderLeft: `2px solid ${T.accentBorder}`,
+                bgcolor: alpha(T.accent, 0.02),
+                position: 'sticky',
+                right: 120,
+                zIndex: 1,
+                boxShadow: `-2px 0 6px ${alpha(T.accent, 0.07)}`,
+              }}
+            >
+              <Table sx={{ tableLayout: 'fixed', width: '100%' }}>
+                <TableHead>
+                  <TableRow sx={{ height: TABLE_HEADER_HEIGHT }}>
+                    <TableCell
+                      sx={{
+                        bgcolor: alpha(T.accent, 0.03),
+                        fontWeight: 700,
+                        fontSize: '0.62rem',
+                        color: T.accent,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.08em',
+                        textAlign: 'center',
+                        borderBottom: `2px solid ${T.accentBorder}`,
+                        height: TABLE_HEADER_HEIGHT,
+                        py: 0,
+                        px: 1,
+                        verticalAlign: 'middle',
+                      }}
+                    >
+                      Status
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {filteredData.length > 0 ? (
+                    computedRows
+                      .slice(
+                        page * rowsPerPage,
+                        page * rowsPerPage + rowsPerPage,
+                      )
+                      .map((row, idx) => (
+                        <TableRow
+                          key={`status-${row.id ?? `${row.employeeNumber}-${row.startDate}-${row.endDate}`}`}
+                          sx={{
+                            height: TABLE_BODY_ROW_HEIGHT,
+                            bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
+                            borderBottom: `1px solid ${T.divider}`,
+                          }}
+                        >
+                          <TableCell
+                            sx={{
+                              textAlign: 'center',
+                              borderBottom: 'none',
+                              height: TABLE_BODY_ROW_HEIGHT,
+                              py: 0,
+                              px: 1,
+                              verticalAlign: 'middle',
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                height: '100%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <Chip
+                                label={row.status}
                                 size="small"
-                                onClick={() => handleView(row.id)}
                                 sx={{
-                                  width: 28,
-                                  height: 28,
-                                  borderRadius: 1.5,
-                                  bgcolor: T.accentFaint,
-                                  color: T.accent,
-                                  border: `1px solid ${T.accentBorder}`,
-                                  '&:hover': {
-                                    bgcolor: T.accent,
-                                    color: '#fff',
-                                  },
-                                  transition: 'all 0.15s',
+                                  fontWeight: 700,
+                                  fontSize: '0.65rem',
+                                  bgcolor:
+                                    row.status === 'Processed'
+                                      ? alpha('#4caf50', 0.12)
+                                      : alpha('#ff9800', 0.12),
+                                  color:
+                                    row.status === 'Processed'
+                                      ? '#2e7d32'
+                                      : '#e65100',
+                                  border: `1px solid ${row.status === 'Processed' ? alpha('#4caf50', 0.3) : alpha('#ff9800', 0.3)}`,
                                 }}
-                              >
-                                <Visibility sx={{ fontSize: 13 }} />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Edit Record">
-                              <span>
+                              />
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                  ) : (
+                    <TableRow>
+                      <TableCell
+                        sx={{
+                          textAlign: 'center',
+                          py: 1.5,
+                          color: T.faint,
+                          fontSize: '0.75rem',
+                        }}
+                      >
+                        —
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </Box>
+
+            {/* Frozen: Actions column */}
+            <Box
+              sx={{
+                width: 116,
+                minWidth: 116,
+                borderLeft: `2px solid ${T.accentBorder}`,
+                bgcolor: alpha(T.accent, 0.02),
+                position: 'sticky',
+                right: 0,
+                zIndex: 1,
+                boxShadow: `-2px 0 6px ${alpha(T.accent, 0.07)}`,
+              }}
+            >
+              <Table sx={{ tableLayout: 'fixed', width: '100%' }}>
+                <TableHead>
+                  <TableRow sx={{ height: TABLE_HEADER_HEIGHT }}>
+                    <TableCell
+                      sx={{
+                        bgcolor: alpha(T.accent, 0.03),
+                        fontWeight: 700,
+                        fontSize: '0.62rem',
+                        color: T.accent,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.08em',
+                        textAlign: 'center',
+                        borderBottom: `2px solid ${T.accentBorder}`,
+                        height: TABLE_HEADER_HEIGHT,
+                        py: 0,
+                        px: 1,
+                        verticalAlign: 'middle',
+                      }}
+                    >
+                      Actions
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {filteredData.length > 0 ? (
+                    computedRows
+                      .slice(
+                        page * rowsPerPage,
+                        page * rowsPerPage + rowsPerPage,
+                      )
+                      .map((row, idx) => (
+                        <TableRow
+                          key={`actions-${row.id ?? `${row.employeeNumber}-${row.startDate}-${row.endDate}`}`}
+                          sx={{
+                            height: TABLE_BODY_ROW_HEIGHT,
+                            bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
+                            borderBottom: `1px solid ${T.divider}`,
+                          }}
+                        >
+                          <TableCell
+                            sx={{
+                              textAlign: 'center',
+                              borderBottom: 'none',
+                              height: TABLE_BODY_ROW_HEIGHT,
+                              py: 0,
+                              px: 1,
+                              verticalAlign: 'middle',
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                height: '100%',
+                                display: 'flex',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                gap: 0.5,
+                              }}
+                            >
+                              <Tooltip title="View Record">
                                 <IconButton
                                   size="small"
-                                  onClick={() => handleEdit(row.id)}
-                                  disabled={isRowProcessed(row)}
+                                  onClick={() => handleView(row.id)}
                                   sx={{
                                     width: 28,
                                     height: 28,
                                     borderRadius: 1.5,
-                                    bgcolor: isRowProcessed(row)
-                                      ? '#f5f5f5'
-                                      : T.accentFaint,
-                                    color: isRowProcessed(row)
-                                      ? '#ccc'
-                                      : T.accent,
+                                    bgcolor: T.accentFaint,
+                                    color: T.accent,
                                     border: `1px solid ${T.accentBorder}`,
                                     '&:hover': {
                                       bgcolor: T.accent,
@@ -2581,62 +3568,90 @@ const PayrollProcess = () => {
                                     transition: 'all 0.15s',
                                   }}
                                 >
-                                  <EditIcon sx={{ fontSize: 13 }} />
+                                  <Visibility sx={{ fontSize: 13 }} />
                                 </IconButton>
-                              </span>
-                            </Tooltip>
-                            <Tooltip title="Delete Record">
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  onClick={() =>
-                                    handleDelete(row.id, row.employeeNumber)
-                                  }
-                                  disabled={isRowProcessed(row)}
-                                  sx={{
-                                    width: 28,
-                                    height: 28,
-                                    borderRadius: 1.5,
-                                    bgcolor: isRowProcessed(row)
-                                      ? '#f5f5f5'
-                                      : alpha('#ef4444', 0.07),
-                                    color: isRowProcessed(row)
-                                      ? '#ccc'
-                                      : '#ef4444',
-                                    border: '1px solid rgba(239,68,68,0.3)',
-                                    '&:hover': {
-                                      bgcolor: '#ef4444',
-                                      color: '#fff',
-                                    },
-                                    transition: 'all 0.15s',
-                                  }}
-                                >
-                                  <DeleteIcon sx={{ fontSize: 13 }} />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                ) : (
-                  <TableRow>
-                    <TableCell
-                      sx={{
-                        textAlign: 'center',
-                        py: 1.5,
-                        color: T.faint,
-                        fontSize: '0.75rem',
-                      }}
-                    >
-                      —
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                              </Tooltip>
+                              <Tooltip title="Edit Record">
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleEdit(row.id)}
+                                    disabled={isRowProcessed(row)}
+                                    sx={{
+                                      width: 28,
+                                      height: 28,
+                                      borderRadius: 1.5,
+                                      bgcolor: isRowProcessed(row)
+                                        ? '#f5f5f5'
+                                        : T.accentFaint,
+                                      color: isRowProcessed(row)
+                                        ? '#ccc'
+                                        : T.accent,
+                                      border: `1px solid ${T.accentBorder}`,
+                                      '&:hover': {
+                                        bgcolor: T.accent,
+                                        color: '#fff',
+                                      },
+                                      transition: 'all 0.15s',
+                                    }}
+                                  >
+                                    <EditIcon sx={{ fontSize: 13 }} />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                              <Tooltip title="Delete Record">
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() =>
+                                      handleDelete(row.id, row.employeeNumber)
+                                    }
+                                    disabled={isRowProcessed(row)}
+                                    sx={{
+                                      width: 28,
+                                      height: 28,
+                                      borderRadius: 1.5,
+                                      bgcolor: isRowProcessed(row)
+                                        ? '#f5f5f5'
+                                        : alpha('#ef4444', 0.07),
+                                      color: isRowProcessed(row)
+                                        ? '#ccc'
+                                        : '#ef4444',
+                                      border: '1px solid rgba(239,68,68,0.3)',
+                                      '&:hover': {
+                                        bgcolor: '#ef4444',
+                                        color: '#fff',
+                                      },
+                                      transition: 'all 0.15s',
+                                    }}
+                                  >
+                                    <DeleteIcon sx={{ fontSize: 13 }} />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                  ) : (
+                    <TableRow>
+                      <TableCell
+                        sx={{
+                          textAlign: 'center',
+                          py: 1.5,
+                          color: T.faint,
+                          fontSize: '0.75rem',
+                        }}
+                      >
+                        —
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </Box>
           </Box>
-        </Box>
+        )}
 
         {/* ── Quick View Tabs ── */}
         {Object.keys(groupedEmpCats).length > 0 && (
@@ -2728,7 +3743,12 @@ const PayrollProcess = () => {
                     }) => {
                       const isActive = activeQuickTab === `${group}|${type}`;
                       return (
-                        <Tooltip key={type} title={tooltip} arrow placement="top">
+                        <Tooltip
+                          key={type}
+                          title={tooltip}
+                          arrow
+                          placement="top"
+                        >
                           <Box
                             onClick={() => handleQuickTab(group, type)}
                             sx={{
