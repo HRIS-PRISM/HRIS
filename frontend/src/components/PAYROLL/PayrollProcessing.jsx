@@ -217,7 +217,7 @@ const PayrollProcess = () => {
   const [payrollFormulasData, setPayrollFormulasData] = useState([]);
   const [empCatMap, setEmpCatMap] = useState({});
   const [selectedEmpCat, setSelectedEmpCat] = useState('');
-  const [activeQuickTab, setActiveQuickTab] = useState(null);
+  const [quickTabKey, setQuickTabKey] = useState(null);
 
   const groupedEmpCats = useMemo(() => {
     const g = {};
@@ -633,7 +633,7 @@ const PayrollProcess = () => {
   const handleEmpCatChange = (e) => {
     const v = e.target.value;
     setSelectedEmpCat(v);
-    setActiveQuickTab(null);
+    setQuickTabKey(null);
     applyFilters(
       selectedDepartment,
       searchTerm,
@@ -668,7 +668,7 @@ const PayrollProcess = () => {
     setSelectedMonth('');
     setSelectedYear('');
     setSelectedEmpCat('');
-    setActiveQuickTab(null);
+    setQuickTabKey(null);
     applyFilters('', searchTerm, '', '', '', '');
   };
   const hasActiveFilters =
@@ -957,8 +957,8 @@ const PayrollProcess = () => {
 
   const handleQuickTab = (group, type) => {
     const key = `${group}|${type}`;
-    if (activeQuickTab === key) {
-      setActiveQuickTab(null);
+    if (quickTabKey === key) {
+      setQuickTabKey(null);
       setSelectedEmpCat('');
       applyFilters(
         selectedDepartment,
@@ -970,7 +970,7 @@ const PayrollProcess = () => {
       );
       return;
     }
-    setActiveQuickTab(key);
+    setQuickTabKey(key);
     const empCatValue = `group||${group}`;
     setSelectedEmpCat(empCatValue);
     applyFilters(
@@ -984,15 +984,15 @@ const PayrollProcess = () => {
   };
 
   const quickViewMeta = useMemo(() => {
-    if (!activeQuickTab) return null;
-    const [group = '', type = ''] = activeQuickTab.split('|');
+    if (!quickTabKey) return null;
+    const [group = '', type = ''] = quickTabKey.split('|');
     const abbr = abbreviateGroup(group);
     return {
       group,
       type,
       badge: `${abbr} ${type}`.trim(),
     };
-  }, [activeQuickTab]);
+  }, [quickTabKey]);
 
   const money2 = (value) => {
     const n = parseFloat(String(value ?? 0).replace(/,/g, ''));
@@ -3741,7 +3741,7 @@ const PayrollProcess = () => {
                       color,
                       icon,
                     }) => {
-                      const isActive = activeQuickTab === `${group}|${type}`;
+                      const isActive = quickTabKey === `${group}|${type}`;
                       return (
                         <Tooltip
                           key={type}
@@ -3795,10 +3795,10 @@ const PayrollProcess = () => {
               );
             })}
 
-            {activeQuickTab && (
+            {quickTabKey && (
               <Box
                 onClick={() => {
-                  setActiveQuickTab(null);
+                  setQuickTabKey(null);
                   setSelectedEmpCat('');
                   applyFilters(
                     selectedDepartment,
