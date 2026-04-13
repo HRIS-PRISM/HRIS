@@ -510,9 +510,17 @@ const UsersList = () => {
     border: 'none',
   })), [p]);
 
+  // ─── UPDATED: uniqueDepartments now exposes { code, description } ──────────
   const uniqueDepartments = useMemo(() => {
-    const depts = new Set(users.map((u) => u.departmentCode).filter(Boolean));
-    return Array.from(depts).sort();
+    const seen = new Map();
+    users.forEach((u) => {
+      if (u.departmentCode && !seen.has(u.departmentCode)) {
+        seen.set(u.departmentCode, u.departmentDescription || u.departmentCode);
+      }
+    });
+    return Array.from(seen.entries())
+      .map(([code, description]) => ({ code, description }))
+      .sort((a, b) => a.description.localeCompare(b.description));
   }, [users]);
 
   const properUsers     = useMemo(() => users.filter((u) => u.fullName && u.fullName.trim() !== "" && u.fullName !== "Username"), [users]);
@@ -630,18 +638,24 @@ const UsersList = () => {
 
   const doFetchUsers = useCallback(async () => {
     const authHeaders = getAuthHeaders();
-    const [usersResp, personsResp, empCatsResp] = await Promise.all([
-      fetch(`${API_BASE_URL}/users`,                                                        { method: "GET", ...authHeaders }),
-      fetch(`${API_BASE_URL}/personalinfo/person_table`,                                    { method: "GET", ...authHeaders }),
-      fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,                 { method: "GET", ...authHeaders }),
+    const [usersResp, personsResp, empCatsResp, deptAssignResp] = await Promise.all([
+      fetch(`${API_BASE_URL}/users`,                                                    { method: "GET", ...authHeaders }),
+      fetch(`${API_BASE_URL}/personalinfo/person_table`,                                { method: "GET", ...authHeaders }),
+      fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,             { method: "GET", ...authHeaders }),
+      fetch(`${API_BASE_URL}/api/department-assignment`,                                { method: "GET", ...authHeaders }),
     ]);
+
     if (!usersResp.ok) { const err = await usersResp.json().catch(() => ({})); throw new Error(err.error || "Failed to fetch users"); }
-    const usersDataRaw   = await usersResp.json();
-    const personsDataRaw = await personsResp.json().catch(() => []);
-    const empCatsDataRaw = empCatsResp?.ok ? await empCatsResp.json().catch(() => []) : [];
-    const usersArray   = Array.isArray(usersDataRaw)   ? usersDataRaw   : usersDataRaw.users   || usersDataRaw.data   || [];
-    const personsArray = Array.isArray(personsDataRaw) ? personsDataRaw : personsDataRaw.persons || personsDataRaw.data || [];
-    const empCatsArray = Array.isArray(empCatsDataRaw) ? empCatsDataRaw : empCatsDataRaw.data   || empCatsDataRaw.records || [];
+
+    const usersDataRaw      = await usersResp.json();
+    const personsDataRaw    = await personsResp.json().catch(() => []);
+    const empCatsDataRaw    = empCatsResp?.ok    ? await empCatsResp.json().catch(() => [])    : [];
+    const deptAssignDataRaw = deptAssignResp?.ok ? await deptAssignResp.json().catch(() => []) : [];
+
+    const usersArray      = Array.isArray(usersDataRaw)      ? usersDataRaw      : usersDataRaw.users      || usersDataRaw.data      || [];
+    const personsArray    = Array.isArray(personsDataRaw)    ? personsDataRaw    : personsDataRaw.persons   || personsDataRaw.data    || [];
+    const empCatsArray    = Array.isArray(empCatsDataRaw)    ? empCatsDataRaw    : empCatsDataRaw.data      || empCatsDataRaw.records || [];
+    const deptAssignArray = Array.isArray(deptAssignDataRaw) ? deptAssignDataRaw : deptAssignDataRaw.data   || [];
 
     const newEmpCatMap = {};
     (empCatsArray || []).forEach((item) => {
@@ -668,22 +682,43 @@ const UsersList = () => {
       return acc;
     }, {});
 
+    const deptAssignMap = {};
+    (deptAssignArray || []).forEach((a) => {
+      if (!a.employeeNumber) return;
+      deptAssignMap[String(a.employeeNumber)] = {
+        code:        a.code        || null,
+        description: a.name        || a.description || null,
+      };
+    });
+
     return (usersArray || []).map((user) => {
-      const person    = (personsArray || []).find((p) => String(p.agencyEmployeeNum) === String(user.employeeNumber));
-      const empCatRow = empCatsMap[String(user.employeeNumber)] || null;
-      const fullName  = person ? `${person.firstName || ""} ${person.middleName || ""} ${person.lastName || ""} ${person.nameExtension || ""}`.trim() : user.fullName || user.username || `${user.firstName || ""} ${user.lastName || ""}`.trim();
-      const avatar    = person?.profile_picture ? `${API_BASE_URL}${person.profile_picture}` : user.avatar ? String(user.avatar).startsWith("http") ? user.avatar : `${API_BASE_URL}${user.avatar}` : null;
+      const person     = (personsArray || []).find((p) => String(p.agencyEmployeeNum) === String(user.employeeNumber));
+      const empCatRow  = empCatsMap[String(user.employeeNumber)] || null;
+      const deptAssign = deptAssignMap[String(user.employeeNumber)] || null;
+
+      const fullName = person
+        ? `${person.firstName || ""} ${person.middleName || ""} ${person.lastName || ""} ${person.nameExtension || ""}`.trim()
+        : user.fullName || user.username || `${user.firstName || ""} ${user.lastName || ""}`.trim();
+
+      const avatar = person?.profile_picture
+        ? `${API_BASE_URL}${person.profile_picture}`
+        : user.avatar
+          ? String(user.avatar).startsWith("http") ? user.avatar : `${API_BASE_URL}${user.avatar}`
+          : null;
+
       return {
         ...user,
         fullName: fullName || "Username",
         avatar: avatar || null,
         personData: person || {},
-        employmentCategory: empCatRow?.employmentCategory !== undefined && empCatRow?.employmentCategory !== null ? empCatRow.employmentCategory : user.employmentCategory !== undefined ? user.employmentCategory : null,
+        employmentCategory: empCatRow?.employmentCategory !== undefined && empCatRow?.employmentCategory !== null
+          ? empCatRow.employmentCategory
+          : user.employmentCategory !== undefined ? user.employmentCategory : null,
         customCategory: empCatRow?.customCategory ?? empCatRow?.custom_category ?? user.customCategory ?? user.custom_category ?? null,
         empCatLabel:  empCatRow ? (empCatRow.parentGroup && empCatRow.typeName ? `${empCatRow.parentGroup} | ${empCatRow.typeName}` : empCatRow.categoryLabel || null) : null,
         empCatColor:  empCatRow?.colorHex || null,
-        departmentCode: user.departmentCode || null,
-        departmentDescription: user.departmentDescription || null,
+        departmentCode:        deptAssign?.code        ?? user.departmentCode        ?? null,
+        departmentDescription: deptAssign?.description ?? user.departmentDescription ?? null,
       };
     });
   }, []);
@@ -751,6 +786,7 @@ const UsersList = () => {
           })()
         : true;
 
+      // ─── Filter still uses departmentCode as key ───────────────────────────
       const matchesDepartment = departmentFilter !== ""
         ? (user.departmentCode || "") === departmentFilter
         : true;
@@ -1221,12 +1257,25 @@ const UsersList = () => {
               </FormControl>
             </Grid>
 
+            {/* ── UPDATED: Department filter — value=code, label=description ── */}
             <Grid item xs={12} md={3}>
               <FormControl fullWidth size="small">
                 <InputLabel sx={{ fontSize: '0.82rem' }}>Department</InputLabel>
-                <Select value={departmentFilter} label="Department" onChange={(e) => setDepartmentFilter(e.target.value)} sx={{ borderRadius: 2, bgcolor: '#fafafa', fontSize: '0.875rem', '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e5e7eb' }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent } }}>
+                <Select
+                  value={departmentFilter}
+                  label="Department"
+                  onChange={(e) => setDepartmentFilter(e.target.value)}
+                  sx={{
+                    borderRadius: 2, bgcolor: '#fafafa', fontSize: '0.875rem',
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e5e7eb' },
+                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
+                  }}
+                >
                   <MenuItem value="">All Departments</MenuItem>
-                  {uniqueDepartments.map((code) => <MenuItem key={code} value={code}>{code}</MenuItem>)}
+                  {uniqueDepartments.map(({ code, description }) => (
+                    <MenuItem key={code} value={code}>{description}</MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Grid>
@@ -2169,11 +2218,11 @@ const UsersList = () => {
             onClick={scrollToTop}
             sx={{
               position: 'fixed',
-              bottom: 28,
-              right: 28,
+              bottom: 5,
+              right: 33,
               zIndex: 9999,
-              width: 40,
-              height: 40,
+              width: 35,
+              height: 35,
               borderRadius: '12px',
               bgcolor: T.accent,
               color: '#fff',
@@ -2193,7 +2242,7 @@ const UsersList = () => {
               },
             }}
           >
-            <KeyboardArrowUp sx={{ fontSize: 22 }} />
+            <KeyboardArrowUp sx={{ fontSize: 25 }} />
           </Box>
         </Tooltip>
       </Fade>

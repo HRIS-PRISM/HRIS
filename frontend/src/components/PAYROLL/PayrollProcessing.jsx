@@ -1,7 +1,5 @@
-// Helper to check if a row is processed
-const isRowProcessed = (row) => row.status === 'Processed' || row.status === 1;
 import API_BASE_URL from '../../apiConfig';
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import axios from 'axios';
 import {
   Table,
@@ -44,6 +42,7 @@ import {
   Slider,
   Fab,
   Slide,
+  ListSubheader,
 } from '@mui/material';
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
@@ -53,7 +52,6 @@ import { usePayrollFormulas } from '../../hooks/usePayrollFormulas';
 import AccessDenied from '../AccessDenied';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
 import SearchIcon from '@mui/icons-material/Search';
-import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -84,95 +82,81 @@ import {
 } from '@mui/icons-material';
 import PeopleIcon from '@mui/icons-material/People';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import ReceiptIcon from '@mui/icons-material/ReceiptLong';
-import CircleIcon from '@mui/icons-material/Circle';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PendingIcon from '@mui/icons-material/Pending';
-import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import WorkIcon from '@mui/icons-material/Work';
 
-// Helper function to convert hex to rgb
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(
-        result[3],
-        16,
-      )}`
-    : '109, 35, 35';
+const isRowProcessed = (row) => row.status === 'Processed' || row.status === 1;
+
+// ─── Unified Design Tokens (matches UsersList) ────────────────────────────────
+const T = {
+  accent: '#6d2323',
+  accentDark: '#5a1d1d',
+  accentMid: '#8B4545',
+  accentFaint: 'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  accentHover: 'rgba(109,35,35,0.10)',
+  headerGrad: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
+  rowEven: '#ffffff',
+  rowOdd: 'rgba(109,35,35,0.025)',
+  rowHover: 'rgba(109,35,35,0.055)',
+  text: '#1a1a1a',
+  muted: '#6b6b6b',
+  faint: '#a0a0a0',
+  surface: '#ffffff',
+  divider: 'rgba(0,0,0,0.08)',
 };
 
-// Professional styled components
-const GlassCard = styled(Card)(({ theme }) => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
+// ─── Styled Primitives (matches UsersList) ────────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
   overflow: 'hidden',
-  transition: 'boxShadow 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  position: 'relative',
-}));
+  background: T.surface,
+});
 
-const ProfessionalButton = styled(Button)(
-  ({ theme, variant, color = 'primary' }) => ({
-    borderRadius: 12,
-    fontWeight: 600,
-    padding: '12px 24px',
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    textTransform: 'none',
-    fontSize: '0.95rem',
-    letterSpacing: '0.025em',
-    boxShadow:
-      variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
-    '&:hover': {
-      transform: 'translateY(-2px)',
-      boxShadow:
-        variant === 'contained'
-          ? '0 6px 20px rgba(254, 249, 225, 0.35)'
-          : 'none',
-    },
-    '&:active': {
-      transform: 'translateY(0)',
-    },
-  }),
-);
-
-const ModernTextField = styled(TextField)(({ theme }) => ({
+const FieldInput = styled(TextField)({
   '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    '&:hover': {
-      transform: 'translateY(-1px)',
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    },
-    '&.Mui-focused': {
-      transform: 'translateY(-1px)',
-      boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
-      backgroundColor: 'rgba(255, 255, 255, 1)',
-    },
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+    '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: T.text },
   },
-  '& .MuiInputLabel-root': {
-    fontWeight: 500,
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.875rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  '&:hover': { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
+
+const filterSelectSx = {
+  borderRadius: 2,
+  bgcolor: '#fafafa',
+  fontSize: '0.875rem',
+  '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e5e7eb' },
+  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    borderColor: T.accent,
+    borderWidth: '1.5px',
   },
-}));
-
-const PremiumTableContainer = styled(TableContainer)(({ theme }) => ({
-  borderRadius: 16,
-  overflow: 'hidden',
-  boxShadow: '0 4px 24px rgba(109, 35, 35, 0.06)',
-  border: '1px solid rgba(109, 35, 35, 0.08)',
-}));
-
-const PremiumTableCell = styled(TableCell)(({ theme, isHeader = false }) => ({
-  fontWeight: isHeader ? 600 : 500,
-  padding: '18px 20px',
-  borderBottom: isHeader
-    ? '2px solid rgba(254, 249, 225, 0.5)'
-    : '1px solid rgba(109, 35, 35, 0.06)',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-}));
+};
 
 const ExcelTableCell = ({ children, header, ...props }) => (
-  <TableCell {...props} sx={{ whiteSpace: 'nowrap', ...props.sx }}>
+  <TableCell
+    {...props}
+    sx={{ whiteSpace: 'nowrap', fontSize: '0.82rem', ...props.sx }}
+  >
     {children}
   </TableCell>
 );
@@ -180,23 +164,11 @@ const ExcelTableCell = ({ children, header, ...props }) => (
 const PayrollProcess = () => {
   const { settings } = useSystemSettings();
 
-  const primaryColor = settings.accentColor || '#FEF9E1';
-  const secondaryColor = settings.backgroundColor || '#FFF8E7';
-  const accentColor = settings.primaryColor || '#6d2323';
-  const accentDark = settings.secondaryColor || '#8B3333';
-  const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
-  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
-  const hoverColor = settings.hoverColor || '#6D2323';
-  const blackColor = '#1a1a1a';
-  const whiteColor = '#FFFFFF';
-  const grayColor = '#6c757d';
-
   const {
     hasAccess,
     loading: accessLoading,
     error: accessError,
   } = usePageAccess('payroll-table');
-
   const { calculatePayroll, loading: formulasLoading } = usePayrollFormulas();
 
   const [data, setData] = useState([]);
@@ -233,16 +205,27 @@ const PayrollProcess = () => {
     totalGrossSalary: 0,
     totalNetSalary: 0,
   });
-
   const [isBulkSaving, setIsBulkSaving] = useState(false);
   const [bulkSaveProgress, setBulkSaveProgress] = useState({
     current: 0,
     total: 0,
   });
   const [bulkSaveOpen, setBulkSaveOpen] = useState(false);
-
-  // ─── NEW: Payroll Formulas state for tooltips ───
   const [payrollFormulasData, setPayrollFormulasData] = useState([]);
+  const [empCatMap, setEmpCatMap] = useState({});
+  const [selectedEmpCat, setSelectedEmpCat] = useState('');
+
+  const groupedEmpCats = useMemo(() => {
+    const g = {};
+    Object.values(empCatMap).forEach(({ parentGroup, typeName, colorHex }) => {
+      if (!parentGroup) return;
+      if (!g[parentGroup]) g[parentGroup] = [];
+      const key = `${parentGroup}|${typeName}`;
+      if (!g[parentGroup].find((i) => i.key === key))
+        g[parentGroup].push({ key, typeName, colorHex });
+    });
+    return g;
+  }, [empCatMap]);
 
   const fetchPayrollFormulasData = async () => {
     try {
@@ -252,11 +235,10 @@ const PayrollProcess = () => {
       );
       setPayrollFormulasData(res.data);
     } catch (err) {
-      console.error('Error fetching payroll formulas for tooltips:', err);
+      console.error('Error fetching payroll formulas:', err);
     }
   };
 
-  // ─── Helper: get human-readable formula tooltip by key ───
   const getFormulaTooltip = (key) => {
     const formula = payrollFormulasData.find((f) => f.formula_key === key);
     if (!formula) return null;
@@ -274,7 +256,6 @@ const PayrollProcess = () => {
     return { readable, description: formula.description || '' };
   };
 
-  // ─── Reusable HeaderTooltip component ───
   const HeaderTooltip = ({ fieldKey, fullName, children }) => {
     const formulaInfo = getFormulaTooltip(fieldKey);
     const tooltipContent = (
@@ -316,12 +297,7 @@ const PayrollProcess = () => {
     );
     return (
       <Tooltip title={tooltipContent} arrow placement="top">
-        <span
-          style={{
-            cursor: 'help',
-            display: 'inline-block',
-          }}
-        >
+        <span style={{ cursor: 'help', display: 'inline-block' }}>
           {children}
         </span>
       </Tooltip>
@@ -333,7 +309,6 @@ const PayrollProcess = () => {
     setViewRow(row);
     setOpenViewModal(true);
   };
-
   const handleCloseView = () => {
     setOpenViewModal(false);
     setViewRow(null);
@@ -354,7 +329,6 @@ const PayrollProcess = () => {
     { value: '11', label: 'November' },
     { value: '12', label: 'December' },
   ];
-
   const yearOptions = [
     { value: '', label: 'All Years' },
     { value: '2024', label: '2024' },
@@ -373,36 +347,18 @@ const PayrollProcess = () => {
   };
 
   const canSubmit = selectedRows.length > 0;
-
-  const handleChangePage = (event, newPage) => {
-    setPage(newPage);
-  };
-
+  const handleChangePage = (event, newPage) => setPage(newPage);
   const handleChangeRowsPerPage = (event) => {
     setRowsPerPage(parseInt(event.target.value, 10));
     setPage(0);
   };
 
-  const getTableHeight = () => {
-    const rowHeight = 53;
-    const headerHeight = 56;
-    const paginationHeight = 52;
-    const minHeight = 300;
-    const maxHeight = 600;
-    const contentHeight =
-      Math.min(rowsPerPage, filteredData.length) * rowHeight +
-      headerHeight +
-      paginationHeight;
-    return Math.min(Math.max(contentHeight, minHeight), maxHeight);
-  };
-
   const testAuth = async () => {
     try {
-      const res = await axios.get(
+      await axios.get(
         `${API_BASE_URL}/PayrollRoute/test-auth`,
         getAuthHeaders(),
       );
-      console.log('Auth test successful:', res.data);
     } catch (error) {
       console.error('Auth test failed:', error.response?.data || error.message);
     }
@@ -416,7 +372,7 @@ const PayrollProcess = () => {
       );
       setFinalizedPayroll(res.data);
     } catch (err) {
-      console.error('Error fetching finalized payroll data:', err);
+      console.error('Error fetching finalized payroll:', err);
     }
   };
 
@@ -424,39 +380,32 @@ const PayrollProcess = () => {
     fetchFinalizedPayroll();
   }, []);
 
-  const normalizeDateString = (dateInput) => {
+  const fetchEmpCatMap = async () => {
     try {
-      if (!dateInput) return '';
-      const raw = String(dateInput);
-      const directDate = raw.match(/^(\d{4}-\d{2}-\d{2})/);
-      if (directDate) return directDate[1];
-      const d = new Date(dateInput);
-      if (Number.isNaN(d.getTime())) return String(dateInput);
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    } catch (_) {
-      return String(dateInput);
+      const res = await axios.get(
+        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
+        getAuthHeaders(),
+      );
+      const map = {};
+      (Array.isArray(res.data) ? res.data : []).forEach((item) => {
+        if (!item.employeeNumber) return;
+        const label =
+          item.parentGroup && item.typeName
+            ? `${item.parentGroup} | ${item.typeName}`
+            : item.categoryLabel || '';
+        if (label)
+          map[item.employeeNumber.toString()] = {
+            label,
+            colorHex: item.colorHex || '#757575',
+            parentGroup: item.parentGroup || '',
+            typeName: item.typeName || '',
+          };
+      });
+      setEmpCatMap(map);
+    } catch (err) {
+      console.error('Error fetching employment categories:', err);
     }
   };
-
-  const getRecordKey = (record) => {
-    const emp = record?.employeeNumber ?? '';
-    const start = normalizeDateString(record?.startDate);
-    const end = normalizeDateString(record?.endDate);
-    return `${emp}-${start}-${end}`;
-  };
-
-  const finalizedRecordKeys = useMemo(
-    () => new Set(finalizedPayroll.map((record) => getRecordKey(record))),
-    [finalizedPayroll],
-  );
-
-  const isFinalizedRecord = (record) =>
-    finalizedRecordKeys.has(getRecordKey(record));
-
-  const isAlreadyFinalized = filteredData.some((fd) => isFinalizedRecord(fd));
 
   const computeSummaryForRows = (rows) => {
     const processedEmployees = rows.filter(
@@ -484,60 +433,68 @@ const PayrollProcess = () => {
 
   const getFilteredRows = (baseRows, department, status, month, year) => {
     let filtered = [...baseRows];
-    if (status && status !== '') {
-      filtered = filtered.filter((record) => record.status === status);
-    }
-    if (department && department !== '') {
-      filtered = filtered.filter((record) => record.department === department);
-    }
-    if (month && month !== '') {
-      filtered = filtered.filter((record) => {
-        if (record.startDate) {
-          const recordDate = new Date(record.startDate);
-          const recordMonth = String(recordDate.getMonth() + 1).padStart(
-            2,
-            '0',
-          );
-          return recordMonth === month;
-        }
-        return false;
-      });
-    }
-    if (year && year !== '') {
-      filtered = filtered.filter((record) => {
-        if (record.startDate) {
-          const recordDate = new Date(record.startDate);
-          const recordYear = recordDate.getFullYear().toString();
-          return recordYear === year;
-        }
-        return false;
-      });
-    }
+    if (status && status !== '')
+      filtered = filtered.filter((r) => r.status === status);
+    if (department && department !== '')
+      filtered = filtered.filter((r) => r.department === department);
+    if (month && month !== '')
+      filtered = filtered.filter((r) =>
+        r.startDate
+          ? String(new Date(r.startDate).getMonth() + 1).padStart(2, '0') ===
+            month
+          : false,
+      );
+    if (year && year !== '')
+      filtered = filtered.filter((r) =>
+        r.startDate
+          ? new Date(r.startDate).getFullYear().toString() === year
+          : false,
+      );
     return filtered;
   };
 
-  const fetchPayrollData = async (searchTerm = '') => {
+  const applyFilters = (
+    department,
+    search,
+    status,
+    month,
+    year,
+    empCat = selectedEmpCat,
+  ) => {
+    let filtered = getFilteredRows(data, department, status, month, year);
+    if (empCat) {
+      filtered = filtered.filter((record) => {
+        const cat = empCatMap[record.employeeNumber?.toString()];
+        if (!cat) return false;
+        const [filterType, filterValue] = empCat.split('||');
+        if (filterType === 'group') return cat.parentGroup === filterValue;
+        return `${cat.parentGroup}|${cat.typeName}` === filterValue;
+      });
+    }
+    setFilteredData(filtered);
+    setSummaryData(computeSummaryForRows(filtered));
+    setIsPayrollProcessed(filtered.length === 0);
+    setPage(0);
+  };
+
+  const fetchPayrollData = async (searchTermParam = '') => {
     try {
       setIsSearching(true);
-      const url = searchTerm
-        ? `${API_BASE_URL}/PayrollRoute/payroll/search?searchTerm=${searchTerm}`
+      const url = searchTermParam
+        ? `${API_BASE_URL}/PayrollRoute/payroll/search?searchTerm=${searchTermParam}`
         : `${API_BASE_URL}/PayrollRoute/payroll-with-remittance`;
       const res = await axios.get(url, getAuthHeaders());
-      console.log(res.data);
       const seen = new Map();
       const duplicates = new Set();
       res.data.forEach((item) => {
-        const compositeKey = `${item.name}|${item.employeeNumber}|${item.startDate}|${item.endDate}`;
-        if (seen.has(compositeKey)) {
-          duplicates.add(compositeKey);
-        } else {
-          seen.set(compositeKey, item);
-        }
+        const key = `${item.name}|${item.employeeNumber}|${item.startDate}|${item.endDate}`;
+        if (seen.has(key)) duplicates.add(key);
+        else seen.set(key, item);
       });
       const normalizedData = res.data.map((item) => {
-        const normalizedItem = {
+        const n = {
           ...item,
-          tevl: parseFloat(item.tevl) || 0,
+          tevl: Number(item.tevl) || 0,
           increment: item.increment ?? 0,
           gsisSalaryLoan: item.gsisSalaryLoan ?? 0,
           gsisPolicyLoan: item.gsisPolicyLoan ?? 0,
@@ -566,21 +523,29 @@ const PayrollProcess = () => {
               ? 'Processed'
               : 'Unprocessed',
         };
-        const calculatedItem = calculatePayroll(normalizedItem);
-        return calculatedItem || normalizedItem;
+        return calculatePayroll(n) || n;
       });
       setDuplicateEmployeeNumbers([...duplicates]);
       setData(normalizedData);
-      const filtered = getFilteredRows(
+      let baseFiltered = getFilteredRows(
         normalizedData,
         selectedDepartment,
         selectedStatus,
         selectedMonth,
         selectedYear,
       );
-      setFilteredData(filtered);
-      setSummaryData(computeSummaryForRows(filtered));
-      setIsPayrollProcessed(filtered.length === 0);
+      if (selectedEmpCat) {
+        baseFiltered = baseFiltered.filter((record) => {
+          const cat = empCatMap[record.employeeNumber?.toString()];
+          if (!cat) return false;
+          const [filterType, filterValue] = selectedEmpCat.split('||');
+          if (filterType === 'group') return cat.parentGroup === filterValue;
+          return `${cat.parentGroup}|${cat.typeName}` === filterValue;
+        });
+      }
+      setFilteredData(baseFiltered);
+      setSummaryData(computeSummaryForRows(baseFiltered));
+      setIsPayrollProcessed(baseFiltered.length === 0);
       setPage(0);
     } catch (err) {
       console.error('Error fetching payroll data:', err);
@@ -607,77 +572,76 @@ const PayrollProcess = () => {
     fetchDepartments();
     fetchPayrollData(searchTerm);
     fetchPayrollFormulasData();
+    fetchEmpCatMap();
   });
 
   useEffect(() => {
     testAuth();
     fetchPayrollData();
     fetchDepartments();
-    fetchPayrollFormulasData(); // ← fetch formulas for tooltips
+    fetchPayrollFormulasData();
+    fetchEmpCatMap();
   }, []);
-
   useEffect(() => {
     return () => {
-      if (searchTimeout) {
-        clearTimeout(searchTimeout);
-      }
+      if (searchTimeout) clearTimeout(searchTimeout);
     };
   }, [searchTimeout]);
 
-  const handleDepartmentChange = (event) => {
-    const selectedDept = event.target.value;
-    setSelectedDepartment(selectedDept);
+  const handleDepartmentChange = (e) => {
+    const v = e.target.value;
+    setSelectedDepartment(v);
+    applyFilters(v, searchTerm, selectedStatus, selectedMonth, selectedYear);
+  };
+  const handleStatusChange = (e) => {
+    const v = e.target.value;
+    setSelectedStatus(v);
     applyFilters(
-      selectedDept,
+      selectedDepartment,
       searchTerm,
-      selectedStatus,
+      v,
       selectedMonth,
       selectedYear,
     );
   };
-
-  const handleStatusChange = (event) => {
-    const selectedStatusValue = event.target.value;
-    setSelectedStatus(selectedStatusValue);
-    applyFilters(
-      selectedDepartment,
-      searchTerm,
-      selectedStatusValue,
-      selectedMonth,
-      selectedYear,
-    );
-  };
-
-  const handleMonthChange = (event) => {
-    const selectedMonthValue = event.target.value;
-    setSelectedMonth(selectedMonthValue);
+  const handleMonthChange = (e) => {
+    const v = e.target.value;
+    setSelectedMonth(v);
     applyFilters(
       selectedDepartment,
       searchTerm,
       selectedStatus,
-      selectedMonthValue,
+      v,
       selectedYear,
     );
   };
-
-  const handleYearChange = (event) => {
-    const selectedYearValue = event.target.value;
-    setSelectedYear(selectedYearValue);
+  const handleYearChange = (e) => {
+    const v = e.target.value;
+    setSelectedYear(v);
     applyFilters(
       selectedDepartment,
       searchTerm,
       selectedStatus,
       selectedMonth,
-      selectedYearValue,
+      v,
     );
   };
-
-  const handleSearchChange = (event) => {
-    const term = event.target.value;
+  const handleEmpCatChange = (e) => {
+    const v = e.target.value;
+    setSelectedEmpCat(v);
+    applyFilters(
+      selectedDepartment,
+      searchTerm,
+      selectedStatus,
+      selectedMonth,
+      selectedYear,
+      v,
+    );
+  };
+  const handleSearchChange = (e) => {
+    const term = e.target.value;
     setSearchTerm(term);
-    if (searchTimeout) {
-      clearTimeout(searchTimeout);
-    }
+    if (searchTimeout) clearTimeout(searchTimeout);
     if (!term.trim()) {
       fetchPayrollData();
       applyFilters(
@@ -689,66 +653,54 @@ const PayrollProcess = () => {
       );
       return;
     }
-    const newTimeout = setTimeout(() => {
-      fetchPayrollData(term);
-    }, 500);
-    setSearchTimeout(newTimeout);
+    const t = setTimeout(() => fetchPayrollData(term), 500);
+    setSearchTimeout(t);
   };
 
-  const applyFilters = (department, search, status, month, year) => {
-    const filtered = getFilteredRows(data, department, status, month, year);
-    setFilteredData(filtered);
-    setSummaryData(computeSummaryForRows(filtered));
-    setPage(0);
+  const clearAllFilters = () => {
+    setSelectedDepartment('');
+    setSelectedStatus('');
+    setSelectedMonth('');
+    setSelectedYear('');
+    setSelectedEmpCat('');
+    applyFilters('', searchTerm, '', '', '', '');
   };
+  const hasActiveFilters =
+    selectedDepartment ||
+    selectedStatus ||
+    selectedMonth ||
+    selectedYear ||
+    selectedEmpCat;
 
   const handleSubmitPayroll = async () => {
     try {
       const updatedData = filteredData.map((item) => {
-        const calculatedItem = calculatePayroll(item) || item;
+        const c = calculatePayroll(item) || item;
         return {
-          ...calculatedItem,
-          totalGsisDeds: (
-            parseFloat(calculatedItem.totalGsisDeds) || 0
-          ).toFixed(2),
-          totalPagibigDeds: (
-            parseFloat(calculatedItem.totalPagibigDeds) || 0
-          ).toFixed(2),
-          totalOtherDeds: (
-            parseFloat(calculatedItem.totalOtherDeds) || 0
-          ).toFixed(2),
-          grossSalary: (parseFloat(calculatedItem.grossSalary) || 0).toFixed(2),
-          abs: (parseFloat(calculatedItem.abs) || 0).toFixed(2),
-          netSalary: (parseFloat(calculatedItem.netSalary) || 0).toFixed(2),
-          totalDeductions: (
-            parseFloat(calculatedItem.totalDeductions) || 0
-          ).toFixed(2),
+          ...c,
+          totalGsisDeds: (parseFloat(c.totalGsisDeds) || 0).toFixed(2),
+          totalPagibigDeds: (parseFloat(c.totalPagibigDeds) || 0).toFixed(2),
+          totalOtherDeds: (parseFloat(c.totalOtherDeds) || 0).toFixed(2),
+          grossSalary: (parseFloat(c.grossSalary) || 0).toFixed(2),
+          abs: (parseFloat(c.abs) || 0).toFixed(2),
+          netSalary: (parseFloat(c.netSalary) || 0).toFixed(2),
+          totalDeductions: (parseFloat(c.totalDeductions) || 0).toFixed(2),
           PhilHealthContribution: (
-            parseFloat(calculatedItem.PhilHealthContribution) || 0
+            parseFloat(c.PhilHealthContribution) || 0
           ).toFixed(2),
-          personalLifeRetIns: (
-            parseFloat(calculatedItem.personalLifeRetIns) || 0
-          ).toFixed(2),
-          pay1stCompute: (
-            parseFloat(calculatedItem.pay1stCompute) || 0
-          ).toFixed(2),
-          pay2ndCompute: (
-            parseFloat(calculatedItem.pay2ndCompute) || 0
-          ).toFixed(2),
-          pay1st: (parseFloat(calculatedItem.pay1st) || 0).toFixed(0),
-          pay2nd: (parseFloat(calculatedItem.pay2nd) || 0).toFixed(2),
-          rtIns: (parseFloat(calculatedItem.rtIns) || 0).toFixed(2),
+          personalLifeRetIns: (parseFloat(c.personalLifeRetIns) || 0).toFixed(
+            2,
+          ),
+          pay1stCompute: (parseFloat(c.pay1stCompute) || 0).toFixed(2),
+          pay2ndCompute: (parseFloat(c.pay2ndCompute) || 0).toFixed(2),
+          pay1st: (parseFloat(c.pay1st) || 0).toFixed(0),
+          pay2nd: (parseFloat(c.pay2nd) || 0).toFixed(2),
+          rtIns: (parseFloat(c.rtIns) || 0).toFixed(2),
           status: 'Processed',
         };
       });
-
       const toInt = (v) => {
         const n = parseInt(v, 10);
-        return Number.isFinite(n) ? n : 0;
-      };
-      const toFloat = (v) => {
-        const cleaned = String(v ?? '').replace(/,/g, '').trim();
-        const n = parseFloat(cleaned);
         return Number.isFinite(n) ? n : 0;
       };
       const toSecondsFromHMS = (h, m, s) =>
@@ -777,15 +729,18 @@ const PayrollProcess = () => {
           vlb: secondsToHMS(vlbSeconds).text,
         };
       };
-
       const rowsToSubmit = updatedData.filter(
         (item) =>
           selectedRows.includes(
             `${item.employeeNumber}|${item.startDate}|${item.endDate}`,
           ) &&
-          !isFinalizedRecord(item),
+          !finalizedPayroll.some(
+            (fp) =>
+              fp.employeeNumber === item.employeeNumber &&
+              fp.startDate === item.startDate &&
+              fp.endDate === item.endDate,
+          ),
       );
-
       const processedRowsToSubmit = rowsToSubmit.map((item) => {
         const { dvlt, vlb } = computeVLTimeOffset(item);
         return {
@@ -793,7 +748,7 @@ const PayrollProcess = () => {
           h: toInt(item.h),
           m: toInt(item.m),
           s: toInt(item.s),
-          tevl: toFloat(item.tevl) + 10,
+          tevl: toInt(item.tevl) + 10,
           dvlt,
           vlb,
           grossSalary: parseFloat(item.grossSalary) || 0,
@@ -834,20 +789,17 @@ const PayrollProcess = () => {
           PhilHealthContribution: parseFloat(item.PhilHealthContribution) || 0,
         };
       });
-
       if (processedRowsToSubmit.length === 0) {
         alert('No payroll records selected for submission.');
         return;
       }
-
-      for (const item of rowsToSubmit) {
+      for (const item of updatedData) {
         await axios.put(
           `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${item.employeeNumber}/${item.startDate}/${item.endDate}`,
           item,
           getAuthHeaders(),
         );
       }
-
       await axios.post(
         `${API_BASE_URL}/PayrollRoute/payroll-processed`,
         processedRowsToSubmit,
@@ -855,7 +807,7 @@ const PayrollProcess = () => {
       );
     } catch (error) {
       console.error('Error submitting payroll:', error);
-      throw new Error(
+      alert(
         error.response?.data?.error ||
           error.message ||
           'An error occurred while submitting payroll.',
@@ -874,12 +826,9 @@ const PayrollProcess = () => {
       const seen = new Map();
       const updatedDuplicates = new Set();
       newData.forEach((item) => {
-        const compositeKey = `${item.name}|${item.employeeNumber}|${item.startDate}|${item.endDate}`;
-        if (seen.has(compositeKey)) {
-          updatedDuplicates.add(compositeKey);
-        } else {
-          seen.set(compositeKey, item);
-        }
+        const key = `${item.name}|${item.employeeNumber}|${item.startDate}|${item.endDate}`;
+        if (seen.has(key)) updatedDuplicates.add(key);
+        else seen.set(key, item);
       });
       setDuplicateEmployeeNumbers([...updatedDuplicates]);
     } catch (error) {
@@ -891,12 +840,10 @@ const PayrollProcess = () => {
     const { name, value } = e.target;
     setEditRow((prev) => ({ ...prev, [name]: value }));
   };
-
   const handleCancel = () => {
     setOpenModal(false);
     setEditRow(null);
   };
-
   const handleEdit = (rowId) => {
     const row = computedRows.find((item) => item.id === rowId);
     setEditRow(row);
@@ -906,7 +853,7 @@ const PayrollProcess = () => {
   const handleSave = async () => {
     setLoading(true);
     try {
-      const normalizedEditRow = {
+      const n = {
         ...editRow,
         h: editRow.h ?? 0,
         m: editRow.m ?? 0,
@@ -931,45 +878,42 @@ const PayrollProcess = () => {
         nbcDiffl597: editRow.nbcDiffl597 ?? 0,
         ec: editRow.ec ?? 0,
       };
-      const calculatedRow =
-        calculatePayroll(normalizedEditRow) || normalizedEditRow;
+      const c = calculatePayroll(n) || n;
       const updatedRow = {
-        ...calculatedRow,
+        ...c,
         id: editRow.id,
-        h: parseInt(calculatedRow.h) || 0,
-        m: parseInt(calculatedRow.m) || 0,
-        grossSalary: parseFloat(calculatedRow.grossSalary) || 0,
-        abs: parseFloat(calculatedRow.abs) || 0,
-        PhilHealthContribution:
-          parseFloat(calculatedRow.PhilHealthContribution) || 0,
-        personalLifeRetIns: parseFloat(calculatedRow.personalLifeRetIns) || 0,
-        netSalary: parseFloat(calculatedRow.netSalary) || 0,
-        totalGsisDeds: parseFloat(calculatedRow.totalGsisDeds) || 0,
-        totalPagibigDeds: parseFloat(calculatedRow.totalPagibigDeds) || 0,
-        totalOtherDeds: parseFloat(calculatedRow.totalOtherDeds) || 0,
-        totalDeductions: parseFloat(calculatedRow.totalDeductions) || 0,
-        pay1st: parseFloat(calculatedRow.pay1st) || 0,
-        pay2nd: parseFloat(calculatedRow.pay2nd) || 0,
-        pay1stCompute: parseFloat(calculatedRow.pay1stCompute) || 0,
-        pay2ndCompute: parseFloat(calculatedRow.pay2ndCompute) || 0,
-        rtIns: parseFloat(calculatedRow.rtIns) || 0,
+        h: parseInt(c.h) || 0,
+        m: parseInt(c.m) || 0,
+        grossSalary: parseFloat(c.grossSalary) || 0,
+        abs: parseFloat(c.abs) || 0,
+        PhilHealthContribution: parseFloat(c.PhilHealthContribution) || 0,
+        personalLifeRetIns: parseFloat(c.personalLifeRetIns) || 0,
+        netSalary: parseFloat(c.netSalary) || 0,
+        totalGsisDeds: parseFloat(c.totalGsisDeds) || 0,
+        totalPagibigDeds: parseFloat(c.totalPagibigDeds) || 0,
+        totalOtherDeds: parseFloat(c.totalOtherDeds) || 0,
+        totalDeductions: parseFloat(c.totalDeductions) || 0,
+        pay1st: parseFloat(c.pay1st) || 0,
+        pay2nd: parseFloat(c.pay2nd) || 0,
+        pay1stCompute: parseFloat(c.pay1stCompute) || 0,
+        pay2ndCompute: parseFloat(c.pay2ndCompute) || 0,
+        rtIns: parseFloat(c.rtIns) || 0,
       };
-      const response = await axios.put(
+      await axios.put(
         `${API_BASE_URL}/PayrollRoute/payroll-with-remittance/${editRow.employeeNumber}/${editRow.startDate}/${editRow.endDate}`,
         updatedRow,
         getAuthHeaders(),
       );
-      console.log('Payroll record updated successfully:', response.data);
       setOpenModal(false);
-      const recalculatedRow = calculatePayroll(updatedRow) || updatedRow;
-      setFilteredData((prevData) =>
-        prevData.map((item) =>
-          item.id === updatedRow.id ? { ...item, ...recalculatedRow } : item,
+      const r = calculatePayroll(updatedRow) || updatedRow;
+      setFilteredData((prev) =>
+        prev.map((item) =>
+          item.id === updatedRow.id ? { ...item, ...r } : item,
         ),
       );
-      setData((prevData) =>
-        prevData.map((item) =>
-          item.id === updatedRow.id ? { ...item, ...recalculatedRow } : item,
+      setData((prev) =>
+        prev.map((item) =>
+          item.id === updatedRow.id ? { ...item, ...r } : item,
         ),
       );
       setTimeout(() => {
@@ -985,87 +929,33 @@ const PayrollProcess = () => {
     }
   };
 
+  const fmt = (v, dec = 2) =>
+    (parseFloat(v) || 0).toLocaleString('en-US', {
+      minimumFractionDigits: dec,
+      maximumFractionDigits: dec,
+    });
+
   const computedRows = filteredData.map((item) => {
-    const calculatedItem = calculatePayroll(item) || item;
+    const c = calculatePayroll(item) || item;
     return {
-      ...calculatedItem,
-      h: calculatedItem.h || 0,
-      m: calculatedItem.m || 0,
-      totalGsisDeds: (
-        parseFloat(calculatedItem.totalGsisDeds) || 0
-      ).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-      totalPagibigDeds: (
-        parseFloat(calculatedItem.totalPagibigDeds) || 0
-      ).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-      totalOtherDeds: (
-        parseFloat(calculatedItem.totalOtherDeds) || 0
-      ).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-      grossSalary: (parseFloat(calculatedItem.grossSalary) || 0).toLocaleString(
-        'en-US',
-        { minimumFractionDigits: 2, maximumFractionDigits: 2 },
-      ),
-      tevl: (parseFloat(calculatedItem.tevl) || 0).toLocaleString('en-US', {
-        minimumFractionDigits: 3,
-        maximumFractionDigits: 3,
-      }),
-      abs: (parseFloat(calculatedItem.abs) || 0).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-      netSalary: (parseFloat(calculatedItem.netSalary) || 0).toLocaleString(
-        'en-US',
-        { minimumFractionDigits: 2, maximumFractionDigits: 2 },
-      ),
-      totalDeductions: (
-        parseFloat(calculatedItem.totalDeductions) || 0
-      ).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-      PhilHealthContribution: (
-        parseFloat(calculatedItem.PhilHealthContribution) || 0
-      ).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-      personalLifeRetIns: (
-        parseFloat(calculatedItem.personalLifeRetIns) || 0
-      ).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-      pay1stCompute: (
-        parseFloat(calculatedItem.pay1stCompute) || 0
-      ).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-      pay2ndCompute: (
-        parseFloat(calculatedItem.pay2ndCompute) || 0
-      ).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-      pay1st: (parseFloat(calculatedItem.pay1st) || 0).toLocaleString('en-US', {
-        maximumFractionDigits: 0,
-      }),
-      pay2nd: (parseFloat(calculatedItem.pay2nd) || 0).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-      rtIns: (parseFloat(calculatedItem.rtIns) || 0).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
+      ...c,
+      h: c.h || 0,
+      m: c.m || 0,
+      totalGsisDeds: fmt(c.totalGsisDeds),
+      totalPagibigDeds: fmt(c.totalPagibigDeds),
+      totalOtherDeds: fmt(c.totalOtherDeds),
+      grossSalary: fmt(c.grossSalary),
+      tevl: fmt(c.tevl),
+      abs: fmt(c.abs),
+      netSalary: fmt(c.netSalary),
+      totalDeductions: fmt(c.totalDeductions),
+      PhilHealthContribution: fmt(c.PhilHealthContribution),
+      personalLifeRetIns: fmt(c.personalLifeRetIns),
+      pay1stCompute: fmt(c.pay1stCompute),
+      pay2ndCompute: fmt(c.pay2ndCompute),
+      pay1st: fmt(c.pay1st, 0),
+      pay2nd: fmt(c.pay2nd),
+      rtIns: fmt(c.rtIns),
     };
   });
 
@@ -1074,14 +964,11 @@ const PayrollProcess = () => {
     setIsBulkSaving(true);
     setBulkSaveProgress({ current: 0, total: filteredData.length });
     setBulkSaveOpen(true);
-    const successCount = { count: 0 };
-    const errorCount = { count: 0 };
-    const errors = [];
     try {
       for (let i = 0; i < filteredData.length; i++) {
         const item = filteredData[i];
         try {
-          const normalizedItem = {
+          const n = {
             ...item,
             h: item.h ?? 0,
             m: item.m ?? 0,
@@ -1106,34 +993,31 @@ const PayrollProcess = () => {
             nbcDiffl597: item.nbcDiffl597 ?? 0,
             ec: item.ec ?? 0,
           };
-          const calculatedItem =
-            calculatePayroll(normalizedItem) || normalizedItem;
+          const c = calculatePayroll(n) || n;
           const updatedRow = {
-            ...calculatedItem,
+            ...c,
             id: item.id,
-            h: parseInt(calculatedItem.h) || 0,
-            m: parseInt(calculatedItem.m) || 0,
-            grossSalary: parseFloat(calculatedItem.grossSalary) || 0,
-            abs: parseFloat(calculatedItem.abs) || 0,
-            PhilHealthContribution:
-              parseFloat(calculatedItem.PhilHealthContribution) || 0,
-            personalLifeRetIns:
-              parseFloat(calculatedItem.personalLifeRetIns) || 0,
-            netSalary: parseFloat(calculatedItem.netSalary) || 0,
-            totalGsisDeds: parseFloat(calculatedItem.totalGsisDeds) || 0,
-            totalPagibigDeds: parseFloat(calculatedItem.totalPagibigDeds) || 0,
-            totalOtherDeds: parseFloat(calculatedItem.totalOtherDeds) || 0,
-            totalDeductions: parseFloat(calculatedItem.totalDeductions) || 0,
-            pay1st: parseFloat(calculatedItem.pay1st) || 0,
-            pay2nd: parseFloat(calculatedItem.pay2nd) || 0,
-            pay1stCompute: parseFloat(calculatedItem.pay1stCompute) || 0,
-            pay2ndCompute: parseFloat(calculatedItem.pay2ndCompute) || 0,
-            rtIns: parseFloat(calculatedItem.rtIns) || 0,
-            withholdingTax: parseFloat(calculatedItem.withholdingTax) || 0,
-            ec: parseFloat(calculatedItem.ec) || 0,
-            rateNbc594: parseFloat(calculatedItem.rateNbc594) || 0,
-            nbcDiffl597: parseFloat(calculatedItem.nbcDiffl597) || 0,
-            increment: parseFloat(calculatedItem.increment) || 0,
+            h: parseInt(c.h) || 0,
+            m: parseInt(c.m) || 0,
+            grossSalary: parseFloat(c.grossSalary) || 0,
+            abs: parseFloat(c.abs) || 0,
+            PhilHealthContribution: parseFloat(c.PhilHealthContribution) || 0,
+            personalLifeRetIns: parseFloat(c.personalLifeRetIns) || 0,
+            netSalary: parseFloat(c.netSalary) || 0,
+            totalGsisDeds: parseFloat(c.totalGsisDeds) || 0,
+            totalPagibigDeds: parseFloat(c.totalPagibigDeds) || 0,
+            totalOtherDeds: parseFloat(c.totalOtherDeds) || 0,
+            totalDeductions: parseFloat(c.totalDeductions) || 0,
+            pay1st: parseFloat(c.pay1st) || 0,
+            pay2nd: parseFloat(c.pay2nd) || 0,
+            pay1stCompute: parseFloat(c.pay1stCompute) || 0,
+            pay2ndCompute: parseFloat(c.pay2ndCompute) || 0,
+            rtIns: parseFloat(c.rtIns) || 0,
+            withholdingTax: parseFloat(c.withholdingTax) || 0,
+            ec: parseFloat(c.ec) || 0,
+            rateNbc594: parseFloat(c.rateNbc594) || 0,
+            nbcDiffl597: parseFloat(c.nbcDiffl597) || 0,
+            increment: parseFloat(c.increment) || 0,
           };
           if (item.startDate && item.endDate) {
             await axios.put(
@@ -1142,14 +1026,9 @@ const PayrollProcess = () => {
               getAuthHeaders(),
             );
           }
-          successCount.count++;
           setBulkSaveProgress({ current: i + 1, total: filteredData.length });
         } catch (error) {
           console.error(`Error saving ${item.employeeNumber}:`, error);
-          errorCount.count++;
-          errors.push(
-            `${item.name} (${item.employeeNumber}): ${error.response?.data?.error || error.message}`,
-          );
         }
       }
       await fetchPayrollData();
@@ -1166,3146 +1045,2315 @@ const PayrollProcess = () => {
 
   if (accessLoading) {
     return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
-          <CircularProgress sx={{ color: '#6d2323', mb: 2 }} />
-          <Typography variant="h6" sx={{ color: '#6d2323' }}>
-            Loading access information...
-          </Typography>
-        </Box>
-      </Container>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          py: 8,
+        }}
+      >
+        <CircularProgress sx={{ color: T.accent, mb: 2 }} />
+        <Typography variant="h6" sx={{ color: T.accent }}>
+          Loading access information…
+        </Typography>
+      </Box>
     );
   }
-
   if (!accessLoading && hasAccess !== true) {
     return (
       <AccessDenied
         title="Access Denied"
-        message="You do not have permission to access Payroll Processing. Contact your administrator to request access."
+        message="You do not have permission to access Payroll Processing."
         returnPath="/admin-home"
         returnButtonText="Return to Home"
       />
     );
   }
 
+  const empCatFilterLabel = () => {
+    if (!selectedEmpCat) return null;
+    const [filterType, filterValue] = selectedEmpCat.split('||');
+    if (filterType === 'group') return `Category Group: ${filterValue}`;
+    const [pg, tn] = filterValue.split('|');
+    return `Category: ${tn || filterValue}`;
+  };
+
+  const statCards = [
+    {
+      label: 'Total Employees',
+      value: summaryData.totalEmployees,
+      icon: PeopleIcon,
+      color: T.accent,
+    },
+    {
+      label: 'Processed',
+      value: summaryData.processedEmployees,
+      icon: CheckCircleIcon,
+      color: '#2E7D32',
+    },
+    {
+      label: 'Unprocessed',
+      value: summaryData.unprocessedEmployees,
+      icon: PendingIcon,
+      color: '#E65100',
+    },
+    {
+      label: 'Total Net Salary',
+      value: `₱${summaryData.totalNetSalary.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      icon: TrendingUpIcon,
+      color: T.accent,
+    },
+  ];
+
   return (
     <Box
       sx={{
-        py: 4,
-        borderRadius: '14px',
-        width: '100%',
-        mx: 'auto',
+        py: { xs: 1, md: 2 },
+        mt: { xs: 0, md: -2 },
+        width: '100vw',
         maxWidth: '100%',
+        position: 'relative',
+        left: '63%',
+        transform: 'translateX(-61%)',
+        px: { xs: 2, sm: 3, md: 6 },
       }}
     >
-      <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
-        {/* Header */}
-        <Fade in timeout={500}>
-          <Box sx={{ mb: 4 }}>
-            <GlassCard
-              sx={{
-                background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-                boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-                '&:hover': {
-                  boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-                },
-              }}
-            >
-              <Box
-                sx={{
-                  p: 5,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  color: textPrimaryColor,
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}
-              >
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: -50,
-                    right: -50,
-                    width: 200,
-                    height: 200,
-                    background:
-                      'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)',
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    bottom: -30,
-                    left: '30%',
-                    width: 150,
-                    height: 150,
-                    background:
-                      'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
-                  }}
-                />
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  position="relative"
-                  zIndex={1}
-                  mb={3}
-                >
-                  <Box display="flex" alignItems="center">
-                    <Avatar
-                      sx={{
-                        bgcolor: 'rgba(109,35,35,0.15)',
-                        mr: 4,
-                        width: 64,
-                        height: 64,
-                        boxShadow: '0 8px 24px rgba(109,35,35,0.15)',
-                      }}
-                    >
-                      <Payment sx={{ color: textPrimaryColor, fontSize: 32 }} />
-                    </Avatar>
-                    <Box>
-                      <Typography
-                        variant="h4"
-                        component="h1"
-                        sx={{
-                          fontWeight: 700,
-                          mb: 1,
-                          lineHeight: 1.2,
-                          color: textPrimaryColor,
-                        }}
-                      >
-                        Payroll Processing
-                      </Typography>
-                      <Typography
-                        variant="body1"
-                        sx={{
-                          opacity: 0.8,
-                          fontWeight: 400,
-                          color: textPrimaryColor,
-                        }}
-                      >
-                        Manage and process employee payroll records
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Chip
-                      label="Payroll Management"
-                      size="small"
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.15),
-                        color: textPrimaryColor,
-                        fontWeight: 500,
-                        '& .MuiChip-label': { px: 1 },
-                      }}
-                    />
-                    <Tooltip title="Refresh Data">
-                      <IconButton
-                        onClick={() => fetchPayrollData()}
-                        sx={{
-                          bgcolor: alpha(accentColor, 0.1),
-                          '&:hover': { bgcolor: alpha(accentColor, 0.2) },
-                          color: textPrimaryColor,
-                          width: 48,
-                          height: 48,
-                        }}
-                      >
-                        <Refresh />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Box>
-
-                {/* Summary Cards */}
-                <Box
-                  sx={{
-                    display: 'flex',
-                    gap: 2,
-                    flexWrap: 'wrap',
-                    position: 'relative',
-                    zIndex: 1,
-                  }}
-                >
-                  {[
-                    {
-                      label: 'Total Employees',
-                      value: summaryData.totalEmployees,
-                      icon: (
-                        <PeopleIcon sx={{ color: accentColor, fontSize: 32 }} />
-                      ),
-                      color: textPrimaryColor,
-                    },
-                    {
-                      label: 'Processed',
-                      value: summaryData.processedEmployees,
-                      icon: (
-                        <CheckCircleIcon
-                          sx={{ color: '#4caf50', fontSize: 32 }}
-                        />
-                      ),
-                      color: '#4caf50',
-                    },
-                    {
-                      label: 'Unprocessed',
-                      value: summaryData.unprocessedEmployees,
-                      icon: (
-                        <PendingIcon sx={{ color: '#ff9800', fontSize: 32 }} />
-                      ),
-                      color: '#ff9800',
-                    },
-                    {
-                      label: 'Total Net Salary',
-                      value: `₱${summaryData.totalNetSalary.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                      icon: (
-                        <TrendingUpIcon
-                          sx={{ color: accentColor, fontSize: 32 }}
-                        />
-                      ),
-                      color: textPrimaryColor,
-                    },
-                  ].map((card) => (
-                    <Card
-                      key={card.label}
-                      sx={{
-                        minWidth: 180,
-                        flex: 1,
-                        border: `1px solid ${alpha(accentColor, 0.1)}`,
-                        background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
-                        boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
-                        '&:hover': {
-                          boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
-                          transform: 'translateY(-2px)',
-                        },
-                        transition: 'all 0.3s ease',
-                      }}
-                    >
-                      <CardContent
-                        sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}
-                      >
-                        <Box
-                          display="flex"
-                          alignItems="center"
-                          justifyContent="space-between"
-                        >
-                          <Box>
-                            <Typography
-                              variant="caption"
-                              sx={{
-                                color: textPrimaryColor,
-                                opacity: 0.7,
-                                fontWeight: 500,
-                              }}
-                            >
-                              {card.label}
-                            </Typography>
-                            <Typography
-                              variant="h6"
-                              fontWeight="bold"
-                              sx={{ color: card.color }}
-                            >
-                              {card.value}
-                            </Typography>
-                          </Box>
-                          {card.icon}
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </Box>
-              </Box>
-            </GlassCard>
-          </Box>
-        </Fade>
-
-        {/* Filters Section */}
-        <Fade in timeout={700}>
-          <GlassCard
-            sx={{
-              mb: 4,
-              background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-              boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-              border: `1px solid ${alpha(accentColor, 0.1)}`,
-              '&:hover': {
-                boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-              },
-            }}
-          >
-            <CardContent sx={{ p: 4 }}>
-              <Box
-                display="flex"
-                alignItems="center"
-                justifyContent="space-between"
-                mb={3}
-              >
-                <Box display="flex" alignItems="center" gap={1}>
-                  <FilterList sx={{ color: textPrimaryColor, fontSize: 24 }} />
-                  <Typography
-                    variant="h6"
-                    fontWeight="bold"
-                    sx={{ color: textPrimaryColor }}
-                  >
-                    FILTERS
-                  </Typography>
-                </Box>
-              </Box>
-              <Grid container spacing={2} alignItems="center">
-                <Grid item xs={12} sm={6} md={2.4}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel sx={{ color: textPrimaryColor }}>
-                      Department
-                    </InputLabel>
-                    <Select
-                      value={selectedDepartment}
-                      onChange={handleDepartmentChange}
-                      label="Department"
-                      sx={{
-                        color: textPrimaryColor,
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.3),
-                        },
-                        '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.5),
-                        },
-                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                          borderColor: accentColor,
-                        },
-                      }}
-                    >
-                      <MenuItem value="">
-                        <em>All Departments</em>
-                      </MenuItem>
-                      {departments.map((dept) => (
-                        <MenuItem key={dept.id} value={dept.code}>
-                          {dept.description}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6} md={2.4}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel sx={{ color: textPrimaryColor }}>
-                      Status
-                    </InputLabel>
-                    <Select
-                      value={selectedStatus}
-                      onChange={handleStatusChange}
-                      label="Status"
-                      sx={{
-                        color: textPrimaryColor,
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.3),
-                        },
-                        '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.5),
-                        },
-                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                          borderColor: accentColor,
-                        },
-                      }}
-                    >
-                      <MenuItem value="">
-                        <em>All Status</em>
-                      </MenuItem>
-                      <MenuItem value="Processed">Processed</MenuItem>
-                      <MenuItem value="Unprocessed">Unprocessed</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6} md={2.4}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel sx={{ color: textPrimaryColor }}>
-                      Month
-                    </InputLabel>
-                    <Select
-                      value={selectedMonth}
-                      onChange={handleMonthChange}
-                      label="Month"
-                      sx={{
-                        color: textPrimaryColor,
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.3),
-                        },
-                        '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.5),
-                        },
-                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                          borderColor: accentColor,
-                        },
-                      }}
-                    >
-                      {monthOptions.map((option) => (
-                        <MenuItem key={option.value} value={option.value}>
-                          {option.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6} md={2.4}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel sx={{ color: textPrimaryColor }}>
-                      Year
-                    </InputLabel>
-                    <Select
-                      value={selectedYear}
-                      onChange={handleYearChange}
-                      label="Year"
-                      sx={{
-                        color: textPrimaryColor,
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.3),
-                        },
-                        '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.5),
-                        },
-                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                          borderColor: accentColor,
-                        },
-                      }}
-                    >
-                      {yearOptions.map((option) => (
-                        <MenuItem key={option.value} value={option.value}>
-                          {option.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6} md={2.4}>
-                  <ModernTextField
-                    fullWidth
-                    size="small"
-                    placeholder="Search employee..."
-                    value={searchTerm}
-                    onChange={handleSearchChange}
-                    disabled={isSearching}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <SearchIcon
-                            sx={{ color: textPrimaryColor }}
-                            fontSize="small"
-                          />
-                        </InputAdornment>
-                      ),
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        color: textPrimaryColor,
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.3),
-                        },
-                        '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.5),
-                        },
-                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                          borderColor: accentColor,
-                        },
-                      },
-                    }}
-                  />
-                </Grid>
-              </Grid>
-            </CardContent>
-          </GlassCard>
-        </Fade>
-
-        {/* Alerts */}
-        {duplicateEmployeeNumbers.length > 0 && (
-          <Fade in timeout={300}>
-            <Alert
-              severity="warning"
-              sx={{
-                mb: 3,
-                borderRadius: 3,
-                '& .MuiAlert-message': { fontWeight: 500 },
-              }}
-              icon={<Warning />}
-            >
-              Duplicate record(s) found:{' '}
-              {duplicateEmployeeNumbers
-                .map((key) => {
-                  const [name, empNum, startDate, endDate] = key.split('|');
-                  return `${name} (${empNum}) [${startDate} - ${endDate}]`;
-                })
-                .join(', ')}
-            </Alert>
-          </Fade>
-        )}
-
-        {error && (
-          <Fade in timeout={300}>
-            <Alert
-              severity="error"
-              sx={{
-                mb: 3,
-                borderRadius: 3,
-                '& .MuiAlert-message': { fontWeight: 500 },
-              }}
-              icon={<Error />}
-            >
-              {error}
-            </Alert>
-          </Fade>
-        )}
-
-        {/* Table Section */}
-        <Fade in timeout={900}>
-          <GlassCard
-            sx={{
-              mb: 4,
-              background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-              boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-              border: `1px solid ${alpha(accentColor, 0.1)}`,
-              overflow: 'visible',
-              '&:hover': {
-                boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-              },
-            }}
-          >
-            {/* Table Header */}
-            <Box
-              sx={{
-                p: 4,
-                background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                color: textPrimaryColor,
-                borderBottom: `1px solid ${alpha(accentColor, 0.1)}`,
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <Box>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    opacity: 0.8,
-                    mb: 1,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.1em',
-                    color: textPrimaryColor,
-                  }}
-                >
-                  Payroll Records
-                </Typography>
-                <Typography
-                  variant="h4"
-                  sx={{ fontWeight: 600, color: textPrimaryColor }}
-                >
-                  Employee Payroll Data
-                </Typography>
-              </Box>
-              <Box display="flex" gap={1} alignItems="center">
-                <Chip
-                  icon={<PeopleIcon />}
-                  label={`${selectedRows.length} Selected`}
-                  size="small"
-                  sx={{
-                    bgcolor: alpha(accentColor, 0.15),
-                    color: textPrimaryColor,
-                    fontWeight: 500,
-                  }}
-                />
-                <Badge badgeContent={selectedRows.length} color="primary">
-                  <ProfessionalButton
-                    variant="outlined"
-                    size="small"
-                    startIcon={<Refresh />}
-                    onClick={() => fetchPayrollData()}
-                    sx={{
-                      borderColor: accentColor,
-                      color: textPrimaryColor,
-                      '&:hover': {
-                        borderColor: accentDark,
-                        backgroundColor: alpha(accentColor, 0.1),
-                      },
-                    }}
-                  >
-                    Refresh
-                  </ProfessionalButton>
-                </Badge>
-              </Box>
-            </Box>
-
-            {/* Table with Fixed Actions Column */}
-            <Box sx={{ display: 'flex', width: '100%', position: 'relative' }}>
-              {/* Scrollable Table Content */}
-              <Box
-                sx={{
-                  overflowX: 'auto',
-                  overflowY: 'visible',
-                  flex: 1,
-                  minWidth: 0,
-                  '&::-webkit-scrollbar': { height: '10px' },
-                  '&::-webkit-scrollbar-track': {
-                    background: alpha(accentColor, 0.1),
-                    borderRadius: '4px',
-                  },
-                  '&::-webkit-scrollbar-thumb': {
-                    background: alpha(accentColor, 0.4),
-                    borderRadius: '4px',
-                    '&:hover': { background: alpha(accentColor, 0.6) },
-                  },
-                }}
-              >
-                <PremiumTableContainer
-                  sx={{
-                    boxShadow: `0 4px 24px ${alpha(accentColor, 0.06)}`,
-                    border: `1px solid ${alpha(accentColor, 0.08)}`,
-                    overflowX: 'auto',
-                    overflowY: 'visible',
-                    width: 'max-content',
-                    minWidth: '100%',
-                  }}
-                >
-                  <Table sx={{ minWidth: 'max-content', tableLayout: 'auto' }}>
-                    <TableHead sx={{ bgcolor: alpha(primaryColor, 0.7) }}>
-                      <TableRow>
-                        {/* Checkbox */}
-                        <PremiumTableCell
-                          padding="checkbox"
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <Checkbox
-                            sx={{
-                              color: 'white',
-                              '&.Mui-checked': { color: 'white' },
-                              '&:hover': { color: '#F5F5F5' },
-                              '&.MuiCheckbox-indeterminate': { color: 'white' },
-                            }}
-                            indeterminate={
-                              selectedRows.length > 0 &&
-                              selectedRows.length <
-                                computedRows.filter(
-                                  (row) => !isFinalizedRecord(row),
-                                ).length
-                            }
-                            checked={
-                              selectedRows.length > 0 &&
-                              selectedRows.length ===
-                                computedRows.filter(
-                                  (row) => !isFinalizedRecord(row),
-                                ).length
-                            }
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedRows(
-                                  computedRows
-                                    .filter((row) => !isFinalizedRecord(row))
-                                    .map(
-                                      (row) =>
-                                        `${row.employeeNumber}|${row.startDate}|${row.endDate}`,
-                                    ),
-                                );
-                              } else {
-                                setSelectedRows([]);
-                              }
-                            }}
-                          />
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          No.
-                        </PremiumTableCell>
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          Department
-                        </PremiumTableCell>
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          Employee Number
-                        </PremiumTableCell>
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          Start Date
-                        </PremiumTableCell>
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          End Date
-                        </PremiumTableCell>
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          Name
-                        </PremiumTableCell>
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          Position
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="rateNbc594"
-                            fullName="Salary Rate per National Budget Circular 594"
-                          >
-                            Rate NBC 594
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="nbcDiffl597"
-                            fullName="NBC Differential 597 — Salary Adjustment"
-                          >
-                            NBC DIFF'L 597
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="increment"
-                            fullName="Salary Increment / Step Increment"
-                          >
-                            Increment
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="grossSalary"
-                            fullName="Gross Salary — Total salary before any deductions"
-                          >
-                            Gross Salary
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="tevl"
-                            fullName="Total Earned Vacation Leave"
-                          >
-                            <b>TEVL</b>
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="h"
-                            fullName="Hours Late / Undertime"
-                          >
-                            H
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="m"
-                            fullName="Minutes Late / Undertime"
-                          >
-                            M
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="abs"
-                            fullName="Absence Deductions — Amount deducted for absences"
-                          >
-                            <b>ABS</b>
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="netSalary"
-                            fullName="Net Salary — Take-home pay after all deductions"
-                          >
-                            Net Salary
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="withholdingTax"
-                            fullName="Withholding Tax — BIR income tax withheld"
-                          >
-                            Withholding Tax
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="totalGsisDeds"
-                            fullName="Total GSIS Deductions — Sum of all GSIS contributions and loans"
-                          >
-                            <b>Total GSIS Deductions</b>
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="totalPagibigDeds"
-                            fullName="Total Pag-IBIG Deductions — Sum of all Pag-IBIG contributions and loans"
-                          >
-                            <b>Total Pag-ibig Deductions</b>
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="PhilHealthContribution"
-                            fullName="PhilHealth Contribution — Monthly health insurance premium"
-                          >
-                            PhilHealth
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="totalOtherDeds"
-                            fullName="Total Other Deductions — Sum of all miscellaneous deductions"
-                          >
-                            <b>Total Other Deductions</b>
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="totalDeductions"
-                            fullName="Total Deductions — Grand total of all deductions"
-                          >
-                            <b>Total Deductions</b>
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="pay1st"
-                            fullName="1st Pay — First half salary release amount"
-                          >
-                            1st Pay
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="pay2nd"
-                            fullName="2nd Pay — Second half salary release amount"
-                          >
-                            2nd Pay
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          No.
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="rtIns"
-                            fullName="Retirement Insurance — GSIS retirement and insurance premium"
-                          >
-                            RT Ins.
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="ec"
-                            fullName="Employees' Compensation — EC program contribution"
-                          >
-                            EC
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="PhilHealthContribution"
-                            fullName="PhilHealth Contribution — Monthly health insurance premium"
-                          >
-                            PhilHealth
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="pagibigFundCont"
-                            fullName="Pag-IBIG Fund Contribution — Monthly housing fund contribution"
-                          >
-                            Pag-Ibig
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{
-                            color: textPrimaryColor,
-                            borderLeft: '2px solid black',
-                          }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="pay1stCompute"
-                            fullName="1st Pay Computed Amount — Calculated net 1st pay disbursement"
-                          >
-                            Pay1st Compute
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="pay2ndCompute"
-                            fullName="2nd Pay Computed Amount — Calculated net 2nd pay disbursement"
-                          >
-                            Pay2nd Compute
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{
-                            color: textPrimaryColor,
-                            borderLeft: '2px solid black',
-                          }}
-                        >
-                          No.
-                        </PremiumTableCell>
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          Name
-                        </PremiumTableCell>
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          Position
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="withholdingTax"
-                            fullName="Withholding Tax — BIR income tax withheld"
-                          >
-                            Withholding Tax
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="personalLifeRetIns"
-                            fullName="Personal Life Retirement Insurance — GSIS life and retirement insurance premium"
-                          >
-                            Personal Life Ret Ins
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="gsisSalaryLoan"
-                            fullName="GSIS Salary Loan — Monthly amortization for GSIS salary loan"
-                          >
-                            GSIS Salary Loan
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="gsisPolicyLoan"
-                            fullName="GSIS Policy Loan — Monthly amortization for GSIS policy loan"
-                          >
-                            GSIS Policy Loan
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="gsisArrears"
-                            fullName="GSIS Arrears — Overdue GSIS payment arrears"
-                          >
-                            gsisArrears
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="cpl"
-                            fullName="CPL — Consolidated Policy Loan"
-                          >
-                            CPL
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="mpl"
-                            fullName="MPL — Multi-Purpose Loan (GSIS)"
-                          >
-                            MPL
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="eal"
-                            fullName="EAL — Enhanced Affordable Loan"
-                          >
-                            EAL
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="mplLite"
-                            fullName="MPL LITE — GSIS Multi-Purpose Loan Lite"
-                          >
-                            MPL LITE
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="emergencyLoan"
-                            fullName="Emergency Loan (ELA) — GSIS Emergency Loan Assistance"
-                          >
-                            Emergency Loan (ELA)
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="totalGsisDeds"
-                            fullName="Total GSIS Deductions — Sum of all GSIS contributions and loans"
-                          >
-                            Total GSIS Deductions
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="pagibigFundCont"
-                            fullName="Pag-IBIG Fund Contribution — Monthly housing fund contribution"
-                          >
-                            Pag-ibig Fund Contribution
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="pagibig2"
-                            fullName="Pag-IBIG 2 — Voluntary Pag-IBIG savings program"
-                          >
-                            Pag-ibig 2
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="multiPurpLoan"
-                            fullName="Multi-Purpose Loan — Pag-IBIG multi-purpose loan amortization"
-                          >
-                            Multi-Purpose Loan
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="totalPagibigDeds"
-                            fullName="Total Pag-IBIG Deductions — Sum of all Pag-IBIG contributions and loans"
-                          >
-                            Total Pag-Ibig Deduction
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="PhilHealthContribution"
-                            fullName="PhilHealth Contribution — Monthly health insurance premium"
-                          >
-                            PhilHealth
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="liquidatingCash"
-                            fullName="Liquidating Cash — Cash advances subject to liquidation"
-                          >
-                            liquidatingCash
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="landbankSalaryLoan"
-                            fullName="LandBank Salary Loan — Monthly amortization for Landbank salary loan"
-                          >
-                            LandBank Salary Loan
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="earistCreditCoop"
-                            fullName="EARIST Credit Cooperative — Monthly coop loan deduction"
-                          >
-                            Earist Credit COOP.
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="feu"
-                            fullName="FEU — Far Eastern University loan deduction"
-                          >
-                            FEU
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="totalOtherDeds"
-                            fullName="Total Other Deductions — Sum of all miscellaneous deductions"
-                          >
-                            Total Other Deductions
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-
-                        <PremiumTableCell
-                          isHeader
-                          sx={{ color: textPrimaryColor }}
-                        >
-                          <HeaderTooltip
-                            fieldKey="totalDeductions"
-                            fullName="Total Deductions — Grand total of all deductions"
-                          >
-                            Total Deductions
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-                      </TableRow>
-                    </TableHead>
-
-                    <TableBody>
-                      {filteredData.length > 0 ? (
-                        computedRows
-                          .slice(
-                            page * rowsPerPage,
-                            page * rowsPerPage + rowsPerPage,
-                          )
-                          .map((row, index) => {
-                            const isFinalized = isFinalizedRecord(row);
-                            return (
-                              <TableRow
-                                key={
-                                  row.id ??
-                                  `${row.employeeNumber}-${row.startDate}-${row.endDate}`
-                                }
-                                sx={{
-                                  '&:nth-of-type(even)': {
-                                    bgcolor: alpha(primaryColor, 0.3),
-                                  },
-                                  '&:hover': {
-                                    backgroundColor:
-                                      alpha(accentColor, 0.05) + ' !important',
-                                  },
-                                  backgroundColor:
-                                    duplicateEmployeeNumbers.includes(
-                                      `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`,
-                                    )
-                                      ? 'rgba(255, 0, 0, 0.1)'
-                                      : 'inherit',
-                                  transition: 'all 0.2s ease',
-                                }}
-                              >
-                                <PremiumTableCell padding="checkbox">
-                                  <Checkbox
-                                    checked={selectedRows.includes(
-                                      `${row.employeeNumber}|${row.startDate}|${row.endDate}`,
-                                    )}
-                                    onChange={() => {
-                                      const rowKey = `${row.employeeNumber}|${row.startDate}|${row.endDate}`;
-                                      if (selectedRows.includes(rowKey)) {
-                                        setSelectedRows((prev) =>
-                                          prev.filter((id) => id !== rowKey),
-                                        );
-                                      } else {
-                                        setSelectedRows((prev) => [
-                                          ...prev,
-                                          rowKey,
-                                        ]);
-                                      }
-                                    }}
-                                    disabled={isRowProcessed(row)}
-                                  />
-                                </PremiumTableCell>
-                                <ExcelTableCell>
-                                  {page * rowsPerPage + index + 1}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.department}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.employeeNumber}
-                                </ExcelTableCell>
-                                <ExcelTableCell>{row.startDate}</ExcelTableCell>
-                                <ExcelTableCell>{row.endDate}</ExcelTableCell>
-                                <ExcelTableCell>{row.name}</ExcelTableCell>
-                                <ExcelTableCell>{row.position}</ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.rateNbc594
-                                    ? Number(row.rateNbc594).toLocaleString(
-                                        'en-US',
-                                        {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        },
-                                      )
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.nbcDiffl597
-                                    ? Number(row.nbcDiffl597).toLocaleString(
-                                        'en-US',
-                                        {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        },
-                                      )
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.increment
-                                    ? Number(row.increment).toLocaleString(
-                                        'en-US',
-                                        {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        },
-                                      )
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.grossSalary}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  <b>{row.tevl}</b>
-                                </ExcelTableCell>
-                                <ExcelTableCell>{row.h}</ExcelTableCell>
-                                <ExcelTableCell>{row.m}</ExcelTableCell>
-                                <ExcelTableCell>
-                                  <b>{row.abs}</b>
-                                </ExcelTableCell>
-                                <ExcelTableCell>{row.netSalary}</ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.withholdingTax}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.totalGsisDeds}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.totalPagibigDeds}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.PhilHealthContribution}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.totalOtherDeds}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.totalDeductions}
-                                </ExcelTableCell>
-                                <ExcelTableCell
-                                  sx={{ color: 'red', fontWeight: 'bold' }}
-                                >
-                                  {row.pay1st}
-                                </ExcelTableCell>
-                                <ExcelTableCell
-                                  sx={{ color: 'red', fontWeight: 'bold' }}
-                                >
-                                  {row.pay2nd}
-                                </ExcelTableCell>
-                                <ExcelTableCell>{index + 1}</ExcelTableCell>
-                                <ExcelTableCell>{row.rtIns}</ExcelTableCell>
-                                <ExcelTableCell>{row.ec}</ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.PhilHealthContribution}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.pagibigFundCont}
-                                </ExcelTableCell>
-                                <ExcelTableCell
-                                  sx={{
-                                    borderLeft: '2px solid black',
-                                    color: 'red',
-                                    fontWeight: 'bold',
-                                  }}
-                                >
-                                  {row.pay1stCompute}
-                                </ExcelTableCell>
-                                <ExcelTableCell
-                                  sx={{ color: 'red', fontWeight: 'bold' }}
-                                >
-                                  {row.pay2ndCompute}
-                                </ExcelTableCell>
-                                <ExcelTableCell
-                                  sx={{ borderLeft: '2px solid black' }}
-                                >
-                                  {index + 1}
-                                </ExcelTableCell>
-                                <ExcelTableCell>{row.name}</ExcelTableCell>
-                                <ExcelTableCell>{row.position}</ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.withholdingTax
-                                    ? Number(row.withholdingTax).toLocaleString(
-                                        'en-US',
-                                        {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        },
-                                      )
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.personalLifeRetIns}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.gsisSalaryLoan
-                                    ? Number(row.gsisSalaryLoan).toLocaleString(
-                                        'en-US',
-                                        {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        },
-                                      )
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.gsisPolicyLoan
-                                    ? Number(row.gsisPolicyLoan).toLocaleString(
-                                        'en-US',
-                                        {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        },
-                                      )
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.gsisArrears
-                                    ? Number(row.gsisArrears).toLocaleString(
-                                        'en-US',
-                                        {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        },
-                                      )
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.cpl
-                                    ? Number(row.cpl).toLocaleString('en-US', {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2,
-                                      })
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.mpl
-                                    ? Number(row.mpl).toLocaleString('en-US', {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2,
-                                      })
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.eal
-                                    ? Number(row.eal).toLocaleString('en-US', {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2,
-                                      })
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.mplLite
-                                    ? Number(row.mplLite).toLocaleString(
-                                        'en-US',
-                                        {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        },
-                                      )
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.emergencyLoan
-                                    ? Number(row.emergencyLoan).toLocaleString(
-                                        'en-US',
-                                        {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        },
-                                      )
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.totalGsisDeds}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.pagibigFundCont
-                                    ? Number(
-                                        row.pagibigFundCont,
-                                      ).toLocaleString('en-US', {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2,
-                                      })
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.pagibig2
-                                    ? Number(row.pagibig2).toLocaleString(
-                                        'en-US',
-                                        {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        },
-                                      )
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.multiPurpLoan
-                                    ? Number(row.multiPurpLoan).toLocaleString(
-                                        'en-US',
-                                        {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2,
-                                        },
-                                      )
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.totalPagibigDeds}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.PhilHealthContribution}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.liquidatingCash
-                                    ? Number(
-                                        row.liquidatingCash,
-                                      ).toLocaleString('en-US', {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2,
-                                      })
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.landbankSalaryLoan
-                                    ? Number(
-                                        row.landbankSalaryLoan,
-                                      ).toLocaleString('en-US', {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2,
-                                      })
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.earistCreditCoop
-                                    ? Number(
-                                        row.earistCreditCoop,
-                                      ).toLocaleString('en-US', {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2,
-                                      })
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.feu
-                                    ? Number(row.feu).toLocaleString('en-US', {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2,
-                                      })
-                                    : ''}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.totalOtherDeds}
-                                </ExcelTableCell>
-                                <ExcelTableCell>
-                                  {row.totalDeductions}
-                                </ExcelTableCell>
-                              </TableRow>
-                            );
-                          })
-                      ) : (
-                        <TableRow>
-                          <PremiumTableCell
-                            colSpan={50}
-                            align="center"
-                            sx={{ py: 8 }}
-                          >
-                            <Box sx={{ textAlign: 'center' }}>
-                              <Info
-                                sx={{
-                                  fontSize: 80,
-                                  color: alpha(accentColor, 0.3),
-                                  mb: 3,
-                                }}
-                              />
-                              <Typography
-                                variant="h5"
-                                sx={{
-                                  color: alpha(accentColor, 0.6),
-                                  fontWeight: 600,
-                                }}
-                                gutterBottom
-                              >
-                                No Records Found
-                              </Typography>
-                              <Typography
-                                variant="body1"
-                                sx={{ color: alpha(accentColor, 0.4) }}
-                              >
-                                No payroll records available. Try adjusting your
-                                filters.
-                              </Typography>
-                            </Box>
-                          </PremiumTableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </PremiumTableContainer>
-              </Box>
-
-              {/* Fixed Status Column */}
-              <Box
-                sx={{
-                  width: '130px',
-                  minWidth: '130px',
-                  borderLeft: `2px solid ${alpha(accentColor, 0.2)}`,
-                  backgroundColor: alpha(primaryColor, 0.3),
-                  position: 'sticky',
-                  right: '120px',
-                  zIndex: 1,
-                  boxShadow: `-2px 0 5px ${alpha(accentColor, 0.1)}`,
-                }}
-              >
-                <Table
-                  size="small"
-                  sx={{ tableLayout: 'fixed', width: '100%' }}
-                >
-                  <TableHead>
-                    <TableRow>
-                      <TableCell
-                        sx={{
-                          backgroundColor: alpha(primaryColor, 0.7),
-                          fontWeight: 'bold',
-                          textAlign: 'center',
-                          borderBottom: `1px solid ${alpha(accentColor, 0.1)}`,
-                          padding: '8px',
-                          position: 'sticky',
-                          paddingTop: 3.5,
-                          paddingBottom: 3.5,
-                          zIndex: 2,
-                          color: textPrimaryColor,
-                        }}
-                      >
-                        Status
-                      </TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredData.length > 0 ? (
-                      computedRows
-                        .slice(
-                          page * rowsPerPage,
-                          page * rowsPerPage + rowsPerPage,
-                        )
-                        .map((row) => (
-                          <TableRow
-                            key={
-                              row.id
-                                ? `status-${row.id}`
-                                : `status-${row.employeeNumber}-${row.startDate}-${row.endDate}`
-                            }
-                            sx={{
-                              '&:nth-of-type(even)': {
-                                bgcolor: alpha(primaryColor, 0.3),
-                              },
-                              '&:hover': {
-                                backgroundColor:
-                                  alpha(accentColor, 0.05) + ' !important',
-                              },
-                              backgroundColor:
-                                duplicateEmployeeNumbers.includes(
-                                  `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`,
-                                )
-                                  ? 'rgba(255, 0, 0, 0.1)'
-                                  : 'inherit',
-                              transition: 'all 0.2s ease',
-                            }}
-                          >
-                            <TableCell
-                              sx={{
-                                padding: '8px',
-                                textAlign: 'center',
-                                borderBottom: `1px solid ${alpha(accentColor, 0.06)}`,
-                                pt: 3.4,
-                                pb: 3.4,
-                              }}
-                            >
-                              <Chip
-                                label={row.status}
-                                size="small"
-                                sx={{
-                                  fontWeight: 'bold',
-                                  backgroundColor:
-                                    row.status === 'Processed'
-                                      ? '#4caf50'
-                                      : '#ff9800',
-                                  color: 'white',
-                                  '&:hover': {
-                                    backgroundColor:
-                                      row.status === 'Processed'
-                                        ? '#45a049'
-                                        : '#fb8c00',
-                                  },
-                                }}
-                              />
-                            </TableCell>
-                          </TableRow>
-                        ))
-                    ) : (
-                      <TableRow>
-                        <TableCell
-                          sx={{
-                            textAlign: 'center',
-                            borderBottom: `1px solid ${alpha(accentColor, 0.06)}`,
-                            padding: '8px',
-                          }}
-                        >
-                          -
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </Box>
-
-              {/* Fixed Actions Column */}
-              <Box
-                sx={{
-                  width: '120px',
-                  minWidth: '120px',
-                  borderLeft: `2px solid ${alpha(accentColor, 0.2)}`,
-                  backgroundColor: alpha(primaryColor, 0.3),
-                  position: 'sticky',
-                  right: 0,
-                  zIndex: 1,
-                  boxShadow: `-2px 0 5px ${alpha(accentColor, 0.1)}`,
-                }}
-              >
-                <Table
-                  size="small"
-                  sx={{ tableLayout: 'fixed', width: '100%' }}
-                >
-                  <TableHead>
-                    <TableRow>
-                      <TableCell
-                        sx={{
-                          backgroundColor: alpha(primaryColor, 0.7),
-                          fontWeight: 'bold',
-                          textAlign: 'center',
-                          borderBottom: `1px solid ${alpha(accentColor, 0.1)}`,
-                          padding: '8px',
-                          position: 'sticky',
-                          paddingTop: 3.5,
-                          paddingBottom: 3.5,
-                          zIndex: 2,
-                          color: textPrimaryColor,
-                        }}
-                      >
-                        Actions
-                      </TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredData.length > 0 ? (
-                      computedRows
-                        .slice(
-                          page * rowsPerPage,
-                          page * rowsPerPage + rowsPerPage,
-                        )
-                        .map((row) => {
-                            const isFinalized = isFinalizedRecord(row);
-                          return (
-                            <TableRow
-                              key={
-                                row.id
-                                  ? `actions-${row.id}`
-                                  : `actions-${row.employeeNumber}-${row.startDate}-${row.endDate}`
-                              }
-                              sx={{
-                                '&:nth-of-type(even)': {
-                                  bgcolor: alpha(primaryColor, 0.3),
-                                },
-                                '&:hover': {
-                                  backgroundColor:
-                                    alpha(accentColor, 0.05) + ' !important',
-                                },
-                                backgroundColor:
-                                  duplicateEmployeeNumbers.includes(
-                                    `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`,
-                                  )
-                                    ? 'rgba(255, 0, 0, 0.1)'
-                                    : 'inherit',
-                                transition: 'all 0.2s ease',
-                              }}
-                            >
-                              <TableCell
-                                sx={{
-                                  padding: '8px',
-                                  textAlign: 'center',
-                                  borderBottom: `1px solid ${alpha(accentColor, 0.06)}`,
-                                }}
-                              >
-                                <Box
-                                  sx={{
-                                    display: 'flex',
-                                    justifyContent: 'center',
-                                    gap: 0.5,
-                                    paddingTop: 2,
-                                    paddingBottom: 2,
-                                  }}
-                                >
-                                  <Tooltip title="View Record">
-                                    <IconButton
-                                      size="small"
-                                      onClick={() => handleView(row.id)}
-                                      sx={{
-                                        color: accentColor,
-                                        backgroundColor: 'white',
-                                        border: `1px solid ${accentColor}`,
-                                        '&:hover': {
-                                          backgroundColor: alpha(
-                                            accentColor,
-                                            0.1,
-                                          ),
-                                        },
-                                        padding: '4px',
-                                      }}
-                                    >
-                                      <Visibility fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                  <Tooltip title="Edit Record">
-                                    <IconButton
-                                      size="small"
-                                      onClick={() => handleEdit(row.id)}
-                                      disabled={isRowProcessed(row)}
-                                      sx={{
-                                        color: isFinalized
-                                          ? '#ccc'
-                                          : accentColor,
-                                        backgroundColor: isFinalized
-                                          ? '#f5f5f5'
-                                          : 'white',
-                                        border: `1px solid ${accentColor}`,
-                                        '&:hover': {
-                                          backgroundColor: isFinalized
-                                            ? '#f5f5f5'
-                                            : alpha(accentColor, 0.1),
-                                        },
-                                        padding: '4px',
-                                      }}
-                                    >
-                                      <EditIcon fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                  <Tooltip title="Delete Record">
-                                    <IconButton
-                                      size="small"
-                                      onClick={() =>
-                                        handleDelete(row.id, row.employeeNumber)
-                                      }
-                                      disabled={isRowProcessed(row)}
-                                      sx={{
-                                        color: isFinalized ? '#ccc' : '#d32f2f',
-                                        backgroundColor: isFinalized
-                                          ? '#f5f5f5'
-                                          : 'white',
-                                        border: '1px solid #d32f2f',
-                                        '&:hover': {
-                                          backgroundColor: isFinalized
-                                            ? '#f5f5f5'
-                                            : 'rgba(211, 47, 47, 0.1)',
-                                        },
-                                        padding: '4px',
-                                      }}
-                                    >
-                                      <DeleteIcon fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                </Box>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })
-                    ) : (
-                      <TableRow>
-                        <TableCell
-                          sx={{
-                            textAlign: 'center',
-                            borderBottom: `1px solid ${alpha(accentColor, 0.06)}`,
-                            padding: '8px',
-                          }}
-                        >
-                          No actions
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </Box>
-            </Box>
-
-            {/* Table Footer */}
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                borderTop: `1px solid ${alpha(accentColor, 0.1)}`,
-                px: 4,
-                py: 2,
-                bgcolor: alpha(primaryColor, 0.5),
-              }}
-            >
-              <Box sx={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-                <Typography
-                  variant="body2"
-                  sx={{ fontWeight: 'bold', color: textPrimaryColor }}
-                >
-                  Total Records: {filteredData.length}
-                </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{ fontWeight: 'bold', color: textPrimaryColor }}
-                >
-                  Selected: {selectedRows.length}
-                </Typography>
-              </Box>
-              <TablePagination
-                component="div"
-                count={filteredData.length}
-                page={page}
-                onPageChange={handleChangePage}
-                rowsPerPage={rowsPerPage}
-                onRowsPerPageChange={handleChangeRowsPerPage}
-                rowsPerPageOptions={[10, 25, 50, 100]}
-                sx={{
-                  '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows':
-                    { color: textPrimaryColor },
-                  '& .MuiIconButton-root': { color: textPrimaryColor },
-                }}
-              />
-            </Box>
-          </GlassCard>
-        </Fade>
-
-        {/* Action Buttons */}
+      {/* ── Page Header ── */}
+      <SectionCard sx={{ mb: 2 }}>
         <Box
           sx={{
+            px: 4,
+            py: 3,
+            background: T.headerGrad,
             display: 'flex',
+            alignItems: 'center',
             justifyContent: 'space-between',
-            gap: 2,
-            mt: 3,
+            position: 'relative',
+            overflow: 'hidden',
           }}
         >
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <ProfessionalButton
-              variant="contained"
-              onClick={handleRecalculateAndSaveAll}
-              disabled={filteredData.length === 0 || isBulkSaving}
-              size="large"
-              sx={{
-                backgroundColor: '#2e7d32',
-                color: '#fff',
-                '&:hover': { backgroundColor: '#1b5e20' },
-                '&:disabled': {
-                  backgroundColor: alpha('#2e7d32', 0.3),
-                  color: alpha('#fff', 0.5),
-                },
-              }}
-              startIcon={
-                isBulkSaving ? (
-                  <CircularProgress size={20} color="inherit" />
-                ) : (
-                  <SaveIcon />
-                )
-              }
-            >
-              {isBulkSaving
-                ? 'Saving...'
-                : `Recalculate & Save All (${filteredData.length})`}
-            </ProfessionalButton>
-          </Box>
-          <ProfessionalButton
-            variant="outlined"
-            onClick={() => (window.location.href = '/payroll-processed')}
-            size="large"
-            sx={{
-              borderColor: accentColor,
-              color: textPrimaryColor,
-              '&:hover': {
-                borderColor: accentDark,
-                backgroundColor: alpha(accentColor, 0.1),
-              },
-            }}
-            startIcon={<CreditCard />}
-          >
-            View Processed Payroll
-          </ProfessionalButton>
-        </Box>
-
-        <Box
-          sx={{
-            position: 'fixed',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            display: 'flex',
-            justifyContent: 'center',
-            zIndex: 1300,
-            pointerEvents: 'none',
-          }}
-        >
-          <Slide
-            direction="up"
-            in={selectedRows.length > 0}
-            mountOnEnter
-            unmountOnExit
-          >
-            <Box
-              sx={{
-                pointerEvents: 'auto',
-                width: 'min(760px, calc(100vw - 32px))',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                gap: 1.5,
-                flexWrap: 'wrap',
-                px: 2.5,
-                py: 2,
-                borderRadius: '16px 16px 0 0',
-                border: `1px solid ${alpha(accentColor, 0.12)}`,
-                borderBottom: 'none',
-                bgcolor: '#ffffff',
-                boxShadow: `0 -4px 24px ${alpha(accentColor, 0.1)}`,
-              }}
-            >
-              <Typography
-                variant="body2"
-                sx={{
-                  fontWeight: 700,
-                  color: textPrimaryColor,
-                  px: 2,
-                  py: 1,
-                  borderRadius: 999,
-                  bgcolor: alpha(accentColor, 0.07),
-                  border: `1px solid ${alpha(accentColor, 0.15)}`,
-                }}
-              >
-                Selected: {selectedRows.length}
-              </Typography>
-
-              <Box sx={{ flex: 1 }} />
-
-              <ProfessionalButton
-                variant="outlined"
-                onClick={() => setSelectedRows([])}
-                size="large"
-                sx={{
-                  borderColor: alpha(accentColor, 0.3),
-                  color: textPrimaryColor,
-                  bgcolor: 'rgba(255,255,255,0.9)',
-                  px: 2.2,
-                  py: 1,
-                  borderRadius: '12px',
-                  '&:hover': {
-                    borderColor: accentColor,
-                    bgcolor: 'rgba(255,255,255,0.94)',
-                  },
-                }}
-              >
-                Cancel
-              </ProfessionalButton>
-
-              <Fab
-                variant="extended"
-                onClick={() => setShowConfirmation(true)}
-                disabled={!canSubmit}
-                sx={{
-                  bgcolor: accentColor,
-                  color: textSecondaryColor,
-                  px: 2.4,
-                  py: 0.2,
-                  fontWeight: 700,
-                  textTransform: 'none',
-                  borderRadius: '12px',
-                  boxShadow: `0 8px 20px ${alpha(accentColor, 0.35)}`,
-                  '&:hover': {
-                    bgcolor: accentDark,
-                    boxShadow: `0 12px 26px ${alpha(accentColor, 0.42)}`,
-                  },
-                  '&:disabled': {
-                    bgcolor: alpha(accentColor, 0.25),
-                    color: alpha(textSecondaryColor, 0.5),
-                  },
-                }}
-              >
-                <ExitToApp sx={{ mr: 1 }} />
-                Export Payroll Records
-              </Fab>
-            </Box>
-          </Slide>
-        </Box>
-
-        {/* Edit Modal */}
-        <Modal open={openModal} onClose={handleCancel}>
           <Box
             sx={{
               position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              width: '95vw',
-              maxWidth: 1600,
-              height: '90vh',
-              bgcolor: 'background.paper',
-              borderRadius: 2,
-              boxShadow: 24,
+              top: -50,
+              right: -50,
+              width: 200,
+              height: 200,
+              borderRadius: '50%',
+              background:
+                'radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)',
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: -30,
+              left: '30%',
+              width: 150,
+              height: 150,
+              borderRadius: '50%',
+              background:
+                'radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)',
+            }}
+          />
+          <Box
+            sx={{
               display: 'flex',
-              flexDirection: 'column',
-              border: `3px solid ${accentColor}`,
+              alignItems: 'center',
+              gap: 3,
+              position: 'relative',
+              zIndex: 1,
             }}
           >
-            {editRow && (
-              <>
+            <Payment sx={{ fontSize: 32, color: T.accent }} />
+            <Box>
+              <Typography
+                sx={{
+                  fontSize: '1.25rem',
+                  fontWeight: 900,
+                  color: T.accent,
+                  lineHeight: 1.2,
+                  mb: 0.3,
+                }}
+              >
+                Payroll Processing
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: '0.82rem',
+                  color: T.accentMid,
+                  fontWeight: 700,
+                  opacity: 0.9,
+                }}
+              >
+                Administrative Panel • Manage and process employee payroll
+                records
+              </Typography>
+            </Box>
+          </Box>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+              position: 'relative',
+              zIndex: 1,
+            }}
+          >
+            <Chip
+              label="Payroll Management"
+              size="small"
+              sx={{
+                bgcolor: alpha(T.accent, 0.12),
+                color: T.accent,
+                fontWeight: 600,
+                fontSize: '0.72rem',
+              }}
+            />
+            <Tooltip title="Refresh Data">
+              <IconButton
+                onClick={() => fetchPayrollData()}
+                sx={{
+                  bgcolor: alpha(T.accent, 0.08),
+                  border: `1px solid ${T.accentBorder}`,
+                  color: T.accent,
+                  width: 36,
+                  height: 36,
+                  borderRadius: 2,
+                  '&:hover': { bgcolor: T.accentFaint },
+                }}
+              >
+                <Refresh sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </Box>
+      </SectionCard>
+
+      {/* ── Stats Strip ── */}
+      <Box
+        sx={{
+          mb: 2,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4,1fr)',
+          gap: 1.5,
+        }}
+      >
+        {statCards.map((stat) => {
+          const Icon = stat.icon;
+          return (
+            <SectionCard key={stat.label}>
+              <Box
+                sx={{
+                  px: 2.5,
+                  py: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.75,
+                }}
+              >
                 <Box
                   sx={{
-                    p: 3,
-                    background: `linear-gradient(135deg, ${settings.secondaryColor || accentColor} 0%, ${settings.deleteButtonHoverColor || accentDark} 100%)`,
-                    color: settings.accentColor || textSecondaryColor,
-                    borderRadius: '2px 2px 0 0',
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 10,
+                    width: 38,
+                    height: 38,
+                    borderRadius: 2,
+                    bgcolor: alpha(stat.color, 0.1),
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                     flexShrink: 0,
                   }}
                 >
+                  <Icon sx={{ fontSize: 18, color: stat.color }} />
+                </Box>
+                <Box sx={{ minWidth: 0 }}>
                   <Typography
-                    variant="h5"
-                    fontWeight="bold"
-                    sx={{ color: settings.accentColor || textSecondaryColor }}
+                    sx={{
+                      fontWeight: 900,
+                      fontSize:
+                        typeof stat.value === 'string' ? '1rem' : '1.35rem',
+                      color: T.text,
+                      lineHeight: 1,
+                    }}
                   >
-                    Edit Payroll Record - {editRow.name}
+                    {stat.value}
                   </Typography>
                   <Typography
-                    variant="body2"
                     sx={{
-                      opacity: 0.9,
-                      mt: 0.5,
-                      fontWeight: 'bold',
-                      color: settings.accentColor || textSecondaryColor,
+                      fontSize: '0.7rem',
+                      color: T.muted,
+                      mt: 0.3,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
                     }}
                   >
-                    Employee Number: {editRow.employeeNumber}
+                    {stat.label}
                   </Typography>
                 </Box>
-                <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                  {/* LEFT: Original Values */}
-                  <Box
-                    sx={{
-                      width: '50%',
-                      p: 3,
-                      overflowY: 'auto',
-                      bgcolor: '#f8f8f8',
-                      borderRight: `2px solid ${accentColor}`,
-                      '&::-webkit-scrollbar': { width: '8px' },
-                      '&::-webkit-scrollbar-track': { background: '#f1f1f1' },
-                      '&::-webkit-scrollbar-thumb': {
-                        background: '#888',
-                        borderRadius: '4px',
-                      },
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1,
-                        mb: 3,
-                      }}
-                    >
-                      <Compare sx={{ color: accentColor }} />
-                      <Typography
-                        variant="h6"
-                        fontWeight="bold"
-                        sx={{ color: accentColor }}
-                      >
-                        Original Values
-                      </Typography>
-                    </Box>
-                    {[
-                      {
-                        title: 'Employee Information',
-                        fields: [
-                          {
-                            label: 'Employee Number',
-                            value: editRow.employeeNumber,
-                          },
-                          { label: 'Name', value: editRow.name },
-                          { label: 'Position', value: editRow.position },
-                          { label: 'Department', value: editRow.department },
-                          { label: 'Start Date', value: editRow.startDate },
-                          { label: 'End Date', value: editRow.endDate },
-                        ],
-                      },
-                      {
-                        title: 'Salary Rate and Adjustments',
-                        fields: [
-                          {
-                            label: 'Rate NBC 584',
-                            value: editRow.rateNbc584 || '0.00',
-                          },
-                          { label: 'NBC 594', value: editRow.nbc594 || '0.00' },
-                          {
-                            label: 'Rate NBC 594',
-                            value: editRow.rateNbc594 || '0.00',
-                            highlight: true,
-                          },
-                          {
-                            label: "NBC DIFF'L 597",
-                            value: editRow.nbcDiffl597 || '0.00',
-                          },
-                          {
-                            label: 'Increment',
-                            value: editRow.increment || '0.00',
-                          },
-                          {
-                            label: 'Gross Salary',
-                            value: editRow.grossSalary || '0.00',
-                            highlight: true,
-                          },
-                        ],
-                      },
-                      {
-                        title: 'Absent Deductions & Leave',
-                        fields: [
-                          { label: 'TEVL', value: editRow.tevl || '0.00' },
-                          { label: 'ABS', value: editRow.abs || '0.00' },
-                          { label: 'Hours (H)', value: editRow.h || '0' },
-                          { label: 'Minutes (M)', value: editRow.m || '0' },
-                        ],
-                      },
-                      {
-                        title: 'Payroll Disbursement',
-                        fields: [
-                          { label: '1st Pay', value: editRow.pay1st || '0.00' },
-                          { label: '2nd Pay', value: editRow.pay2nd || '0.00' },
-                          { label: 'EC', value: editRow.ec || '0.00' },
-                        ],
-                      },
-                      {
-                        title: 'GSIS Deductions',
-                        fields: [
-                          {
-                            label: 'Personal Life Ret Ins',
-                            value: editRow.personalLifeRetIns || '0.00',
-                          },
-                          {
-                            label: 'GSIS Salary Loan',
-                            value: editRow.gsisSalaryLoan || '0.00',
-                          },
-                          {
-                            label: 'GSIS Policy Loan',
-                            value: editRow.gsisPolicyLoan || '0.00',
-                          },
-                          {
-                            label: 'GSIS Arrears',
-                            value: editRow.gsisArrears || '0.00',
-                          },
-                          { label: 'MPL', value: editRow.mpl || '0.00' },
-                          { label: 'EAL', value: editRow.eal || '0.00' },
-                          { label: 'CPL', value: editRow.cpl || '0.00' },
-                          {
-                            label: 'MPL Lite',
-                            value: editRow.mplLite || '0.00',
-                          },
-                          {
-                            label: 'Emergency Loan',
-                            value: editRow.emergencyLoan || '0.00',
-                          },
-                        ],
-                      },
-                      {
-                        title: 'Pag-IBIG Deductions',
-                        fields: [
-                          {
-                            label: 'Pag-ibig Fund Cont',
-                            value: editRow.pagibigFundCont || '0.00',
-                          },
-                          {
-                            label: 'Multi-Purpose Loan',
-                            value: editRow.multiPurpLoan || '0.00',
-                          },
-                          {
-                            label: 'Pag-ibig 2',
-                            value: editRow.pagibig2 || '0.00',
-                          },
-                        ],
-                      },
-                      {
-                        title: 'Other Deductions',
-                        fields: [
-                          {
-                            label: 'Liquidating Cash',
-                            value: editRow.liquidatingCash || '0.00',
-                          },
-                          {
-                            label: 'Earist Credit Coop',
-                            value: editRow.earistCreditCoop || '0.00',
-                          },
-                          { label: 'FEU', value: editRow.feu || '0.00' },
-                          {
-                            label: 'LandBank Salary Loan',
-                            value: editRow.landbankSalaryLoan || '0.00',
-                          },
-                        ],
-                      },
-                      {
-                        title: 'Total Contributions & Deductions',
-                        fields: [
-                          {
-                            label: 'Withholding Tax',
-                            value: editRow.withholdingTax || '0.00',
-                          },
-                          {
-                            label: 'Total GSIS Deds',
-                            value: editRow.totalGsisDeds || '0.00',
-                          },
-                          {
-                            label: 'Total Pag-ibig Deds',
-                            value: editRow.totalPagibigDeds || '0.00',
-                          },
-                          {
-                            label: 'PhilHealth',
-                            value: editRow.PhilHealthContribution || '0.00',
-                          },
-                          {
-                            label: 'Total Other Deds',
-                            value: editRow.totalOtherDeds || '0.00',
-                          },
-                          {
-                            label: 'Total Deductions',
-                            value: editRow.totalDeductions || '0.00',
-                            bold: true,
-                            red: true,
-                          },
-                        ],
-                      },
-                    ].map((section) => (
-                      <Paper
-                        key={section.title}
-                        sx={{ p: 2, mb: 2, bgcolor: 'white' }}
-                      >
-                        <Typography
-                          variant="subtitle1"
-                          fontWeight="bold"
-                          gutterBottom
-                          sx={{ color: accentColor }}
-                        >
-                          {section.title}
-                        </Typography>
-                        <Grid container spacing={2}>
-                          {section.fields.map((field) => (
-                            <Grid item xs={6} key={field.label}>
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                              >
-                                {field.label}
-                              </Typography>
-                              <Typography
-                                variant="body2"
-                                fontWeight={field.bold ? 'bold' : '500'}
-                                sx={{
-                                  color: field.red
-                                    ? '#d32f2f'
-                                    : field.highlight
-                                      ? accentColor
-                                      : 'inherit',
-                                }}
-                              >
-                                {field.value}
-                              </Typography>
-                            </Grid>
-                          ))}
-                        </Grid>
-                      </Paper>
-                    ))}
-                  </Box>
+              </Box>
+            </SectionCard>
+          );
+        })}
+      </Box>
 
-                  {/* RIGHT: Editable Fields */}
-                  <Box
-                    sx={{
-                      width: '50%',
-                      p: 3,
-                      overflowY: 'auto',
-                      bgcolor: 'white',
-                      '&::-webkit-scrollbar': { width: '8px' },
-                      '&::-webkit-scrollbar-track': { background: '#f1f1f1' },
-                      '&::-webkit-scrollbar-thumb': {
-                        background: '#888',
-                        borderRadius: '4px',
-                      },
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1,
-                        mb: 3,
-                      }}
-                    >
-                      <EditIcon sx={{ color: accentColor }} />
-                      <Typography
-                        variant="h6"
-                        fontWeight="bold"
-                        sx={{ color: accentColor }}
-                      >
-                        Edit Values
-                      </Typography>
-                    </Box>
-
-                    {/* Employee Info */}
-                    <Paper sx={{ p: 2, mb: 2, border: '1px solid #e0e0e0' }}>
-                      <Typography
-                        variant="subtitle1"
-                        fontWeight="bold"
-                        gutterBottom
-                        sx={{ color: accentColor }}
-                      >
-                        Employee Information
-                      </Typography>
-                      <Grid container spacing={2}>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Employee Number"
-                            name="employeeNumber"
-                            value={editRow.employeeNumber || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Name"
-                            name="name"
-                            value={editRow.name || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Position"
-                            name="position"
-                            value={editRow.position || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <FormControl fullWidth size="small">
-                            <InputLabel>Department</InputLabel>
-                            <Select
-                              name="department"
-                              value={editRow.department || ''}
-                              onChange={handleModalChange}
-                              label="Department"
-                            >
-                              <MenuItem value="">
-                                <em>All Departments</em>
-                              </MenuItem>
-                              {departments.map((dept) => (
-                                <MenuItem key={dept.id} value={dept.code}>
-                                  {dept.description}
-                                </MenuItem>
-                              ))}
-                            </Select>
-                          </FormControl>
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Start Date"
-                            name="startDate"
-                            value={editRow.startDate || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="End Date"
-                            name="endDate"
-                            value={editRow.endDate || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                      </Grid>
-                    </Paper>
-
-                    {/* Salary Rate */}
-                    <Paper sx={{ p: 2, mb: 2, border: '1px solid #e0e0e0' }}>
-                      <Typography
-                        variant="subtitle1"
-                        fontWeight="bold"
-                        gutterBottom
-                        sx={{ color: accentColor }}
-                      >
-                        Salary Rate and Adjustments
-                      </Typography>
-                      <Grid container spacing={2}>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Rate NBC 584"
-                            name="rateNbc584"
-                            value={editRow.rateNbc584 || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="NBC 594"
-                            name="nbc594"
-                            value={editRow.nbc594 || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Rate NBC 594"
-                            name="rateNbc594"
-                            value={editRow.rateNbc594 || ''}
-                            onChange={handleModalChange}
-                            disabled
-                            size="small"
-                            sx={{
-                              '& .MuiInputBase-input.Mui-disabled': {
-                                WebkitTextFillColor: accentColor,
-                                fontWeight: 'bold',
-                              },
-                            }}
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="NBC DIFF'L 597"
-                            name="nbcDiffl597"
-                            value={editRow.nbcDiffl597 || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Increment"
-                            name="increment"
-                            value={editRow.increment || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Gross Salary"
-                            name="grossSalary"
-                            value={editRow.grossSalary || ''}
-                            disabled
-                            size="small"
-                            helperText="Auto-calculated on save"
-                            sx={{
-                              '& .MuiInputBase-input.Mui-disabled': {
-                                WebkitTextFillColor: '#2E7D32',
-                                fontWeight: 'bold',
-                              },
-                            }}
-                          />
-                        </Grid>
-                      </Grid>
-                    </Paper>
-
-                    {/* Absent Deductions */}
-                    <Paper sx={{ p: 2, mb: 2, border: '1px solid #e0e0e0' }}>
-                      <Typography
-                        variant="subtitle1"
-                        fontWeight="bold"
-                        gutterBottom
-                        sx={{ color: accentColor }}
-                      >
-                        Absent Deductions & Leave
-                      </Typography>
-                      <Grid container spacing={2}>
-                        <Grid item xs={4}>
-                          <TextField
-                            fullWidth
-                            label="TEVL"
-                            name="tevl"
-                            value={editRow.tevl || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={4}>
-                          <TextField
-                            fullWidth
-                            label="ABS"
-                            name="abs"
-                            value={editRow.abs || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={4}>
-                          <TextField
-                            fullWidth
-                            label="Hours (H)"
-                            name="h"
-                            value={editRow.h || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={4}>
-                          <TextField
-                            fullWidth
-                            label="Minutes (M)"
-                            name="m"
-                            value={editRow.m || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                      </Grid>
-                    </Paper>
-
-                    {/* Payroll Disbursement */}
-                    <Paper sx={{ p: 2, mb: 2, border: '1px solid #e0e0e0' }}>
-                      <Typography
-                        variant="subtitle1"
-                        fontWeight="bold"
-                        gutterBottom
-                        sx={{ color: accentColor }}
-                      >
-                        Payroll Disbursement
-                      </Typography>
-                      <Grid container spacing={2}>
-                        <Grid item xs={4}>
-                          <TextField
-                            fullWidth
-                            label="1st Pay"
-                            name="pay1st"
-                            value={editRow.pay1st || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={4}>
-                          <TextField
-                            fullWidth
-                            label="2nd Pay"
-                            name="pay2nd"
-                            value={editRow.pay2nd || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={4}>
-                          <TextField
-                            fullWidth
-                            label="EC"
-                            name="ec"
-                            value={editRow.ec || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                      </Grid>
-                    </Paper>
-
-                    {/* GSIS Deductions */}
-                    <Paper sx={{ p: 2, mb: 2, border: '1px solid #e0e0e0' }}>
-                      <Typography
-                        variant="subtitle1"
-                        fontWeight="bold"
-                        gutterBottom
-                        sx={{ color: accentColor }}
-                      >
-                        GSIS Deductions
-                      </Typography>
-                      <Grid container spacing={2}>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Personal Life Ret Ins"
-                            name="personalLifeRetIns"
-                            value={editRow.personalLifeRetIns || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="GSIS Salary Loan"
-                            name="gsisSalaryLoan"
-                            value={editRow.gsisSalaryLoan || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="GSIS Policy Loan"
-                            name="gsisPolicyLoan"
-                            value={editRow.gsisPolicyLoan || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="GSIS Arrears"
-                            name="gsisArrears"
-                            value={editRow.gsisArrears || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="MPL"
-                            name="mpl"
-                            value={editRow.mpl || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="EAL"
-                            name="eal"
-                            value={editRow.eal || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="CPL"
-                            name="cpl"
-                            value={editRow.cpl || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="MPL Lite"
-                            name="mplLite"
-                            value={editRow.mplLite || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Emergency Loan"
-                            name="emergencyLoan"
-                            value={editRow.emergencyLoan || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                      </Grid>
-                    </Paper>
-
-                    {/* Pag-IBIG */}
-                    <Paper sx={{ p: 2, mb: 2, border: '1px solid #e0e0e0' }}>
-                      <Typography
-                        variant="subtitle1"
-                        fontWeight="bold"
-                        gutterBottom
-                        sx={{ color: accentColor }}
-                      >
-                        Pag-IBIG Deductions
-                      </Typography>
-                      <Grid container spacing={2}>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Pag-ibig Fund Cont"
-                            name="pagibigFundCont"
-                            value={editRow.pagibigFundCont || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Multi-Purpose Loan"
-                            name="multiPurpLoan"
-                            value={editRow.multiPurpLoan || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Pag-ibig 2"
-                            name="pagibig2"
-                            value={editRow.pagibig2 || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                      </Grid>
-                    </Paper>
-
-                    {/* Other Deductions */}
-                    <Paper sx={{ p: 2, mb: 2, border: '1px solid #e0e0e0' }}>
-                      <Typography
-                        variant="subtitle1"
-                        fontWeight="bold"
-                        gutterBottom
-                        sx={{ color: accentColor }}
-                      >
-                        Other Deductions
-                      </Typography>
-                      <Grid container spacing={2}>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Liquidating Cash"
-                            name="liquidatingCash"
-                            value={editRow.liquidatingCash || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Earist Credit Coop"
-                            name="earistCreditCoop"
-                            value={editRow.earistCreditCoop || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="FEU"
-                            name="feu"
-                            value={editRow.feu || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="LandBank Salary Loan"
-                            name="landbankSalaryLoan"
-                            value={editRow.landbankSalaryLoan || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                      </Grid>
-                    </Paper>
-
-                    {/* Total Deductions */}
-                    <Paper sx={{ p: 2, mb: 2, border: '1px solid #e0e0e0' }}>
-                      <Typography
-                        variant="subtitle1"
-                        fontWeight="bold"
-                        gutterBottom
-                        sx={{ color: accentColor }}
-                      >
-                        Total Contributions & Deductions
-                      </Typography>
-                      <Grid container spacing={2}>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Withholding Tax"
-                            name="withholdingTax"
-                            value={editRow.withholdingTax || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Total GSIS Deds"
-                            name="totalGsisDeds"
-                            value={editRow.totalGsisDeds || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Total Pag-ibig Deds"
-                            name="totalPagibigDeds"
-                            value={editRow.totalPagibigDeds || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="PhilHealth"
-                            name="PhilHealthContribution"
-                            value={editRow.PhilHealthContribution || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Total Other Deds"
-                            name="totalOtherDeds"
-                            value={editRow.totalOtherDeds || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          <TextField
-                            fullWidth
-                            label="Total Deductions"
-                            name="totalDeductions"
-                            value={editRow.totalDeductions || ''}
-                            onChange={handleModalChange}
-                            size="small"
-                            sx={{
-                              '& .MuiInputBase-input': {
-                                fontWeight: 'bold',
-                                color: '#d32f2f',
-                              },
-                            }}
-                          />
-                        </Grid>
-                      </Grid>
-                    </Paper>
-                  </Box>
-                </Box>
-
-                {/* Footer */}
-                <Box
-                  sx={{
-                    p: 2.5,
-                    borderTop: '2px solid #e0e0e0',
-                    bgcolor: '#f8f8f8',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
+      {/* ── Filters ── */}
+      <SectionCard sx={{ mb: 2 }}>
+        <Box
+          sx={{
+            px: 3.5,
+            py: 1.5,
+            borderBottom: `1px solid ${T.divider}`,
+            bgcolor: T.accentFaint,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+            <FilterList sx={{ fontSize: 14, color: T.accent }} />
+            <Typography
+              sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}
+            >
+              Search & Filter
+            </Typography>
+            {hasActiveFilters && (
+              <Box
+                sx={{
+                  px: 1,
+                  py: 0.2,
+                  bgcolor: alpha(T.accent, 0.1),
+                  border: `1px solid ${T.accentBorder}`,
+                  borderRadius: '20px',
+                }}
+              >
+                <Typography
+                  sx={{ fontSize: '0.62rem', fontWeight: 700, color: T.accent }}
                 >
-                  <Typography variant="body2" color="text.secondary">
-                    💡 Tip: Compare original values on the left with your edits
-                    on the right
-                  </Typography>
-                  <Box display="flex" gap={2}>
-                    <Button
-                      variant="outlined"
-                      onClick={handleCancel}
-                      startIcon={<CancelIcon />}
-                      sx={{
-                        textTransform: 'none',
-                        width: '120px',
-                        borderColor: accentColor,
-                        color: accentColor,
-                        '&:hover': {
-                          borderColor: accentColor,
-                          bgcolor: alpha(accentColor, 0.04),
-                        },
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="contained"
-                      onClick={handleSave}
-                      startIcon={<SaveIcon />}
-                      sx={{
-                        textTransform: 'none',
-                        width: '120px',
-                        backgroundColor: accentColor,
-                        color: textSecondaryColor,
-                        '&:hover': { backgroundColor: accentDark },
-                      }}
-                    >
-                      Save
-                    </Button>
-                  </Box>
-                </Box>
-              </>
+                  {
+                    [
+                      selectedDepartment,
+                      selectedStatus,
+                      selectedMonth,
+                      selectedYear,
+                      selectedEmpCat,
+                    ].filter(Boolean).length
+                  }{' '}
+                  active
+                </Typography>
+              </Box>
             )}
           </Box>
-        </Modal>
+          {hasActiveFilters && (
+            <AccentButton
+              size="small"
+              onClick={clearAllFilters}
+              startIcon={<Close sx={{ fontSize: 13 }} />}
+              sx={{
+                fontSize: '0.72rem',
+                color: '#d32f2f',
+                border: '1px solid rgba(211,47,47,0.3)',
+                px: 1.25,
+                py: 0.3,
+                height: 26,
+                '&:hover': {
+                  bgcolor: alpha('#d32f2f', 0.06),
+                  transform: 'none',
+                },
+              }}
+            >
+              Clear all
+            </AccentButton>
+          )}
+        </Box>
 
-        {/* View Modal */}
-        <Modal open={openViewModal} onClose={handleCloseView}>
-          <Box
-            sx={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              width: '50vw',
-              maxWidth: 1600,
-              height: '90vh',
-              bgcolor: 'background.paper',
-              borderRadius: 2,
-              boxShadow: 24,
-              display: 'flex',
-              flexDirection: 'column',
-              border: `3px solid ${accentColor}`,
+        <Box sx={{ px: 3.5, py: 2.5 }}>
+          {/* Search */}
+          <FieldInput
+            fullWidth
+            size="small"
+            placeholder="Search by employee name or number…"
+            value={searchTerm}
+            onChange={handleSearchChange}
+            disabled={isSearching}
+            sx={{ mb: 2 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  {isSearching ? (
+                    <CircularProgress size={16} sx={{ color: T.accent }} />
+                  ) : (
+                    <SearchIcon sx={{ color: T.faint, fontSize: 18 }} />
+                  )}
+                </InputAdornment>
+              ),
             }}
-          >
-            {viewRow && (
-              <>
-                <Box
-                  sx={{
-                    p: 3,
-                    bgcolor: accentColor,
-                    color: 'white',
-                    borderRadius: '2px 2px 0 0',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Box>
-                    <Typography variant="h5" fontWeight="bold">
-                      View Payroll Record - {viewRow.name}
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      sx={{ opacity: 0.9, mt: 0.5, fontWeight: 'bold' }}
-                    >
-                      Employee Number: {viewRow.employeeNumber}
-                    </Typography>
+          />
+
+          {/* Dropdowns */}
+          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+            {/* Department */}
+            <FormControl size="small" sx={{ minWidth: 160, flex: 1 }}>
+              <InputLabel sx={{ fontSize: '0.82rem' }}>Department</InputLabel>
+              <Select
+                value={selectedDepartment}
+                onChange={handleDepartmentChange}
+                label="Department"
+                sx={filterSelectSx}
+              >
+                <MenuItem value="">
+                  <em style={{ fontSize: '0.82rem' }}>All Departments</em>
+                </MenuItem>
+                {departments.map((dept) => (
+                  <MenuItem
+                    key={dept.id}
+                    value={dept.code}
+                    sx={{ fontSize: '0.82rem' }}
+                  >
+                    {dept.description}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {/* Status */}
+            <FormControl size="small" sx={{ minWidth: 130, flex: '0 0 auto' }}>
+              <InputLabel sx={{ fontSize: '0.82rem' }}>Status</InputLabel>
+              <Select
+                value={selectedStatus}
+                onChange={handleStatusChange}
+                label="Status"
+                sx={filterSelectSx}
+              >
+                <MenuItem value="">
+                  <em style={{ fontSize: '0.82rem' }}>All Status</em>
+                </MenuItem>
+                <MenuItem value="Processed" sx={{ fontSize: '0.82rem' }}>
+                  <Box
+                    sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}
+                  >
+                    <Box
+                      sx={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        bgcolor: '#4caf50',
+                      }}
+                    />
+                    Processed
                   </Box>
-                  <Button
-                    onClick={handleCloseView}
+                </MenuItem>
+                <MenuItem value="Unprocessed" sx={{ fontSize: '0.82rem' }}>
+                  <Box
+                    sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}
+                  >
+                    <Box
+                      sx={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        bgcolor: '#ff9800',
+                      }}
+                    />
+                    Unprocessed
+                  </Box>
+                </MenuItem>
+              </Select>
+            </FormControl>
+
+            {/* Month */}
+            <FormControl size="small" sx={{ minWidth: 120, flex: '0 0 auto' }}>
+              <InputLabel sx={{ fontSize: '0.82rem' }}>Month</InputLabel>
+              <Select
+                value={selectedMonth}
+                onChange={handleMonthChange}
+                label="Month"
+                sx={filterSelectSx}
+              >
+                {monthOptions.map((o) => (
+                  <MenuItem
+                    key={o.value}
+                    value={o.value}
+                    sx={{ fontSize: '0.82rem' }}
+                  >
+                    {o.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {/* Year */}
+            <FormControl size="small" sx={{ minWidth: 100, flex: '0 0 auto' }}>
+              <InputLabel sx={{ fontSize: '0.82rem' }}>Year</InputLabel>
+              <Select
+                value={selectedYear}
+                onChange={handleYearChange}
+                label="Year"
+                sx={filterSelectSx}
+              >
+                {yearOptions.map((o) => (
+                  <MenuItem
+                    key={o.value}
+                    value={o.value}
+                    sx={{ fontSize: '0.82rem' }}
+                  >
+                    {o.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {/* Employment Category */}
+            <FormControl size="small" sx={{ minWidth: 200, flex: 1.5 }}>
+              <InputLabel sx={{ fontSize: '0.82rem' }}>Category</InputLabel>
+              <Select
+                value={selectedEmpCat}
+                onChange={handleEmpCatChange}
+                label="Category"
+                sx={filterSelectSx}
+                renderValue={(val) => {
+                  if (!val)
+                    return (
+                      <em style={{ fontSize: '0.82rem', color: T.faint }}>
+                        All Categories
+                      </em>
+                    );
+                  const [filterType, filterValue] = val.split('||');
+                  if (filterType === 'group')
+                    return (
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.75,
+                        }}
+                      >
+                        <WorkIcon sx={{ fontSize: 13, color: T.accent }} />
+                        <Typography
+                          sx={{
+                            fontSize: '0.82rem',
+                            color: T.accent,
+                            fontWeight: 600,
+                          }}
+                        >
+                          All {filterValue}
+                        </Typography>
+                      </Box>
+                    );
+                  const [pg, tn] = filterValue.split('|');
+                  const sample = Object.values(empCatMap).find(
+                    (c) => c.parentGroup === pg && c.typeName === tn,
+                  );
+                  return (
+                    <Box
+                      sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}
+                    >
+                      <Box
+                        sx={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: '50%',
+                          bgcolor: sample?.colorHex || '#757575',
+                          flexShrink: 0,
+                        }}
+                      />
+                      <Typography
+                        sx={{
+                          fontSize: '0.82rem',
+                          color: T.text,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {tn}
+                      </Typography>
+                    </Box>
+                  );
+                }}
+              >
+                <MenuItem value="">
+                  <em style={{ fontSize: '0.82rem' }}>All Categories</em>
+                </MenuItem>
+                {Object.keys(groupedEmpCats).length === 0 ? (
+                  <MenuItem
+                    disabled
                     sx={{
-                      color: 'white',
-                      minWidth: 'auto',
-                      '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' },
+                      fontSize: '0.82rem',
+                      fontStyle: 'italic',
+                      color: '#999',
                     }}
                   >
-                    <Close />
-                  </Button>
+                    No categories loaded
+                  </MenuItem>
+                ) : (
+                  Object.entries(groupedEmpCats).flatMap(([group, items]) => [
+                    <ListSubheader
+                      key={`gh-${group}`}
+                      sx={{
+                        fontSize: '0.68rem',
+                        fontWeight: 700,
+                        letterSpacing: '0.07em',
+                        textTransform: 'uppercase',
+                        color: alpha(T.accent, 0.6),
+                        lineHeight: '2.2em',
+                        bgcolor: T.accentFaint,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 0.75,
+                      }}
+                    >
+                      <WorkIcon sx={{ fontSize: 11 }} />
+                      {group}
+                    </ListSubheader>,
+                    <MenuItem
+                      key={`group-all-${group}`}
+                      value={`group||${group}`}
+                      sx={{ fontSize: '0.82rem', pl: 2.5, py: 0.75 }}
+                    >
+                      <Box
+                        sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+                      >
+                        <Box
+                          sx={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: '50%',
+                            bgcolor: alpha(T.accent, 0.35),
+                          }}
+                        />
+                        <em>All in {group}</em>
+                      </Box>
+                    </MenuItem>,
+                    ...items.map((item) => (
+                      <MenuItem
+                        key={item.key}
+                        value={`type||${item.key}`}
+                        sx={{ fontSize: '0.82rem', pl: 3.5, py: 0.75 }}
+                      >
+                        <Box
+                          sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+                        >
+                          <Box
+                            sx={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: '50%',
+                              bgcolor: item.colorHex,
+                              flexShrink: 0,
+                            }}
+                          />
+                          {item.typeName}
+                        </Box>
+                      </MenuItem>
+                    )),
+                  ])
+                )}
+              </Select>
+            </FormControl>
+          </Box>
+
+          {/* Active filter chips */}
+          {hasActiveFilters && (
+            <Box
+              sx={{
+                display: 'flex',
+                gap: 0.75,
+                flexWrap: 'wrap',
+                mt: 1.5,
+                pt: 1.5,
+                borderTop: `1px dashed ${alpha(T.accent, 0.15)}`,
+              }}
+            >
+              <Typography
+                sx={{
+                  fontSize: '0.7rem',
+                  color: alpha(T.text, 0.5),
+                  fontWeight: 600,
+                  alignSelf: 'center',
+                  mr: 0.25,
+                }}
+              >
+                Active:
+              </Typography>
+              {selectedDepartment && (
+                <Chip
+                  size="small"
+                  label={`Dept: ${departments.find((d) => d.code === selectedDepartment)?.description || selectedDepartment}`}
+                  onDelete={() => {
+                    setSelectedDepartment('');
+                    applyFilters(
+                      '',
+                      searchTerm,
+                      selectedStatus,
+                      selectedMonth,
+                      selectedYear,
+                    );
+                  }}
+                  sx={{
+                    height: 22,
+                    fontSize: '0.72rem',
+                    bgcolor: T.accentFaint,
+                    color: T.accent,
+                    border: `1px solid ${T.accentBorder}`,
+                    '& .MuiChip-deleteIcon': { fontSize: 14, color: T.accent },
+                  }}
+                />
+              )}
+              {selectedStatus && (
+                <Chip
+                  size="small"
+                  label={`Status: ${selectedStatus}`}
+                  onDelete={() => {
+                    setSelectedStatus('');
+                    applyFilters(
+                      selectedDepartment,
+                      searchTerm,
+                      '',
+                      selectedMonth,
+                      selectedYear,
+                    );
+                  }}
+                  sx={{
+                    height: 22,
+                    fontSize: '0.72rem',
+                    bgcolor:
+                      selectedStatus === 'Processed'
+                        ? alpha('#4caf50', 0.1)
+                        : alpha('#ff9800', 0.1),
+                    color:
+                      selectedStatus === 'Processed' ? '#2e7d32' : '#e65100',
+                    '& .MuiChip-deleteIcon': { fontSize: 14 },
+                  }}
+                />
+              )}
+              {selectedMonth && (
+                <Chip
+                  size="small"
+                  label={`Month: ${monthOptions.find((m) => m.value === selectedMonth)?.label}`}
+                  onDelete={() => {
+                    setSelectedMonth('');
+                    applyFilters(
+                      selectedDepartment,
+                      searchTerm,
+                      selectedStatus,
+                      '',
+                      selectedYear,
+                    );
+                  }}
+                  sx={{
+                    height: 22,
+                    fontSize: '0.72rem',
+                    bgcolor: T.accentFaint,
+                    color: T.accent,
+                    border: `1px solid ${T.accentBorder}`,
+                    '& .MuiChip-deleteIcon': { fontSize: 14, color: T.accent },
+                  }}
+                />
+              )}
+              {selectedYear && (
+                <Chip
+                  size="small"
+                  label={`Year: ${selectedYear}`}
+                  onDelete={() => {
+                    setSelectedYear('');
+                    applyFilters(
+                      selectedDepartment,
+                      searchTerm,
+                      selectedStatus,
+                      selectedMonth,
+                      '',
+                    );
+                  }}
+                  sx={{
+                    height: 22,
+                    fontSize: '0.72rem',
+                    bgcolor: T.accentFaint,
+                    color: T.accent,
+                    border: `1px solid ${T.accentBorder}`,
+                    '& .MuiChip-deleteIcon': { fontSize: 14, color: T.accent },
+                  }}
+                />
+              )}
+              {selectedEmpCat && (
+                <Chip
+                  size="small"
+                  label={empCatFilterLabel()}
+                  onDelete={() => {
+                    setSelectedEmpCat('');
+                    applyFilters(
+                      selectedDepartment,
+                      searchTerm,
+                      selectedStatus,
+                      selectedMonth,
+                      selectedYear,
+                      '',
+                    );
+                  }}
+                  sx={{
+                    height: 22,
+                    fontSize: '0.72rem',
+                    bgcolor: T.accentFaint,
+                    color: T.accent,
+                    border: `1px solid ${T.accentBorder}`,
+                    '& .MuiChip-deleteIcon': { fontSize: 14, color: T.accent },
+                  }}
+                />
+              )}
+            </Box>
+          )}
+        </Box>
+      </SectionCard>
+
+      {/* ── Alerts ── */}
+      {duplicateEmployeeNumbers.length > 0 && (
+        <Alert
+          severity="warning"
+          sx={{ mb: 2, borderRadius: 2 }}
+          icon={<Warning />}
+        >
+          Duplicate record(s) found:{' '}
+          {duplicateEmployeeNumbers
+            .map((key) => {
+              const [name, empNum, startDate, endDate] = key.split('|');
+              return `${name} (${empNum}) [${startDate} – ${endDate}]`;
+            })
+            .join(', ')}
+        </Alert>
+      )}
+      {error && (
+        <Alert
+          severity="error"
+          sx={{ mb: 2, borderRadius: 2 }}
+          icon={<Error />}
+        >
+          {error}
+        </Alert>
+      )}
+
+      {/* ── Table ── */}
+      <SectionCard sx={{ mb: 2, overflow: 'hidden' }}>
+        {/* Table header bar */}
+        <Box
+          sx={{
+            px: 3.5,
+            py: 2,
+            borderBottom: `1px solid ${T.divider}`,
+            bgcolor: T.accentFaint,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 1.5,
+          }}
+        >
+          <Box>
+            <Typography
+              sx={{ fontWeight: 700, fontSize: '0.88rem', color: T.text }}
+            >
+              Employee Payroll Data
+            </Typography>
+            <Typography sx={{ fontSize: '0.72rem', color: T.faint, mt: 0.1 }}>
+              Total {filteredData.length} records · {selectedRows.length}{' '}
+              selected
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            {selectedRows.length > 0 && (
+              <Box
+                sx={{
+                  px: 1.5,
+                  py: 0.35,
+                  bgcolor: T.accentFaint,
+                  border: `1px solid ${T.accentBorder}`,
+                  borderRadius: '20px',
+                }}
+              >
+                <Typography
+                  sx={{ fontSize: '0.68rem', fontWeight: 700, color: T.accent }}
+                >
+                  {selectedRows.length} selected
+                </Typography>
+              </Box>
+            )}
+            <AccentButton
+              variant="outlined"
+              size="small"
+              startIcon={<Refresh sx={{ fontSize: 14 }} />}
+              onClick={() => fetchPayrollData()}
+              sx={{
+                fontSize: '0.72rem',
+                px: 1.25,
+                py: 0.35,
+                height: 28,
+                borderColor: T.accentBorder,
+                color: T.accent,
+                '&:hover': {
+                  bgcolor: T.accentFaint,
+                  borderColor: T.accent,
+                  transform: 'none',
+                },
+              }}
+            >
+              Refresh
+            </AccentButton>
+          </Box>
+        </Box>
+
+        {/* Scrollable table + frozen columns */}
+        <Box sx={{ display: 'flex', width: '100%', position: 'relative' }}>
+          <Box
+            sx={{
+              overflowX: 'auto',
+              flex: 1,
+              minWidth: 0,
+              '&::-webkit-scrollbar': { height: 8 },
+              '&::-webkit-scrollbar-track': {
+                background: T.accentFaint,
+                borderRadius: 4,
+              },
+              '&::-webkit-scrollbar-thumb': {
+                background: alpha(T.accent, 0.35),
+                borderRadius: 4,
+                '&:hover': { background: alpha(T.accent, 0.55) },
+              },
+            }}
+          >
+            <TableContainer
+              component={Paper}
+              elevation={0}
+              sx={{
+                overflowX: 'auto',
+                width: 'max-content',
+                minWidth: '100%',
+                borderRadius: 0,
+              }}
+            >
+              <Table sx={{ minWidth: 'max-content', tableLayout: 'auto' }}>
+                <TableHead>
+                  <TableRow sx={{ bgcolor: alpha(T.accent, 0.03) }}>
+                    <TableCell
+                      padding="checkbox"
+                      sx={{
+                        borderBottom: `2px solid ${T.accentBorder}`,
+                        bgcolor: alpha(T.accent, 0.03),
+                        py: 1.5,
+                      }}
+                    >
+                      <Checkbox
+                        size="small"
+                        sx={{
+                          color: T.accentBorder,
+                          '&.Mui-checked': { color: T.accent },
+                          '&.MuiCheckbox-indeterminate': { color: T.accent },
+                          p: 0,
+                        }}
+                        indeterminate={
+                          selectedRows.length > 0 &&
+                          selectedRows.length <
+                            computedRows.filter(
+                              (row) =>
+                                !finalizedPayroll.some(
+                                  (fp) =>
+                                    fp.employeeNumber === row.employeeNumber &&
+                                    fp.startDate === row.startDate &&
+                                    fp.endDate === row.endDate,
+                                ),
+                            ).length
+                        }
+                        checked={
+                          selectedRows.length > 0 &&
+                          selectedRows.length ===
+                            computedRows.filter(
+                              (row) =>
+                                !finalizedPayroll.some(
+                                  (fp) =>
+                                    fp.employeeNumber === row.employeeNumber &&
+                                    fp.startDate === row.startDate &&
+                                    fp.endDate === row.endDate,
+                                ),
+                            ).length
+                        }
+                        onChange={(e) => {
+                          if (e.target.checked)
+                            setSelectedRows(
+                              computedRows
+                                .filter(
+                                  (row) =>
+                                    !finalizedPayroll.some(
+                                      (fp) =>
+                                        fp.employeeNumber ===
+                                          row.employeeNumber &&
+                                        fp.startDate === row.startDate &&
+                                        fp.endDate === row.endDate,
+                                    ),
+                                )
+                                .map(
+                                  (row) =>
+                                    `${row.employeeNumber}|${row.startDate}|${row.endDate}`,
+                                ),
+                            );
+                          else setSelectedRows([]);
+                        }}
+                      />
+                    </TableCell>
+                    {[
+                      ['No.', null, null],
+                      ['Department', null, null],
+                      ['Employee Number', null, null],
+                      ['Start Date', null, null],
+                      ['End Date', null, null],
+                      ['Name', null, null],
+                      ['Position', null, null],
+                      [
+                        'Rate NBC 594',
+                        'rateNbc594',
+                        'Salary Rate per National Budget Circular 594',
+                      ],
+                      [
+                        "NBC DIFF'L 597",
+                        'nbcDiffl597',
+                        'NBC Differential 597 — Salary Adjustment',
+                      ],
+                      [
+                        'Increment',
+                        'increment',
+                        'Salary Increment / Step Increment',
+                      ],
+                      [
+                        'Gross Salary',
+                        'grossSalary',
+                        'Gross Salary — Total salary before any deductions',
+                      ],
+                      [
+                        'TEVL',
+                        'tevl',
+                        'Total Earned Vacation Leave (hrs / days)',
+                      ],
+                      ['H', 'h', 'Hours Late / Undertime'],
+                      ['M', 'm', 'Minutes Late / Undertime'],
+                      [
+                        'ABS',
+                        'abs',
+                        'Absence Deductions — Amount deducted for absences',
+                      ],
+                      [
+                        'Net Salary',
+                        'netSalary',
+                        'Net Salary — Take-home pay after all deductions',
+                      ],
+                      [
+                        'Withholding Tax',
+                        'withholdingTax',
+                        'Withholding Tax — BIR income tax withheld',
+                      ],
+                      [
+                        'Total GSIS Deductions',
+                        'totalGsisDeds',
+                        'Total GSIS Deductions',
+                      ],
+                      [
+                        'Total Pag-ibig Deductions',
+                        'totalPagibigDeds',
+                        'Total Pag-IBIG Deductions',
+                      ],
+                      [
+                        'PhilHealth',
+                        'PhilHealthContribution',
+                        'PhilHealth Contribution',
+                      ],
+                      [
+                        'Total Other Deductions',
+                        'totalOtherDeds',
+                        'Total Other Deductions',
+                      ],
+                      [
+                        'Total Deductions',
+                        'totalDeductions',
+                        'Total Deductions — Grand total of all deductions',
+                      ],
+                      [
+                        '1st Pay',
+                        'pay1st',
+                        '1st Pay — First half salary release amount',
+                      ],
+                      [
+                        '2nd Pay',
+                        'pay2nd',
+                        '2nd Pay — Second half salary release amount',
+                      ],
+                      ['No.', null, null],
+                      [
+                        'RT Ins.',
+                        'rtIns',
+                        'Retirement Insurance — GSIS retirement and insurance premium',
+                      ],
+                      [
+                        'EC',
+                        'ec',
+                        "Employees' Compensation — EC program contribution",
+                      ],
+                      [
+                        'PhilHealth',
+                        'PhilHealthContribution',
+                        'PhilHealth Contribution',
+                      ],
+                      [
+                        'Pag-Ibig',
+                        'pagibigFundCont',
+                        'Pag-IBIG Fund Contribution',
+                      ],
+                    ].map(([label, key, fullName], i) => (
+                      <TableCell
+                        key={`th-${i}-${label}`}
+                        sx={{
+                          borderBottom: `2px solid ${T.accentBorder}`,
+                          py: 1.5,
+                          px: 2,
+                          fontSize: '0.62rem',
+                          fontWeight: 700,
+                          color: T.accent,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                          whiteSpace: 'nowrap',
+                          bgcolor: alpha(T.accent, 0.03),
+                          ...(label === 'Pay1st Compute' ||
+                          label === 'Pay2nd Compute'
+                            ? { borderLeft: '2px solid rgba(0,0,0,0.15)' }
+                            : {}),
+                        }}
+                      >
+                        {key && fullName ? (
+                          <HeaderTooltip fieldKey={key} fullName={fullName}>
+                            {label}
+                          </HeaderTooltip>
+                        ) : (
+                          label
+                        )}
+                      </TableCell>
+                    ))}
+                    <TableCell
+                      sx={{
+                        borderBottom: `2px solid ${T.accentBorder}`,
+                        borderLeft: '2px solid rgba(0,0,0,0.15)',
+                        py: 1.5,
+                        px: 2,
+                        fontSize: '0.62rem',
+                        fontWeight: 700,
+                        color: T.accent,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.08em',
+                        whiteSpace: 'nowrap',
+                        bgcolor: alpha(T.accent, 0.03),
+                      }}
+                    >
+                      <HeaderTooltip
+                        fieldKey="pay1stCompute"
+                        fullName="1st Pay Computed Amount"
+                      >
+                        Pay1st Compute
+                      </HeaderTooltip>
+                    </TableCell>
+                    <TableCell
+                      sx={{
+                        borderBottom: `2px solid ${T.accentBorder}`,
+                        py: 1.5,
+                        px: 2,
+                        fontSize: '0.62rem',
+                        fontWeight: 700,
+                        color: T.accent,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.08em',
+                        whiteSpace: 'nowrap',
+                        bgcolor: alpha(T.accent, 0.03),
+                      }}
+                    >
+                      <HeaderTooltip
+                        fieldKey="pay2ndCompute"
+                        fullName="2nd Pay Computed Amount"
+                      >
+                        Pay2nd Compute
+                      </HeaderTooltip>
+                    </TableCell>
+                    {[
+                      'No.',
+                      'Name',
+                      'Position',
+                      'Withholding Tax',
+                      'Personal Life Ret Ins',
+                      'GSIS Salary Loan',
+                      'GSIS Policy Loan',
+                      'gsisArrears',
+                      'CPL',
+                      'MPL',
+                      'EAL',
+                      'MPL LITE',
+                      'Emergency Loan (ELA)',
+                      'Total GSIS Deductions',
+                      'Pag-ibig Fund Contribution',
+                      'Pag-ibig 2',
+                      'Multi-Purpose Loan',
+                      'Total Pag-Ibig Deduction',
+                      'PhilHealth',
+                      'liquidatingCash',
+                      'LandBank Salary Loan',
+                      'Earist Credit COOP.',
+                      'FEU',
+                      'Total Other Deductions',
+                      'Total Deductions',
+                    ].map((h, i) => (
+                      <TableCell
+                        key={`th2-${i}-${h}`}
+                        sx={{
+                          borderBottom: `2px solid ${T.accentBorder}`,
+                          ...(i === 0
+                            ? { borderLeft: '2px solid rgba(0,0,0,0.15)' }
+                            : {}),
+                          py: 1.5,
+                          px: 2,
+                          fontSize: '0.62rem',
+                          fontWeight: 700,
+                          color: T.accent,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                          whiteSpace: 'nowrap',
+                          bgcolor: alpha(T.accent, 0.03),
+                        }}
+                      >
+                        {h}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {filteredData.length > 0 ? (
+                    computedRows
+                      .slice(
+                        page * rowsPerPage,
+                        page * rowsPerPage + rowsPerPage,
+                      )
+                      .map((row, index) => {
+                        const isDuplicate = duplicateEmployeeNumbers.includes(
+                          `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`,
+                        );
+                        const tevlRaw =
+                          parseFloat(String(row.tevl).replace(/,/g, '')) || 0;
+                        const tevlDays = (tevlRaw / 8).toFixed(3);
+                        return (
+                          <TableRow
+                            key={
+                              row.id ??
+                              `${row.employeeNumber}-${row.startDate}-${row.endDate}`
+                            }
+                            sx={{
+                              bgcolor: isDuplicate
+                                ? 'rgba(255,0,0,0.05)'
+                                : index % 2 === 0
+                                  ? T.rowEven
+                                  : T.rowOdd,
+                              '&:hover': {
+                                bgcolor: `${T.rowHover} !important`,
+                              },
+                              transition: 'background-color 0.12s',
+                              borderBottom: `1px solid ${T.divider}`,
+                            }}
+                          >
+                            <TableCell
+                              padding="checkbox"
+                              sx={{ borderBottom: 'none', py: 1.5 }}
+                            >
+                              <Checkbox
+                                size="small"
+                                checked={selectedRows.includes(
+                                  `${row.employeeNumber}|${row.startDate}|${row.endDate}`,
+                                )}
+                                onChange={() => {
+                                  const k = `${row.employeeNumber}|${row.startDate}|${row.endDate}`;
+                                  if (selectedRows.includes(k))
+                                    setSelectedRows((prev) =>
+                                      prev.filter((id) => id !== k),
+                                    );
+                                  else setSelectedRows((prev) => [...prev, k]);
+                                }}
+                                disabled={isRowProcessed(row)}
+                                sx={{
+                                  color: T.accentBorder,
+                                  '&.Mui-checked': { color: T.accent },
+                                  p: 0,
+                                }}
+                              />
+                            </TableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                color: T.muted,
+                              }}
+                            >
+                              {page * rowsPerPage + index + 1}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.department}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                fontFamily: 'monospace',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {row.employeeNumber}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.startDate}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.endDate}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.82rem',
+                                fontWeight: 600,
+                                color: T.text,
+                              }}
+                            >
+                              {row.name}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.position}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.rateNbc594
+                                ? Number(row.rateNbc594).toLocaleString(
+                                    'en-US',
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.nbcDiffl597
+                                ? Number(row.nbcDiffl597).toLocaleString(
+                                    'en-US',
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.increment
+                                ? Number(row.increment).toLocaleString(
+                                    'en-US',
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {row.grossSalary}
+                            </ExcelTableCell>
+                            <ExcelTableCell sx={{ borderBottom: 'none' }}>
+                              <Typography
+                                sx={{ fontSize: '0.78rem', fontWeight: 700 }}
+                              >
+                                {row.tevl}
+                              </Typography>
+                              <Typography
+                                sx={{
+                                  fontSize: '0.62rem',
+                                  color: T.faint,
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                ({tevlDays} days)
+                              </Typography>
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.h}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.m}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                              }}
+                            >
+                              {row.abs}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {row.netSalary}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.withholdingTax}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.totalGsisDeds}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.totalPagibigDeds}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.PhilHealthContribution}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.totalOtherDeds}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {row.totalDeductions}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                color: T.accent,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {row.pay1st}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                color: T.accent,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {row.pay2nd}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                color: T.muted,
+                              }}
+                            >
+                              {index + 1}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.rtIns}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.ec}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.PhilHealthContribution}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.pagibigFundCont}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                borderLeft: '2px solid rgba(0,0,0,0.12)',
+                                fontSize: '0.78rem',
+                                color: T.accent,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {row.pay1stCompute}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                color: T.accent,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {row.pay2ndCompute}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                borderLeft: '2px solid rgba(0,0,0,0.12)',
+                                fontSize: '0.78rem',
+                                color: T.muted,
+                              }}
+                            >
+                              {index + 1}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.82rem',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {row.name}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.position}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.withholdingTax
+                                ? Number(row.withholdingTax).toLocaleString(
+                                    'en-US',
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.personalLifeRetIns}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.gsisSalaryLoan
+                                ? Number(row.gsisSalaryLoan).toLocaleString(
+                                    'en-US',
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.gsisPolicyLoan
+                                ? Number(row.gsisPolicyLoan).toLocaleString(
+                                    'en-US',
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.gsisArrears
+                                ? Number(row.gsisArrears).toLocaleString(
+                                    'en-US',
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.cpl
+                                ? Number(row.cpl).toLocaleString('en-US', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.mpl
+                                ? Number(row.mpl).toLocaleString('en-US', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.eal
+                                ? Number(row.eal).toLocaleString('en-US', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.mplLite
+                                ? Number(row.mplLite).toLocaleString('en-US', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.emergencyLoan
+                                ? Number(row.emergencyLoan).toLocaleString(
+                                    'en-US',
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {row.totalGsisDeds}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.pagibigFundCont
+                                ? Number(row.pagibigFundCont).toLocaleString(
+                                    'en-US',
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.pagibig2
+                                ? Number(row.pagibig2).toLocaleString('en-US', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.multiPurpLoan
+                                ? Number(row.multiPurpLoan).toLocaleString(
+                                    'en-US',
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {row.totalPagibigDeds}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.PhilHealthContribution}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.liquidatingCash
+                                ? Number(row.liquidatingCash).toLocaleString(
+                                    'en-US',
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.landbankSalaryLoan
+                                ? Number(row.landbankSalaryLoan).toLocaleString(
+                                    'en-US',
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.earistCreditCoop
+                                ? Number(row.earistCreditCoop).toLocaleString(
+                                    'en-US',
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
+                            >
+                              {row.feu
+                                ? Number(row.feu).toLocaleString('en-US', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })
+                                : ''}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {row.totalOtherDeds}
+                            </ExcelTableCell>
+                            <ExcelTableCell
+                              sx={{
+                                borderBottom: 'none',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {row.totalDeductions}
+                            </ExcelTableCell>
+                          </TableRow>
+                        );
+                      })
+                  ) : (
+                    <TableRow>
+                      <TableCell
+                        colSpan={60}
+                        sx={{ textAlign: 'center', py: 10, border: 'none' }}
+                      >
+                        <Box
+                          sx={{
+                            width: 72,
+                            height: 72,
+                            borderRadius: '50%',
+                            bgcolor: T.accentFaint,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            mx: 'auto',
+                            mb: 2,
+                          }}
+                        >
+                          <Info
+                            sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }}
+                          />
+                        </Box>
+                        <Typography
+                          sx={{
+                            fontWeight: 700,
+                            fontSize: '0.9rem',
+                            color: T.muted,
+                            mb: 0.5,
+                          }}
+                        >
+                          No Records Found
+                        </Typography>
+                        <Typography
+                          sx={{ fontSize: '0.78rem', color: T.faint }}
+                        >
+                          No payroll records match your current filters.
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Box>
+
+          {/* Frozen: Status column */}
+          <Box
+            sx={{
+              width: 120,
+              minWidth: 120,
+              borderLeft: `2px solid ${T.accentBorder}`,
+              bgcolor: alpha(T.accent, 0.02),
+              position: 'sticky',
+              right: 120,
+              zIndex: 1,
+              boxShadow: `-2px 0 6px ${alpha(T.accent, 0.07)}`,
+            }}
+          >
+            <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell
+                    sx={{
+                      bgcolor: alpha(T.accent, 0.03),
+                      fontWeight: 700,
+                      fontSize: '0.62rem',
+                      color: T.accent,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                      textAlign: 'center',
+                      borderBottom: `2px solid ${T.accentBorder}`,
+                      py: 1.5,
+                      px: 1,
+                    }}
+                  >
+                    Status
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filteredData.length > 0 ? (
+                  computedRows
+                    .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                    .map((row, idx) => (
+                      <TableRow
+                        key={`status-${row.id ?? `${row.employeeNumber}-${row.startDate}-${row.endDate}`}`}
+                        sx={{
+                          bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
+                          borderBottom: `1px solid ${T.divider}`,
+                        }}
+                      >
+                        <TableCell
+                          sx={{
+                            textAlign: 'center',
+                            borderBottom: 'none',
+                            py: 1.75,
+                            px: 1,
+                          }}
+                        >
+                          <Chip
+                            label={row.status}
+                            size="small"
+                            sx={{
+                              fontWeight: 700,
+                              fontSize: '0.65rem',
+                              bgcolor:
+                                row.status === 'Processed'
+                                  ? alpha('#4caf50', 0.12)
+                                  : alpha('#ff9800', 0.12),
+                              color:
+                                row.status === 'Processed'
+                                  ? '#2e7d32'
+                                  : '#e65100',
+                              border: `1px solid ${row.status === 'Processed' ? alpha('#4caf50', 0.3) : alpha('#ff9800', 0.3)}`,
+                            }}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))
+                ) : (
+                  <TableRow>
+                    <TableCell
+                      sx={{
+                        textAlign: 'center',
+                        py: 1.5,
+                        color: T.faint,
+                        fontSize: '0.75rem',
+                      }}
+                    >
+                      —
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </Box>
+
+          {/* Frozen: Actions column */}
+          <Box
+            sx={{
+              width: 116,
+              minWidth: 116,
+              borderLeft: `2px solid ${T.accentBorder}`,
+              bgcolor: alpha(T.accent, 0.02),
+              position: 'sticky',
+              right: 0,
+              zIndex: 1,
+              boxShadow: `-2px 0 6px ${alpha(T.accent, 0.07)}`,
+            }}
+          >
+            <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell
+                    sx={{
+                      bgcolor: alpha(T.accent, 0.03),
+                      fontWeight: 700,
+                      fontSize: '0.62rem',
+                      color: T.accent,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                      textAlign: 'center',
+                      borderBottom: `2px solid ${T.accentBorder}`,
+                      py: 1.5,
+                      px: 1,
+                    }}
+                  >
+                    Actions
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filteredData.length > 0 ? (
+                  computedRows
+                    .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                    .map((row, idx) => (
+                      <TableRow
+                        key={`actions-${row.id ?? `${row.employeeNumber}-${row.startDate}-${row.endDate}`}`}
+                        sx={{
+                          bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
+                          borderBottom: `1px solid ${T.divider}`,
+                        }}
+                      >
+                        <TableCell
+                          sx={{
+                            textAlign: 'center',
+                            borderBottom: 'none',
+                            py: 1.25,
+                            px: 1,
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              justifyContent: 'center',
+                              gap: 0.5,
+                            }}
+                          >
+                            <Tooltip title="View Record">
+                              <IconButton
+                                size="small"
+                                onClick={() => handleView(row.id)}
+                                sx={{
+                                  width: 28,
+                                  height: 28,
+                                  borderRadius: 1.5,
+                                  bgcolor: T.accentFaint,
+                                  color: T.accent,
+                                  border: `1px solid ${T.accentBorder}`,
+                                  '&:hover': {
+                                    bgcolor: T.accent,
+                                    color: '#fff',
+                                  },
+                                  transition: 'all 0.15s',
+                                }}
+                              >
+                                <Visibility sx={{ fontSize: 13 }} />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Edit Record">
+                              <IconButton
+                                size="small"
+                                onClick={() => handleEdit(row.id)}
+                                disabled={isRowProcessed(row)}
+                                sx={{
+                                  width: 28,
+                                  height: 28,
+                                  borderRadius: 1.5,
+                                  bgcolor: isRowProcessed(row)
+                                    ? '#f5f5f5'
+                                    : T.accentFaint,
+                                  color: isRowProcessed(row)
+                                    ? '#ccc'
+                                    : T.accent,
+                                  border: `1px solid ${T.accentBorder}`,
+                                  '&:hover': {
+                                    bgcolor: T.accent,
+                                    color: '#fff',
+                                  },
+                                  transition: 'all 0.15s',
+                                }}
+                              >
+                                <EditIcon sx={{ fontSize: 13 }} />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete Record">
+                              <IconButton
+                                size="small"
+                                onClick={() =>
+                                  handleDelete(row.id, row.employeeNumber)
+                                }
+                                disabled={isRowProcessed(row)}
+                                sx={{
+                                  width: 28,
+                                  height: 28,
+                                  borderRadius: 1.5,
+                                  bgcolor: isRowProcessed(row)
+                                    ? '#f5f5f5'
+                                    : alpha('#ef4444', 0.07),
+                                  color: isRowProcessed(row)
+                                    ? '#ccc'
+                                    : '#ef4444',
+                                  border: '1px solid rgba(239,68,68,0.3)',
+                                  '&:hover': {
+                                    bgcolor: '#ef4444',
+                                    color: '#fff',
+                                  },
+                                  transition: 'all 0.15s',
+                                }}
+                              >
+                                <DeleteIcon sx={{ fontSize: 13 }} />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                ) : (
+                  <TableRow>
+                    <TableCell
+                      sx={{
+                        textAlign: 'center',
+                        py: 1.5,
+                        color: T.faint,
+                        fontSize: '0.75rem',
+                      }}
+                    >
+                      —
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </Box>
+        </Box>
+
+        {/* Pagination */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderTop: `1px solid ${T.divider}`,
+            px: 3.5,
+            py: 0.5,
+            bgcolor: T.accentFaint,
+          }}
+        >
+          <Box sx={{ display: 'flex', gap: 3 }}>
+            <Typography
+              sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.text }}
+            >
+              Total: {filteredData.length}
+            </Typography>
+            <Typography
+              sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.accent }}
+            >
+              Selected: {selectedRows.length}
+            </Typography>
+          </Box>
+          <TablePagination
+            component="div"
+            count={filteredData.length}
+            page={page}
+            onPageChange={handleChangePage}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            rowsPerPageOptions={[10, 25, 50, 100]}
+            sx={{
+              '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows':
+                { fontSize: '0.78rem', fontWeight: 600, color: T.muted },
+            }}
+          />
+        </Box>
+      </SectionCard>
+
+      {/* ── Action Buttons ── */}
+      <Box
+        sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, mt: 2 }}
+      >
+        <AccentButton
+          variant="contained"
+          onClick={handleRecalculateAndSaveAll}
+          disabled={filteredData.length === 0 || isBulkSaving}
+          size="large"
+          startIcon={
+            isBulkSaving ? (
+              <CircularProgress size={16} color="inherit" />
+            ) : (
+              <SaveIcon sx={{ fontSize: '16px !important' }} />
+            )
+          }
+          sx={{
+            bgcolor: '#2e7d32',
+            color: '#fff',
+            boxShadow: '0 2px 10px rgba(46,125,50,0.3)',
+            '&:hover': { bgcolor: '#1b5e20' },
+            '&:disabled': {
+              bgcolor: alpha('#2e7d32', 0.3),
+              color: alpha('#fff', 0.5),
+            },
+          }}
+        >
+          {isBulkSaving
+            ? `Saving… ${bulkSaveProgress.current}/${bulkSaveProgress.total}`
+            : `Recalculate & Save All (${filteredData.length})`}
+        </AccentButton>
+        <AccentButton
+          variant="outlined"
+          onClick={() => (window.location.href = '/payroll-processed')}
+          size="large"
+          startIcon={<CreditCard sx={{ fontSize: '16px !important' }} />}
+          sx={{
+            borderColor: T.accentBorder,
+            color: T.accent,
+            '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent },
+          }}
+        >
+          View Processed Payroll
+        </AccentButton>
+      </Box>
+
+      {/* ── Floating Export Bar ── */}
+      <Box
+        sx={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          display: 'flex',
+          justifyContent: 'center',
+          zIndex: 1300,
+          pointerEvents: 'none',
+        }}
+      >
+        <Slide
+          direction="up"
+          in={selectedRows.length > 0}
+          mountOnEnter
+          unmountOnExit
+        >
+          <Box
+            sx={{
+              pointerEvents: 'auto',
+              width: 'min(720px, calc(100vw - 32px))',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              gap: 1.5,
+              flexWrap: 'wrap',
+              px: 2.5,
+              py: 2,
+              borderRadius: '16px 16px 0 0',
+              border: `1px solid ${T.accentBorder}`,
+              borderBottom: 'none',
+              bgcolor: T.surface,
+              boxShadow: `0 -4px 24px ${alpha(T.accent, 0.12)}`,
+            }}
+          >
+            <Box
+              sx={{
+                px: 1.5,
+                py: 0.5,
+                bgcolor: T.accentFaint,
+                border: `1px solid ${T.accentBorder}`,
+                borderRadius: '20px',
+              }}
+            >
+              <Typography
+                sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.accent }}
+              >
+                Selected: {selectedRows.length}
+              </Typography>
+            </Box>
+            <Box sx={{ flex: 1 }} />
+            <AccentButton
+              variant="outlined"
+              onClick={() => setSelectedRows([])}
+              sx={{
+                borderColor: T.accentBorder,
+                color: T.muted,
+                fontSize: '0.82rem',
+                px: 2,
+                '&:hover': {
+                  bgcolor: T.accentFaint,
+                  borderColor: T.accent,
+                  color: T.accent,
+                },
+              }}
+            >
+              Cancel
+            </AccentButton>
+            <AccentButton
+              variant="contained"
+              onClick={() => setShowConfirmation(true)}
+              disabled={!canSubmit}
+              startIcon={<ExitToApp sx={{ fontSize: '16px !important' }} />}
+              sx={{
+                bgcolor: T.accent,
+                color: '#fff',
+                px: 2.5,
+                fontWeight: 700,
+                boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}`,
+                '&:hover': { bgcolor: T.accentDark },
+                '&:disabled': {
+                  bgcolor: alpha(T.accent, 0.25),
+                  color: alpha('#fff', 0.5),
+                },
+              }}
+            >
+              Export Payroll Records
+            </AccentButton>
+          </Box>
+        </Slide>
+      </Box>
+
+      {/* ── Edit Modal ── */}
+      <Modal open={openModal} onClose={handleCancel}>
+        <Box
+          sx={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: '95vw',
+            maxWidth: 1600,
+            height: '90vh',
+            bgcolor: '#f7f8fa',
+            borderRadius: 3,
+            boxShadow: '0 24px 80px rgba(0,0,0,0.18)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            border: `2px solid ${T.accentBorder}`,
+          }}
+        >
+          {editRow && (
+            <>
+              <Box
+                sx={{
+                  height: 4,
+                  background: `linear-gradient(90deg, ${T.accent} 0%, ${T.accentMid} 100%)`,
+                }}
+              />
+              <Box
+                sx={{
+                  px: 3.5,
+                  py: 2.5,
+                  background: T.headerGrad,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  borderBottom: `1px solid ${T.divider}`,
+                  flexShrink: 0,
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Box
+                    sx={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 2,
+                      bgcolor: T.accentFaint,
+                      border: `1px solid ${T.accentBorder}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <EditIcon sx={{ fontSize: 18, color: T.accent }} />
+                  </Box>
+                  <Box>
+                    <Typography
+                      sx={{
+                        fontWeight: 700,
+                        color: T.text,
+                        fontSize: '0.95rem',
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      Edit Payroll Record — {editRow.name}
+                    </Typography>
+                    <Typography
+                      sx={{ fontSize: '0.72rem', color: T.muted, mt: 0.2 }}
+                    >
+                      Employee #{editRow.employeeNumber}
+                    </Typography>
+                  </Box>
                 </Box>
+              </Box>
+              <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+                {/* LEFT: Original values */}
                 <Box
                   sx={{
-                    flex: 1,
+                    width: '50%',
                     p: 3,
                     overflowY: 'auto',
-                    bgcolor: '#f8f8f8',
-                    '&::-webkit-scrollbar': { width: '8px' },
-                    '&::-webkit-scrollbar-track': { background: '#f1f1f1' },
+                    bgcolor: '#f7f8fa',
+                    borderRight: `1px solid ${T.divider}`,
+                    '&::-webkit-scrollbar': { width: 4 },
                     '&::-webkit-scrollbar-thumb': {
-                      background: '#888',
-                      borderRadius: '4px',
+                      bgcolor: T.accentBorder,
+                      borderRadius: 2,
                     },
                   }}
                 >
@@ -4314,88 +3362,994 @@ const PayrollProcess = () => {
                       display: 'flex',
                       alignItems: 'center',
                       gap: 1,
-                      mb: 3,
+                      mb: 2.5,
                     }}
                   >
-                    <PeopleIcon sx={{ color: accentColor }} />
+                    <Compare sx={{ color: T.accent, fontSize: 16 }} />
                     <Typography
-                      variant="h6"
-                      fontWeight="bold"
-                      sx={{ color: accentColor }}
+                      sx={{
+                        fontWeight: 700,
+                        fontSize: '0.88rem',
+                        color: T.accent,
+                      }}
                     >
-                      Employee Payroll Details
+                      Original Values
                     </Typography>
                   </Box>
-
-                  {/* Employee Info */}
-                  <Paper sx={{ p: 2, mb: 2, bgcolor: 'white' }}>
-                    <Typography
-                      variant="subtitle1"
-                      fontWeight="bold"
-                      gutterBottom
-                      sx={{ color: accentColor }}
-                    >
-                      Employee Information
-                    </Typography>
-                    <Grid container spacing={2}>
-                      {[
+                  {[
+                    {
+                      title: 'Employee Information',
+                      fields: [
                         {
                           label: 'Employee Number',
-                          value: viewRow.employeeNumber,
+                          value: editRow.employeeNumber,
                         },
-                        { label: 'Name', value: viewRow.name },
-                        { label: 'Position', value: viewRow.position },
-                        { label: 'Department', value: viewRow.department },
-                        { label: 'Start Date', value: viewRow.startDate },
-                        { label: 'End Date', value: viewRow.endDate },
-                      ].map((f) => (
-                        <Grid item xs={4} key={f.label}>
-                          <Typography variant="caption" color="text.secondary">
-                            {f.label}
-                          </Typography>
-                          <Typography variant="body2" fontWeight="500">
-                            {f.value}
-                          </Typography>
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Paper>
-
-                  {/* Salary Rate */}
-                  <Paper sx={{ p: 2, mb: 2, bgcolor: 'white' }}>
-                    <Typography
-                      variant="subtitle1"
-                      fontWeight="bold"
-                      gutterBottom
-                      sx={{ color: accentColor }}
-                    >
-                      Salary Rate and Adjustments
-                    </Typography>
-                    <Grid container spacing={2}>
-                      {[
-                        { label: 'Rate NBC 584', value: viewRow.rateNbc584 },
-                        { label: 'NBC 594', value: viewRow.nbc594 },
+                        { label: 'Name', value: editRow.name },
+                        { label: 'Position', value: editRow.position },
+                        { label: 'Department', value: editRow.department },
+                        { label: 'Start Date', value: editRow.startDate },
+                        { label: 'End Date', value: editRow.endDate },
+                      ],
+                    },
+                    {
+                      title: 'Salary Rate and Adjustments',
+                      fields: [
+                        {
+                          label: 'Rate NBC 584',
+                          value: editRow.rateNbc584 || '0.00',
+                        },
+                        { label: 'NBC 594', value: editRow.nbc594 || '0.00' },
                         {
                           label: 'Rate NBC 594',
-                          value: viewRow.rateNbc594,
-                          green: true,
+                          value: editRow.rateNbc594 || '0.00',
+                          highlight: true,
                         },
-                        { label: "NBC DIFF'L 597", value: viewRow.nbcDiffl597 },
-                        { label: 'Increment', value: viewRow.increment },
+                        {
+                          label: "NBC DIFF'L 597",
+                          value: editRow.nbcDiffl597 || '0.00',
+                        },
+                        {
+                          label: 'Increment',
+                          value: editRow.increment || '0.00',
+                        },
                         {
                           label: 'Gross Salary',
-                          value: viewRow.grossSalary,
-                          green: true,
+                          value: editRow.grossSalary || '0.00',
+                          highlight: true,
                         },
-                      ].map((f) => (
-                        <Grid item xs={4} key={f.label}>
-                          <Typography variant="caption" color="text.secondary">
+                      ],
+                    },
+                    {
+                      title: 'Absent Deductions & Leave',
+                      fields: [
+                        { label: 'TEVL', value: editRow.tevl || '0.00' },
+                        { label: 'ABS', value: editRow.abs || '0.00' },
+                        { label: 'Hours (H)', value: editRow.h || '0' },
+                        { label: 'Minutes (M)', value: editRow.m || '0' },
+                      ],
+                    },
+                    {
+                      title: 'Payroll Disbursement',
+                      fields: [
+                        { label: '1st Pay', value: editRow.pay1st || '0.00' },
+                        { label: '2nd Pay', value: editRow.pay2nd || '0.00' },
+                        { label: 'EC', value: editRow.ec || '0.00' },
+                      ],
+                    },
+                    {
+                      title: 'GSIS Deductions',
+                      fields: [
+                        {
+                          label: 'Personal Life Ret Ins',
+                          value: editRow.personalLifeRetIns || '0.00',
+                        },
+                        {
+                          label: 'GSIS Salary Loan',
+                          value: editRow.gsisSalaryLoan || '0.00',
+                        },
+                        {
+                          label: 'GSIS Policy Loan',
+                          value: editRow.gsisPolicyLoan || '0.00',
+                        },
+                        {
+                          label: 'GSIS Arrears',
+                          value: editRow.gsisArrears || '0.00',
+                        },
+                        { label: 'MPL', value: editRow.mpl || '0.00' },
+                        { label: 'EAL', value: editRow.eal || '0.00' },
+                        { label: 'CPL', value: editRow.cpl || '0.00' },
+                        { label: 'MPL Lite', value: editRow.mplLite || '0.00' },
+                        {
+                          label: 'Emergency Loan',
+                          value: editRow.emergencyLoan || '0.00',
+                        },
+                      ],
+                    },
+                    {
+                      title: 'Pag-IBIG Deductions',
+                      fields: [
+                        {
+                          label: 'Pag-ibig Fund Cont',
+                          value: editRow.pagibigFundCont || '0.00',
+                        },
+                        {
+                          label: 'Multi-Purpose Loan',
+                          value: editRow.multiPurpLoan || '0.00',
+                        },
+                        {
+                          label: 'Pag-ibig 2',
+                          value: editRow.pagibig2 || '0.00',
+                        },
+                      ],
+                    },
+                    {
+                      title: 'Other Deductions',
+                      fields: [
+                        {
+                          label: 'Liquidating Cash',
+                          value: editRow.liquidatingCash || '0.00',
+                        },
+                        {
+                          label: 'Earist Credit Coop',
+                          value: editRow.earistCreditCoop || '0.00',
+                        },
+                        { label: 'FEU', value: editRow.feu || '0.00' },
+                        {
+                          label: 'LandBank Salary Loan',
+                          value: editRow.landbankSalaryLoan || '0.00',
+                        },
+                      ],
+                    },
+                    {
+                      title: 'Total Contributions & Deductions',
+                      fields: [
+                        {
+                          label: 'Withholding Tax',
+                          value: editRow.withholdingTax || '0.00',
+                        },
+                        {
+                          label: 'Total GSIS Deds',
+                          value: editRow.totalGsisDeds || '0.00',
+                        },
+                        {
+                          label: 'Total Pag-ibig Deds',
+                          value: editRow.totalPagibigDeds || '0.00',
+                        },
+                        {
+                          label: 'PhilHealth',
+                          value: editRow.PhilHealthContribution || '0.00',
+                        },
+                        {
+                          label: 'Total Other Deds',
+                          value: editRow.totalOtherDeds || '0.00',
+                        },
+                        {
+                          label: 'Total Deductions',
+                          value: editRow.totalDeductions || '0.00',
+                          bold: true,
+                          red: true,
+                        },
+                      ],
+                    },
+                  ].map((section) => (
+                    <Paper
+                      key={section.title}
+                      sx={{
+                        p: 2,
+                        mb: 1.5,
+                        bgcolor: T.surface,
+                        borderRadius: 2,
+                        border: `1px solid ${T.divider}`,
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontWeight: 700,
+                          fontSize: '0.8rem',
+                          mb: 1.25,
+                          color: T.accent,
+                        }}
+                      >
+                        {section.title}
+                      </Typography>
+                      <Grid container spacing={1.5}>
+                        {section.fields.map((field) => (
+                          <Grid item xs={6} key={field.label}>
+                            <Typography
+                              sx={{
+                                fontSize: '0.62rem',
+                                color: T.faint,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.06em',
+                              }}
+                            >
+                              {field.label}
+                            </Typography>
+                            <Typography
+                              sx={{
+                                fontSize: '0.82rem',
+                                fontWeight: field.bold ? 700 : 500,
+                                color: field.red
+                                  ? '#d32f2f'
+                                  : field.highlight
+                                    ? T.accent
+                                    : T.text,
+                              }}
+                            >
+                              {field.value}
+                            </Typography>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    </Paper>
+                  ))}
+                </Box>
+
+                {/* RIGHT: Editable fields */}
+                <Box
+                  sx={{
+                    width: '50%',
+                    p: 3,
+                    overflowY: 'auto',
+                    bgcolor: T.surface,
+                    '&::-webkit-scrollbar': { width: 4 },
+                    '&::-webkit-scrollbar-thumb': {
+                      bgcolor: T.accentBorder,
+                      borderRadius: 2,
+                    },
+                  }}
+                >
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      mb: 2.5,
+                    }}
+                  >
+                    <EditIcon sx={{ color: T.accent, fontSize: 16 }} />
+                    <Typography
+                      sx={{
+                        fontWeight: 700,
+                        fontSize: '0.88rem',
+                        color: T.accent,
+                      }}
+                    >
+                      Edit Values
+                    </Typography>
+                  </Box>
+                  {[
+                    {
+                      title: 'Employee Information',
+                      content: (
+                        <Grid container spacing={1.5}>
+                          <Grid item xs={6}>
+                            <FieldInput
+                              fullWidth
+                              label="Employee Number"
+                              name="employeeNumber"
+                              value={editRow.employeeNumber || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={6}>
+                            <FieldInput
+                              fullWidth
+                              label="Name"
+                              name="name"
+                              value={editRow.name || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={6}>
+                            <FieldInput
+                              fullWidth
+                              label="Position"
+                              name="position"
+                              value={editRow.position || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={6}>
+                            <FormControl fullWidth size="small">
+                              <InputLabel>Department</InputLabel>
+                              <Select
+                                name="department"
+                                value={editRow.department || ''}
+                                onChange={handleModalChange}
+                                label="Department"
+                                sx={filterSelectSx}
+                              >
+                                <MenuItem value="">
+                                  <em>All Departments</em>
+                                </MenuItem>
+                                {departments.map((dept) => (
+                                  <MenuItem key={dept.id} value={dept.code}>
+                                    {dept.description}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </Grid>
+                          <Grid item xs={6}>
+                            <FieldInput
+                              fullWidth
+                              label="Start Date"
+                              name="startDate"
+                              value={editRow.startDate || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={6}>
+                            <FieldInput
+                              fullWidth
+                              label="End Date"
+                              name="endDate"
+                              value={editRow.endDate || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                        </Grid>
+                      ),
+                    },
+                    {
+                      title: 'Salary Rate and Adjustments',
+                      content: (
+                        <Grid container spacing={1.5}>
+                          <Grid item xs={6}>
+                            <FieldInput
+                              fullWidth
+                              label="Rate NBC 584"
+                              name="rateNbc584"
+                              value={editRow.rateNbc584 || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={6}>
+                            <FieldInput
+                              fullWidth
+                              label="NBC 594"
+                              name="nbc594"
+                              value={editRow.nbc594 || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={6}>
+                            <FieldInput
+                              fullWidth
+                              label="Rate NBC 594"
+                              name="rateNbc594"
+                              value={editRow.rateNbc594 || ''}
+                              onChange={handleModalChange}
+                              disabled
+                              size="small"
+                              sx={{
+                                '& .MuiInputBase-input.Mui-disabled': {
+                                  WebkitTextFillColor: T.accent,
+                                  fontWeight: 700,
+                                },
+                              }}
+                            />
+                          </Grid>
+                          <Grid item xs={6}>
+                            <FieldInput
+                              fullWidth
+                              label="NBC DIFF'L 597"
+                              name="nbcDiffl597"
+                              value={editRow.nbcDiffl597 || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={6}>
+                            <FieldInput
+                              fullWidth
+                              label="Increment"
+                              name="increment"
+                              value={editRow.increment || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={6}>
+                            <FieldInput
+                              fullWidth
+                              label="Gross Salary"
+                              name="grossSalary"
+                              value={editRow.grossSalary || ''}
+                              disabled
+                              size="small"
+                              helperText="Auto-calculated on save"
+                              sx={{
+                                '& .MuiInputBase-input.Mui-disabled': {
+                                  WebkitTextFillColor: '#2E7D32',
+                                  fontWeight: 700,
+                                },
+                              }}
+                            />
+                          </Grid>
+                        </Grid>
+                      ),
+                    },
+                    {
+                      title: 'Absent Deductions & Leave',
+                      content: (
+                        <Grid container spacing={1.5}>
+                          <Grid item xs={4}>
+                            <FieldInput
+                              fullWidth
+                              label="TEVL"
+                              name="tevl"
+                              value={editRow.tevl || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={4}>
+                            <FieldInput
+                              fullWidth
+                              label="ABS"
+                              name="abs"
+                              value={editRow.abs || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={4}>
+                            <FieldInput
+                              fullWidth
+                              label="Hours (H)"
+                              name="h"
+                              value={editRow.h || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={4}>
+                            <FieldInput
+                              fullWidth
+                              label="Minutes (M)"
+                              name="m"
+                              value={editRow.m || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                        </Grid>
+                      ),
+                    },
+                    {
+                      title: 'Payroll Disbursement',
+                      content: (
+                        <Grid container spacing={1.5}>
+                          <Grid item xs={4}>
+                            <FieldInput
+                              fullWidth
+                              label="1st Pay"
+                              name="pay1st"
+                              value={editRow.pay1st || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={4}>
+                            <FieldInput
+                              fullWidth
+                              label="2nd Pay"
+                              name="pay2nd"
+                              value={editRow.pay2nd || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={4}>
+                            <FieldInput
+                              fullWidth
+                              label="EC"
+                              name="ec"
+                              value={editRow.ec || ''}
+                              onChange={handleModalChange}
+                              size="small"
+                            />
+                          </Grid>
+                        </Grid>
+                      ),
+                    },
+                    {
+                      title: 'GSIS Deductions',
+                      content: (
+                        <Grid container spacing={1.5}>
+                          {[
+                            ['Personal Life Ret Ins', 'personalLifeRetIns'],
+                            ['GSIS Salary Loan', 'gsisSalaryLoan'],
+                            ['GSIS Policy Loan', 'gsisPolicyLoan'],
+                            ['GSIS Arrears', 'gsisArrears'],
+                            ['MPL', 'mpl'],
+                            ['EAL', 'eal'],
+                            ['CPL', 'cpl'],
+                            ['MPL Lite', 'mplLite'],
+                            ['Emergency Loan', 'emergencyLoan'],
+                          ].map(([label, name]) => (
+                            <Grid item xs={6} key={name}>
+                              <FieldInput
+                                fullWidth
+                                label={label}
+                                name={name}
+                                value={editRow[name] || ''}
+                                onChange={handleModalChange}
+                                size="small"
+                              />
+                            </Grid>
+                          ))}
+                        </Grid>
+                      ),
+                    },
+                    {
+                      title: 'Pag-IBIG Deductions',
+                      content: (
+                        <Grid container spacing={1.5}>
+                          {[
+                            ['Pag-ibig Fund Cont', 'pagibigFundCont'],
+                            ['Multi-Purpose Loan', 'multiPurpLoan'],
+                            ['Pag-ibig 2', 'pagibig2'],
+                          ].map(([label, name]) => (
+                            <Grid item xs={6} key={name}>
+                              <FieldInput
+                                fullWidth
+                                label={label}
+                                name={name}
+                                value={editRow[name] || ''}
+                                onChange={handleModalChange}
+                                size="small"
+                              />
+                            </Grid>
+                          ))}
+                        </Grid>
+                      ),
+                    },
+                    {
+                      title: 'Other Deductions',
+                      content: (
+                        <Grid container spacing={1.5}>
+                          {[
+                            ['Liquidating Cash', 'liquidatingCash'],
+                            ['Earist Credit Coop', 'earistCreditCoop'],
+                            ['FEU', 'feu'],
+                            ['LandBank Salary Loan', 'landbankSalaryLoan'],
+                          ].map(([label, name]) => (
+                            <Grid item xs={6} key={name}>
+                              <FieldInput
+                                fullWidth
+                                label={label}
+                                name={name}
+                                value={editRow[name] || ''}
+                                onChange={handleModalChange}
+                                size="small"
+                              />
+                            </Grid>
+                          ))}
+                        </Grid>
+                      ),
+                    },
+                    {
+                      title: 'Total Contributions & Deductions',
+                      content: (
+                        <Grid container spacing={1.5}>
+                          {[
+                            ['Withholding Tax', 'withholdingTax'],
+                            ['Total GSIS Deds', 'totalGsisDeds'],
+                            ['Total Pag-ibig Deds', 'totalPagibigDeds'],
+                            ['PhilHealth', 'PhilHealthContribution'],
+                            ['Total Other Deds', 'totalOtherDeds'],
+                            ['Total Deductions', 'totalDeductions'],
+                          ].map(([label, name]) => (
+                            <Grid item xs={6} key={name}>
+                              <FieldInput
+                                fullWidth
+                                label={label}
+                                name={name}
+                                value={editRow[name] || ''}
+                                onChange={handleModalChange}
+                                size="small"
+                                sx={
+                                  name === 'totalDeductions'
+                                    ? {
+                                        '& .MuiInputBase-input': {
+                                          fontWeight: 700,
+                                          color: '#d32f2f',
+                                        },
+                                      }
+                                    : {}
+                                }
+                              />
+                            </Grid>
+                          ))}
+                        </Grid>
+                      ),
+                    },
+                  ].map((section) => (
+                    <Paper
+                      key={section.title}
+                      sx={{
+                        p: 2,
+                        mb: 1.5,
+                        borderRadius: 2,
+                        border: `1px solid ${T.divider}`,
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontWeight: 700,
+                          fontSize: '0.8rem',
+                          mb: 1.25,
+                          color: T.accent,
+                        }}
+                      >
+                        {section.title}
+                      </Typography>
+                      {section.content}
+                    </Paper>
+                  ))}
+                </Box>
+              </Box>
+
+              <Box
+                sx={{
+                  px: 3,
+                  py: 2.5,
+                  borderTop: `1px solid ${T.divider}`,
+                  bgcolor: T.accentFaint,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>
+                  💡 Compare original values (left) with your edits (right)
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1.25 }}>
+                  <AccentButton
+                    variant="outlined"
+                    onClick={handleCancel}
+                    startIcon={
+                      <CancelIcon sx={{ fontSize: '14px !important' }} />
+                    }
+                    sx={{
+                      fontSize: '0.8rem',
+                      borderColor: T.accentBorder,
+                      color: T.muted,
+                      '&:hover': {
+                        bgcolor: T.accentFaint,
+                        borderColor: T.accent,
+                        color: T.accent,
+                      },
+                    }}
+                  >
+                    Cancel
+                  </AccentButton>
+                  <AccentButton
+                    variant="contained"
+                    onClick={handleSave}
+                    startIcon={
+                      <SaveIcon sx={{ fontSize: '14px !important' }} />
+                    }
+                    sx={{
+                      fontSize: '0.8rem',
+                      bgcolor: T.accent,
+                      color: '#fff',
+                      boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                      '&:hover': { bgcolor: T.accentDark },
+                    }}
+                  >
+                    Save
+                  </AccentButton>
+                </Box>
+              </Box>
+            </>
+          )}
+        </Box>
+      </Modal>
+
+      {/* ── View Modal ── */}
+      <Modal open={openViewModal} onClose={handleCloseView}>
+        <Box
+          sx={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: '50vw',
+            maxWidth: 900,
+            height: '90vh',
+            bgcolor: '#f7f8fa',
+            borderRadius: 3,
+            boxShadow: '0 24px 80px rgba(0,0,0,0.18)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            border: `2px solid ${T.accentBorder}`,
+          }}
+        >
+          {viewRow && (
+            <>
+              <Box
+                sx={{
+                  height: 4,
+                  background: `linear-gradient(90deg, ${T.accent} 0%, ${T.accentMid} 100%)`,
+                }}
+              />
+              <Box
+                sx={{
+                  px: 3.5,
+                  py: 2.5,
+                  background: T.headerGrad,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  borderBottom: `1px solid ${T.divider}`,
+                  flexShrink: 0,
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Box
+                    sx={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 2,
+                      bgcolor: T.accentFaint,
+                      border: `1px solid ${T.accentBorder}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Visibility sx={{ fontSize: 18, color: T.accent }} />
+                  </Box>
+                  <Box>
+                    <Typography
+                      sx={{
+                        fontWeight: 700,
+                        color: T.text,
+                        fontSize: '0.95rem',
+                      }}
+                    >
+                      View Payroll Record — {viewRow.name}
+                    </Typography>
+                    <Typography
+                      sx={{ fontSize: '0.72rem', color: T.muted, mt: 0.2 }}
+                    >
+                      Employee #{viewRow.employeeNumber}
+                    </Typography>
+                  </Box>
+                </Box>
+                <IconButton
+                  onClick={handleCloseView}
+                  size="small"
+                  sx={{ color: T.muted, '&:hover': { bgcolor: T.accentFaint } }}
+                >
+                  <Close sx={{ fontSize: 17 }} />
+                </IconButton>
+              </Box>
+              <Box
+                sx={{
+                  flex: 1,
+                  p: 3,
+                  overflowY: 'auto',
+                  '&::-webkit-scrollbar': { width: 4 },
+                  '&::-webkit-scrollbar-thumb': {
+                    bgcolor: T.accentBorder,
+                    borderRadius: 2,
+                  },
+                }}
+              >
+                {[
+                  {
+                    title: 'Employee Information',
+                    fields: [
+                      {
+                        label: 'Employee Number',
+                        value: viewRow.employeeNumber,
+                      },
+                      { label: 'Name', value: viewRow.name },
+                      { label: 'Position', value: viewRow.position },
+                      { label: 'Department', value: viewRow.department },
+                      { label: 'Start Date', value: viewRow.startDate },
+                      { label: 'End Date', value: viewRow.endDate },
+                    ],
+                    cols: 4,
+                  },
+                  {
+                    title: 'Salary Rate and Adjustments',
+                    fields: [
+                      { label: 'Rate NBC 584', value: viewRow.rateNbc584 },
+                      { label: 'NBC 594', value: viewRow.nbc594 },
+                      {
+                        label: 'Rate NBC 594',
+                        value: viewRow.rateNbc594,
+                        green: true,
+                      },
+                      { label: "NBC DIFF'L 597", value: viewRow.nbcDiffl597 },
+                      { label: 'Increment', value: viewRow.increment },
+                      {
+                        label: 'Gross Salary',
+                        value: viewRow.grossSalary,
+                        green: true,
+                      },
+                    ],
+                    cols: 4,
+                  },
+                  {
+                    title: 'Absent Deductions & Leave',
+                    fields: [
+                      { label: 'TEVL', value: viewRow.tevl },
+                      { label: 'ABS', value: viewRow.abs },
+                      { label: 'Hours (H)', value: viewRow.h },
+                      { label: 'Minutes (M)', value: viewRow.m },
+                      {
+                        label: 'Net Salary',
+                        value: viewRow.netSalary,
+                        green: true,
+                      },
+                    ],
+                    cols: 4,
+                  },
+                  {
+                    title: 'Payroll Disbursement',
+                    fields: [
+                      { label: '1st Pay', value: viewRow.pay1st, red: true },
+                      { label: '2nd Pay', value: viewRow.pay2nd, red: true },
+                      { label: 'EC', value: viewRow.ec },
+                      { label: 'RT Ins.', value: viewRow.rtIns },
+                    ],
+                    cols: 3,
+                  },
+                  {
+                    title: 'GSIS Deductions',
+                    fields: [
+                      {
+                        label: 'Personal Life Ret Ins',
+                        value: viewRow.personalLifeRetIns,
+                      },
+                      {
+                        label: 'GSIS Salary Loan',
+                        value: viewRow.gsisSalaryLoan,
+                      },
+                      {
+                        label: 'GSIS Policy Loan',
+                        value: viewRow.gsisPolicyLoan,
+                      },
+                      { label: 'GSIS Arrears', value: viewRow.gsisArrears },
+                      { label: 'MPL', value: viewRow.mpl },
+                      { label: 'EAL', value: viewRow.eal },
+                      { label: 'CPL', value: viewRow.cpl },
+                      { label: 'MPL Lite', value: viewRow.mplLite },
+                      { label: 'Emergency Loan', value: viewRow.emergencyLoan },
+                      {
+                        label: 'Total GSIS Deductions',
+                        value: viewRow.totalGsisDeds,
+                        red: true,
+                      },
+                    ],
+                    cols: 4,
+                  },
+                  {
+                    title: 'Pag-IBIG Deductions',
+                    fields: [
+                      {
+                        label: 'Pag-ibig Fund Cont',
+                        value: viewRow.pagibigFundCont,
+                      },
+                      {
+                        label: 'Multi-Purpose Loan',
+                        value: viewRow.multiPurpLoan,
+                      },
+                      { label: 'Pag-ibig 2', value: viewRow.pagibig2 },
+                      {
+                        label: 'Total Pag-ibig Deductions',
+                        value: viewRow.totalPagibigDeds,
+                        red: true,
+                      },
+                    ],
+                    cols: 4,
+                  },
+                  {
+                    title: 'Other Deductions',
+                    fields: [
+                      {
+                        label: 'Liquidating Cash',
+                        value: viewRow.liquidatingCash,
+                      },
+                      {
+                        label: 'Earist Credit Coop',
+                        value: viewRow.earistCreditCoop,
+                      },
+                      { label: 'FEU', value: viewRow.feu },
+                      {
+                        label: 'LandBank Salary Loan',
+                        value: viewRow.landbankSalaryLoan,
+                      },
+                      {
+                        label: 'Total Other Deductions',
+                        value: viewRow.totalOtherDeds,
+                        red: true,
+                      },
+                    ],
+                    cols: 4,
+                  },
+                  {
+                    title: 'Total Contributions & Deductions',
+                    fields: [
+                      {
+                        label: 'Withholding Tax',
+                        value: viewRow.withholdingTax,
+                      },
+                      {
+                        label: 'PhilHealth',
+                        value: viewRow.PhilHealthContribution,
+                      },
+                      {
+                        label: 'Total Deductions',
+                        value: viewRow.totalDeductions,
+                        big: true,
+                      },
+                    ],
+                    cols: 4,
+                    highlight: true,
+                  },
+                ].map((section) => (
+                  <Paper
+                    key={section.title}
+                    sx={{
+                      p: 2,
+                      mb: 1.5,
+                      bgcolor: T.surface,
+                      borderRadius: 2,
+                      border: section.highlight
+                        ? `2px solid ${alpha('#2E7D32', 0.3)}`
+                        : `1px solid ${T.divider}`,
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontWeight: 700,
+                        fontSize: '0.8rem',
+                        mb: 1.25,
+                        color: T.accent,
+                      }}
+                    >
+                      {section.title}
+                    </Typography>
+                    <Grid container spacing={1.5}>
+                      {section.fields.map((f) => (
+                        <Grid item xs={section.cols || 4} key={f.label}>
+                          <Typography
+                            sx={{
+                              fontSize: '0.62rem',
+                              color: T.faint,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.06em',
+                            }}
+                          >
                             {f.label}
                           </Typography>
                           <Typography
-                            variant="body2"
-                            fontWeight={f.green ? 'bold' : '500'}
-                            sx={{ color: f.green ? '#2E7D32' : 'inherit' }}
+                            sx={{
+                              fontSize: f.big ? '1rem' : '0.82rem',
+                              fontWeight: f.red || f.green || f.big ? 700 : 500,
+                              color: f.red
+                                ? '#d32f2f'
+                                : f.green
+                                  ? '#2E7D32'
+                                  : T.text,
+                            }}
                           >
                             {f.value
                               ? typeof f.value === 'string'
@@ -4410,629 +4364,360 @@ const PayrollProcess = () => {
                       ))}
                     </Grid>
                   </Paper>
-
-                  {/* Absent/Leave */}
-                  <Paper sx={{ p: 2, mb: 2, bgcolor: 'white' }}>
-                    <Typography
-                      variant="subtitle1"
-                      fontWeight="bold"
-                      gutterBottom
-                      sx={{ color: accentColor }}
-                    >
-                      Absent Deductions & Leave
-                    </Typography>
-                    <Grid container spacing={2}>
-                      {[
-                        { label: 'TEVL', value: viewRow.tevl || '0' },
-                        { label: 'ABS', value: viewRow.abs || '0.00' },
-                        { label: 'Hours (H)', value: viewRow.h || '0' },
-                        { label: 'Minutes (M)', value: viewRow.m || '0' },
-                        {
-                          label: 'Net Salary',
-                          value: viewRow.netSalary,
-                          green: true,
-                        },
-                      ].map((f) => (
-                        <Grid item xs={4} key={f.label}>
-                          <Typography variant="caption" color="text.secondary">
-                            {f.label}
-                          </Typography>
-                          <Typography
-                            variant="body2"
-                            fontWeight={f.green ? 'bold' : '500'}
-                            sx={{ color: f.green ? '#2E7D32' : 'inherit' }}
-                          >
-                            {f.value}
-                          </Typography>
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Paper>
-
-                  {/* Payroll Disbursement */}
-                  <Paper sx={{ p: 2, mb: 2, bgcolor: 'white' }}>
-                    <Typography
-                      variant="subtitle1"
-                      fontWeight="bold"
-                      gutterBottom
-                      sx={{ color: accentColor }}
-                    >
-                      Payroll Disbursement
-                    </Typography>
-                    <Grid container spacing={2}>
-                      {[
-                        {
-                          label: '1st Pay',
-                          value: viewRow.pay1st || '0.00',
-                          red: true,
-                        },
-                        {
-                          label: '2nd Pay',
-                          value: viewRow.pay2nd || '0.00',
-                          red: true,
-                        },
-                        { label: 'EC', value: viewRow.ec || '0.00' },
-                        { label: 'RT Ins.', value: viewRow.rtIns || '0.00' },
-                      ].map((f) => (
-                        <Grid item xs={3} key={f.label}>
-                          <Typography variant="caption" color="text.secondary">
-                            {f.label}
-                          </Typography>
-                          <Typography
-                            variant="body2"
-                            fontWeight={f.red ? 'bold' : '500'}
-                            sx={{ color: f.red ? 'red' : 'inherit' }}
-                          >
-                            {f.value}
-                          </Typography>
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Paper>
-
-                  {/* GSIS */}
-                  <Paper sx={{ p: 2, mb: 2, bgcolor: 'white' }}>
-                    <Typography
-                      variant="subtitle1"
-                      fontWeight="bold"
-                      gutterBottom
-                      sx={{ color: accentColor }}
-                    >
-                      GSIS Deductions
-                    </Typography>
-                    <Grid container spacing={2}>
-                      {[
-                        {
-                          label: 'Personal Life Ret Ins',
-                          value: viewRow.personalLifeRetIns,
-                        },
-                        {
-                          label: 'GSIS Salary Loan',
-                          value: viewRow.gsisSalaryLoan,
-                        },
-                        {
-                          label: 'GSIS Policy Loan',
-                          value: viewRow.gsisPolicyLoan,
-                        },
-                        { label: 'GSIS Arrears', value: viewRow.gsisArrears },
-                        { label: 'MPL', value: viewRow.mpl },
-                        { label: 'EAL', value: viewRow.eal },
-                        { label: 'CPL', value: viewRow.cpl },
-                        { label: 'MPL Lite', value: viewRow.mplLite },
-                        {
-                          label: 'Emergency Loan',
-                          value: viewRow.emergencyLoan,
-                        },
-                        {
-                          label: 'Total GSIS Deductions',
-                          value: viewRow.totalGsisDeds,
-                          red: true,
-                        },
-                      ].map((f) => (
-                        <Grid item xs={4} key={f.label}>
-                          <Typography variant="caption" color="text.secondary">
-                            {f.label}
-                          </Typography>
-                          <Typography
-                            variant="body2"
-                            fontWeight={f.red ? 'bold' : '500'}
-                            sx={{ color: f.red ? '#d32f2f' : 'inherit' }}
-                          >
-                            {f.value
-                              ? Number(f.value).toLocaleString('en-US', {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })
-                              : '0.00'}
-                          </Typography>
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Paper>
-
-                  {/* Pag-IBIG */}
-                  <Paper sx={{ p: 2, mb: 2, bgcolor: 'white' }}>
-                    <Typography
-                      variant="subtitle1"
-                      fontWeight="bold"
-                      gutterBottom
-                      sx={{ color: accentColor }}
-                    >
-                      Pag-IBIG Deductions
-                    </Typography>
-                    <Grid container spacing={2}>
-                      {[
-                        {
-                          label: 'Pag-ibig Fund Cont',
-                          value: viewRow.pagibigFundCont,
-                        },
-                        {
-                          label: 'Multi-Purpose Loan',
-                          value: viewRow.multiPurpLoan,
-                        },
-                        { label: 'Pag-ibig 2', value: viewRow.pagibig2 },
-                        {
-                          label: 'Total Pag-ibig Deductions',
-                          value: viewRow.totalPagibigDeds,
-                          red: true,
-                        },
-                      ].map((f) => (
-                        <Grid item xs={4} key={f.label}>
-                          <Typography variant="caption" color="text.secondary">
-                            {f.label}
-                          </Typography>
-                          <Typography
-                            variant="body2"
-                            fontWeight={f.red ? 'bold' : '500'}
-                            sx={{ color: f.red ? '#d32f2f' : 'inherit' }}
-                          >
-                            {f.value
-                              ? Number(f.value).toLocaleString('en-US', {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })
-                              : '0.00'}
-                          </Typography>
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Paper>
-
-                  {/* Other Deductions */}
-                  <Paper sx={{ p: 2, mb: 2, bgcolor: 'white' }}>
-                    <Typography
-                      variant="subtitle1"
-                      fontWeight="bold"
-                      gutterBottom
-                      sx={{ color: accentColor }}
-                    >
-                      Other Deductions
-                    </Typography>
-                    <Grid container spacing={2}>
-                      {[
-                        {
-                          label: 'Liquidating Cash',
-                          value: viewRow.liquidatingCash,
-                        },
-                        {
-                          label: 'Earist Credit Coop',
-                          value: viewRow.earistCreditCoop,
-                        },
-                        { label: 'FEU', value: viewRow.feu },
-                        {
-                          label: 'LandBank Salary Loan',
-                          value: viewRow.landbankSalaryLoan,
-                        },
-                        {
-                          label: 'Total Other Deductions',
-                          value: viewRow.totalOtherDeds,
-                          red: true,
-                        },
-                      ].map((f) => (
-                        <Grid item xs={4} key={f.label}>
-                          <Typography variant="caption" color="text.secondary">
-                            {f.label}
-                          </Typography>
-                          <Typography
-                            variant="body2"
-                            fontWeight={f.red ? 'bold' : '500'}
-                            sx={{ color: f.red ? '#d32f2f' : 'inherit' }}
-                          >
-                            {f.value
-                              ? Number(f.value).toLocaleString('en-US', {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })
-                              : '0.00'}
-                          </Typography>
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Paper>
-
-                  {/* Summary */}
-                  <Paper
-                    sx={{
-                      p: 2,
-                      mb: 2,
-                      bgcolor: 'white',
-                      border: '2px solid #2E7D32',
-                    }}
-                  >
-                    <Typography
-                      variant="subtitle1"
-                      fontWeight="bold"
-                      gutterBottom
-                      sx={{ color: accentColor }}
-                    >
-                      Total Contributions & Deductions Summary
-                    </Typography>
-                    <Grid container spacing={2}>
-                      {[
-                        {
-                          label: 'Withholding Tax',
-                          value: viewRow.withholdingTax,
-                        },
-                        {
-                          label: 'PhilHealth',
-                          value: viewRow.PhilHealthContribution,
-                        },
-                        {
-                          label: 'Total Deductions',
-                          value: viewRow.totalDeductions,
-                          big: true,
-                        },
-                      ].map((f) => (
-                        <Grid item xs={4} key={f.label}>
-                          <Typography variant="caption" color="text.secondary">
-                            {f.label}
-                          </Typography>
-                          <Typography
-                            variant={f.big ? 'body1' : 'body2'}
-                            fontWeight="bold"
-                            sx={{
-                              color: '#d32f2f',
-                              fontSize: f.big ? '1.1rem' : undefined,
-                            }}
-                          >
-                            {f.value
-                              ? Number(f.value).toLocaleString('en-US', {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })
-                              : '0.00'}
-                          </Typography>
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Paper>
-
-                  {/* Status */}
-                  <Paper sx={{ p: 2, mb: 2, bgcolor: 'white' }}>
-                    <Typography
-                      variant="subtitle1"
-                      fontWeight="bold"
-                      gutterBottom
-                      sx={{ color: accentColor }}
-                    >
-                      Processing Status
-                    </Typography>
-                    <Grid container spacing={2}>
-                      <Grid item xs={12}>
-                        <Typography variant="caption" color="text.secondary">
-                          Status
-                        </Typography>
-                        <Typography
-                          variant="body2"
-                          fontWeight="bold"
-                          sx={{
-                            color:
-                              viewRow.status === 'Processed'
-                                ? 'green'
-                                : 'orange',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 1,
-                          }}
-                        >
-                          {viewRow.status === 'Processed' ? (
-                            <CheckCircleIcon sx={{ fontSize: 20 }} />
-                          ) : (
-                            <PendingIcon sx={{ fontSize: 20 }} />
-                          )}
-                          {viewRow.status}
-                        </Typography>
-                      </Grid>
-                    </Grid>
-                  </Paper>
-                </Box>
-                <Box
+                ))}
+                <Paper
                   sx={{
-                    p: 2.5,
-                    borderTop: '2px solid #e0e0e0',
-                    bgcolor: '#f8f8f8',
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    alignItems: 'center',
+                    p: 2,
+                    mb: 1.5,
+                    bgcolor: T.surface,
+                    borderRadius: 2,
+                    border: `1px solid ${T.divider}`,
                   }}
                 >
-                  <Button
-                    variant="contained"
-                    onClick={handleCloseView}
-                    startIcon={<Close />}
+                  <Typography
                     sx={{
-                      textTransform: 'none',
-                      width: '120px',
-                      backgroundColor: '#6d2323',
-                      color: textSecondaryColor,
-                      '&:hover': {
-                        backgroundColor: '#ffffff',
-                        border: `1px solid ${accentColor}`,
-                        color: accentColor,
-                      },
+                      fontWeight: 700,
+                      fontSize: '0.8rem',
+                      mb: 1,
+                      color: T.accent,
                     }}
                   >
-                    Close
-                  </Button>
-                </Box>
-              </>
-            )}
-          </Box>
-        </Modal>
+                    Processing Status
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {viewRow.status === 'Processed' ? (
+                      <CheckCircleIcon
+                        sx={{ fontSize: 18, color: '#2e7d32' }}
+                      />
+                    ) : (
+                      <PendingIcon sx={{ fontSize: 18, color: '#e65100' }} />
+                    )}
+                    <Typography
+                      sx={{
+                        fontWeight: 700,
+                        fontSize: '0.875rem',
+                        color:
+                          viewRow.status === 'Processed'
+                            ? '#2e7d32'
+                            : '#e65100',
+                      }}
+                    >
+                      {viewRow.status}
+                    </Typography>
+                  </Box>
+                </Paper>
+              </Box>
+              <Box
+                sx={{
+                  px: 3,
+                  py: 2.5,
+                  borderTop: `1px solid ${T.divider}`,
+                  bgcolor: T.accentFaint,
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  flexShrink: 0,
+                }}
+              >
+                <AccentButton
+                  variant="contained"
+                  onClick={handleCloseView}
+                  startIcon={<Close sx={{ fontSize: '14px !important' }} />}
+                  sx={{
+                    fontSize: '0.8rem',
+                    bgcolor: T.accent,
+                    color: '#fff',
+                    '&:hover': { bgcolor: T.accentDark },
+                  }}
+                >
+                  Close
+                </AccentButton>
+              </Box>
+            </>
+          )}
+        </Box>
+      </Modal>
 
-        {/* Confirmation Modal */}
-        <Modal
-          open={showConfirmation}
-          onClose={() => {
-            setShowConfirmation(false);
-            setConfirmChecked(false);
+      {/* ── Confirmation Modal ── */}
+      <Modal
+        open={showConfirmation}
+        onClose={() => {
+          setShowConfirmation(false);
+          setConfirmChecked(false);
+        }}
+      >
+        <Box
+          sx={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: { xs: '90%', sm: 480 },
+            bgcolor: T.surface,
+            borderRadius: 3,
+            boxShadow: '0 24px 80px rgba(0,0,0,0.18)',
+            overflow: 'hidden',
+            border: `2px solid ${T.accentBorder}`,
           }}
         >
           <Box
             sx={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              width: { xs: '90%', sm: 500 },
-              maxWidth: 600,
-              bgcolor: 'white',
-              borderRadius: 3,
-              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-              overflow: 'hidden',
-              border: `2px solid ${accentColor}`,
+              height: 4,
+              background: `linear-gradient(90deg, ${T.accent} 0%, ${T.accentMid} 100%)`,
+            }}
+          />
+          <Box
+            sx={{
+              px: 3,
+              py: 2.5,
+              background: T.headerGrad,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              borderBottom: `1px solid ${T.divider}`,
             }}
           >
             <Box
               sx={{
-                p: 3,
-                bgcolor: 'white',
-                borderBottom: `3px solid ${accentColor}`,
+                width: 38,
+                height: 38,
+                borderRadius: 2,
+                bgcolor: T.accentFaint,
+                border: `1px solid ${T.accentBorder}`,
                 display: 'flex',
                 alignItems: 'center',
-                gap: 2,
+                justifyContent: 'center',
               }}
             >
-              <Avatar
+              <Payment sx={{ fontSize: 18, color: T.accent }} />
+            </Box>
+            <Box>
+              <Typography
                 sx={{
-                  bgcolor: alpha(accentColor, 0.1),
-                  color: accentColor,
-                  width: 56,
-                  height: 56,
+                  fontWeight: 700,
+                  color: T.text,
+                  fontSize: '0.95rem',
+                  lineHeight: 1.2,
                 }}
               >
-                <Payment sx={{ fontSize: 28 }} />
-              </Avatar>
+                Confirm Payroll Export
+              </Typography>
+              <Typography sx={{ fontSize: '0.72rem', color: T.muted, mt: 0.2 }}>
+                Final confirmation required
+              </Typography>
+            </Box>
+          </Box>
+          <Box sx={{ p: 3 }}>
+            <Alert
+              severity="info"
+              sx={{
+                mb: 2.5,
+                borderRadius: 2,
+                bgcolor: T.accentFaint,
+                border: `1px solid ${T.accentBorder}`,
+                '& .MuiAlert-icon': { color: T.accent },
+              }}
+            >
+              <Typography
+                sx={{
+                  fontWeight: 600,
+                  fontSize: '0.875rem',
+                  mb: 0.25,
+                  color: T.text,
+                }}
+              >
+                Export {selectedRows.length} Payroll Record(s)
+              </Typography>
+              <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>
+                Please review all selected payroll records before proceeding.
+              </Typography>
+            </Alert>
+            <Box
+              sx={{
+                p: 2.5,
+                bgcolor: T.accentFaint,
+                borderRadius: 2,
+                border: `2px solid ${confirmChecked ? T.accent : T.divider}`,
+                mb: 2.5,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 2,
+                transition: 'all 0.2s ease',
+              }}
+            >
+              <Checkbox
+                checked={confirmChecked}
+                onChange={(e) => setConfirmChecked(e.target.checked)}
+                sx={{
+                  color: T.accentBorder,
+                  '&.Mui-checked': { color: T.accent },
+                  mt: -0.5,
+                  p: 0,
+                }}
+              />
               <Box>
                 <Typography
-                  variant="h5"
-                  sx={{ fontWeight: 'bold', color: '#333' }}
+                  sx={{
+                    fontWeight: 600,
+                    color: T.text,
+                    fontSize: '0.875rem',
+                    mb: 0.5,
+                  }}
                 >
-                  Confirm Payroll Export
+                  I confirm that I have reviewed all payroll records
                 </Typography>
-                <Typography variant="body2" sx={{ color: '#666' }}>
-                  Final confirmation required
+                <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>
+                  All information is accurate and ready for export. This action
+                  cannot be undone.
                 </Typography>
               </Box>
             </Box>
-            <Box sx={{ p: 4, bgcolor: 'white' }}>
-              <Alert
-                severity="info"
-                icon={<Info />}
+            <Box
+              sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1.25 }}
+            >
+              <AccentButton
+                variant="outlined"
+                onClick={() => {
+                  setShowConfirmation(false);
+                  setConfirmChecked(false);
+                }}
                 sx={{
-                  mb: 3,
-                  borderRadius: 2,
-                  bgcolor: alpha(accentColor, 0.05),
-                  border: `1px solid ${alpha(accentColor, 0.2)}`,
-                  '& .MuiAlert-icon': { color: accentColor, fontSize: 28 },
+                  fontSize: '0.8rem',
+                  borderColor: T.accentBorder,
+                  color: T.muted,
+                  '&:hover': {
+                    bgcolor: T.accentFaint,
+                    borderColor: T.accent,
+                    color: T.accent,
+                  },
                 }}
               >
-                <Typography
-                  variant="body1"
-                  sx={{ fontWeight: 600, mb: 1, color: '#333' }}
-                >
-                  Export {selectedRows.length} Payroll Record(s)
-                </Typography>
-                <Typography variant="body2" sx={{ color: '#666' }}>
-                  Please review all selected payroll records before proceeding.
-                  This action will finalize and export the payroll data.
-                </Typography>
-              </Alert>
-              <Box
-                sx={{
-                  p: 2.5,
-                  bgcolor: '#f9f9f9',
-                  borderRadius: 2,
-                  border: `2px solid ${confirmChecked ? accentColor : '#e0e0e0'}`,
-                  mb: 3,
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 2,
-                  transition: 'all 0.2s ease',
-                  ...(confirmChecked && { bgcolor: alpha(accentColor, 0.05) }),
-                }}
-              >
-                <Checkbox
-                  checked={confirmChecked}
-                  onChange={(e) => setConfirmChecked(e.target.checked)}
-                  sx={{
-                    color: accentColor,
-                    '&.Mui-checked': { color: accentColor },
-                    mt: -0.5,
-                  }}
-                />
-                <Box sx={{ flex: 1 }}>
-                  <Typography
-                    variant="body1"
-                    sx={{ fontWeight: 600, color: '#333', mb: 0.5 }}
-                  >
-                    I confirm that I have reviewed all payroll records
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: '#666' }}>
-                    All information is accurate and ready for export. I
-                    understand this action cannot be undone.
-                  </Typography>
-                </Box>
-              </Box>
-              <Box display="flex" justifyContent="flex-end" gap={2} mt={2}>
-                <Button
-                  variant="outlined"
-                  onClick={() => {
-                    setShowConfirmation(false);
-                    setConfirmChecked(false);
-                  }}
-                  sx={{
-                    color: accentColor,
-                    borderColor: accentColor,
-                    px: 3,
-                    py: 1.2,
-                    fontWeight: 600,
-                    textTransform: 'none',
-                    borderRadius: 2,
-                    '&:hover': {
-                      borderColor: accentDark,
-                      backgroundColor: alpha(accentColor, 0.08),
-                    },
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="contained"
-                  disabled={!confirmChecked}
-                  onClick={async () => {
-                    setShowConfirmation(false);
-                    setConfirmChecked(false);
-                    setLoading(true);
-                    try {
-                      await handleSubmitPayroll();
-                      setTimeout(() => {
-                        setLoading(false);
-                        setSuccessAction('export');
-                        setSuccessOpen(true);
-                        setTimeout(() => {
-                          setSuccessOpen(false);
-                          window.location.href = '/payroll-processed';
-                        }, 1000);
-                      }, 1000);
-                    } catch (error) {
-                      console.error('Error exporting payroll:', error);
+                Cancel
+              </AccentButton>
+              <AccentButton
+                variant="contained"
+                disabled={!confirmChecked}
+                onClick={async () => {
+                  setShowConfirmation(false);
+                  setConfirmChecked(false);
+                  setLoading(true);
+                  try {
+                    await handleSubmitPayroll();
+                    setTimeout(() => {
                       setLoading(false);
-                      alert(
-                        error.message ||
-                          'Failed to export payroll records. Please try again.',
-                      );
-                    }
-                  }}
-                  sx={{
-                    backgroundColor: accentColor,
-                    color: 'white',
-                    px: 4,
-                    py: 1.2,
-                    fontWeight: 600,
-                    textTransform: 'none',
-                    borderRadius: 2,
-                    minWidth: 140,
-                    '&:hover': { backgroundColor: accentDark },
-                    '&:disabled': {
-                      backgroundColor: '#e0e0e0',
-                      color: '#9e9e9e',
-                    },
-                  }}
-                >
-                  Confirm & Export
-                </Button>
-              </Box>
+                      setSuccessAction('export');
+                      setSuccessOpen(true);
+                      setTimeout(() => {
+                        setSuccessOpen(false);
+                        window.location.href = '/payroll-processed';
+                      }, 1000);
+                    }, 1000);
+                  } catch (error) {
+                    console.error('Error exporting payroll:', error);
+                    setLoading(false);
+                    alert(
+                      'Failed to export payroll records. Please try again.',
+                    );
+                  }
+                }}
+                sx={{
+                  fontSize: '0.8rem',
+                  bgcolor: T.accent,
+                  color: '#fff',
+                  boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                  '&:hover': { bgcolor: T.accentDark },
+                  '&:disabled': { bgcolor: '#e0e0e0', color: '#9e9e9e' },
+                }}
+              >
+                Confirm & Export
+              </AccentButton>
             </Box>
           </Box>
-        </Modal>
+        </Box>
+      </Modal>
 
-        {/* Bulk Save Progress Modal */}
-        <Modal open={bulkSaveOpen} onClose={() => {}}>
+      {/* ── Bulk Save Progress Modal ── */}
+      <Modal open={bulkSaveOpen} onClose={() => {}}>
+        <Box
+          sx={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: 380,
+            bgcolor: T.surface,
+            borderRadius: 3,
+            boxShadow: '0 24px 80px rgba(0,0,0,0.18)',
+            p: 4,
+            textAlign: 'center',
+            border: `2px solid ${T.accentBorder}`,
+            overflow: 'hidden',
+          }}
+        >
           <Box
             sx={{
+              height: 4,
+              background: `linear-gradient(90deg, ${T.accent} 0%, ${T.accentMid} 100%)`,
               position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              width: 400,
-              bgcolor: 'background.paper',
-              borderRadius: 3,
-              boxShadow: 24,
-              p: 4,
-              textAlign: 'center',
-              border: `3px solid ${accentColor}`,
+              top: 0,
+              left: 0,
+              right: 0,
+            }}
+          />
+          <Typography
+            sx={{
+              fontWeight: 700,
+              fontSize: '0.95rem',
+              color: T.text,
+              mb: 2.5,
+              mt: 1,
             }}
           >
-            <Typography
-              variant="h5"
-              sx={{ mb: 3, fontWeight: 'bold', color: accentColor }}
-            >
-              Saving Records to Database
-            </Typography>
-            <Box sx={{ mb: 3 }}>
-              <CircularProgress
-                size={60}
-                thickness={4}
-                sx={{ color: accentColor }}
-              />
-            </Box>
-            <Typography variant="h6" sx={{ mb: 2, color: textPrimaryColor }}>
-              {bulkSaveProgress.current} / {bulkSaveProgress.total}
-            </Typography>
-            <Box sx={{ width: '100%', mb: 2 }}>
-              <Box
-                sx={{
-                  width: '100%',
-                  height: 20,
-                  bgcolor: alpha(accentColor, 0.2),
-                  borderRadius: 2,
-                  overflow: 'hidden',
-                }}
-              >
-                <Box
-                  sx={{
-                    width: `${(bulkSaveProgress.current / bulkSaveProgress.total) * 100}%`,
-                    height: '100%',
-                    bgcolor: accentColor,
-                    transition: 'width 0.3s ease',
-                  }}
-                />
-              </Box>
-            </Box>
-            <Typography variant="body2" sx={{ color: grayColor }}>
-              Please wait while we save all calculated values to the database...
-            </Typography>
+            Saving Records to Database
+          </Typography>
+          <Box sx={{ mb: 2.5 }}>
+            <CircularProgress
+              size={52}
+              thickness={4}
+              sx={{ color: T.accent }}
+            />
           </Box>
-        </Modal>
+          <Typography
+            sx={{ fontWeight: 700, fontSize: '1rem', color: T.text, mb: 1.5 }}
+          >
+            {bulkSaveProgress.current} / {bulkSaveProgress.total}
+          </Typography>
+          <Box
+            sx={{
+              width: '100%',
+              height: 8,
+              bgcolor: T.accentFaint,
+              borderRadius: 4,
+              overflow: 'hidden',
+              mb: 1.5,
+            }}
+          >
+            <Box
+              sx={{
+                width: `${bulkSaveProgress.total > 0 ? (bulkSaveProgress.current / bulkSaveProgress.total) * 100 : 0}%`,
+                height: '100%',
+                bgcolor: T.accent,
+                borderRadius: 4,
+                transition: 'width 0.3s ease',
+              }}
+            />
+          </Box>
+          <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>
+            Please wait while we save all calculated values to the database…
+          </Typography>
+        </Box>
+      </Modal>
 
-        <LoadingOverlay open={loading} message="Processing..." />
-        <SuccessfulOverlay
-          open={successOpen}
-          action={successAction}
-          onClose={() => setSuccessOpen(false)}
-        />
-      </Box>
+      <LoadingOverlay open={loading} message="Processing…" />
+      <SuccessfulOverlay
+        open={successOpen}
+        action={successAction}
+        onClose={() => setSuccessOpen(false)}
+      />
     </Box>
   );
 };
