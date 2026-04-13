@@ -506,6 +506,8 @@ const PayrollProcess = () => {
     const c = calculatePayroll(item) || item;
     return {
       ...c, h: c.h || 0, m: c.m || 0,
+      // ── Store raw tevl hours BEFORE formatting so the days label stays accurate
+      _tevlRawHours: parseFloat(c.tevl) || 0,
       totalGsisDeds: fmt(c.totalGsisDeds), totalPagibigDeds: fmt(c.totalPagibigDeds),
       totalOtherDeds: fmt(c.totalOtherDeds), grossSalary: fmt(c.grossSalary),
       tevl: fmt(c.tevl), abs: fmt(c.abs), netSalary: fmt(c.netSalary),
@@ -877,8 +879,11 @@ const PayrollProcess = () => {
                 <TableBody>
                   {filteredData.length > 0 ? computedRows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((row, index) => {
                     const isDuplicate = duplicateEmployeeNumbers.includes(`${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`);
-                    const tevlRaw = parseFloat(String(row.tevl).replace(/,/g, '')) || 0;
-                    const tevlDays = (tevlRaw / 8).toFixed(3);
+
+                    // ── FIX: use the stored raw hours value (before fmt truncation)
+                    // so that dividing by 8 gives the same days as Leave Assignment shows.
+                    const tevlDays = (row._tevlRawHours / 8).toFixed(3);
+
                     return (
                       <TableRow key={row.id ?? `${row.employeeNumber}-${row.startDate}-${row.endDate}`}
                         sx={{ bgcolor: isDuplicate ? 'rgba(255,0,0,0.05)' : index % 2 === 0 ? T.rowEven : T.rowOdd, '&:hover': { bgcolor: `${T.rowHover} !important` }, transition: 'background-color 0.12s', borderBottom: `1px solid ${T.divider}` }}>
@@ -899,6 +904,7 @@ const PayrollProcess = () => {
                         <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.increment ? Number(row.increment).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
                         <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.grossSalary}</ExcelTableCell>
                         <ExcelTableCell sx={{ borderBottom: 'none' }}>
+                          {/* ── TEVL cell: formatted hours for display, precise days underneath ── */}
                           <Typography sx={{ fontSize: '0.78rem', fontWeight: 700 }}>{row.tevl}</Typography>
                           <Typography sx={{ fontSize: '0.62rem', color: T.faint, whiteSpace: 'nowrap' }}>({tevlDays} days)</Typography>
                         </ExcelTableCell>
