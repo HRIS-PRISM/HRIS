@@ -119,6 +119,8 @@ const CALCULATED_FIELDS = [
   { value: 'totalDeductions',    label: 'Total Deductions',                   category: 'Calculated' },
 ];
 
+const ALL_FIELD_VALUES = [...PAYROLL_FIELDS, ...CALCULATED_FIELDS].map(f => f.value);
+
 const OPERATORS = [
   { value: '+', label: 'Add',               symbol: '+' },
   { value: '-', label: 'Subtract',          symbol: '−' },
@@ -129,9 +131,11 @@ const OPERATORS = [
 ];
 
 const FUNCTIONS = [
-  { value: 'Math.floor', label: 'Round Down', description: '3.7 → 3' },
-  { value: 'Math.ceil',  label: 'Round Up',   description: '3.2 → 4' },
-  { value: 'Math.round', label: 'Round',      description: '3.5 → 4' },
+  { value: 'Math.floor', label: 'Round Down', description: '3.7 → 3'            },
+  { value: 'Math.ceil',  label: 'Round Up',   description: '3.2 → 4'            },
+  { value: 'Math.round', label: 'Round',      description: '3.5 → 4'            },
+  { value: 'Math.min',   label: 'MIN',        description: 'MIN(a, b) → lesser'  },
+  { value: 'Math.max',   label: 'MAX',        description: 'MAX(a, b) → greater' },
 ];
 
 const PERCENTAGES = [
@@ -146,6 +150,52 @@ const scrollSx = {
   overflowY: 'auto',
   '&::-webkit-scrollbar': { width: 4 },
   '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
+};
+
+// ── Converts stored JS expression → human-readable display string ──────────
+const formatForDisplay = (formula) => {
+  if (!formula) return '';
+  return formula
+    .replace(/parseFloat\s*\(/g, '')
+    .replace(/parseFloat\(item\.(\w+)\s*\|\|\s*0\)/g, '$1')
+    .replace(/parseFloat\((\w+)\s*\|\|\s*0\)/g, '$1')
+    .replace(/parseFloat\(([^)]+)\)/g, '$1')
+    .replace(/item\.(\w+)/g, '$1')
+    .replace(/\s*\|\|\s*0/g, '')
+    .replace(/Math\.floor/g, 'Round Down')
+    .replace(/Math\.ceil/g,  'Round Up')
+    .replace(/Math\.round/g, 'Round')
+    .replace(/Math\.min/g,   'MIN')
+    .replace(/Math\.max/g,   'MAX')
+    .replace(/\?[^:]*:/g, '').replace(/\?/g, '').replace(/:/g, '')
+    .replace(/\((\w+)\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*\+\s*/g, ' + ').replace(/\s*-\s*/g, ' - ')
+    .replace(/\s*\*\s*/g, ' * ').replace(/\s*\/\s*/g, ' / ')
+    .trim();
+};
+
+// ── Converts human-readable input → valid JS expression for storage ────────
+const formatForStorage = (input) => {
+  if (!input) return '';
+
+  // Step 1: Replace named math functions (order matters — longer names first)
+  let expr = input
+    .replace(/Round\s*Down\s*\(/gi, 'Math.floor(')
+    .replace(/Round\s*Up\s*\(/gi,   'Math.ceil(')
+    .replace(/Round\s*\(/gi,        'Math.round(')
+    .replace(/\bMIN\s*\(/gi,        'Math.min(')
+    .replace(/\bMAX\s*\(/gi,        'Math.max(');
+
+  // Step 2: Wrap known payroll field names with parseFloat(item.X || 0)
+  expr = expr.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (match) => {
+    if (ALL_FIELD_VALUES.includes(match)) {
+      return `parseFloat(item.${match} || 0)`;
+    }
+    return match;
+  });
+
+  return expr;
 };
 
 const PayrollFormulas = () => {
@@ -186,26 +236,6 @@ const PayrollFormulas = () => {
 
   usePayrollRealtimeRefresh(() => { fetchFormulas(); });
 
-  const formatForDisplay = (formula) => {
-    if (!formula) return '';
-    return formula
-      .replace(/parseFloat\s*\(/g, '')
-      .replace(/parseFloat\(item\.(\w+)\s*\|\|\s*0\)/g, '$1')
-      .replace(/parseFloat\((\w+)\s*\|\|\s*0\)/g, '$1')
-      .replace(/parseFloat\(([^)]+)\)/g, '$1')
-      .replace(/item\.(\w+)/g, '$1')
-      .replace(/\s*\|\|\s*0/g, '')
-      .replace(/Math\.floor/g, 'Round Down')
-      .replace(/Math\.ceil/g,  'Round Up')
-      .replace(/Math\.round/g, 'Round')
-      .replace(/\?[^:]*:/g, '').replace(/\?/g, '').replace(/:/g, '')
-      .replace(/\((\w+)\)/g, '$1')
-      .replace(/\s+/g, ' ')
-      .replace(/\s*\+\s*/g, ' + ').replace(/\s*-\s*/g, ' - ')
-      .replace(/\s*\*\s*/g, ' * ').replace(/\s*\/\s*/g, ' / ')
-      .trim();
-  };
-
   const openEdit = (formula) => {
     setEditingFormula(formula);
     setFormulaName(formula.formula_key);
@@ -233,10 +263,11 @@ const PayrollFormulas = () => {
     setShowModal(true);
   };
 
+  // ── Save: convert human-readable → JS before sending to API ──────────────
   const handleSave = async () => {
     try {
       setLoading(true);
-      const expr = formulaInput.trim();
+      const expr = formatForStorage(formulaInput.trim());
       if (editingFormula) {
         await axios.put(
           `${API_BASE_URL}/api/payroll-formulas/${formulaName}`,
@@ -326,7 +357,7 @@ const PayrollFormulas = () => {
               <CalculateIcon sx={{ fontSize: 28, color: T.accent }} />
               <Box>
                 <Typography sx={{ fontSize: '1.15rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.2 }}>
-                  Payroll Formula Management                
+                  Payroll Formula Management
                 </Typography>
                 <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>
                   Configuration Panel • Manage payroll computation logic
@@ -628,13 +659,13 @@ const PayrollFormulas = () => {
 
                     <Divider sx={{ my: 1.5, borderColor: T.divider }} />
 
-                    <FormSectionLabel icon={FunctionsIcon}>Rounding Functions</FormSectionLabel>
+                    <FormSectionLabel icon={FunctionsIcon}>Functions</FormSectionLabel>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 2.5 }}>
                       {FUNCTIONS.map((func) => (
                         <Tooltip key={func.value} title={func.description} arrow>
                           <AccentButton
                             size="small" variant="outlined"
-                            onClick={() => insert(`${func.value}(`)}
+                            onClick={() => insert(`${func.label}(`)}
                             sx={{ fontSize: '0.75rem', borderColor: T.accentBorder, color: T.accent, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent } }}
                           >
                             {func.label}
@@ -725,6 +756,7 @@ const PayrollFormulas = () => {
                   }}
                 />
 
+                {/* Human readable preview */}
                 <Box sx={{ p: 2, borderRadius: 2, mb: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
                   <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.45), mb: 0.75 }}>
                     Human Readable Preview
@@ -736,6 +768,18 @@ const PayrollFormulas = () => {
                     }
                   </Typography>
                 </Box>
+
+                {/* Stored JS preview — helps user verify conversion */}
+                {formulaInput && (
+                  <Box sx={{ p: 2, borderRadius: 2, mb: 2, bgcolor: 'rgba(0,0,0,0.02)', border: '1px dashed rgba(0,0,0,0.12)' }}>
+                    <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: T.faint, mb: 0.75 }}>
+                      Stored Expression Preview
+                    </Typography>
+                    <Typography sx={{ fontFamily: '"Fira Code","Roboto Mono",monospace', color: T.muted, fontSize: '0.78rem', wordBreak: 'break-all', lineHeight: 1.7 }}>
+                      {formatForStorage(formulaInput)}
+                    </Typography>
+                  </Box>
+                )}
 
                 {editingFormula && hasChanged && (
                   <Box sx={{ p: 1.75, borderRadius: 2, bgcolor: '#fff8e1', border: '1px solid rgba(255,160,0,0.4)', display: 'flex', alignItems: 'center', gap: 1.25 }}>
