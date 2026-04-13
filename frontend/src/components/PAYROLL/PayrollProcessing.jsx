@@ -981,23 +981,15 @@ const PayrollProcess = () => {
   const computedRows = filteredData.map((item) => {
     const c = calculatePayroll(item) || item;
     return {
-      ...c,
-      h: c.h || 0,
-      m: c.m || 0,
-      totalGsisDeds: fmt(c.totalGsisDeds),
-      totalPagibigDeds: fmt(c.totalPagibigDeds),
-      totalOtherDeds: fmt(c.totalOtherDeds),
-      grossSalary: fmt(c.grossSalary),
-      tevl: fmt(c.tevl),
-      abs: fmt(c.abs),
-      netSalary: fmt(c.netSalary),
-      totalDeductions: fmt(c.totalDeductions),
-      PhilHealthContribution: fmt(c.PhilHealthContribution),
-      personalLifeRetIns: fmt(c.personalLifeRetIns),
-      pay1stCompute: fmt(c.pay1stCompute),
-      pay2ndCompute: fmt(c.pay2ndCompute),
-      pay1st: fmt(c.pay1st, 0),
-      pay2nd: fmt(c.pay2nd),
+      ...c, h: c.h || 0, m: c.m || 0,
+      // ── Store raw tevl hours BEFORE formatting so the days label stays accurate
+      _tevlRawHours: parseFloat(c.tevl) || 0,
+      totalGsisDeds: fmt(c.totalGsisDeds), totalPagibigDeds: fmt(c.totalPagibigDeds),
+      totalOtherDeds: fmt(c.totalOtherDeds), grossSalary: fmt(c.grossSalary),
+      tevl: fmt(c.tevl), abs: fmt(c.abs), netSalary: fmt(c.netSalary),
+      totalDeductions: fmt(c.totalDeductions), PhilHealthContribution: fmt(c.PhilHealthContribution),
+      personalLifeRetIns: fmt(c.personalLifeRetIns), pay1stCompute: fmt(c.pay1stCompute),
+      pay2ndCompute: fmt(c.pay2ndCompute), pay1st: fmt(c.pay1st, 0), pay2nd: fmt(c.pay2nd),
       rtIns: fmt(c.rtIns),
     };
   });
@@ -2268,572 +2260,84 @@ const PayrollProcess = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredData.length > 0 ? (
-                    computedRows
-                      .slice(
-                        page * rowsPerPage,
-                        page * rowsPerPage + rowsPerPage,
-                      )
-                      .map((row, index) => {
-                        const isDuplicate = duplicateEmployeeNumbers.includes(
-                          `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`,
-                        );
-                        const tevlRaw =
-                          parseFloat(String(row.tevl).replace(/,/g, '')) || 0;
-                        const tevlDays = (tevlRaw / 8).toFixed(3);
-                        return (
-                          <TableRow
-                            key={
-                              row.id ??
-                              `${row.employeeNumber}-${row.startDate}-${row.endDate}`
-                            }
-                            sx={{
-                              bgcolor: isDuplicate
-                                ? 'rgba(255,0,0,0.05)'
-                                : index % 2 === 0
-                                  ? T.rowEven
-                                  : T.rowOdd,
-                              '&:hover': {
-                                bgcolor: `${T.rowHover} !important`,
-                              },
-                              transition: 'background-color 0.12s',
-                              borderBottom: `1px solid ${T.divider}`,
-                            }}
-                          >
-                            <TableCell
-                              padding="checkbox"
-                              sx={{ borderBottom: 'none', py: 1.5 }}
-                            >
-                              <Checkbox
-                                size="small"
-                                checked={selectedRows.includes(
-                                  `${row.employeeNumber}|${row.startDate}|${row.endDate}`,
-                                )}
-                                onChange={() => {
-                                  const k = `${row.employeeNumber}|${row.startDate}|${row.endDate}`;
-                                  if (selectedRows.includes(k))
-                                    setSelectedRows((prev) =>
-                                      prev.filter((id) => id !== k),
-                                    );
-                                  else setSelectedRows((prev) => [...prev, k]);
-                                }}
-                                disabled={isRowProcessed(row)}
-                                sx={{
-                                  color: T.accentBorder,
-                                  '&.Mui-checked': { color: T.accent },
-                                  p: 0,
-                                }}
-                              />
-                            </TableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.78rem',
-                                color: T.muted,
-                              }}
-                            >
-                              {page * rowsPerPage + index + 1}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.department}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.78rem',
-                                fontFamily: 'monospace',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {row.employeeNumber}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.startDate}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.endDate}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.82rem',
-                                fontWeight: 600,
-                                color: T.text,
-                              }}
-                            >
-                              {row.name}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.position}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.rateNbc594
-                                ? Number(row.rateNbc594).toLocaleString(
-                                    'en-US',
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    },
-                                  )
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.nbcDiffl597
-                                ? Number(row.nbcDiffl597).toLocaleString(
-                                    'en-US',
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    },
-                                  )
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.increment
-                                ? Number(row.increment).toLocaleString(
-                                    'en-US',
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    },
-                                  )
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.78rem',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {row.grossSalary}
-                            </ExcelTableCell>
-                            <ExcelTableCell sx={{ borderBottom: 'none' }}>
-                              <Typography
-                                sx={{ fontSize: '0.78rem', fontWeight: 700 }}
-                              >
-                                {row.tevl}
-                              </Typography>
-                              <Typography
-                                sx={{
-                                  fontSize: '0.62rem',
-                                  color: T.faint,
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                ({tevlDays} days)
-                              </Typography>
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.h}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.m}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.78rem',
-                                fontWeight: 700,
-                              }}
-                            >
-                              {row.abs}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.78rem',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {row.netSalary}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.withholdingTax}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.totalGsisDeds}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.totalPagibigDeds}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.PhilHealthContribution}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.totalOtherDeds}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.78rem',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {row.totalDeductions}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.78rem',
-                                color: T.accent,
-                                fontWeight: 700,
-                              }}
-                            >
-                              {row.pay1st}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.78rem',
-                                color: T.accent,
-                                fontWeight: 700,
-                              }}
-                            >
-                              {row.pay2nd}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.78rem',
-                                color: T.muted,
-                              }}
-                            >
-                              {index + 1}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.rtIns}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.ec}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.PhilHealthContribution}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.pagibigFundCont}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                borderLeft: '2px solid rgba(0,0,0,0.12)',
-                                fontSize: '0.78rem',
-                                color: T.accent,
-                                fontWeight: 700,
-                              }}
-                            >
-                              {row.pay1stCompute}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.78rem',
-                                color: T.accent,
-                                fontWeight: 700,
-                              }}
-                            >
-                              {row.pay2ndCompute}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                borderLeft: '2px solid rgba(0,0,0,0.12)',
-                                fontSize: '0.78rem',
-                                color: T.muted,
-                              }}
-                            >
-                              {index + 1}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.82rem',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {row.name}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.position}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.withholdingTax
-                                ? Number(row.withholdingTax).toLocaleString(
-                                    'en-US',
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    },
-                                  )
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.personalLifeRetIns}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.gsisSalaryLoan
-                                ? Number(row.gsisSalaryLoan).toLocaleString(
-                                    'en-US',
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    },
-                                  )
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.gsisPolicyLoan
-                                ? Number(row.gsisPolicyLoan).toLocaleString(
-                                    'en-US',
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    },
-                                  )
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.gsisArrears
-                                ? Number(row.gsisArrears).toLocaleString(
-                                    'en-US',
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    },
-                                  )
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.cpl
-                                ? Number(row.cpl).toLocaleString('en-US', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.mpl
-                                ? Number(row.mpl).toLocaleString('en-US', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.eal
-                                ? Number(row.eal).toLocaleString('en-US', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.mplLite
-                                ? Number(row.mplLite).toLocaleString('en-US', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.emergencyLoan
-                                ? Number(row.emergencyLoan).toLocaleString(
-                                    'en-US',
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    },
-                                  )
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.78rem',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {row.totalGsisDeds}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.pagibigFundCont
-                                ? Number(row.pagibigFundCont).toLocaleString(
-                                    'en-US',
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    },
-                                  )
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.pagibig2
-                                ? Number(row.pagibig2).toLocaleString('en-US', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.multiPurpLoan
-                                ? Number(row.multiPurpLoan).toLocaleString(
-                                    'en-US',
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    },
-                                  )
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.78rem',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {row.totalPagibigDeds}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.PhilHealthContribution}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.liquidatingCash
-                                ? Number(row.liquidatingCash).toLocaleString(
-                                    'en-US',
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    },
-                                  )
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.landbankSalaryLoan
-                                ? Number(row.landbankSalaryLoan).toLocaleString(
-                                    'en-US',
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    },
-                                  )
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.earistCreditCoop
-                                ? Number(row.earistCreditCoop).toLocaleString(
-                                    'en-US',
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    },
-                                  )
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{ borderBottom: 'none', fontSize: '0.78rem' }}
-                            >
-                              {row.feu
-                                ? Number(row.feu).toLocaleString('en-US', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })
-                                : ''}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.78rem',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {row.totalOtherDeds}
-                            </ExcelTableCell>
-                            <ExcelTableCell
-                              sx={{
-                                borderBottom: 'none',
-                                fontSize: '0.78rem',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {row.totalDeductions}
-                            </ExcelTableCell>
-                          </TableRow>
-                        );
-                      })
-                  ) : (
+                  {filteredData.length > 0 ? computedRows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((row, index) => {
+                    const isDuplicate = duplicateEmployeeNumbers.includes(`${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`);
+
+                    // ── FIX: use the stored raw hours value (before fmt truncation)
+                    // so that dividing by 8 gives the same days as Leave Assignment shows.
+                    const tevlDays = (row._tevlRawHours / 8).toFixed(3);
+
+                    return (
+                      <TableRow key={row.id ?? `${row.employeeNumber}-${row.startDate}-${row.endDate}`}
+                        sx={{ bgcolor: isDuplicate ? 'rgba(255,0,0,0.05)' : index % 2 === 0 ? T.rowEven : T.rowOdd, '&:hover': { bgcolor: `${T.rowHover} !important` }, transition: 'background-color 0.12s', borderBottom: `1px solid ${T.divider}` }}>
+                        <TableCell padding="checkbox" sx={{ borderBottom: 'none', py: 1.5 }}>
+                          <Checkbox size="small" checked={selectedRows.includes(`${row.employeeNumber}|${row.startDate}|${row.endDate}`)}
+                            onChange={() => { const k = `${row.employeeNumber}|${row.startDate}|${row.endDate}`; if (selectedRows.includes(k)) setSelectedRows((prev) => prev.filter((id) => id !== k)); else setSelectedRows((prev) => [...prev, k]); }}
+                            disabled={isRowProcessed(row)} sx={{ color: T.accentBorder, '&.Mui-checked': { color: T.accent }, p: 0 }} />
+                        </TableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', color: T.muted }}>{page * rowsPerPage + index + 1}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.department}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontFamily: 'monospace', fontWeight: 600 }}>{row.employeeNumber}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.startDate}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.endDate}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem', fontWeight: 600, color: T.text }}>{row.name}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.position}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.rateNbc594 ? Number(row.rateNbc594).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.nbcDiffl597 ? Number(row.nbcDiffl597).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.increment ? Number(row.increment).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.grossSalary}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none' }}>
+                          {/* ── TEVL cell: formatted hours for display, precise days underneath ── */}
+                          <Typography sx={{ fontSize: '0.78rem', fontWeight: 700 }}>{row.tevl}</Typography>
+                          <Typography sx={{ fontSize: '0.62rem', color: T.faint, whiteSpace: 'nowrap' }}>({tevlDays} days)</Typography>
+                        </ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.h}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.m}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 700 }}>{row.abs}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.netSalary}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.withholdingTax}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.totalGsisDeds}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.totalPagibigDeds}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.PhilHealthContribution}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.totalOtherDeds}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.totalDeductions}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', color: T.accent, fontWeight: 700 }}>{row.pay1st}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', color: T.accent, fontWeight: 700 }}>{row.pay2nd}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', color: T.muted }}>{index + 1}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.rtIns}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.ec}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.PhilHealthContribution}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.pagibigFundCont}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', borderLeft: '2px solid rgba(0,0,0,0.12)', fontSize: '0.78rem', color: T.accent, fontWeight: 700 }}>{row.pay1stCompute}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', color: T.accent, fontWeight: 700 }}>{row.pay2ndCompute}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', borderLeft: '2px solid rgba(0,0,0,0.12)', fontSize: '0.78rem', color: T.muted }}>{index + 1}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem', fontWeight: 600 }}>{row.name}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.position}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.withholdingTax ? Number(row.withholdingTax).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.personalLifeRetIns}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.gsisSalaryLoan ? Number(row.gsisSalaryLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.gsisPolicyLoan ? Number(row.gsisPolicyLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.gsisArrears ? Number(row.gsisArrears).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.cpl ? Number(row.cpl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.mpl ? Number(row.mpl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.eal ? Number(row.eal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.mplLite ? Number(row.mplLite).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.emergencyLoan ? Number(row.emergencyLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.totalGsisDeds}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.pagibigFundCont ? Number(row.pagibigFundCont).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.pagibig2 ? Number(row.pagibig2).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.multiPurpLoan ? Number(row.multiPurpLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.totalPagibigDeds}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.PhilHealthContribution}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.liquidatingCash ? Number(row.liquidatingCash).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.landbankSalaryLoan ? Number(row.landbankSalaryLoan).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.earistCreditCoop ? Number(row.earistCreditCoop).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.feu ? Number(row.feu).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.totalOtherDeds}</ExcelTableCell>
+                        <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.totalDeductions}</ExcelTableCell>
+                      </TableRow>
+                    );
+                  }) : (
                     <TableRow>
                       <TableCell
                         colSpan={60}
