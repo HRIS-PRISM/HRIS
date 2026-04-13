@@ -15,7 +15,8 @@ router.get('/api/item-table', authenticateToken, (req, res) => {
       COALESCE(item_code, '') as item_code, 
       COALESCE(salary_grade, '') as salary_grade, 
       COALESCE(step, '') as step, 
-      COALESCE(effectivityDate, '') as effectivityDate, 
+      COALESCE(effectivityDate, '') as effectivityDate,
+      exempt_from_biometrics,
       dateCreated
     FROM item_table
     ORDER BY dateCreated DESC
@@ -32,7 +33,6 @@ router.get('/api/item-table', authenticateToken, (req, res) => {
       });
     }
 
-    // Debug logging
     console.log('=== ITEM TABLE FETCH DEBUG ===');
     console.log('Total records found:', result.length);
     if (result.length > 0) {
@@ -43,8 +43,8 @@ router.get('/api/item-table', authenticateToken, (req, res) => {
         item_description: result[0].item_description,
         salary_grade: result[0].salary_grade,
         step: result[0].step,
+        exempt_from_biometrics: result[0].exempt_from_biometrics,
       });
-      // Check for NULL values
       const nullFields = result.filter(r => 
         r.employeeID === null || 
         r.name === null || 
@@ -73,10 +73,9 @@ router.post('/api/item-table', authenticateToken, (req, res) => {
     salary_grade,
     step,
     effectivityDate,
+    exempt_from_biometrics,
   } = req.body;
 
-  // Normalize values: convert null/undefined to empty string for NOT NULL fields
-  // salary_grade is NOT NULL in database, so ensure it's never null
   const normalizedData = {
     item_description: item_description || null,
     employeeID: employeeID || null,
@@ -85,14 +84,17 @@ router.post('/api/item-table', authenticateToken, (req, res) => {
     salary_grade: salary_grade !== null && salary_grade !== undefined ? salary_grade : '',
     step: step || null,
     effectivityDate: effectivityDate || null,
+    exempt_from_biometrics: exempt_from_biometrics ? 1 : 0,
   };
 
-  // Log the data being inserted for debugging
   console.log('Inserting item data:', normalizedData);
 
   const sql = `
-    INSERT INTO item_table (item_description, employeeID, name, item_code, salary_grade, step, effectivityDate)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO item_table (
+      item_description, employeeID, name, item_code,
+      salary_grade, step, effectivityDate, exempt_from_biometrics
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `;
   db.query(
     sql,
@@ -104,6 +106,7 @@ router.post('/api/item-table', authenticateToken, (req, res) => {
       normalizedData.salary_grade,
       normalizedData.step,
       normalizedData.effectivityDate,
+      normalizedData.exempt_from_biometrics,
     ],
     (err, result) => {
       if (err) {
@@ -148,10 +151,9 @@ router.put('/api/item-table/:id', authenticateToken, (req, res) => {
     salary_grade,
     step,
     effectivityDate,
+    exempt_from_biometrics,
   } = req.body;
 
-  // Normalize values: convert null/undefined to empty string for NOT NULL fields
-  // salary_grade is NOT NULL in database, so ensure it's never null
   const normalizedData = {
     item_description: item_description || null,
     employeeID: employeeID || null,
@@ -160,9 +162,9 @@ router.put('/api/item-table/:id', authenticateToken, (req, res) => {
     salary_grade: salary_grade !== null && salary_grade !== undefined ? salary_grade : '',
     step: step || null,
     effectivityDate: effectivityDate || null,
+    exempt_from_biometrics: exempt_from_biometrics ? 1 : 0,
   };
 
-  // Log the data being updated for debugging
   console.log('Updating item data for ID:', id, normalizedData);
 
   const sql = `
@@ -173,7 +175,8 @@ router.put('/api/item-table/:id', authenticateToken, (req, res) => {
       item_code = ?,
       salary_grade = ?,
       step = ?,
-      effectivityDate = ?
+      effectivityDate = ?,
+      exempt_from_biometrics = ?
     WHERE id = ?
   `;
   db.query(
@@ -186,6 +189,7 @@ router.put('/api/item-table/:id', authenticateToken, (req, res) => {
       normalizedData.salary_grade,
       normalizedData.step,
       normalizedData.effectivityDate,
+      normalizedData.exempt_from_biometrics,
       id,
     ],
     (err, result) => {
@@ -245,7 +249,3 @@ router.delete('/api/item-table/:id', authenticateToken, (req, res) => {
 });
 
 module.exports = router;
-
-
-
-

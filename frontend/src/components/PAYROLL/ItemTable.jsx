@@ -28,6 +28,7 @@ import {
   Backdrop,
   Avatar,
   Tooltip,
+  Checkbox,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -210,6 +211,11 @@ const ItemGridCard = ({ item, employeeNames, accentColor, textPrimaryColor, onCl
                 {grade}
               </Box>
             )}
+            {!!item.exempt_from_biometrics && (
+              <Box sx={{ fontSize: '9px', fontWeight: 700, color: '#2e7d32', backgroundColor: 'rgba(46,125,50,0.08)', border: '0.5px solid rgba(46,125,50,0.3)', borderRadius: '4px', px: '5px', py: '2px', lineHeight: 1 }}>
+                AUTO-ATT
+              </Box>
+            )}
           </Box>
 
           {/* Open hint — appears on hover */}
@@ -305,7 +311,12 @@ const ItemListRow = ({ item, employeeNames, accentColor, textPrimaryColor, onCli
       </Typography>
 
       {/* Grade */}
-      <Box sx={{ width: 90, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+      <Box sx={{ width: 90, flexShrink: 0, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '4px' }}>
+        {!!item.exempt_from_biometrics && (
+          <Box sx={{ fontSize: '9px', fontWeight: 700, color: '#2e7d32', backgroundColor: 'rgba(46,125,50,0.08)', border: '0.5px solid rgba(46,125,50,0.3)', borderRadius: '4px', px: '5px', py: '2px', lineHeight: 1, whiteSpace: 'nowrap' }}>
+            AUTO
+          </Box>
+        )}
         {grade ? (
           <Box sx={{ fontSize: '10px', fontWeight: 600, color: primary, backgroundColor: alpha(primary, 0.07), borderRadius: '4px', px: '6px', py: '2px', lineHeight: 1, whiteSpace: 'nowrap' }}>
             {grade}
@@ -450,7 +461,16 @@ const ItemTable = () => {
   const [salaryGrades, setSalaryGrades]         = useState([]);
   const [salaryGradeOptions, setSalaryGradeOptions]       = useState([]);
   const [effectivityDateOptions, setEffectivityDateOptions] = useState([]);
-  const [newItem, setNewItem]                   = useState({ item_description: '', employeeID: '', name: '', item_code: '', salary_grade: '', step: '', effectivityDate: '' });
+  const [newItem, setNewItem]                   = useState({
+    item_description: '',
+    employeeID: '',
+    name: '',
+    item_code: '',
+    salary_grade: '',
+    step: '',
+    effectivityDate: '',
+    exempt_from_biometrics: 0,
+  });
   const [editItem, setEditItem]                 = useState(null);
   const [originalItem, setOriginalItem]         = useState(null);
   const [isEditing, setIsEditing]               = useState(false);
@@ -570,9 +590,19 @@ const ItemTable = () => {
         salary_grade: newItem.salary_grade || '',
         step: newItem.step || '',
         effectivityDate: newItem.effectivityDate || '',
+        exempt_from_biometrics: newItem.exempt_from_biometrics ? 1 : 0,
       };
       await axios.post(`${API_BASE_URL}/api/item-table`, itemData, getAuthHeaders());
-      setNewItem({ item_description: '', employeeID: '', name: '', item_code: '', salary_grade: '', step: '', effectivityDate: '' });
+      setNewItem({
+        item_description: '',
+        employeeID: '',
+        name: '',
+        item_code: '',
+        salary_grade: '',
+        step: '',
+        effectivityDate: '',
+        exempt_from_biometrics: 0,
+      });
       setSelectedEmployee(null);
       setErrors({});
       setTimeout(() => {
@@ -628,14 +658,56 @@ const ItemTable = () => {
 
   const handleCloseModal  = () => { setEditItem(null); setOriginalItem(null); setSelectedEditEmployee(null); setIsEditing(false); };
   const handleStartEdit   = () => setIsEditing(true);
-  const handleCancelEdit  = () => { setEditItem({ ...originalItem }); setSelectedEditEmployee({ name: employeeNames[originalItem.employeeID] || originalItem.name || 'Unknown', employeeNumber: originalItem.employeeID }); setIsEditing(false); };
+  const handleCancelEdit  = () => {
+    setEditItem({ ...originalItem });
+    setSelectedEditEmployee({ name: employeeNames[originalItem.employeeID] || originalItem.name || 'Unknown', employeeNumber: originalItem.employeeID });
+    setIsEditing(false);
+  };
 
   const hasChanges = () => {
     if (!editItem || !originalItem) return false;
-    return ['item_description', 'employeeID', 'name', 'item_code', 'salary_grade', 'step', 'effectivityDate'].some((k) => editItem[k] !== originalItem[k]);
+    return ['item_description', 'employeeID', 'name', 'item_code', 'salary_grade', 'step', 'effectivityDate', 'exempt_from_biometrics'].some(
+      (k) => editItem[k] !== originalItem[k]
+    );
   };
 
   const stepOptions = [...Array(8)].map((_, i) => `step${i + 1}`);
+
+  // ── Biometrics exemption toggle (reusable snippet) ────────
+  const ExemptionToggle = ({ value, onChange, disabled = false }) => (
+    <Box
+      onClick={disabled ? undefined : () => onChange(value ? 0 : 1)}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1,
+        px: 1.5,
+        py: 1,
+        bgcolor: value ? alpha(accentColor, 0.06) : 'rgba(0,0,0,0.02)',
+        border: `1px solid ${value ? alpha(accentColor, 0.3) : 'rgba(0,0,0,0.1)'}`,
+        borderRadius: 2,
+        cursor: disabled ? 'default' : 'pointer',
+        transition: 'all 0.2s',
+        userSelect: 'none',
+      }}
+    >
+      <Checkbox
+        checked={!!value}
+        onChange={(e) => { if (!disabled) onChange(e.target.checked ? 1 : 0); }}
+        disabled={disabled}
+        sx={{ color: accentColor, p: 0 }}
+        onClick={(e) => e.stopPropagation()}
+      />
+      <Box>
+        <Typography variant="body2" sx={{ fontWeight: 600, color: accentColor, lineHeight: 1.2 }}>
+          Exempt from biometrics
+        </Typography>
+        <Typography variant="caption" sx={{ color: '#888', lineHeight: 1.2 }}>
+          Attendance will be auto-filled from official time schedule
+        </Typography>
+      </Box>
+    </Box>
+  );
 
   // ── Access guard ──────────────────────────────────────────
   if (accessLoading) {
@@ -829,6 +901,17 @@ const ItemTable = () => {
                         />
                       </FormControl>
                     </Grid>
+
+                    {/* ── Biometrics Exemption ── */}
+                    <Grid item xs={12}>
+                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
+                        Biometrics Exemption
+                      </Typography>
+                      <ExemptionToggle
+                        value={newItem.exempt_from_biometrics}
+                        onChange={(v) => handleChange('exempt_from_biometrics', v)}
+                      />
+                    </Grid>
                   </Grid>
 
                   <Box sx={{ mt: 'auto', pt: 3 }}>
@@ -869,7 +952,6 @@ const ItemTable = () => {
 
                   <Box sx={{ flexGrow: 1, overflowY: 'auto', pr: 1, '&::-webkit-scrollbar': { width: 6 }, '&::-webkit-scrollbar-track': { background: '#f1f1f1', borderRadius: 3 }, '&::-webkit-scrollbar-thumb': { background: accentColor, borderRadius: 3 } }}>
 
-                    {/* ── GRID: Option B — avatar + 2-col ── */}
                     {viewMode === 'grid' ? (
                       <Grid container spacing={1.5}>
                         {filteredData.map((item) => (
@@ -885,7 +967,6 @@ const ItemTable = () => {
                         ))}
                       </Grid>
                     ) : (
-                      /* ── LIST: Option C — table rows ── */
                       <>
                         {filteredData.length > 0 && (
                           <ItemListRow isHeader accentColor={accentColor} textPrimaryColor={textPrimaryColor} employeeNames={employeeNames} item={{}} onClick={() => {}} />
@@ -1058,6 +1139,50 @@ const ItemTable = () => {
                       ) : (
                         <Box sx={{ p: 1.5, bgcolor: 'rgba(255,255,255,0.85)', borderRadius: 1, border: '1px solid rgba(109,35,35,0.2)' }}>
                           <Typography variant="body2">{editItem.effectivityDate || 'N/A'}</Typography>
+                        </Box>
+                      )}
+                    </Grid>
+
+                    {/* ── Biometrics Exemption ── */}
+                    <Grid item xs={12}>
+                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
+                        Biometrics Exemption
+                      </Typography>
+                      {isEditing ? (
+                        <ExemptionToggle
+                          value={editItem.exempt_from_biometrics}
+                          onChange={(v) => handleChange('exempt_from_biometrics', v, true)}
+                        />
+                      ) : (
+                        <Box
+                          sx={{
+                            p: 1.5,
+                            bgcolor: 'rgba(255,255,255,0.85)',
+                            borderRadius: 1,
+                            border: '1px solid rgba(109,35,35,0.2)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1,
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: '50%',
+                              flexShrink: 0,
+                              bgcolor: editItem.exempt_from_biometrics ? '#2e7d32' : '#bbb',
+                            }}
+                          />
+                          {editItem.exempt_from_biometrics ? (
+                            <Typography variant="body2" sx={{ color: '#2e7d32', fontWeight: 600 }}>
+                              Exempt — attendance is auto-filled from official time schedule
+                            </Typography>
+                          ) : (
+                            <Typography variant="body2" sx={{ color: '#888' }}>
+                              Not exempt — uses biometric device
+                            </Typography>
+                          )}
                         </Box>
                       )}
                     </Grid>
