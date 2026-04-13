@@ -192,9 +192,14 @@ router.delete('/employment-type-config/:id', authenticateToken, (req, res) => {
 
 // ============================================================
 // EMPLOYMENT CATEGORY ROUTES
-// NOTE: The JOIN to employment_type_config uses AND ec.employmentCategory > 5
-// to prevent legacy integer values (0–5) from accidentally matching
-// a real type config row by coincidence.
+//
+// FIX: Removed "AND ec.employmentCategory > 5" from every JOIN.
+// That condition incorrectly excluded employment_type_config rows
+// whose auto-increment IDs happen to be 1-5, causing those employees
+// to fall back to wrong legacy hardcoded labels in the UI.
+// The LEFT JOIN alone is sufficient: if no matching type-config row
+// exists the join columns are NULL, which is already handled by the
+// CASE expression and the frontend fallback.
 // ============================================================
 
 // GET ALL - Fetch all employment categories
@@ -218,7 +223,6 @@ router.get('/employment-category', authenticateToken, (req, res) => {
     LEFT JOIN person_table pt ON pt.agencyEmployeeNum = ec.employeeNumber
     LEFT JOIN employment_type_config etc
       ON etc.id = ec.employmentCategory
-      AND ec.employmentCategory > 5
     ORDER BY ec.employeeNumber ASC
   `;
 
@@ -255,7 +259,6 @@ router.get('/employment-category/:employeeNumber', authenticateToken, (req, res)
     LEFT JOIN person_table pt ON pt.agencyEmployeeNum = ec.employeeNumber
     LEFT JOIN employment_type_config etc
       ON etc.id = ec.employmentCategory
-      AND ec.employmentCategory > 5
     WHERE ec.employeeNumber = ?
   `;
 
@@ -298,7 +301,6 @@ router.get('/employment-category/search/:searchTerm', authenticateToken, (req, r
     LEFT JOIN person_table pt ON pt.agencyEmployeeNum = ec.employeeNumber
     LEFT JOIN employment_type_config etc
       ON etc.id = ec.employmentCategory
-      AND ec.employmentCategory > 5
     WHERE ec.employeeNumber LIKE ?
        OR pt.lastName LIKE ?
        OR pt.firstName LIKE ?
@@ -334,7 +336,7 @@ router.post('/employment-category', authenticateToken, (req, res) => {
   if (!employmentCategory || isNaN(employmentCategory))
     return res.status(400).json({ error: 'Employment category type is required' });
 
-  // Verify the type config exists (only valid for dynamic IDs > 5)
+  // Verify the type config exists and is active
   const checkTypeSql = `SELECT id FROM employment_type_config WHERE id = ? AND isActive = 1`;
   db.query(checkTypeSql, [employmentCategory], (err, typeResults) => {
     if (err) return res.status(500).json({ message: 'Error checking employment type' });
@@ -391,7 +393,7 @@ router.put('/employment-category/:id', authenticateToken, (req, res) => {
   if (!employmentCategory || isNaN(employmentCategory))
     return res.status(400).json({ error: 'Employment category type is required' });
 
-  // Verify the type config exists
+  // Verify the type config exists and is active
   const checkTypeSql = `SELECT id FROM employment_type_config WHERE id = ? AND isActive = 1`;
   db.query(checkTypeSql, [employmentCategory], (err, typeResults) => {
     if (err) return res.status(500).json({ message: 'Error checking employment type' });
@@ -450,7 +452,7 @@ router.put('/employment-category/:id', authenticateToken, (req, res) => {
   });
 });
 
-// Also expose a POST to /employee-category (alias used by frontend create path)
+// POST /employee-category — alias used by UsersList create/edit path (upsert)
 router.post('/employee-category', authenticateToken, (req, res) => {
   const { employeeNumber, employmentCategory } = req.body;
 
@@ -465,7 +467,7 @@ router.post('/employee-category', authenticateToken, (req, res) => {
     if (typeResults.length === 0)
       return res.status(404).json({ error: 'Employment type not found or inactive' });
 
-    // Upsert — if record exists update it, otherwise insert
+    // Upsert — update if exists, otherwise insert
     const checkSql = `SELECT id FROM employment_category WHERE employeeNumber = ?`;
     db.query(checkSql, [employeeNumber], (err, existing) => {
       if (err) return res.status(500).json({ message: 'Error checking existing record' });

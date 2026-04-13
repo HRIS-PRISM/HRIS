@@ -292,14 +292,15 @@ const DepartmentAssignment = () => {
   const [viewMode, setViewMode]     = useState('grid');
   const [snackbar, setSnackbar]     = useState({ open: false, message: '', severity: 'success' });
 
+  // Modal state
   const [modalOpen, setModalOpen]                       = useState(false);
   const [selectedDepartment, setSelectedDepartment]     = useState(null);
   const [deptEmpDetails, setDeptEmpDetails]             = useState({});
-  const [modalView, setModalView]                       = useState('list');
   const [editAssignment, setEditAssignment]             = useState(null);
   const [originalAssignment, setOriginalAssignment]     = useState(null);
   const [selectedEditEmployee, setSelectedEditEmployee] = useState(null);
   const [modalMemberSearch, setModalMemberSearch]       = useState('');
+  const [isEditingModal, setIsEditingModal]             = useState(false);
 
   const showSnackbar = (msg, sev = 'success') => setSnackbar({ open: true, message: msg, severity: sev });
   const { hasAccess, loading: accessLoading } = usePageAccess('department-assignment');
@@ -396,8 +397,14 @@ const DepartmentAssignment = () => {
       await fetchAssignments();
       const res = await axios.get(`${API_BASE_URL}/api/department-assignment`, getAuthHeaders());
       const all = Array.isArray(res.data) ? res.data : [];
-      if (selectedDepartment) setSelectedDepartment((p) => ({ ...p, employees: sortByLastName(all.filter((a) => a.code === selectedDepartment.code)) }));
-      goBackToList();
+      if (selectedDepartment) {
+        setSelectedDepartment((p) => ({
+          ...p,
+          employees: sortByLastName(all.filter((a) => a.code === selectedDepartment.code)),
+        }));
+      }
+      setOriginalAssignment({ ...editAssignment });
+      setIsEditingModal(false);
     } catch { showSnackbar('Failed to update assignment.', 'error'); }
   };
 
@@ -409,40 +416,66 @@ const DepartmentAssignment = () => {
       if (selectedDepartment) {
         const updated = selectedDepartment.employees.filter((e) => e.id !== id);
         setSelectedDepartment((p) => ({ ...p, employees: updated }));
-        if (modalView === 'edit') goBackToList();
+        if (editAssignment?.id === id) {
+          setEditAssignment(null);
+          setOriginalAssignment(null);
+          setSelectedEditEmployee(null);
+          setIsEditingModal(false);
+        }
       }
     } catch { showSnackbar('Failed to delete assignment.', 'error'); }
   };
 
   const handleOpenModal = async (department) => {
     setSelectedDepartment(department);
-    setModalView('list'); setModalMemberSearch(''); setModalOpen(true);
+    setEditAssignment(null);
+    setOriginalAssignment(null);
+    setSelectedEditEmployee(null);
+    setIsEditingModal(false);
+    setModalMemberSearch('');
+    setModalOpen(true);
+
     const map = {};
     await Promise.all(department.employees.map(async (a) => {
       if (!a.employeeNumber) return;
-      try { const r = await axios.get(`${API_BASE_URL}/Remittance/employees/${a.employeeNumber}`, getAuthHeaders()); map[a.employeeNumber] = r.data; }
-      catch { map[a.employeeNumber] = { employeeNumber: a.employeeNumber, name: a.name || 'Unknown' }; }
+      try {
+        const r = await axios.get(`${API_BASE_URL}/Remittance/employees/${a.employeeNumber}`, getAuthHeaders());
+        map[a.employeeNumber] = r.data;
+      } catch {
+        map[a.employeeNumber] = { employeeNumber: a.employeeNumber, name: a.name || 'Unknown' };
+      }
     }));
     setDeptEmpDetails(map);
-  };
 
-  const handleCloseModal = () => {
-    setModalOpen(false); setModalView('list');
-    setEditAssignment(null); setOriginalAssignment(null);
-    setSelectedEditEmployee(null); setSelectedDepartment(null);
-    setDeptEmpDetails({}); setModalMemberSearch('');
-  };
-
-  const goToEdit = async (assignment) => {
-    setEditAssignment({ ...assignment }); setOriginalAssignment({ ...assignment }); setModalView('edit');
-    if (assignment.employeeNumber) {
-      try { const r = await axios.get(`${API_BASE_URL}/Remittance/employees/${assignment.employeeNumber}`, getAuthHeaders()); setSelectedEditEmployee(r.data); }
-      catch { setSelectedEditEmployee(null); }
+    // Auto-select first member
+    if (department.employees.length > 0) {
+      const first = department.employees[0];
+      setEditAssignment({ ...first });
+      setOriginalAssignment({ ...first });
+      if (first.employeeNumber) {
+        try {
+          const r = await axios.get(`${API_BASE_URL}/Remittance/employees/${first.employeeNumber}`, getAuthHeaders());
+          setSelectedEditEmployee(r.data);
+        } catch { setSelectedEditEmployee(null); }
+      }
     }
   };
 
-  const goBackToList = () => { setModalView('list'); setEditAssignment(null); setOriginalAssignment(null); setSelectedEditEmployee(null); };
-  const hasChanges = () => editAssignment && originalAssignment && (editAssignment.code !== originalAssignment.code || editAssignment.employeeNumber !== originalAssignment.employeeNumber);
+  const handleCloseModal = () => {
+    setModalOpen(false);
+    setEditAssignment(null);
+    setOriginalAssignment(null);
+    setSelectedEditEmployee(null);
+    setSelectedDepartment(null);
+    setDeptEmpDetails({});
+    setModalMemberSearch('');
+    setIsEditingModal(false);
+  };
+
+  const hasChanges = () =>
+    editAssignment && originalAssignment &&
+    (editAssignment.code !== originalAssignment.code ||
+      editAssignment.employeeNumber !== originalAssignment.employeeNumber);
 
   if (accessLoading) return (
     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 8 }}>
@@ -467,7 +500,6 @@ const DepartmentAssignment = () => {
     return !term || name.includes(term) || num.includes(term);
   }) : [];
 
-  const fieldLabelSx    = { fontSize: '0.68rem', fontWeight: 700, color: alpha(T.accent, 0.55), textTransform: 'uppercase', letterSpacing: '0.07em', mb: 0.5 };
   const selectedDeptObj = departmentList.find((d) => d.code === selectedCode);
   const canAssign       = selectMode ? employeeQueue.length > 0 : !!singleEmployee;
   const assignCount     = selectMode ? employeeQueue.length : singleEmployee ? 1 : 0;
@@ -670,153 +702,311 @@ const DepartmentAssignment = () => {
         </Grid>
 
         {/* ══════════════════════════════════════════════════
-            LIST MODAL — fixed 82vh, full member table
+            SPLIT-VIEW MODAL — Children-style layout
         ══════════════════════════════════════════════════ */}
-        <Modal open={modalOpen && modalView === 'list'} onClose={handleCloseModal} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>
-          <Fade in={modalOpen && modalView === 'list'}>
-            <Box sx={{ width: '100%', maxWidth: 680, height: '82vh', display: 'flex', flexDirection: 'column', borderRadius: 3, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,0.22)', outline: 'none', bgcolor: T.surface }}>
+        <Modal
+          open={modalOpen}
+          onClose={handleCloseModal}
+          sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}
+        >
+          <Fade in={modalOpen}>
+            <Box
+              sx={{
+                width: '95%',
+                maxWidth: '1100px',
+                height: '85vh',
+                display: 'flex',
+                flexDirection: 'column',
+                borderRadius: 3,
+                overflow: 'hidden',
+                boxShadow: '0 24px 64px rgba(0,0,0,0.22)',
+                outline: 'none',
+                bgcolor: T.surface,
+              }}
+            >
               {selectedDepartment && (
                 <>
+                  {/* Header */}
                   <ModalHeader
-                    title={selectedDepartment.description || 'Department Members'}
+                    title={selectedDepartment.description || selectedDepartment.code}
                     chips={[selectedDepartment.code]}
                     subtitle={`${selectedDepartment.employees.length} ${selectedDepartment.employees.length === 1 ? 'member' : 'members'}`}
                     onClose={handleCloseModal}
                   />
-                  <Box sx={{ px: 2.5, pt: 2, pb: 1.5, borderBottom: `1px solid ${T.divider}`, flexShrink: 0 }}>
-                    <FieldInput size="small" placeholder="Search members by name or employee number…"
-                      value={modalMemberSearch} onChange={(e) => setModalMemberSearch(e.target.value)} fullWidth
-                      InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} /> }} />
-                  </Box>
-                  <Box sx={{ flex: 1, overflowY: 'auto', ...scrollbarSx }}>
-                    {selectedDepartment.employees.length === 0 ? (
-                      <Box sx={{ textAlign: 'center', py: 8 }}>
-                        <Box sx={{ width: 64, height: 64, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 1.5 }}>
-                          <PeopleIcon sx={{ fontSize: 28, color: alpha(T.accent, 0.3) }} />
-                        </Box>
-                        <Typography sx={{ color: T.text, fontWeight: 700, mb: 0.5, fontSize: '0.9rem' }}>No Employees</Typography>
-                        <Typography sx={{ color: T.faint, fontSize: '0.78rem' }}>This department has no assigned employees yet</Typography>
-                      </Box>
-                    ) : filteredModalMembers.length === 0 ? (
-                      <Box sx={{ textAlign: 'center', py: 8 }}>
-                        <Typography sx={{ color: T.muted, fontSize: '0.85rem', fontWeight: 600 }}>No members match "{modalMemberSearch}"</Typography>
-                        <Typography sx={{ color: T.faint, fontSize: '0.78rem', mt: 0.5 }}>Try a different name or employee number</Typography>
-                      </Box>
-                    ) : (
-                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                        {/* Sticky table header — solid bg so rows don't bleed through */}
-                        <Box sx={{ display: 'grid', gridTemplateColumns: '36px 1fr 120px 72px', columnGap: '12px', alignItems: 'center', px: 2.5, py: 1, bgcolor: '#f7f0f0', borderBottom: `1.5px solid ${T.accentBorder}`, position: 'sticky', top: 0, zIndex: 2 }}>
-                          <Box />
-                          <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Name</Typography>
-                          <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Emp. No.</Typography>
-                          <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: 'right' }}>Actions</Typography>
-                        </Box>
-                        {filteredModalMembers.map((emp, idx) => {
-                          const detail = deptEmpDetails[emp.employeeNumber];
-                          const displayName = detail?.name || emp.name || 'Unknown';
-                          return (
-                            <Box key={emp.id} sx={{ display: 'grid', gridTemplateColumns: '36px 1fr 120px 72px', columnGap: '12px', alignItems: 'center', px: 2.5, py: 1, bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd, borderBottom: `1px solid ${T.divider}`, transition: 'background 0.12s', '&:hover': { bgcolor: T.rowHover }, '&:last-child': { borderBottom: 'none' } }}>
-                              <Avatar sx={{ width: 28, height: 28, bgcolor: T.accent, color: '#fff', fontSize: '0.68rem', fontWeight: 700, flexShrink: 0 }}>{displayName.charAt(0).toUpperCase()}</Avatar>
-                              <Typography noWrap sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.text, minWidth: 0 }}>{displayName}</Typography>
-                              <Typography noWrap sx={{ fontSize: '0.75rem', color: T.muted, fontFamily: 'monospace' }}>#{emp.employeeNumber}</Typography>
-                              <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
-                                <Tooltip title="Edit assignment">
-                                  <IconButton size="small" onClick={() => goToEdit(emp)} sx={{ color: T.accent, bgcolor: T.accentFaint, '&:hover': { bgcolor: T.accentHover }, borderRadius: '6px', width: 26, height: 26 }}>
-                                    <EditIcon sx={{ fontSize: 12 }} />
-                                  </IconButton>
-                                </Tooltip>
-                                <Tooltip title="Remove from department">
-                                  <IconButton size="small" onClick={() => handleDelete(emp.id)} sx={{ color: '#999', bgcolor: 'rgba(0,0,0,0.04)', '&:hover': { bgcolor: 'rgba(198,40,40,0.08)', color: '#c62828' }, borderRadius: '6px', width: 26, height: 26 }}>
-                                    <DeleteIcon sx={{ fontSize: 12 }} />
-                                  </IconButton>
-                                </Tooltip>
-                              </Box>
-                            </Box>
-                          );
-                        })}
-                      </Box>
-                    )}
-                  </Box>
-                </>
-              )}
-            </Box>
-          </Fade>
-        </Modal>
 
-        {/* ══════════════════════════════════════════════════
-            EDIT MODAL — compact, hugs content, no blank space
-        ══════════════════════════════════════════════════ */}
-        <Modal open={modalOpen && modalView === 'edit'} onClose={handleCloseModal} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>
-          <Fade in={modalOpen && modalView === 'edit'}>
-            <Box sx={{ width: '100%', maxWidth: 520, display: 'flex', flexDirection: 'column', borderRadius: 3, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,0.22)', outline: 'none', bgcolor: T.surface }}>
-              {selectedDepartment && (
-                <>
-                  <ModalHeader
-                    title="Edit Assignment"
-                    subtitle={selectedEditEmployee?.name || ''}
-                    onBack={goBackToList}
-                    onClose={handleCloseModal}
-                  />
-                  <Box sx={{ p: 2.5 }}>
-                    {editAssignment && (
-                      <Grid container spacing={2.5}>
-                        <Grid item xs={12}>
-                          <Typography sx={fieldLabelSx}>Department Code</Typography>
-                          <DeptCodeAutocomplete
-                            value={editAssignment.code || ''}
-                            onChange={(val) => setEditAssignment((p) => ({ ...p, code: val }))}
-                            departmentList={departmentList}
-                          />
-                          {editAssignment.code && departmentList.find((d) => d.code === editAssignment.code)?.description && (
-                            <Typography sx={{ fontSize: '0.72rem', color: T.muted, mt: 0.5, ml: 0.5 }}>
-                              {departmentList.find((d) => d.code === editAssignment.code).description}
+                  {/* Split Body */}
+                  <Box sx={{ flexGrow: 1, display: 'flex', overflow: 'hidden', bgcolor: '#fff' }}>
+
+                    {/* ── Left Panel: Member List ── */}
+                    <Box
+                      sx={{
+                        width: 300,
+                        borderRight: `1px solid ${T.divider}`,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        bgcolor: '#f9f9f9',
+                      }}
+                    >
+                      <Box sx={{ p: 2, borderBottom: `1px solid ${T.divider}` }}>
+                        <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, mb: 1 }}>
+                          Members
+                        </Typography>
+                        <FieldInput
+                          size="small"
+                          placeholder="Search members…"
+                          value={modalMemberSearch}
+                          onChange={(e) => setModalMemberSearch(e.target.value)}
+                          fullWidth
+                          InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} /> }}
+                        />
+                      </Box>
+
+                      <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 1, ...scrollbarSx }}>
+                        {selectedDepartment.employees.length === 0 ? (
+                          <Box sx={{ p: 3, textAlign: 'center' }}>
+                            <Typography sx={{ fontSize: '0.82rem', color: T.faint, fontStyle: 'italic' }}>
+                              No employees assigned.
                             </Typography>
-                          )}
-                        </Grid>
-                        <Grid item xs={12}>
-                          <Typography sx={fieldLabelSx}>Search Employee</Typography>
-                          <SingleEmployeeAutocomplete
-                            value={editAssignment.employeeNumber || ''}
-                            onChange={(num) => setEditAssignment((p) => ({ ...p, employeeNumber: num }))}
-                            selectedEmployee={selectedEditEmployee}
-                            onEmployeeSelect={setSelectedEditEmployee}
-                          />
-                        </Grid>
-                        <Grid item xs={12}>
-                          <Typography sx={fieldLabelSx}>Selected Employee</Typography>
-                          {selectedEditEmployee ? (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: '12px 14px', borderRadius: 2, border: `1px solid ${alpha(T.accent, 0.25)}`, bgcolor: '#fdf6f6' }}>
-                              <Avatar sx={{ width: 34, height: 34, bgcolor: T.accent, color: '#fff', fontSize: '0.78rem', fontWeight: 700, flexShrink: 0 }}>
-                                {selectedEditEmployee.name?.charAt(0)?.toUpperCase() || '?'}
-                              </Avatar>
-                              <Box sx={{ minWidth: 0 }}>
-                                <Typography noWrap sx={{ fontSize: '0.85rem', fontWeight: 700, color: T.text }}>{selectedEditEmployee.name}</Typography>
-                                <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>#{editAssignment.employeeNumber}</Typography>
+                          </Box>
+                        ) : filteredModalMembers.length === 0 ? (
+                          <Box sx={{ p: 3, textAlign: 'center' }}>
+                            <Typography sx={{ fontSize: '0.82rem', color: T.faint, fontStyle: 'italic' }}>
+                              No matches found.
+                            </Typography>
+                          </Box>
+                        ) : (
+                          filteredModalMembers.map((emp) => {
+                            const detail = deptEmpDetails[emp.employeeNumber];
+                            const displayName = detail?.name || emp.name || 'Unknown';
+                            const isSelected = editAssignment?.id === emp.id;
+                            return (
+                              <Box
+                                key={emp.id}
+                                onClick={async () => {
+                                  setEditAssignment({ ...emp });
+                                  setOriginalAssignment({ ...emp });
+                                  setIsEditingModal(false);
+                                  if (emp.employeeNumber) {
+                                    try {
+                                      const r = await axios.get(`${API_BASE_URL}/Remittance/employees/${emp.employeeNumber}`, getAuthHeaders());
+                                      setSelectedEditEmployee(r.data);
+                                    } catch { setSelectedEditEmployee(null); }
+                                  }
+                                }}
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 1.5,
+                                  px: 1.5,
+                                  py: 1,
+                                  borderRadius: 1.5,
+                                  mb: 0.75,
+                                  cursor: 'pointer',
+                                  border: isSelected ? `1px solid ${T.accent}` : '1px solid transparent',
+                                  bgcolor: isSelected ? alpha(T.accent, 0.07) : 'transparent',
+                                  transition: 'all 0.13s',
+                                  '&:hover': { bgcolor: isSelected ? alpha(T.accent, 0.1) : T.rowHover },
+                                }}
+                              >
+                                <Avatar
+                                  sx={{
+                                    width: 30,
+                                    height: 30,
+                                    bgcolor: isSelected ? T.accent : 'rgba(0,0,0,0.1)',
+                                    color: isSelected ? '#fff' : T.muted,
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    flexShrink: 0,
+                                    transition: 'all 0.15s',
+                                  }}
+                                >
+                                  {displayName.charAt(0).toUpperCase()}
+                                </Avatar>
+                                <Box sx={{ minWidth: 0 }}>
+                                  <Typography noWrap sx={{ fontSize: '0.82rem', fontWeight: 700, color: isSelected ? T.accent : T.text }}>
+                                    {displayName}
+                                  </Typography>
+                                  <Typography sx={{ fontSize: '0.7rem', color: T.muted }}>
+                                    #{emp.employeeNumber}
+                                  </Typography>
+                                </Box>
                               </Box>
-                            </Box>
-                          ) : (
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 52, borderRadius: 2, border: `1.5px dashed ${alpha(T.accent, 0.22)}`, bgcolor: 'rgba(0,0,0,0.02)' }}>
-                              <Typography sx={{ fontSize: '0.8rem', color: T.faint, fontStyle: 'italic' }}>No employee selected</Typography>
-                            </Box>
-                          )}
-                        </Grid>
-                      </Grid>
-                    )}
-                  </Box>
-                  <Box sx={{ borderTop: `1px solid ${T.divider}`, px: 2.5, py: 1.8, display: 'flex', gap: 1, justifyContent: 'space-between', alignItems: 'center', bgcolor: '#f9f9f9' }}>
-                    <AccentButton onClick={() => editAssignment && handleDelete(editAssignment.id)} variant="outlined" startIcon={<DeleteIcon sx={{ fontSize: '14px !important' }} />}
-                      sx={{ fontSize: '0.8rem', borderColor: '#e57373', color: '#c62828', '&:hover': { bgcolor: 'rgba(198,40,40,0.04)', borderColor: '#c62828', transform: 'none' } }}>
-                      Delete
-                    </AccentButton>
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      <AccentButton onClick={goBackToList} variant="outlined" startIcon={<CancelIcon sx={{ fontSize: '14px !important' }} />}
-                        sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>
-                        Cancel
-                      </AccentButton>
-                      <AccentButton onClick={handleUpdate} variant="contained" startIcon={<SaveIcon sx={{ fontSize: '14px !important' }} />} disabled={!hasChanges()}
-                        sx={{ fontSize: '0.8rem', bgcolor: '#639922', color: '#fff', boxShadow: '0 2px 10px rgba(99,153,34,0.32)', '&:hover': { bgcolor: '#3B6D11' }, '&:disabled': { bgcolor: '#b9c7a5 !important', color: '#fff !important' } }}>
-                        Save
-                      </AccentButton>
+                            );
+                          })
+                        )}
+                      </Box>
+                    </Box>
+
+                    {/* ── Right Panel: Detail / Edit Form ── */}
+                    <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                      {editAssignment ? (
+                        <>
+                          {/* Detail Header */}
+                          <Box
+                            sx={{
+                              p: 2,
+                              borderBottom: `1px solid ${T.divider}`,
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              bgcolor: '#fff',
+                            }}
+                          >
+                            <Typography sx={{ fontSize: '1rem', fontWeight: 700, color: T.accent }}>
+                              {selectedEditEmployee?.name || editAssignment.name || 'Employee Details'}
+                            </Typography>
+                          </Box>
+
+                          {/* Fields */}
+                          <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 3, ...scrollbarSx }}>
+                            <Grid container spacing={3}>
+                              {/* Department Code */}
+                              <Grid item xs={12}>
+                                <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: alpha(T.accent, 0.55), textTransform: 'uppercase', letterSpacing: '0.07em', mb: 0.75 }}>
+                                  Department Code
+                                </Typography>
+                                {isEditingModal ? (
+                                  <>
+                                    <DeptCodeAutocomplete
+                                      value={editAssignment.code || ''}
+                                      onChange={(val) => setEditAssignment((p) => ({ ...p, code: val }))}
+                                      departmentList={departmentList}
+                                    />
+                                    {editAssignment.code && departmentList.find((d) => d.code === editAssignment.code)?.description && (
+                                      <Typography sx={{ fontSize: '0.72rem', color: T.muted, mt: 0.5, ml: 0.5 }}>
+                                        {departmentList.find((d) => d.code === editAssignment.code).description}
+                                      </Typography>
+                                    )}
+                                  </>
+                                ) : (
+                                  <Box>
+                                    <Typography sx={{ fontSize: '0.95rem', fontWeight: 600, color: T.text }}>
+                                      {editAssignment.code || 'N/A'}
+                                    </Typography>
+                                    {departmentList.find((d) => d.code === editAssignment.code)?.description && (
+                                      <Typography sx={{ fontSize: '0.78rem', color: T.muted, mt: 0.25 }}>
+                                        {departmentList.find((d) => d.code === editAssignment.code).description}
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                )}
+                              </Grid>
+
+                              {/* Employee */}
+                              <Grid item xs={12}>
+                                <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: alpha(T.accent, 0.55), textTransform: 'uppercase', letterSpacing: '0.07em', mb: 0.75 }}>
+                                  Employee
+                                </Typography>
+                                {isEditingModal ? (
+                                  <>
+                                    <SingleEmployeeAutocomplete
+                                      value={editAssignment.employeeNumber || ''}
+                                      onChange={(num) => setEditAssignment((p) => ({ ...p, employeeNumber: num }))}
+                                      selectedEmployee={selectedEditEmployee}
+                                      onEmployeeSelect={setSelectedEditEmployee}
+                                    />
+                                    {selectedEditEmployee && (
+                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 1.5, p: '10px 14px', borderRadius: 2, border: `1px solid ${alpha(T.accent, 0.25)}`, bgcolor: T.accentFaint }}>
+                                        <Avatar sx={{ width: 32, height: 32, bgcolor: T.accent, color: '#fff', fontSize: '0.75rem', fontWeight: 700 }}>
+                                          {selectedEditEmployee.name?.charAt(0)?.toUpperCase() || '?'}
+                                        </Avatar>
+                                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                                          <Typography noWrap sx={{ fontSize: '0.83rem', fontWeight: 700, color: T.text }}>{selectedEditEmployee.name}</Typography>
+                                          <Typography sx={{ fontSize: '0.7rem', color: T.muted }}>#{editAssignment.employeeNumber}</Typography>
+                                        </Box>
+                                        <IconButton
+                                          size="small"
+                                          onClick={() => { setSelectedEditEmployee(null); setEditAssignment((p) => ({ ...p, employeeNumber: '' })); }}
+                                          sx={{ color: '#c62828', width: 22, height: 22 }}
+                                        >
+                                          <Close sx={{ fontSize: 12 }} />
+                                        </IconButton>
+                                      </Box>
+                                    )}
+                                  </>
+                                ) : (
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                    <Avatar sx={{ width: 34, height: 34, bgcolor: T.accent, color: '#fff', fontSize: '0.78rem', fontWeight: 700 }}>
+                                      {(selectedEditEmployee?.name || editAssignment.name || '?').charAt(0).toUpperCase()}
+                                    </Avatar>
+                                    <Box>
+                                      <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.text }}>
+                                        {selectedEditEmployee?.name || editAssignment.name || 'Unknown'}
+                                      </Typography>
+                                      <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>
+                                        #{editAssignment.employeeNumber}
+                                      </Typography>
+                                    </Box>
+                                  </Box>
+                                )}
+                              </Grid>
+                            </Grid>
+                          </Box>
+
+                          {/* Footer Actions */}
+                          <Box
+                            sx={{
+                              p: 2,
+                              borderTop: `1px solid ${T.divider}`,
+                              display: 'flex',
+                              justifyContent: 'flex-end',
+                              gap: 1.5,
+                              bgcolor: '#fff',
+                            }}
+                          >
+                            {isEditingModal ? (
+                              <>
+                                <AccentButton
+                                  onClick={() => {
+                                    setIsEditingModal(false);
+                                    setEditAssignment({ ...originalAssignment });
+                                    setSelectedEditEmployee(null);
+                                  }}
+                                  variant="outlined"
+                                  startIcon={<CancelIcon sx={{ fontSize: '14px !important' }} />}
+                                  sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent, transform: 'none' } }}
+                                >
+                                  Cancel
+                                </AccentButton>
+                                <AccentButton
+                                  onClick={handleUpdate}
+                                  variant="contained"
+                                  startIcon={<SaveIcon sx={{ fontSize: '14px !important' }} />}
+                                  disabled={!hasChanges()}
+                                  sx={{ fontSize: '0.8rem', bgcolor: '#639922', color: '#fff', boxShadow: '0 2px 10px rgba(99,153,34,0.32)', '&:hover': { bgcolor: '#3B6D11' }, '&:disabled': { bgcolor: '#b9c7a5 !important', color: '#fff !important' } }}
+                                >
+                                  Save
+                                </AccentButton>
+                              </>
+                            ) : (
+                              <>
+                                <AccentButton
+                                  onClick={() => setIsEditingModal(true)}
+                                  variant="contained"
+                                  startIcon={<EditIcon sx={{ fontSize: '14px !important' }} />}
+                                  sx={{ fontSize: '0.8rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, '&:hover': { bgcolor: T.accentDark } }}
+                                >
+                                  Edit
+                                </AccentButton>
+                                <AccentButton
+                                  onClick={() => handleDelete(editAssignment.id)}
+                                  variant="outlined"
+                                  startIcon={<DeleteIcon sx={{ fontSize: '14px !important' }} />}
+                                  sx={{ fontSize: '0.8rem', borderColor: '#e57373', color: '#c62828', '&:hover': { bgcolor: 'rgba(198,40,40,0.06)', borderColor: '#c62828', transform: 'none' } }}
+                                >
+                                  Delete
+                                </AccentButton>
+                              </>
+                            )}
+                          </Box>
+                        </>
+                      ) : (
+                        <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Typography sx={{ fontSize: '0.95rem', color: T.faint }}>
+                            Select a member from the list to view details
+                          </Typography>
+                        </Box>
+                      )}
                     </Box>
                   </Box>
                 </>

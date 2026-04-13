@@ -13,15 +13,12 @@ import {
   CircularProgress,
   Grid,
   Fade,
-  Divider,
   alpha,
   Card,
-  CardContent,
-  CardHeader,
   Avatar,
   TextField,
   styled,
-  Tooltip, Tab,
+  Tab,
   Tabs,
 } from '@mui/material';
 import * as XLSX from 'xlsx';
@@ -34,16 +31,15 @@ import {
   InfoOutlined,
   FileUpload,
   People,
-  ArrowBack,
   AccountBalanceWallet,
   Business,
   AssignmentOutlined,
-  PersonAdd,
   CheckCircle,
   OpenInNew,
+  Circle,
 } from '@mui/icons-material';
 
-// ─── Theme tokens (unified with PDSTemplates) ─────────────────────────────────
+// ─── Theme tokens ─────────────────────────────────────────────────────────────
 const T = {
   accent:       '#6d2323',
   accentDark:   '#5a1d1d',
@@ -56,7 +52,7 @@ const T = {
   divider:      'rgba(0,0,0,0.08)',
 };
 
-// ─── Shimmer keyframes (matches PDSTemplates) ─────────────────────────────────
+// ─── Shimmer keyframes ────────────────────────────────────────────────────────
 const shimmerKf = `
 @keyframes blkShimmer {
   0%   { background-position: -800px 0; }
@@ -99,13 +95,12 @@ const useSystemSettings = () => {
   return settings;
 };
 
-// ─── Wireframe skeleton (matches PDSTemplates shimmer style) ──────────────────
+// ─── Wireframe skeleton ───────────────────────────────────────────────────────
 const BulkRegisterWireframe = () => (
   <>
     <style>{shimmerKf}</style>
     <Box sx={{ pt: 3, pb: 0, width: '100%', mx: 'auto', maxWidth: '100%', overflowX: 'hidden', overflowY: 'auto', minHeight: '100vh' }}>
       <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
-        {/* Header shimmer */}
         <Box sx={{ mb: 3, borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', boxShadow: '0 1px 4px rgba(0,0,0,0.07)', animation: 'blkBlink 2.2s ease-in-out infinite' }}>
           <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -116,7 +111,6 @@ const BulkRegisterWireframe = () => (
           </Box>
         </Box>
         <Grid container spacing={3} alignItems="flex-start">
-          {/* Excel reference shimmer */}
           <Grid item xs={12}>
             <Box sx={{ borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff', animation: 'blkBlink 2.2s ease-in-out 0.05s infinite' }}>
               <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, minHeight: 42, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -129,7 +123,6 @@ const BulkRegisterWireframe = () => (
               </Box>
             </Box>
           </Grid>
-          {/* Upload form shimmer */}
           <Grid item xs={12}>
             <Box sx={{ borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff', animation: 'blkBlink 2.2s ease-in-out 0.08s infinite' }}>
               <Box sx={{ px: 3.5, py: 2.5, background: 'linear-gradient(135deg,#fdf5f5 0%,#f5e8e8 100%)', borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -147,9 +140,7 @@ const BulkRegisterWireframe = () => (
                 </Box>
                 <Box sx={{ borderTop: `1px solid ${T.divider}`, pt: 2.5, mt: 1, display: 'flex', justifyContent: 'space-between', gap: 2 }}>
                   <Bone w="60%" h={10} r={4} />
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Bone w={80} h={44} r={8} /><Bone w={200} h={44} r={8} />
-                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1 }}><Bone w={80} h={44} r={8} /><Bone w={200} h={44} r={8} /></Box>
                 </Box>
               </Box>
             </Box>
@@ -200,7 +191,7 @@ const normalizeRowKeys = (row) => {
 const BulkRegister = () => {
   useSystemSettings();
 
-  // ── Styled components using unified T tokens ──────────────────────────────
+  // ── Styled components ─────────────────────────────────────────────────────
   const GlassCard = useMemo(() => styled(Card)(() => ({
     borderRadius: 12,
     background: '#ffffff',
@@ -232,9 +223,29 @@ const BulkRegister = () => {
     employmentCategory: true, password: true, middleName: false, nameExtension: false, department: false,
   });
   const [emailDomainRestricted, setEmailDomainRestricted] = useState(false);
+
+  // ── Dynamic employment type configs ───────────────────────────────────────
+  const [typeConfigs, setTypeConfigs]                 = useState([]);
+
   const navigate = useNavigate();
   const location = useLocation();
-  const apiBase = useMemo(() => (API_BASE_URL.includes('/api') ? API_BASE_URL : `${API_BASE_URL}/api`), []);
+  const apiBase  = useMemo(() => (API_BASE_URL.includes('/api') ? API_BASE_URL : `${API_BASE_URL}/api`), []);
+
+  // ── Fetch type configs ────────────────────────────────────────────────────
+  useEffect(() => {
+    const fetchTypeConfigs = async () => {
+      try {
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const r = await axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setTypeConfigs(r.data.flat || []);
+      } catch {
+        // non-fatal
+      }
+    };
+    fetchTypeConfigs();
+  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem('setupCompletedSteps');
@@ -274,19 +285,38 @@ const BulkRegister = () => {
 
   const { hasAccess, loading: accessLoading } = usePageAccess('bulk-register');
 
-  const mapEmploymentCategory = (categoryText) => {
-    if (!categoryText) return null;
-    const categoryLower = categoryText.toString().trim().toLowerCase();
-    const categoryMap = {
-      'jo graduate': '0', 'jo graduated': '0', 'job order graduate': '0', 'graduate': '0', 'graduated': '0',
-      'jo undergrad': '1', 'jo undergraduate': '1', 'job order undergrad': '1', 'undergrad': '1', 'undergraduate': '1',
-      'regular non-teaching': '2', 'regular nonteaching': '2', 'non-teaching': '2', 'nonteaching': '2',
-      'regular teaching (30hrs)': '3', 'regular teaching 30hrs': '3', 'teaching 30hrs': '3', 'teaching (30hrs)': '3', '30hrs': '3', '30 hrs': '3',
-      'regular designated (40hrs)': '4', 'regular designated 40hrs': '4', 'designated 40hrs': '4', 'designated (40hrs)': '4', '40hrs': '4', '40 hrs': '4',
-      'other': '5', 'custom': '5',
+  // ── Build a map of typeName/parentGroup aliases → id for Excel matching ──
+  // This lets Excel columns like "Academic | CAS" or just "CAS" resolve to a type id
+  const buildCategoryIdFromText = useMemo(() => {
+    return (categoryText) => {
+      if (!categoryText) return null;
+      const raw = categoryText.toString().trim();
+      const lower = raw.toLowerCase();
+
+      // 1. Direct id match (numeric)
+      const numericId = parseInt(raw, 10);
+      if (!isNaN(numericId) && typeConfigs.find(t => t.id === numericId)) return String(numericId);
+
+      // 2. Exact "parentGroup | typeName" match
+      const exactFull = typeConfigs.find(t =>
+        `${t.parentGroup} | ${t.typeName}`.toLowerCase() === lower ||
+        `${t.parentGroup}|${t.typeName}`.toLowerCase() === lower.replace(/\s/g, '')
+      );
+      if (exactFull) return String(exactFull.id);
+
+      // 3. typeName-only match
+      const typeNameMatch = typeConfigs.find(t => t.typeName.toLowerCase() === lower);
+      if (typeNameMatch) return String(typeNameMatch.id);
+
+      // 4. Partial match on typeName
+      const partialMatch = typeConfigs.find(t =>
+        t.typeName.toLowerCase().includes(lower) || lower.includes(t.typeName.toLowerCase())
+      );
+      if (partialMatch) return String(partialMatch.id);
+
+      return null;
     };
-    return categoryMap[categoryLower] || null;
-  };
+  }, [typeConfigs]);
 
   const validateEmail = (email) => {
     if (!email || typeof email !== 'string') return false;
@@ -318,39 +348,46 @@ const BulkRegister = () => {
         const missingFields = requiredFields.filter((f) => !(f in firstRow));
         if (missingFields.length > 0) { setErrMessage(`Missing required columns: ${missingFields.join(', ')}.`); return; }
         const processedUsers = normalizedWorksheet.map((user) => {
-          let employmentCategoryValue = user.employmentCategory ? mapEmploymentCategory(user.employmentCategory) : null;
+          // Resolve employmentCategory: try dynamic type configs first, fall back to nothing
+          let resolvedCategoryId = null;
+          if (user.employmentCategory) {
+            resolvedCategoryId = buildCategoryIdFromText(user.employmentCategory);
+          }
+
           let password = user.password?.toString().trim() || '';
           if (!password && user.lastName) password = user.lastName.toString().trim().toUpperCase().replace(/\s+/g, '');
           let employeeNumber = user.employeeNumber?.toString().trim() || '';
           if (employeeNumber) employeeNumber = employeeNumber.replace(/-/g, '');
           const processedUser = {
-            firstName: user.firstName?.toString().trim() || '',
-            middleName: user.middleName?.toString().trim() || null,
-            lastName: user.lastName?.toString().trim() || '',
+            firstName:    user.firstName?.toString().trim()    || '',
+            middleName:   user.middleName?.toString().trim()   || null,
+            lastName:     user.lastName?.toString().trim()     || '',
             nameExtension: user.nameExtension?.toString().trim() || null,
-            email: user.email?.toString().trim() || '',
-            employeeNumber, password, role: 'staff', access_level: 'user',
-            department: user.department?.toString().trim() || null,
-            customCategory: user.customCategory?.toString().trim() || null,
+            email:        user.email?.toString().trim()        || '',
+            employeeNumber, password,
+            role: 'staff', access_level: 'user',
+            department:   user.department?.toString().trim()   || null,
+            customCategory: null,
           };
-          if (['0','1','2','3','4','5'].includes(employmentCategoryValue)) processedUser.employmentCategory = employmentCategoryValue;
-          else if (fieldRequirements.employmentCategory) processedUser.employmentCategory = null;
+          if (resolvedCategoryId) {
+            processedUser.employmentCategory = parseInt(resolvedCategoryId, 10);
+          } else if (fieldRequirements.employmentCategory) {
+            processedUser.employmentCategory = null;
+          }
           return processedUser;
         });
         const validationErrors = [];
         processedUsers.forEach((user, index) => {
           const missing = [];
-          if (fieldRequirements.firstName && !user.firstName)                                                   missing.push('firstName');
-          if (fieldRequirements.lastName && !user.lastName)                                                     missing.push('lastName');
-          if (fieldRequirements.email && !user.email)                                                           missing.push('email');
-          if (fieldRequirements.employeeNumber && !user.employeeNumber)                                         missing.push('employeeNumber');
-          if (fieldRequirements.password && !user.password)                                                     missing.push('password');
-          if (fieldRequirements.employmentCategory && !user.employmentCategory)                                 missing.push('employmentCategory');
-          if (fieldRequirements.department && !user.department)                                                 missing.push('department');
+          if (fieldRequirements.firstName && !user.firstName)             missing.push('firstName');
+          if (fieldRequirements.lastName && !user.lastName)               missing.push('lastName');
+          if (fieldRequirements.email && !user.email)                     missing.push('email');
+          if (fieldRequirements.employeeNumber && !user.employeeNumber)   missing.push('employeeNumber');
+          if (fieldRequirements.password && !user.password)               missing.push('password');
+          if (fieldRequirements.employmentCategory && !user.employmentCategory) missing.push('employmentCategory');
+          if (fieldRequirements.department && !user.department)           missing.push('department');
           if (missing.length) validationErrors.push(`Row ${index + 2}: Missing required fields: ${missing.join(', ')}`);
-          if (user.employmentCategory && !['0','1','2','3','4','5'].includes(user.employmentCategory))          validationErrors.push(`Row ${index + 2}: Invalid employmentCategory`);
-          if (user.employmentCategory === '5' && (!user.customCategory || user.customCategory.trim() === ''))  validationErrors.push(`Row ${index + 2}: customCategory required when category is "Other"`);
-          if (user.email && !validateEmail(user.email))                                                         validationErrors.push(`Row ${index + 2}: ${emailDomainRestricted ? 'Email must use @earist.edu.ph domain' : 'Invalid email format'}`);
+          if (user.email && !validateEmail(user.email))                   validationErrors.push(`Row ${index + 2}: ${emailDomainRestricted ? 'Email must use @earist.edu.ph domain' : 'Invalid email format'}`);
         });
         if (validationErrors.length > 0) { setErrMessage(`Validation errors found:\n${validationErrors.slice(0, 5).join('\n')}${validationErrors.length > 5 ? '\n...and more' : ''}`); return; }
         setUsers(processedUsers);
@@ -394,27 +431,42 @@ const BulkRegister = () => {
   }
 
   const requiredChips = [
-    { key: 'firstName', label: 'firstName' },
-    { key: 'lastName', label: 'lastName' },
-    { key: 'email', label: 'email' },
-    { key: 'employeeNumber', label: 'employeeNumber' },
+    { key: 'firstName',          label: 'firstName'          },
+    { key: 'lastName',           label: 'lastName'           },
+    { key: 'email',              label: 'email'              },
+    { key: 'employeeNumber',     label: 'employeeNumber'     },
     { key: 'employmentCategory', label: 'employmentCategory' },
-    { key: 'password', label: 'password' },
-    { key: 'department', label: 'department' },
+    { key: 'password',           label: 'password'           },
+    { key: 'department',         label: 'department'         },
   ].filter((f) => fieldRequirements[f.key]);
 
   const optionalChips = [
-    { key: 'firstName', label: 'firstName' },
-    { key: 'lastName', label: 'lastName' },
-    { key: 'email', label: 'email' },
-    { key: 'employeeNumber', label: 'employeeNumber' },
+    { key: 'firstName',          label: 'firstName'          },
+    { key: 'lastName',           label: 'lastName'           },
+    { key: 'email',              label: 'email'              },
+    { key: 'employeeNumber',     label: 'employeeNumber'     },
     { key: 'employmentCategory', label: 'employmentCategory' },
-    { key: 'password', label: 'password' },
-    { key: 'department', label: 'department' },
-    { key: 'middleName', label: 'middleName' },
-    { key: 'nameExtension', label: 'nameExtension' },
-    { key: 'customCategory', label: 'customCategory' },
+    { key: 'password',           label: 'password'           },
+    { key: 'department',         label: 'department'         },
+    { key: 'middleName',         label: 'middleName'         },
+    { key: 'nameExtension',      label: 'nameExtension'      },
+    { key: 'customCategory',     label: 'customCategory'     },
   ].filter((f) => !fieldRequirements[f.key]);
+
+  // Build category value reference from dynamic type configs
+  const categoryValueChips = typeConfigs.length > 0
+    ? typeConfigs.filter(t => t.isActive !== false).map(t => ({
+        label: `"${t.parentGroup} | ${t.typeName}"`,
+        color: t.colorHex || '#757575',
+      }))
+    : [
+        { label: '"JO Graduate"',              color: '#F97316' },
+        { label: '"JO UnderGrad"',             color: '#EF4444' },
+        { label: '"Regular Non-Teaching"',     color: '#16A34A' },
+        { label: '"Regular Teaching (30Hrs)"', color: '#1D4ED8' },
+        { label: '"Regular Designated (40Hrs)"',color: '#7C3AED' },
+        { label: '"Other"',                    color: '#0D9488' },
+      ];
 
   return (
     <Box sx={{ pt: 3, pb: 0, width: '100%', mx: 'auto', maxWidth: '100%', overflowX: 'hidden', overflowY: 'auto' }}>
@@ -452,7 +504,7 @@ const BulkRegister = () => {
                       }}
                     >
                       <Tab value="single" label="Single" sx={{ minHeight: 30, py: 0.35, px: 1.4, textTransform: 'none', fontSize: '0.78rem', fontWeight: 700, borderRadius: 1.5, color: T.muted, '&.Mui-selected': { bgcolor: T.accent, color: '#fff' } }} />
-                      <Tab value="bulk" label="Bulk" sx={{ minHeight: 30, py: 0.35, px: 1.4, textTransform: 'none', fontSize: '0.78rem', fontWeight: 700, borderRadius: 1.5, color: T.muted, '&.Mui-selected': { bgcolor: T.accent, color: '#fff' } }} />
+                      <Tab value="bulk"   label="Bulk"   sx={{ minHeight: 30, py: 0.35, px: 1.4, textTransform: 'none', fontSize: '0.78rem', fontWeight: 700, borderRadius: 1.5, color: T.muted, '&.Mui-selected': { bgcolor: T.accent, color: '#fff' } }} />
                     </Tabs>
                   </Box>
                 </Box>
@@ -516,16 +568,17 @@ const BulkRegister = () => {
                     </Grid>
                     <Grid item xs={12} md={4}>
                       <Box sx={{ p: 2, borderRadius: 3, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }}>
-                        <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.text, mb: 1, letterSpacing: '0.04em' }}>Employment category values</Typography>
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                          {[
-                            { label: '"JO Graduate"', color: '#F97316' },
-                            { label: '"JO UnderGrad"', color: '#EF4444' },
-                            { label: '"Regular Non-Teaching"', color: '#16A34A' },
-                            { label: '"Regular Teaching (30Hrs)"', color: '#1D4ED8' },
-                            { label: '"Regular Designated (40Hrs)"', color: '#7C3AED' },
-                            { label: '"Other"', color: '#0D9488' },
-                          ].map(({ label, color }) => (
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                          <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.text, letterSpacing: '0.04em' }}>Employment category values</Typography>
+                          {typeConfigs.length > 0 && (
+                            <Chip
+                              label="Dynamic" size="small"
+                              sx={{ height: 20, bgcolor: alpha(T.accent, 0.1), color: T.accent, fontSize: '0.62rem', fontWeight: 700, border: `1px solid ${T.accentBorder}` }}
+                            />
+                          )}
+                        </Box>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxHeight: 100, overflowY: 'auto' }}>
+                          {categoryValueChips.map(({ label, color }) => (
                             <Chip
                               key={label} label={label} size="small"
                               sx={{ bgcolor: alpha(color, 0.08), color, border: `1px solid ${alpha(color, 0.22)}`, fontSize: '0.67rem', height: 22, fontWeight: 600 }}
@@ -538,7 +591,7 @@ const BulkRegister = () => {
                           </Typography>
                         )}
                         <Typography sx={{ fontSize: '0.68rem', color: T.faint, mt: 0.75 }}>
-                          Password defaults to last name in CAPS. "Other" requires a <strong>customCategory</strong> column.
+                          Use the exact <strong>Group | Type</strong> label or just the type name. Password defaults to last name in CAPS.
                         </Typography>
                       </Box>
                     </Grid>

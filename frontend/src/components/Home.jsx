@@ -811,7 +811,7 @@ const Home = () => {
                     ) : (
                       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 2 }}>
                         <Flag sx={{ fontSize: 80, color: `${settings.primaryColor}4D` }} />
-                        <Typography variant="h5" sx={{ color: settings.textPrimaryColor }}>No announcements, suspensions, or holidays available</Typography>
+                        <Typography variant="h5" sx={{ color: settings.textPrimaryColor }}>No information is currently available.</Typography>
                       </Box>
                     )}
                   </Box>
@@ -1378,7 +1378,7 @@ const Home = () => {
                     <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{announcement.title}</Typography>
                     <Typography variant="body2" sx={{ mt: 0.5 }}>{announcement.about && announcement.about.length > 100 ? `${announcement.about.substring(0, 100)}...` : announcement.about}</Typography>
                   </Box>
-                )) : <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>No announcements for this date</Typography>;
+                )) : <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>No information for this date</Typography>;
               })()}
             </DialogContent>
             <DialogActions sx={{ px: 3, pb: 2, gap: 0.5 }}>

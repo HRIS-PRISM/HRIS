@@ -54,7 +54,7 @@ import axios from 'axios';
 import AccessDenied from './AccessDenied';
 import LoadingOverlay from './LoadingOverlay';
 
-// ─── Theme tokens (unified with PDSTemplates) ─────────────────────────────────
+// ─── Theme tokens ─────────────────────────────────────────────────────────────
 const T = {
   accent:       '#6d2323',
   accentDark:   '#5a1d1d',
@@ -67,7 +67,7 @@ const T = {
   divider:      'rgba(0,0,0,0.08)',
 };
 
-// ─── Shimmer keyframes (matches PDSTemplates) ─────────────────────────────────
+// ─── Shimmer keyframes ────────────────────────────────────────────────────────
 const shimmerKf = `
 @keyframes regShimmer {
   0%   { background-position: -800px 0; }
@@ -77,7 +77,7 @@ const shimmerKf = `
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.55; }
 }`;
- 
+
 const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
   <Box sx={{
     width: w, height: h, borderRadius: r,
@@ -87,7 +87,6 @@ const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
     flexShrink: 0, ...sx,
   }} />
 );
- 
 
 const useSystemSettings = () => {
   const [settings, setSettings] = useState(() => {
@@ -110,12 +109,10 @@ const useSystemSettings = () => {
   return settings;
 };
 
-// ─── Wireframe skeleton (matches PDSTemplates shimmer style) ──────────────────
+// ─── Wireframe skeleton ───────────────────────────────────────────────────────
 const RegistrationWireframe = () => (
- <>
+  <>
     <style>{shimmerKf}</style>
- 
-    {/* Root — identical positioning to PDSTemplates */}
     <Box sx={{
       py: { xs: 1, md: 2 },
       mt: { xs: 0, md: -2 },
@@ -124,8 +121,6 @@ const RegistrationWireframe = () => (
       position: 'relative', left: '63%', transform: 'translateX(-61%)',
       px: { xs: 2, sm: 3, md: 6 },
     }}>
- 
-      {/* ── Header card ── */}
       <Box sx={{
         mb: 2, borderRadius: '12px', overflow: 'hidden',
         border: '0.5px solid rgba(0,0,0,0.09)',
@@ -145,18 +140,13 @@ const RegistrationWireframe = () => (
               <Bone w={320} h={11} r={4} />
             </Box>
           </Box>
-          {/* Tab switcher */}
           <Box sx={{ display: 'flex', gap: 0.5, bgcolor: 'rgba(109,35,35,0.06)', borderRadius: 2, px: 0.5, py: 0.5 }}>
             <Bone w={54} h={28} r={6} />
             <Bone w={54} h={28} r={6} />
           </Box>
         </Box>
       </Box>
- 
-      {/* ── Two-column grid ── */}
       <Grid container spacing={3} alignItems="stretch">
- 
-        {/* ── LEFT lg=3 ── */}
         <Grid item xs={12} lg={3} sx={{ display: 'flex' }}>
           <Box sx={{
             width: '100%', display: 'flex', flexDirection: 'column',
@@ -166,43 +156,27 @@ const RegistrationWireframe = () => (
             boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
             animation: 'regBlink 2.2s ease-in-out 0.05s infinite',
           }}>
-            {/* CardHeader */}
             <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(109,35,35,0.06)' }}>
               <Bone w={80} h={9} r={3} sx={{ mb: 0.6 }} />
               <Bone w={190} h={11} r={4} />
             </Box>
- 
-            {/* CardContent */}
             <Box sx={{ p: 2.75, display: 'flex', flexDirection: 'column', gap: 2 }}>
- 
-              {/* After-registration block */}
               <Box sx={{ p: 1.9, borderRadius: 3, border: '1px solid rgba(109,35,35,0.14)', bgcolor: 'rgba(109,35,35,0.06)' }}>
                 <Bone w={120} h={8} r={3} sx={{ mb: 0.9 }} />
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.35 }}>
                   {[0, 0.06, 0.12].map((delay, i) => (
-                    <Box key={i} sx={{
-                      display: 'flex', alignItems: 'center', gap: 1.25,
-                      p: 1.5, borderRadius: 3,
-                      border: '1px solid rgba(109,35,35,0.14)', bgcolor: '#fff',
-                      animation: `regBlink 2.2s ease-in-out ${delay}s infinite`,
-                    }}>
+                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.25, p: 1.5, borderRadius: 3, border: '1px solid rgba(109,35,35,0.14)', bgcolor: '#fff', animation: `regBlink 2.2s ease-in-out ${delay}s infinite` }}>
                       <Box sx={{ width: 34, height: 34, borderRadius: 2, bgcolor: 'rgba(109,35,35,0.08)', flexShrink: 0 }} />
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Bone w="60%" h={11} r={4} sx={{ mb: 0.5 }} />
-                        <Bone w="85%" h={9} r={3} />
-                      </Box>
+                      <Box sx={{ flex: 1, minWidth: 0 }}><Bone w="60%" h={11} r={4} sx={{ mb: 0.5 }} /><Bone w="85%" h={9} r={3} /></Box>
                       <Box sx={{ width: 13, height: 13, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.14)' }} />
                     </Box>
                   ))}
-                  {/* Warning note */}
                   <Box sx={{ mt: 0.25, p: 1.5, bgcolor: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.25)', borderLeft: '3px solid #f59e0b', borderRadius: '0 8px 8px 0' }}>
                     <Bone w="90%" h={9} r={3} sx={{ mb: 0.5 }} />
                     <Bone w="70%" h={9} r={3} />
                   </Box>
                 </Box>
               </Box>
- 
-              {/* Required inputs chips */}
               <Box sx={{ p: 1.85, borderRadius: 3, border: '1px solid rgba(220,38,38,0.2)', bgcolor: 'rgba(220,38,38,0.04)' }}>
                 <Bone w={150} h={8} r={3} sx={{ mb: 0.9 }} />
                 <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 0.6 }}>
@@ -214,106 +188,42 @@ const RegistrationWireframe = () => (
             </Box>
           </Box>
         </Grid>
- 
-        {/* ── RIGHT lg=9 ── */}
         <Grid item xs={12} lg={9} sx={{ display: 'flex' }}>
-          <Box sx={{
-            width: '100%', display: 'flex', flexDirection: 'column',
-            borderRadius: '12px', overflow: 'hidden',
-            bgcolor: '#fff',
-            border: '0.5px solid rgba(0,0,0,0.09)',
-            boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
-            animation: 'regBlink 2.2s ease-in-out 0.08s infinite',
-          }}>
-            {/* Form card header */}
-            <Box sx={{
-              px: 3.5, pt: 2.25, pb: 1.9,
-              background: 'linear-gradient(135deg, #fdf5f5 0%, #f5e8e8 100%)',
-              borderBottom: '1px solid rgba(0,0,0,0.08)',
-              display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-            }}>
+          <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', borderRadius: '12px', overflow: 'hidden', bgcolor: '#fff', border: '0.5px solid rgba(0,0,0,0.09)', boxShadow: '0 1px 4px rgba(0,0,0,0.07)', animation: 'regBlink 2.2s ease-in-out 0.08s infinite' }}>
+            <Box sx={{ px: 3.5, pt: 2.25, pb: 1.9, background: 'linear-gradient(135deg, #fdf5f5 0%, #f5e8e8 100%)', borderBottom: '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
               <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2.25 }}>
                 <Box sx={{ width: 44, height: 44, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.08)', flexShrink: 0, mt: 0.15 }} />
-                <Box>
-                  <Bone w={170} h={18} r={5} sx={{ mb: 0.5 }} />
-                  <Bone w={240} h={11} r={4} />
-                </Box>
+                <Box><Bone w={170} h={18} r={5} sx={{ mb: 0.5 }} /><Bone w={240} h={11} r={4} /></Box>
               </Box>
               <Box sx={{ width: 56, height: 24, borderRadius: 10, mt: 0.3, bgcolor: 'rgba(109,35,35,0.08)', border: '1px solid rgba(109,35,35,0.14)' }} />
             </Box>
- 
-            {/* Form body */}
             <Box sx={{ p: 3 }}>
- 
-              {/* Section label */}
               <Bone w={140} h={9} r={4} sx={{ mb: 1.75 }} />
- 
-              {/* Personal info row: sm 3+3+4+2 */}
               <Grid container spacing={2}>
-                <Grid item xs={12} sm={3}>
-                  <Box sx={{ height: 40, borderRadius: 2, border: '1px solid rgba(109,35,35,0.14)', bgcolor: '#fafafa' }} />
-                </Grid>
-                <Grid item xs={12} sm={3}>
-                  <Box sx={{ height: 40, borderRadius: 2, border: '1px solid rgba(109,35,35,0.14)', bgcolor: '#fafafa' }} />
-                </Grid>
-                <Grid item xs={12} sm={4}>
-                  <Box sx={{ height: 40, borderRadius: 2, border: '1px solid rgba(109,35,35,0.14)', bgcolor: '#fafafa' }} />
-                </Grid>
-                <Grid item xs={12} sm={2}>
-                  <Box sx={{ height: 40, borderRadius: 2, border: '1px solid rgba(109,35,35,0.14)', bgcolor: '#fafafa' }} />
-                </Grid>
-                {/* Email full-width */}
-                <Grid item xs={12}>
-                  <Box sx={{ height: 40, borderRadius: 2, border: '1px solid rgba(109,35,35,0.14)', bgcolor: '#fafafa', mb: 0.5 }} />
-                  <Bone w={220} h={9} r={3} />
-                </Grid>
+                {[3,3,4,2].map((sm, i) => (
+                  <Grid item xs={12} sm={sm} key={i}>
+                    <Box sx={{ height: 40, borderRadius: 2, border: '1px solid rgba(109,35,35,0.14)', bgcolor: '#fafafa' }} />
+                  </Grid>
+                ))}
+                <Grid item xs={12}><Box sx={{ height: 40, borderRadius: 2, border: '1px solid rgba(109,35,35,0.14)', bgcolor: '#fafafa', mb: 0.5 }} /><Bone w={220} h={9} r={3} /></Grid>
               </Grid>
- 
-              {/* Dashed divider */}
               <Box sx={{ borderTop: '1px dashed rgba(0,0,0,0.08)', my: 2.25 }} />
- 
-              {/* Employment section label */}
               <Bone w={155} h={9} r={4} sx={{ mb: 1.75 }} />
- 
-              {/* Employment row: sm 4+4+4 */}
               <Grid container spacing={2.25}>
-                <Grid item xs={12} sm={4}>
-                  <Box sx={{ height: 40, borderRadius: 2, border: '1px solid rgba(109,35,35,0.14)', bgcolor: '#fafafa' }} />
-                </Grid>
-                <Grid item xs={12} sm={4}>
-                  <Box sx={{ height: 40, borderRadius: 2, border: '1px solid rgba(109,35,35,0.14)', bgcolor: '#fafafa', mb: 0.5 }} />
-                  <Bone w={160} h={9} r={3} />
-                </Grid>
-                <Grid item xs={12} sm={4}>
-                  <Box sx={{ height: 40, borderRadius: 2, border: '1px solid rgba(109,35,35,0.14)', bgcolor: '#fafafa' }} />
-                </Grid>
- 
-                {/* Password banner */}
+                {[4,4,4].map((sm, i) => (
+                  <Grid item xs={12} sm={sm} key={i}>
+                    <Box sx={{ height: 40, borderRadius: 2, border: '1px solid rgba(109,35,35,0.14)', bgcolor: '#fafafa' }} />
+                  </Grid>
+                ))}
                 <Grid item xs={12} sx={{ mt: 0.35 }}>
-                  <Box sx={{
-                    display: 'flex', alignItems: 'center', gap: 2,
-                    px: 2.5, py: 1.5, borderRadius: 3,
-                    border: '1px dashed rgba(109,35,35,0.14)',
-                    bgcolor: 'rgba(109,35,35,0.06)',
-                  }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexShrink: 0 }}>
-                      <Box sx={{ width: 34, height: 34, borderRadius: 2, bgcolor: 'rgba(109,35,35,0.08)', border: '1px solid rgba(0,0,0,0.06)', flexShrink: 0 }} />
-                      <Box>
-                        <Bone w={55} h={11} r={4} sx={{ mb: 0.4 }} />
-                        <Bone w={75} h={9} r={3} />
-                      </Box>
-                    </Box>
-                    <Box sx={{ width: 1, height: 30, bgcolor: 'rgba(109,35,35,0.14)', flexShrink: 0 }} />
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Bone w={130} h={14} r={4} />
-                    </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 2.5, py: 1.5, borderRadius: 3, border: '1px dashed rgba(109,35,35,0.14)', bgcolor: 'rgba(109,35,35,0.06)' }}>
+                    <Box sx={{ width: 34, height: 34, borderRadius: 2, bgcolor: 'rgba(109,35,35,0.08)', flexShrink: 0 }} />
+                    <Bone w={130} h={14} r={4} />
+                    <Box sx={{ flex: 1 }} />
                     <Box sx={{ width: 44, height: 24, borderRadius: 10, bgcolor: 'rgba(109,35,35,0.06)', border: '1px solid rgba(109,35,35,0.14)', flexShrink: 0 }} />
-                    <Box sx={{ width: 16, height: 16, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.10)', flexShrink: 0 }} />
                   </Box>
                 </Grid>
               </Grid>
- 
-              {/* Footer */}
               <Box sx={{ mt: 2.5, pt: 2.25, borderTop: '1px solid rgba(0,0,0,0.08)' }}>
                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.25, mb: 3 }}>
                   <Box sx={{ width: 18, height: 18, borderRadius: 1, border: '2px solid rgba(109,35,35,0.25)', flexShrink: 0, mt: 0.1 }} />
@@ -321,11 +231,9 @@ const RegistrationWireframe = () => (
                 </Box>
                 <Box sx={{ height: 58, borderRadius: 2, bgcolor: 'rgba(109,35,35,0.18)' }} />
               </Box>
- 
             </Box>
           </Box>
         </Grid>
- 
       </Grid>
     </Box>
   </>
@@ -346,7 +254,7 @@ const EMPTY_FORM = {
 const Registration = () => {
   useSystemSettings();
 
-  // ── Styled components using unified T tokens ──────────────────────────────
+  // ── Styled components ─────────────────────────────────────────────────────
   const GlassCard = useMemo(() => styled(Card)(() => ({
     borderRadius: 12,
     background: '#ffffff',
@@ -383,21 +291,55 @@ const Registration = () => {
     '& .MuiInputAdornment-root .MuiSvgIcon-root': { color: T.faint },
   })), []);
 
-  const [formData, setFormData]                   = useState(EMPTY_FORM);
-  const [errMessage, setErrorMessage]             = useState('');
-  const [successMessage, setSuccessMessage]       = useState('');
-  const [isLoading, setIsLoading]                 = useState(false);
+  const [formData, setFormData]                             = useState(EMPTY_FORM);
+  const [errMessage, setErrorMessage]                       = useState('');
+  const [successMessage, setSuccessMessage]                 = useState('');
+  const [isLoading, setIsLoading]                           = useState(false);
   const [isInformationConfirmed, setIsInformationConfirmed] = useState(false);
-  const [completedSteps, setCompletedSteps]       = useState({ remittance: false, department: false, itemTable: false });
-  const [fieldRequirements, setFieldRequirements] = useState({
+  const [completedSteps, setCompletedSteps]                 = useState({ remittance: false, department: false, itemTable: false });
+  const [fieldRequirements, setFieldRequirements]           = useState({
     firstName: true, lastName: true, email: true, employeeNumber: true,
     employmentCategory: true, password: true, middleName: false, nameExtension: false, department: false,
   });
-  const [emailDomainRestricted, setEmailDomainRestricted] = useState(false);
-  const [departmentCodes, setDepartmentCodes]             = useState([]);
+  const [emailDomainRestricted, setEmailDomainRestricted]   = useState(false);
+  const [departmentCodes, setDepartmentCodes]               = useState([]);
+
+  // ── Dynamic employment type configs ───────────────────────────────────────
+  const [typeConfigs, setTypeConfigs]                       = useState([]);
+  const [typeConfigsLoading, setTypeConfigsLoading]         = useState(false);
+
   const navigate = useNavigate();
   const location = useLocation();
-  const apiBase = useMemo(() => (API_BASE_URL.includes('/api') ? API_BASE_URL : `${API_BASE_URL}/api`), []);
+  const apiBase  = useMemo(() => (API_BASE_URL.includes('/api') ? API_BASE_URL : `${API_BASE_URL}/api`), []);
+
+  // ── Fetch type configs ────────────────────────────────────────────────────
+  useEffect(() => {
+    const fetchTypeConfigs = async () => {
+      setTypeConfigsLoading(true);
+      try {
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const r = await axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setTypeConfigs(r.data.flat || []);
+      } catch {
+        // non-fatal — dropdown will show empty state
+      } finally {
+        setTypeConfigsLoading(false);
+      }
+    };
+    fetchTypeConfigs();
+  }, []);
+
+  // ── Group active configs by parentGroup ───────────────────────────────────
+  const groupedTypeConfigs = useMemo(() => {
+    const grouped = {};
+    typeConfigs.filter(t => t.isActive !== false).forEach(t => {
+      if (!grouped[t.parentGroup]) grouped[t.parentGroup] = [];
+      grouped[t.parentGroup].push(t);
+    });
+    return grouped;
+  }, [typeConfigs]);
 
   useEffect(() => {
     const previousBodyOverflow = document.body.style.overflow;
@@ -460,12 +402,7 @@ const Registration = () => {
     const { name, value } = e.target;
     setFormData((prev) => {
       const next = { ...prev };
-      if (name === 'employmentCategory') {
-        const parsed = value === '' ? '' : Number(value);
-        next.employmentCategory = parsed;
-        if (parsed !== 5) next.customCategory = '';
-        return next;
-      }
+      // employmentCategory is now a type-config id (string) or ''
       next[name] = value;
       if (name === 'lastName') next.password = value.toUpperCase().replace(/\s+/g, '');
       return next;
@@ -479,27 +416,35 @@ const Registration = () => {
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    const { firstName, lastName, email, employeeNumber, password, employmentCategory, customCategory, department } = formData;
+    const { firstName, lastName, email, employeeNumber, password, employmentCategory, department } = formData;
     const missing = [];
-    if (fieldRequirements.firstName && !firstName)                                   missing.push('First Name');
-    if (fieldRequirements.lastName && !lastName)                                     missing.push('Last Name');
-    if (fieldRequirements.email && !email)                                           missing.push('Email');
-    if (fieldRequirements.employeeNumber && !employeeNumber)                         missing.push('Employee Number');
-    if (fieldRequirements.password && !password)                                     missing.push('Password');
-    if (fieldRequirements.employmentCategory && employmentCategory === '')           missing.push('Employment Category');
-    if (fieldRequirements.department && !department)                                 missing.push('Department');
-    if (employmentCategory === 5 && !customCategory.trim())                          missing.push('Custom Category Description');
-    if (missing.length)                                                              { setErrorMessage(`Required fields missing: ${missing.join(', ')}.`); setSuccessMessage(''); return; }
-    if (!isValidName(firstName))                                                     { setErrorMessage('Enter a valid first name (2–50 letters).'); setSuccessMessage(''); return; }
-    if (!isValidName(lastName))                                                      { setErrorMessage('Enter a valid last name (2–50 letters).'); setSuccessMessage(''); return; }
-    if (formData.middleName && !isValidName(formData.middleName))                   { setErrorMessage('Enter a valid middle name (2–50 letters).'); setSuccessMessage(''); return; }
+    if (fieldRequirements.firstName && !firstName)                         missing.push('First Name');
+    if (fieldRequirements.lastName && !lastName)                           missing.push('Last Name');
+    if (fieldRequirements.email && !email)                                 missing.push('Email');
+    if (fieldRequirements.employeeNumber && !employeeNumber)               missing.push('Employee Number');
+    if (fieldRequirements.password && !password)                           missing.push('Password');
+    if (fieldRequirements.employmentCategory && !employmentCategory)       missing.push('Employment Category');
+    if (fieldRequirements.department && !department)                       missing.push('Department');
+    if (missing.length)                                                    { setErrorMessage(`Required fields missing: ${missing.join(', ')}.`); setSuccessMessage(''); return; }
+    if (!isValidName(firstName))                                           { setErrorMessage('Enter a valid first name (2–50 letters).'); setSuccessMessage(''); return; }
+    if (!isValidName(lastName))                                            { setErrorMessage('Enter a valid last name (2–50 letters).'); setSuccessMessage(''); return; }
+    if (formData.middleName && !isValidName(formData.middleName))         { setErrorMessage('Enter a valid middle name (2–50 letters).'); setSuccessMessage(''); return; }
     if (email) {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))                                { setErrorMessage('Enter a valid email address.'); return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))                      { setErrorMessage('Enter a valid email address.'); return; }
       if (emailDomainRestricted && !email.toLowerCase().endsWith('@earist.edu.ph')) { setErrorMessage('Email must use the @earist.edu.ph domain.'); return; }
     }
     setIsLoading(true); setErrorMessage(''); setSuccessMessage('');
     try {
-      const res = await fetch(`${API_BASE_URL}/register`, { method: 'POST', ...getAuthHeaders(), body: JSON.stringify(formData) });
+      const res = await fetch(`${API_BASE_URL}/register`, {
+        method: 'POST',
+        ...getAuthHeaders(),
+        body: JSON.stringify({
+          ...formData,
+          // Send the type-config id as employmentCategory so the backend can store it
+          employmentCategory: formData.employmentCategory ? parseInt(formData.employmentCategory, 10) : '',
+          customCategory: '',
+        }),
+      });
       if (res.ok) {
         setTimeout(() => {
           setIsLoading(false);
@@ -544,14 +489,19 @@ const Registration = () => {
   const selectControlSx = { '& .MuiInputLabel-root': { fontWeight: 500, '&.Mui-focused': { color: T.accent } } };
 
   const requiredInputLabels = [
-    { key: 'firstName', label: 'First Name' },
-    { key: 'lastName', label: 'Last Name' },
-    { key: 'email', label: 'Email' },
-    { key: 'employeeNumber', label: 'Employee Number' },
-    { key: 'employmentCategory', label: 'Employment Category' },
-    { key: 'password', label: 'Password' },
-    { key: 'department', label: 'Department' },
+    { key: 'firstName',          label: 'First Name'           },
+    { key: 'lastName',           label: 'Last Name'            },
+    { key: 'email',              label: 'Email'                },
+    { key: 'employeeNumber',     label: 'Employee Number'      },
+    { key: 'employmentCategory', label: 'Employment Category'  },
+    { key: 'password',           label: 'Password'             },
+    { key: 'department',         label: 'Department'           },
   ].filter((field) => fieldRequirements[field.key]);
+
+  // Resolve selected type config for preview chip
+  const selectedTypeCfg = formData.employmentCategory
+    ? typeConfigs.find(t => String(t.id) === String(formData.employmentCategory))
+    : null;
 
   return (
     <Box
@@ -598,7 +548,7 @@ const Registration = () => {
                       }}
                     >
                       <Tab value="single" label="Single" sx={{ minHeight: 30, py: 0.35, px: 1.4, textTransform: 'none', fontSize: '0.78rem', fontWeight: 700, borderRadius: 1.5, color: T.muted, '&.Mui-selected': { bgcolor: T.accent, color: '#fff' } }} />
-                      <Tab value="bulk" label="Bulk" sx={{ minHeight: 30, py: 0.35, px: 1.4, textTransform: 'none', fontSize: '0.78rem', fontWeight: 700, borderRadius: 1.5, color: T.muted, '&.Mui-selected': { bgcolor: T.accent, color: '#fff' } }} />
+                      <Tab value="bulk"   label="Bulk"   sx={{ minHeight: 30, py: 0.35, px: 1.4, textTransform: 'none', fontSize: '0.78rem', fontWeight: 700, borderRadius: 1.5, color: T.muted, '&.Mui-selected': { bgcolor: T.accent, color: '#fff' } }} />
                     </Tabs>
                   </Box>
                 </Box>
@@ -667,7 +617,6 @@ const Registration = () => {
                           </Box>
                         );
                       })}
-
                       <Box sx={{ mt: 0.25, p: 1.5, bgcolor: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.25)', borderLeft: '3px solid #f59e0b', borderRadius: '0 8px 8px 0' }}>
                         <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start' }}>
                           <InfoOutlined sx={{ fontSize: 13, color: '#d97706', mt: 0.2, flexShrink: 0 }} />
@@ -806,32 +755,74 @@ const Registration = () => {
                   </Typography>
 
                   <Grid container spacing={2.25}>
+                    {/* ── Dynamic Employment Category ── */}
                     <Grid item xs={12} sm={4}>
                       <FormControl fullWidth size="small" sx={selectControlSx}>
-                        <InputLabel sx={{ fontWeight: 500 }}>{`Employment category${fieldRequirements.employmentCategory ? ' *' : ''}`}</InputLabel>
-                        <Select
-                          name="employmentCategory" value={formData.employmentCategory}
-                          label={`Employment category${fieldRequirements.employmentCategory ? ' *' : ''}`}
-                          onChange={handleChanges} displayEmpty
-                          startAdornment={<InputAdornment position="start"><WorkOutline sx={{ fontSize: 17 }} /></InputAdornment>}
-                          sx={selectInnerSx}
-                          renderValue={(val) => {
-                            if (val === '') return <span style={{ color: T.faint }}>Select category</span>;
-                            const map = { 0: 'Graduate (JO)', 1: 'UnderGrad (JO)', 2: 'Non-Teaching', 3: 'Teaching (30 hrs)', 4: 'Designated (40 hrs)', 5: 'Other…' };
-                            return map[val] || val;
-                          }}
-                        >
-                          <ListSubheader sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: T.faint, lineHeight: '2rem' }}>Job Order</ListSubheader>
-                          <MenuItem value={0} sx={{ fontSize: '0.875rem' }}><ListItemIcon sx={{ minWidth: 24 }}><Circle sx={{ fontSize: 10, color: '#F97316' }} /></ListItemIcon>Graduate</MenuItem>
-                          <MenuItem value={1} sx={{ fontSize: '0.875rem' }}><ListItemIcon sx={{ minWidth: 24 }}><Circle sx={{ fontSize: 10, color: '#EF4444' }} /></ListItemIcon>UnderGrad</MenuItem>
-                          <ListSubheader sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: T.faint, lineHeight: '2rem' }}>Regular</ListSubheader>
-                          <MenuItem value={2} sx={{ fontSize: '0.875rem' }}><ListItemIcon sx={{ minWidth: 24 }}><Circle sx={{ fontSize: 10, color: '#16A34A' }} /></ListItemIcon>Non-Teaching</MenuItem>
-                          <MenuItem value={3} sx={{ fontSize: '0.875rem' }}><ListItemIcon sx={{ minWidth: 24 }}><Circle sx={{ fontSize: 10, color: '#1D4ED8' }} /></ListItemIcon>Teaching (30 hrs)</MenuItem>
-                          <MenuItem value={4} sx={{ fontSize: '0.875rem' }}><ListItemIcon sx={{ minWidth: 24 }}><Circle sx={{ fontSize: 10, color: '#7C3AED' }} /></ListItemIcon>Designated (40 hrs)</MenuItem>
-                          <ListSubheader sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: T.faint, lineHeight: '2rem' }}>Other</ListSubheader>
-                          <MenuItem value={5} sx={{ fontSize: '0.875rem' }}><ListItemIcon sx={{ minWidth: 24 }}><Circle sx={{ fontSize: 10, color: '#0D9488' }} /></ListItemIcon>Other — specify below</MenuItem>
-                        </Select>
+                        <InputLabel shrink sx={{ fontWeight: 500 }}>
+                          {`Employment category${fieldRequirements.employmentCategory ? ' *' : ''}`}
+                        </InputLabel>
+                        {typeConfigsLoading ? (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1, border: `1px solid ${T.accentBorder}`, borderRadius: 2, bgcolor: '#fafafa', minHeight: 40 }}>
+                            <CircularProgress size={14} sx={{ color: T.accent }} />
+                            <Typography sx={{ fontSize: '0.8rem', color: T.faint }}>Loading…</Typography>
+                          </Box>
+                        ) : typeConfigs.length === 0 ? (
+                          <Box sx={{ px: 1.5, py: 1, border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, bgcolor: alpha(T.accent, 0.02), minHeight: 40, display: 'flex', alignItems: 'center' }}>
+                            <Typography sx={{ fontSize: '0.75rem', color: T.muted, fontStyle: 'italic' }}>No categories configured</Typography>
+                          </Box>
+                        ) : (
+                          <Select
+                            name="employmentCategory"
+                            value={formData.employmentCategory}
+                            label={`Employment category${fieldRequirements.employmentCategory ? ' *' : ''}`}
+                            onChange={handleChanges}
+                            displayEmpty
+                            notched
+                            startAdornment={<InputAdornment position="start"><WorkOutline sx={{ fontSize: 17 }} /></InputAdornment>}
+                            sx={selectInnerSx}
+                            renderValue={(val) => {
+                              if (!val) return <span style={{ color: T.faint }}>Select category</span>;
+                              const found = typeConfigs.find(t => String(t.id) === String(val));
+                              if (!found) return val;
+                              return (
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                                  <Circle sx={{ fontSize: 8, color: found.colorHex }} />
+                                  <Typography sx={{ fontSize: '0.875rem' }}>{found.parentGroup} | {found.typeName}</Typography>
+                                </Box>
+                              );
+                            }}
+                          >
+                            <MenuItem value="" disabled>
+                              <Typography sx={{ color: T.faint, fontSize: '0.875rem' }}>Select category…</Typography>
+                            </MenuItem>
+                            {Object.entries(groupedTypeConfigs).flatMap(([group, items]) => [
+                              <ListSubheader
+                                key={`hdr-${group}`}
+                                sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: alpha(T.accent, 0.55), lineHeight: '2em', bgcolor: T.accentFaint }}
+                              >
+                                {group}
+                              </ListSubheader>,
+                              ...items.map(item => (
+                                <MenuItem key={item.id} value={String(item.id)} sx={{ py: 0.9, fontSize: '0.875rem' }}>
+                                  <ListItemIcon sx={{ minWidth: 26, display: 'flex', alignItems: 'center' }}>
+                                    <Circle sx={{ fontSize: 8, color: item.colorHex }} />
+                                  </ListItemIcon>
+                                  {item.typeName}
+                                </MenuItem>
+                              )),
+                            ])}
+                          </Select>
+                        )}
                       </FormControl>
+                      {/* Preview chip for selected type */}
+                      {selectedTypeCfg && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.75, px: 1.25, py: 0.6, borderRadius: 2, bgcolor: alpha(selectedTypeCfg.colorHex, 0.07), border: `1px solid ${alpha(selectedTypeCfg.colorHex, 0.22)}` }}>
+                          <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: selectedTypeCfg.colorHex, flexShrink: 0 }} />
+                          <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: selectedTypeCfg.colorHex }}>
+                            {selectedTypeCfg.parentGroup} | {selectedTypeCfg.typeName}
+                          </Typography>
+                        </Box>
+                      )}
                     </Grid>
 
                     <Grid item xs={12} sm={4}>
@@ -863,22 +854,6 @@ const Registration = () => {
                         </Select>
                       </FormControl>
                     </Grid>
-
-                    {formData.employmentCategory === 5 && (
-                      <Fade in timeout={200}>
-                        <Grid item xs={12}>
-                          <ModernTextField
-                            name="customCategory" label="Category description *"
-                            fullWidth size="small"
-                            placeholder="e.g., Part-timer, OJT, Consultant"
-                            value={formData.customCategory} onChange={handleChanges}
-                            inputProps={{ maxLength: 100 }}
-                            helperText={`${formData.customCategory.length}/100 characters`}
-                            InputProps={{ startAdornment: <InputAdornment position="start"><WorkOutline sx={{ fontSize: 17 }} /></InputAdornment> }}
-                          />
-                        </Grid>
-                      </Fade>
-                    )}
 
                     {/* ── Auto-generated password banner ── */}
                     <Grid item xs={12} sx={{ mt: 0.35 }}>

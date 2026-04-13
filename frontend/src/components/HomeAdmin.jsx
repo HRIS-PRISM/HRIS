@@ -1762,7 +1762,7 @@ const AdminHome = () => {
                     ) : (
                       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 2 }}>
                         <CampaignIcon sx={{ fontSize: 80, color: `${settings.primaryColor}4D` }} />
-                        <Typography variant="h5" sx={{ color: settings.textPrimaryColor }}>No announcements, suspensions, or holidays available</Typography>
+                        <Typography variant="h5" sx={{ color: settings.textPrimaryColor }}>No information is currently available.</Typography>
                       </Box>
                     )}
                   </Box>
