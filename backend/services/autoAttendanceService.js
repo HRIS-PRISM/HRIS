@@ -4,7 +4,9 @@ const db = require('../db');
 
 function queryAsync(sql, params) {
   return new Promise((resolve, reject) =>
-    db.query(sql, params, (err, result) => (err ? reject(err) : resolve(result))),
+    db.query(sql, params, (err, result) =>
+      err ? reject(err) : resolve(result),
+    ),
   );
 }
 
@@ -22,7 +24,15 @@ function expandDateRange(startDate, endDate) {
 }
 
 function weekdayName(dateStr) {
-  const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const DAYS = [
+    'Sunday',
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+  ];
   return DAYS[new Date(dateStr + 'T00:00:00Z').getUTCDay()];
 }
 
@@ -44,7 +54,11 @@ async function getActiveOfficialRangesForEmployee(employeeID) {
   }));
 }
 
-async function fillExemptAttendance({ startDate, endDate, employeeIDs = null }) {
+async function fillExemptAttendance({
+  startDate,
+  endDate,
+  employeeIDs = null,
+}) {
   let exemptSql = `
     SELECT DISTINCT employeeID
     FROM item_table

@@ -3,13 +3,21 @@ const router = express.Router();
 const db = require('../db');
 const { authenticateToken, logAudit } = require('../middleware/auth');
 const { notifyPayrollChanged } = require('../socket/socketService');
-const { fillExemptAttendanceForEmployeeOfficialRanges } = require('../services/autoAttendanceService');
+const {
+  fillExemptAttendanceForEmployeeOfficialRanges,
+} = require('../services/autoAttendanceService');
 
 async function triggerExemptAutoFill(employeeID) {
   if (!employeeID || !String(employeeID).trim()) {
-    return { inserted: 0, skipped: 0, errors: ['Auto-attendance skipped: employeeID is missing.'] };
+    return {
+      inserted: 0,
+      skipped: 0,
+      errors: ['Auto-attendance skipped: employeeID is missing.'],
+    };
   }
-  return fillExemptAttendanceForEmployeeOfficialRanges(String(employeeID).trim());
+  return fillExemptAttendanceForEmployeeOfficialRanges(
+    String(employeeID).trim(),
+  );
 }
 
 // GET all item table records
@@ -34,10 +42,10 @@ router.get('/api/item-table', authenticateToken, (req, res) => {
       console.error('Database Query Error:', err.message);
       console.error('SQL Error Code:', err.code);
       console.error('SQL Error SQL State:', err.sqlState);
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: 'Internal Server Error',
         message: err.message,
-        details: 'Failed to fetch item records'
+        details: 'Failed to fetch item records',
       });
     }
 
@@ -53,10 +61,11 @@ router.get('/api/item-table', authenticateToken, (req, res) => {
         step: result[0].step,
         exempt_from_biometrics: result[0].exempt_from_biometrics,
       });
-      const nullFields = result.filter(r => 
-        r.employeeID === null || 
-        r.name === null || 
-        r.item_description === null
+      const nullFields = result.filter(
+        (r) =>
+          r.employeeID === null ||
+          r.name === null ||
+          r.item_description === null,
       );
       if (nullFields.length > 0) {
         console.log('Records with NULL values:', nullFields.length);
@@ -89,7 +98,8 @@ router.post('/api/item-table', authenticateToken, (req, res) => {
     employeeID: employeeID || null,
     name: name || null,
     item_code: item_code || null,
-    salary_grade: salary_grade !== null && salary_grade !== undefined ? salary_grade : '',
+    salary_grade:
+      salary_grade !== null && salary_grade !== undefined ? salary_grade : '',
     step: step || null,
     effectivityDate: effectivityDate || null,
     exempt_from_biometrics: exempt_from_biometrics ? 1 : 0,
@@ -121,10 +131,11 @@ router.post('/api/item-table', authenticateToken, (req, res) => {
         console.error('Database Insert Error:', err.message);
         console.error('SQL Error Code:', err.code);
         console.error('SQL Error SQL State:', err.sqlState);
-        return res.status(500).json({ 
+        return res.status(500).json({
           error: 'Internal Server Error',
           message: err.message,
-          details: 'Failed to insert item record. Please check the data and try again.'
+          details:
+            'Failed to insert item record. Please check the data and try again.',
         });
       }
 
@@ -140,28 +151,42 @@ router.post('/api/item-table', authenticateToken, (req, res) => {
         employeeID,
       });
 
-      const finalize = (autoResult) => res.json({
-        message: 'Item record added successfully',
-        id: result.insertId,
-        autoAttendance: autoResult ? {
-          inserted: autoResult.inserted,
-          skipped: autoResult.skipped,
-          rangesProcessed: autoResult.rangesProcessed,
-        } : undefined,
-        warnings: autoResult && autoResult.errors && autoResult.errors.length
-          ? autoResult.errors
-          : undefined,
-      });
+      const finalize = (autoResult) =>
+        res.json({
+          message: 'Item record added successfully',
+          id: result.insertId,
+          autoAttendance: autoResult
+            ? {
+                inserted: autoResult.inserted,
+                skipped: autoResult.skipped,
+                rangesProcessed: autoResult.rangesProcessed,
+              }
+            : undefined,
+          warnings:
+            autoResult && autoResult.errors && autoResult.errors.length
+              ? autoResult.errors
+              : undefined,
+        });
 
-      if (normalizedData.exempt_from_biometrics === 1 && normalizedData.employeeID) {
+      if (
+        normalizedData.exempt_from_biometrics === 1 &&
+        normalizedData.employeeID
+      ) {
         triggerExemptAutoFill(normalizedData.employeeID)
           .then(finalize)
-          .catch((autoErr) => finalize({ inserted: 0, skipped: 0, rangesProcessed: 0, errors: [`Auto-attendance trigger failed: ${autoErr.message}`] }));
+          .catch((autoErr) =>
+            finalize({
+              inserted: 0,
+              skipped: 0,
+              rangesProcessed: 0,
+              errors: [`Auto-attendance trigger failed: ${autoErr.message}`],
+            }),
+          );
         return;
       }
 
       finalize(null);
-    }
+    },
   );
 });
 
@@ -184,7 +209,8 @@ router.put('/api/item-table/:id', authenticateToken, (req, res) => {
     employeeID: employeeID || null,
     name: name || null,
     item_code: item_code || null,
-    salary_grade: salary_grade !== null && salary_grade !== undefined ? salary_grade : '',
+    salary_grade:
+      salary_grade !== null && salary_grade !== undefined ? salary_grade : '',
     step: step || null,
     effectivityDate: effectivityDate || null,
     exempt_from_biometrics: exempt_from_biometrics ? 1 : 0,
@@ -245,7 +271,8 @@ router.put('/api/item-table/:id', authenticateToken, (req, res) => {
             return res.status(500).json({
               error: 'Internal Server Error',
               message: err.message,
-              details: 'Failed to update item record. Please check the data and try again.',
+              details:
+                'Failed to update item record. Please check the data and try again.',
             });
           }
           if (result.affectedRows === 0) {
@@ -266,32 +293,46 @@ router.put('/api/item-table/:id', authenticateToken, (req, res) => {
 
           const wasExempt = Number(previous.exempt_from_biometrics) === 1;
           const isExempt = normalizedData.exempt_from_biometrics === 1;
-          const targetEmployeeID = normalizedData.employeeID || previous.employeeID;
+          const targetEmployeeID =
+            normalizedData.employeeID || previous.employeeID;
           const becameExempt = !wasExempt && isExempt && targetEmployeeID;
 
-          const finalize = (autoResult) => res.json({
-            message: 'Item record updated successfully',
-            autoAttendance: autoResult ? {
-              inserted: autoResult.inserted,
-              skipped: autoResult.skipped,
-              rangesProcessed: autoResult.rangesProcessed,
-            } : undefined,
-            warnings: autoResult && autoResult.errors && autoResult.errors.length
-              ? autoResult.errors
-              : undefined,
-          });
+          const finalize = (autoResult) =>
+            res.json({
+              message: 'Item record updated successfully',
+              autoAttendance: autoResult
+                ? {
+                    inserted: autoResult.inserted,
+                    skipped: autoResult.skipped,
+                    rangesProcessed: autoResult.rangesProcessed,
+                  }
+                : undefined,
+              warnings:
+                autoResult && autoResult.errors && autoResult.errors.length
+                  ? autoResult.errors
+                  : undefined,
+            });
 
           if (becameExempt) {
             triggerExemptAutoFill(targetEmployeeID)
               .then(finalize)
-              .catch((autoErr) => finalize({ inserted: 0, skipped: 0, rangesProcessed: 0, errors: [`Auto-attendance trigger failed: ${autoErr.message}`] }));
+              .catch((autoErr) =>
+                finalize({
+                  inserted: 0,
+                  skipped: 0,
+                  rangesProcessed: 0,
+                  errors: [
+                    `Auto-attendance trigger failed: ${autoErr.message}`,
+                  ],
+                }),
+              );
             return;
           }
 
           finalize(null);
-        }
+        },
       );
-    }
+    },
   );
 });
 

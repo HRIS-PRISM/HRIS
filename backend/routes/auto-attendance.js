@@ -29,8 +29,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const express = require('express');
-const router  = express.Router();
-const db      = require('../db');
+const router = express.Router();
+const db = require('../db');
 const { authenticateToken, logAudit } = require('../middleware/auth');
 const { fillExemptAttendance } = require('../services/autoAttendanceService');
 
@@ -38,7 +38,9 @@ const { fillExemptAttendance } = require('../services/autoAttendanceService');
 
 function queryAsync(sql, params) {
   return new Promise((resolve, reject) =>
-    db.query(sql, params, (err, result) => (err ? reject(err) : resolve(result))),
+    db.query(sql, params, (err, result) =>
+      err ? reject(err) : resolve(result),
+    ),
   );
 }
 
@@ -46,53 +48,67 @@ function queryAsync(sql, params) {
 
 // ── POST /api/auto-attendance/fill ────────────────────────────────────────────
 
-router.post('/api/auto-attendance/fill', authenticateToken, async (req, res) => {
-  const { startDate, endDate, employeeIDs } = req.body || {};
+router.post(
+  '/api/auto-attendance/fill',
+  authenticateToken,
+  async (req, res) => {
+    const { startDate, endDate, employeeIDs } = req.body || {};
 
-  if (!startDate || !endDate) {
-    return res.status(400).json({ message: 'startDate and endDate are required.' });
-  }
-  if (new Date(startDate) > new Date(endDate)) {
-    return res.status(400).json({ message: 'startDate must be on or before endDate.' });
-  }
-
-  try {
-    const result = await fillExemptAttendance({
-      startDate,
-      endDate,
-      employeeIDs: Array.isArray(employeeIDs) && employeeIDs.length ? employeeIDs : null,
-    });
-
-    try {
-      logAudit(
-        req.user,
-        `Auto-filled attendance for exempt employees — ${result.inserted} inserted, ${result.skipped} skipped`,
-        'Auto Attendance',
-        `${startDate} to ${endDate}`,
-        null,
-      );
-    } catch (e) {
-      console.error('[auto-attendance] Audit log error:', e);
+    if (!startDate || !endDate) {
+      return res
+        .status(400)
+        .json({ message: 'startDate and endDate are required.' });
+    }
+    if (new Date(startDate) > new Date(endDate)) {
+      return res
+        .status(400)
+        .json({ message: 'startDate must be on or before endDate.' });
     }
 
-    return res.json({
-      message : 'Auto-attendance fill complete.',
-      inserted: result.inserted,
-      skipped : result.skipped,
-      warnings: result.errors.length ? result.errors : undefined,
-    });
-  } catch (err) {
-    console.error('[auto-attendance] fill error:', err);
-    return res.status(500).json({ message: 'Auto-attendance fill failed.', detail: err.message });
-  }
-});
+    try {
+      const result = await fillExemptAttendance({
+        startDate,
+        endDate,
+        employeeIDs:
+          Array.isArray(employeeIDs) && employeeIDs.length ? employeeIDs : null,
+      });
+
+      try {
+        logAudit(
+          req.user,
+          `Auto-filled attendance for exempt employees — ${result.inserted} inserted, ${result.skipped} skipped`,
+          'Auto Attendance',
+          `${startDate} to ${endDate}`,
+          null,
+        );
+      } catch (e) {
+        console.error('[auto-attendance] Audit log error:', e);
+      }
+
+      return res.json({
+        message: 'Auto-attendance fill complete.',
+        inserted: result.inserted,
+        skipped: result.skipped,
+        warnings: result.errors.length ? result.errors : undefined,
+      });
+    } catch (err) {
+      console.error('[auto-attendance] fill error:', err);
+      return res
+        .status(500)
+        .json({ message: 'Auto-attendance fill failed.', detail: err.message });
+    }
+  },
+);
 
 // ── GET /api/auto-attendance/exempt-employees ─────────────────────────────────
 
-router.get('/api/auto-attendance/exempt-employees', authenticateToken, async (req, res) => {
-  try {
-    const rows = await queryAsync(
-      `SELECT
+router.get(
+  '/api/auto-attendance/exempt-employees',
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const rows = await queryAsync(
+        `SELECT
          it.employeeID,
          it.item_description AS position,
          it.item_code,
@@ -108,14 +124,20 @@ router.get('/api/auto-attendance/exempt-employees', authenticateToken, async (re
          AND  it.employeeID IS NOT NULL
          AND  TRIM(it.employeeID) <> ''
        ORDER BY p.lastName, p.firstName`,
-      [],
-    );
+        [],
+      );
 
-    return res.json(rows);
-  } catch (err) {
-    console.error('[auto-attendance] exempt-employees error:', err);
-    return res.status(500).json({ message: 'Failed to fetch exempt employees.', detail: err.message });
-  }
-});
+      return res.json(rows);
+    } catch (err) {
+      console.error('[auto-attendance] exempt-employees error:', err);
+      return res
+        .status(500)
+        .json({
+          message: 'Failed to fetch exempt employees.',
+          detail: err.message,
+        });
+    }
+  },
+);
 
 module.exports = router;
