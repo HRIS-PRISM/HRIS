@@ -21,13 +21,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── #16: Graceful dependency loading ─────────────────────────────────────────
-let express, router, db, authenticateToken, logAudit, upload, xlsx, fs;
+let express, router, db, authenticateToken, logAudit, upload, xlsx, fs, fillExemptAttendance;
 try {
   express          = require('express');
   router           = express.Router();
   db               = require('../db');
   ({ authenticateToken, logAudit } = require('../middleware/auth'));
   ({ upload }      = require('../middleware/upload'));
+  ({ fillExemptAttendance } = require('../services/autoAttendanceService'));
   xlsx             = require('xlsx');
   fs               = require('fs');
 } catch (depErr) {
@@ -661,7 +662,26 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
       );
     } catch (e) { console.error('Audit log error:', e); }
 
-    res.json({ message: 'Official time records saved successfully', inserted: result.affectedRows });
+    let autoAttendance = { inserted: 0, skipped: 0, errors: [] };
+    try {
+      autoAttendance = await fillExemptAttendance({
+        startDate: normDate(startDate),
+        endDate: normDate(endDate),
+        employeeIDs: [employeeID],
+      });
+    } catch (autoErr) {
+      autoAttendance.errors = [`Auto-attendance trigger failed: ${autoErr.message}`];
+    }
+
+    res.json({
+      message: 'Official time records saved successfully',
+      inserted: result.affectedRows,
+      autoAttendance: {
+        inserted: autoAttendance.inserted,
+        skipped: autoAttendance.skipped,
+      },
+      warnings: autoAttendance.errors.length ? autoAttendance.errors : undefined,
+    });
   } catch (err) {
     await rollbackTransaction(conn);
     console.error('Error creating schedule version:', err);
@@ -782,6 +802,8 @@ router.post('/upload-excel-faculty-official-time', authenticateToken, upload.sin
 
     // ── Insert with per-employee transactions ────────────────────────────────
     let insertedCount = 0;
+    let autoAttendanceInserted = 0;
+    let autoAttendanceSkipped = 0;
     const processedRecords = [];
     const insertWarnings   = [];
 
@@ -816,6 +838,19 @@ router.post('/upload-excel-faculty-official-time', authenticateToken, upload.sin
         await commitTransaction(conn);
 
         insertedCount += result.affectedRows || 0;
+
+        try {
+          const autoResult = await fillExemptAttendance({
+            startDate: normDate(s.startDate),
+            endDate: normDate(s.endDate),
+            employeeIDs: [s.employeeID],
+          });
+          autoAttendanceInserted += autoResult.inserted;
+          autoAttendanceSkipped += autoResult.skipped;
+          if (autoResult.errors.length > 0) insertWarnings.push(...autoResult.errors);
+        } catch (autoErr) {
+          insertWarnings.push(`Employee ${s.employeeID}: Auto-attendance trigger failed. Reason: ${autoErr.message}`);
+        }
 
         for (const row of s.rows) {
           // #5: Warn if status in Excel differed from 'active'
@@ -879,6 +914,10 @@ router.post('/upload-excel-faculty-official-time', authenticateToken, upload.sin
       message: 'Upload complete. Uploaded schedules are set to Active. Previous active schedules have been set to Inactive.',
       inserted: insertedCount,
       updated: 0,
+      autoAttendance: {
+        inserted: autoAttendanceInserted,
+        skipped: autoAttendanceSkipped,
+      },
       records: processedRecords,
       warnings: allWarnings.length > 0 ? allWarnings : undefined,
     });
@@ -1258,7 +1297,26 @@ router.put('/officialtimetable/:employeeID', authenticateToken, async (req, res)
       );
     } catch (e) { console.error('Audit log error:', e); }
 
-    res.json({ message: 'Official time updated successfully.', updated: updatedCount });
+    let autoAttendance = { inserted: 0, skipped: 0, errors: [] };
+    try {
+      autoAttendance = await fillExemptAttendance({
+        startDate: normalizedStartDate,
+        endDate: normalizedEndDate,
+        employeeIDs: [employeeID],
+      });
+    } catch (autoErr) {
+      autoAttendance.errors = [`Auto-attendance trigger failed: ${autoErr.message}`];
+    }
+
+    res.json({
+      message: 'Official time updated successfully.',
+      updated: updatedCount,
+      autoAttendance: {
+        inserted: autoAttendance.inserted,
+        skipped: autoAttendance.skipped,
+      },
+      warnings: autoAttendance.errors.length ? autoAttendance.errors : undefined,
+    });
   } catch (err) {
     console.error('Error updating official time:', err);
     res.status(500).json({ error: err.message || 'Database error' });

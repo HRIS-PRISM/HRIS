@@ -27,6 +27,7 @@ const PayrollReleased = require('./payrollRoutes/PayrollReleased');
 const PayrollJO = require('./payrollRoutes/PayrollJO');
 const PayrollFormulas = require('./payrollRoutes/PayrollFormulas');
 const EmployeeCategory = require('./dashboardRoutes/EmployeeCategory');
+const AutoAttendance = require('./routes/auto-attendance');
 
 // Import new organized routes
 const authRoutes = require('./routes/auth');
@@ -57,6 +58,7 @@ const settingsExtendedRoutes = require('./routes/settings-extended');
 const confidentialPasswordRoutes = require('./routes/confidential-password');
 const commutationRoute = require('./routes/commutation');
 const pdsTemplatesRoutes = require('./routes/pds-templates');
+
 
 
 const app = express();
@@ -361,6 +363,7 @@ app.use('/', confidentialPasswordRoutes);
 app.use('/', PayrollFormulas);
 app.use('/commutationRoute', commutationRoute);
 app.use('/pds-templates', pdsTemplatesRoutes);
+app.use('/auto-attendance', AutoAttendance);
 
 // Server startup with Socket.IO
 const PORT = process.env.WEB_PORT || 5000;

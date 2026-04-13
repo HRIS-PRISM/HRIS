@@ -2,43 +2,30 @@ import API_BASE_URL from '../../apiConfig';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
-  Button,
-  TextField,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Box,
   Typography,
   Alert,
-  Card,
-  CardContent,
+  Collapse,
   Chip,
-  Avatar,
-  IconButton,
-  Tooltip,
-  LinearProgress,
+  CircularProgress,
   Fade,
-  Grid,
-  InputAdornment,
-  Badge,
-  Divider,
-  Fab,
-  Zoom,
-  alpha,
-  styled,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
   Snackbar,
+  alpha,
+  styled,
+  Card,
+  Button,
+  Fab,
+  Zoom,
+  Badge,
 } from '@mui/material';
 import {
   EventNote,
-  CalendarToday,
   Person,
+  CalendarToday,
   AccessTime,
   CheckCircle,
   Cancel,
@@ -50,277 +37,263 @@ import {
   KeyboardArrowUp,
   KeyboardArrowDown,
   FilterList,
+  NewReleases,
 } from '@mui/icons-material';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 
-// ─────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
-    : '109, 35, 35';
+// ─── Theme tokens (mirrors PDSTemplates T object) ──────────────────────────
+const T = {
+  accent:       '#6d2323',
+  accentDark:   '#5a1d1d',
+  accentMid:    '#8B4545',
+  accentFaint:  'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  accentHover:  'rgba(109,35,35,0.10)',
+  rowOdd:       'rgba(109,35,35,0.025)',
+  rowHover:     'rgba(109,35,35,0.055)',
+  text:         '#1a1a1a',
+  muted:        '#6b6b6b',
+  faint:        '#a0a0a0',
+  surface:      '#ffffff',
+  divider:      'rgba(0,0,0,0.08)',
 };
 
-// ─────────────────────────────────────────────
-// WIREFRAME — unified shimmer matching all modules
-// ─────────────────────────────────────────────
-const SHIMMER_CSS = `
-@keyframes varShimmer {
-  0%   { background-position: -900px 0; }
-  100% { background-position:  900px 0; }
+// ─── Shimmer keyframes ─────────────────────────────────────────────────────
+const shimmerKf = `
+@keyframes shimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
 }
-@keyframes varPulse {
+@keyframes blink {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.55; }
 }`;
 
-const S = ({ w = '100%', h = 14, r = 6, sx = {}, accent = '#6d2323' }) => (
+// ─── Shimmer bone ──────────────────────────────────────────────────────────
+const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
   <Box sx={{
-    width: w, height: h, borderRadius: r, flexShrink: 0,
-    background: `linear-gradient(90deg,
-      ${alpha(accent, 0.07)} 25%,
-      ${alpha(accent, 0.18)} 50%,
-      ${alpha(accent, 0.07)} 75%)`,
-    backgroundSize: '900px 100%',
-    animation: 'varShimmer 1.6s infinite linear',
-    ...sx,
+    width: w, height: h, borderRadius: r,
+    background: 'linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)',
+    backgroundSize: '800px 100%',
+    animation: 'shimmer 1.6s infinite linear',
+    flexShrink: 0, ...sx,
   }} />
 );
 
-const Placeholder = ({ w, h, r = 4, color = 'rgba(109,35,35,0.08)', sx = {} }) => (
-  <Box sx={{ width: w, height: h, borderRadius: r, bgcolor: color, flexShrink: 0, ...sx }} />
+// ─── Wireframe skeleton ────────────────────────────────────────────────────
+const AttendanceUserStateWireframe = () => (
+  <>
+    <style>{shimmerKf}</style>
+    <Box sx={{
+      py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 },
+      width: '100vw', maxWidth: '100%',
+      position: 'relative', left: '63%', transform: 'translateX(-61%)',
+      px: { xs: 2, sm: 3, md: 6 },
+    }}>
+      {/* Header */}
+      <Box sx={{ mb: 2, borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', animation: 'blink 2s ease-in-out infinite' }}>
+        <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', gap: 2.5 }}>
+          <Box sx={{ width: 30, height: 30, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
+          <Box><Bone w={280} h={18} sx={{ mb: 1 }} /><Bone w={380} h={11} /></Box>
+        </Box>
+      </Box>
+      {/* Controls */}
+      <Box sx={{ mb: 2, borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff', animation: 'blink 2s ease-in-out 0.1s infinite' }}>
+        <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1.25, minHeight: 42 }}>
+          <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.2)' }} />
+          <Bone w={180} h={12} />
+        </Box>
+        <Box sx={{ px: 2.5, py: 2.5 }}>
+          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+            {[1,2,3].map(i => <Box key={i} sx={{ flex: 1, height: 40, borderRadius: '8px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }} />)}
+          </Box>
+          <Box sx={{ border: `2px dashed ${T.accentBorder}`, borderRadius: '8px', p: 3 }}>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
+              {Array.from({ length: 12 }).map((_, i) => <Box key={i} sx={{ width: 64, height: 36, borderRadius: '6px', bgcolor: T.accentFaint }} />)}
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+      {/* Table */}
+      <Box sx={{ borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff', animation: 'blink 2s ease-in-out 0.2s infinite' }}>
+        <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accent, display: 'grid', gridTemplateColumns: '2fr 1fr 1.5fr', gap: 2 }}>
+          {[100, 60, 80].map((w, i) => <Box key={i} sx={{ height: 10, width: w, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.22)' }} />)}
+        </Box>
+        {[...Array(5)].map((_, i) => (
+          <Box key={i} sx={{ px: 2.5, py: 2, display: 'grid', gridTemplateColumns: '2fr 1fr 1.5fr', gap: 2, alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.05)', bgcolor: i % 2 === 0 ? '#fff' : T.rowOdd }}>
+            <Bone w={160} h={12} /><Bone w={70} h={12} /><Box sx={{ width: 90, height: 24, borderRadius: '12px', bgcolor: T.accentFaint }} />
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  </>
 );
 
-const AttendanceUserStateWireframe = ({
-  accentColor    = '#6d2323',
-  primaryColor   = '#FEF9E1',
-  secondaryColor = '#FFF8E7',
-}) => {
-  const ac   = accentColor;
-  const grad = `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`;
+// ─── Styled primitives (mirrors PDSTemplates) ──────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  overflow: 'hidden',
+  background: '#fff',
+});
 
-  return (
-    <>
-      <style>{SHIMMER_CSS}</style>
-      <Box sx={{
-        py: { xs: 2, md: 4 },
-        width: '100vw', mx: 'auto', maxWidth: '100%',
-        overflow: 'hidden', position: 'relative',
-        left: '53%', transform: 'translateX(-51%)',
-        px: { xs: 2, sm: 3, md: 6 },
-      }}>
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.8rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  '&:hover':  { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
 
-        {/* 1. Hero header */}
-        <Box sx={{
-          mb: 4, borderRadius: '20px', overflow: 'hidden',
-          border: `1px solid ${alpha(ac, 0.1)}`,
-          boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-          animation: 'varPulse 2.2s ease-in-out infinite',
-        }}>
-          <Box sx={{ p: 5, background: grad, position: 'relative', overflow: 'hidden' }}>
-            <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle,${alpha(ac,0.1)} 0%,${alpha(ac,0)} 70%)` }} />
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Placeholder w={64} h={64} r="50%" color={alpha(ac, 0.13)} />
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <S w={240} h={26} r={6} accent={ac} />
-                  <S w={310} h={13} r={4} accent={ac} />
-                </Box>
-              </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <S w={145} h={26} r={13} accent={ac} />
-                <Placeholder w={48} h={48} r="50%" color={alpha(ac, 0.12)} />
-              </Box>
-            </Box>
-          </Box>
-        </Box>
+// ─── Shared panel header bar (identical to PDSTemplates) ───────────────────
+const PanelHeader = ({ icon: Icon, title, right }) => (
+  <Box sx={{
+    px: 2.5, py: 1.25,
+    borderBottom: `1px solid ${T.divider}`,
+    display: 'flex', alignItems: 'center', gap: 1.25,
+    bgcolor: T.accentFaint, minHeight: 42,
+  }}>
+    <Icon sx={{ fontSize: 14, color: T.accent }} />
+    <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.accent }}>
+      {title}
+    </Typography>
+    {right && <><Box sx={{ flex: 1 }} />{right}</>}
+  </Box>
+);
 
-        {/* 2. Controls card */}
-        <Box sx={{
-          mb: 4, borderRadius: '20px', overflow: 'hidden',
-          border: `1px solid ${alpha(ac, 0.1)}`,
-          boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-          animation: 'varPulse 2.2s ease-in-out 0.08s infinite',
-          bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
-        }}>
-          <Box sx={{ p: 4 }}>
-            {/* 3 input fields */}
-            <Box sx={{ display: 'flex', gap: 3, mb: 3, flexWrap: 'wrap' }}>
-              {[0, 1, 2].map((fi) => (
-                <Box key={fi} sx={{ flex: 1, minWidth: 160 }}>
-                  <Box sx={{ height: 56, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', px: 1.5, gap: 1 }}>
-                    <Placeholder w={20} h={20} r="50%" color={alpha(ac, 0.12)} />
-                    <S w={fi === 0 ? '40%' : '55%'} h={13} r={4} accent={ac} />
-                  </Box>
-                </Box>
-              ))}
-            </Box>
-
-            {/* Divider */}
-            <Box sx={{ height: 1, bgcolor: alpha(ac, 0.1), my: 3 }} />
-
-            {/* Section label */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
-              <Placeholder w={20} h={20} r="50%" color={alpha(ac, 0.15)} />
-              <S w={220} h={14} r={4} accent={ac} />
-            </Box>
-            <S w={300} h={11} r={3} accent={ac} sx={{ mb: 3 }} />
-
-            {/* Quick buttons */}
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-              {[80, 100, 108, 108, 114].map((w, i) => (
-                <Box key={i} sx={{ width: w, height: 48, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.20)}`, bgcolor: 'transparent', animation: `varPulse 2.2s ease-in-out ${i * 0.07}s infinite` }} />
-              ))}
-            </Box>
-
-            {/* Month picker dashed box */}
-            <Box sx={{ p: 3, borderRadius: 2, border: `2px dashed ${alpha(ac, 0.20)}`, bgcolor: alpha(primaryColor, 0.30) }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <S w={185} h={14} r={4} accent={ac} />
-                  <S w={270} h={11} r={3} accent={ac} />
-                </Box>
-                <Box sx={{ width: 140, height: 40, borderRadius: '8px', border: `1px solid ${alpha(ac, 0.25)}`, bgcolor: 'white', display: 'flex', alignItems: 'center', px: 1.5, gap: 1 }}>
-                  <S w="50%" h={12} r={3} accent={ac} />
-                  <Placeholder w={18} h={18} r={3} color={alpha(ac, 0.15)} sx={{ ml: 'auto' }} />
-                </Box>
-              </Box>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
-                {Array.from({ length: 12 }, (_, i) => (
-                  <S key={i} w={64} h={44} r={10} accent={ac} sx={{ animation: `varShimmer 1.6s infinite linear ${i * 0.05}s` }} />
-                ))}
-              </Box>
-            </Box>
-
-            {/* Clear button */}
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
-              <Box sx={{ width: 160, height: 48, borderRadius: '12px', border: '1px solid rgba(211,47,47,0.30)', bgcolor: 'transparent' }} />
-            </Box>
-          </Box>
-        </Box>
-
-        {/* 3. Results table card */}
-        <Box sx={{
-          mb: 4, borderRadius: '20px', overflow: 'hidden',
-          border: `1px solid ${alpha(ac, 0.1)}`,
-          boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-          animation: 'varPulse 2.2s ease-in-out 0.15s infinite',
-          bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
-        }}>
-          <Box sx={{ p: 4, background: grad, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <S w={100} h={10} r={3} accent={ac} />
-              <S w={160} h={18} r={4} accent={ac} />
-            </Box>
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-              <S w={80} h={10} r={3} accent={ac} />
-              <S w={120} h={10} r={3} accent={ac} />
-            </Box>
-          </Box>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.2fr', gap: 2, px: 3, py: 2, bgcolor: alpha(primaryColor, 0.7), borderBottom: `2px solid ${alpha(ac, 0.08)}` }}>
-            {[120, 80, 100].map((w, i) => <S key={i} w={w} h={10} r={3} accent={ac} />)}
-          </Box>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Box key={i} sx={{
-              display: 'grid', gridTemplateColumns: '2fr 1fr 1.2fr',
-              gap: 2, px: 3, py: 2.25, alignItems: 'center',
-              borderBottom: i < 5 ? '1px solid rgba(0,0,0,0.05)' : 'none',
-              bgcolor: i % 2 === 0 ? '#fff' : alpha(primaryColor, 0.3),
-              animation: `varPulse 2.2s ease-in-out ${i * 0.06}s infinite`,
-            }}>
-              <S w={160} h={12} r={3} accent={ac} />
-              <S w={70} h={12} r={3} accent={ac} />
-              <Box sx={{ width: 100, height: 26, borderRadius: '13px', bgcolor: alpha(ac, 0.09), border: `1px solid ${alpha(ac, 0.14)}` }} />
-            </Box>
-          ))}
-        </Box>
-
+// ─── Native text / date input (mirrors PDSTemplates NativeInput) ───────────
+const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, icon }) => (
+  <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+    {icon && (
+      <Box sx={{ position: 'absolute', left: 10, color: T.accentMid, display: 'flex', alignItems: 'center', zIndex: 1, pointerEvents: 'none' }}>
+        {icon}
       </Box>
+    )}
+    <input
+      type={type}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      disabled={disabled}
+      style={{
+        width: '100%',
+        padding: icon ? '9px 13px 9px 34px' : '9px 13px',
+        borderRadius: '8px',
+        border: `1px solid ${T.accentBorder}`,
+        fontSize: '0.875rem',
+        outline: 'none',
+        fontFamily: 'inherit',
+        boxSizing: 'border-box',
+        transition: 'border-color 0.18s',
+        background: disabled ? '#f5f5f5' : '#fff',
+        color: T.text,
+        cursor: disabled ? 'not-allowed' : 'text',
+      }}
+      onFocus={e => {
+        if (!disabled) {
+          e.target.style.borderColor = T.accent;
+          e.target.style.boxShadow = `0 0 0 1.5px ${T.accent}22`;
+        }
+      }}
+      onBlur={e => {
+        e.target.style.borderColor = T.accentBorder;
+        e.target.style.boxShadow = 'none';
+      }}
+    />
+  </Box>
+);
 
-      {/* FAB placeholder */}
-      <Box sx={{ position: 'fixed', bottom: 24, right: 24, zIndex: 1300, animation: 'varPulse 2.2s ease-in-out 0.3s infinite' }}>
-        <Placeholder w={56} h={56} r="50%" color="rgba(255,255,255,0.9)" sx={{ border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.12)' }} />
-      </Box>
-    </>
-  );
+// ─── Small row action button (mirrors PDSTemplates RowBtn) ─────────────────
+const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    style={{
+      background: 'transparent',
+      border: `1px solid ${color}40`,
+      borderRadius: '6px',
+      padding: '4px 10px',
+      cursor: disabled ? 'default' : 'pointer',
+      color,
+      display: 'flex', alignItems: 'center', gap: '4px',
+      fontSize: '0.72rem', fontWeight: 700,
+      fontFamily: 'inherit',
+      transition: 'background-color 0.15s, border-color 0.15s',
+      whiteSpace: 'nowrap',
+      opacity: disabled ? 0.5 : 1,
+    }}
+    onMouseEnter={e => { if (!disabled) { e.currentTarget.style.backgroundColor = hoverBg; e.currentTarget.style.borderColor = color; }}}
+    onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.borderColor = `${color}40`; }}
+  >
+    {icon}{label}
+  </button>
+);
+
+// ─── Quick filter button ───────────────────────────────────────────────────
+const QuickBtn = ({ label, icon, onClick, active }) => (
+  <button
+    onClick={onClick}
+    style={{
+      background: active ? T.accent : 'transparent',
+      border: `1px solid ${active ? T.accent : T.accentBorder}`,
+      borderRadius: '6px',
+      padding: '6px 14px',
+      cursor: 'pointer',
+      color: active ? '#fff' : T.accent,
+      display: 'flex', alignItems: 'center', gap: '5px',
+      fontSize: '0.78rem', fontWeight: 700,
+      fontFamily: 'inherit',
+      transition: 'all 0.15s ease',
+      whiteSpace: 'nowrap',
+    }}
+    onMouseEnter={e => {
+      if (!active) { e.currentTarget.style.backgroundColor = T.accentFaint; e.currentTarget.style.borderColor = T.accent; }
+    }}
+    onMouseLeave={e => {
+      if (!active) { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.borderColor = T.accentBorder; }
+    }}
+  >
+    {icon}{label}
+  </button>
+);
+
+// ─── Attendance helpers ────────────────────────────────────────────────────
+const getAttendanceIcon = (state) => {
+  switch (state) {
+    case 1: return <CheckCircle sx={{ fontSize: 13, color: '#4caf50' }} />;
+    case 2: return <AccessTime  sx={{ fontSize: 13, color: '#ff9800' }} />;
+    case 3: return <AccessTime  sx={{ fontSize: 13, color: '#ff9800' }} />;
+    case 4: return <CheckCircle sx={{ fontSize: 13, color: '#4caf50' }} />;
+    default: return <Cancel     sx={{ fontSize: 13, color: '#f44336' }} />;
+  }
+};
+const getAttendanceColor = (state) => {
+  switch (state) {
+    case 1: return '#4caf50'; case 2: return '#ff9800';
+    case 3: return '#ff9800'; case 4: return '#4caf50';
+    default: return '#f44336';
+  }
+};
+const getAttendanceLabel = (state) => {
+  switch (state) {
+    case 1: return 'Time IN';   case 2: return 'Break OUT';
+    case 3: return 'Break IN';  case 4: return 'Time OUT';
+    default: return 'Uncategorized';
+  }
 };
 
-// ─────────────────────────────────────────────
-// STYLED COMPONENTS
-// ─────────────────────────────────────────────
-const GlassCard = styled(Card)(() => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  '&:hover': { transform: 'translateY(-4px)' },
-}));
-
-const ProfessionalButton = styled(Button)(({ variant }) => ({
-  borderRadius: 12,
-  fontWeight: 600,
-  padding: '12px 24px',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  textTransform: 'none',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-  boxShadow: variant === 'contained' ? '0 4px 14px rgba(254,249,225,0.25)' : 'none',
-  '&:hover': {
-    transform: 'translateY(-2px)',
-    boxShadow: variant === 'contained' ? '0 6px 20px rgba(254,249,225,0.35)' : 'none',
-  },
-  '&:active': { transform: 'translateY(0)' },
-}));
-
-const ModernTextField = styled(TextField)(() => ({
-  '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    '&:hover': { transform: 'translateY(-1px)', backgroundColor: 'rgba(255,255,255,0.95)' },
-    '&.Mui-focused': { transform: 'translateY(-1px)', boxShadow: '0 4px 20px rgba(254,249,225,0.25)', backgroundColor: 'rgba(255,255,255,1)' },
-  },
-  '& .MuiInputLabel-root': { fontWeight: 500 },
-}));
-
-const PremiumTableContainer = styled(TableContainer)(() => ({
-  borderRadius: 16,
-  overflow: 'auto',
-  boxShadow: '0 4px 24px rgba(109,35,35,0.06)',
-  border: '1px solid rgba(109,35,35,0.08)',
-  maxHeight: '600px',
-  '&::-webkit-scrollbar': { width: '8px', height: '8px' },
-  '&::-webkit-scrollbar-track': { background: 'rgba(254,249,225,0.3)', borderRadius: '4px' },
-  '&::-webkit-scrollbar-thumb': { background: 'rgba(109,35,35,0.4)', borderRadius: '4px', '&:hover': { background: 'rgba(109,35,35,0.6)' } },
-}));
-
-const PremiumTableCell = styled(TableCell)(({ isHeader = false }) => ({
-  fontWeight: isHeader ? 600 : 500,
-  padding: '18px 20px',
-  borderBottom: isHeader ? '2px solid rgba(254,249,225,0.5)' : '1px solid rgba(109,35,35,0.06)',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-  minWidth: '120px',
-  whiteSpace: 'nowrap',
-}));
-
-// ─────────────────────────────────────────────
-// MAIN COMPONENT
-// ─────────────────────────────────────────────
+// ─── Main Component ────────────────────────────────────────────────────────
 const AttendanceUserState = () => {
   const { settings } = useSystemSettings();
 
-  const primaryColor       = settings.accentColor        || '#FEF9E1';
-  const secondaryColor     = settings.backgroundColor    || '#FFF8E7';
-  const accentColor        = settings.primaryColor       || '#6D2323';
-  const accentDark         = settings.secondaryColor     || '#8B3333';
-  const textPrimaryColor   = settings.textPrimaryColor   || '#6D2323';
+  const accentColor        = settings.primaryColor       || T.accent;
   const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
-  const blackColor         = '#1a1a1a';
 
   const loggedInEmployeeNumber = localStorage.getItem('employeeNumber') || '';
   const today          = new Date();
@@ -328,24 +301,24 @@ const AttendanceUserState = () => {
 
   const { hasAccess, loading: accessLoading } = usePageAccess('attendance-user-state');
 
-  const [personID, setPersonID]         = useState(loggedInEmployeeNumber);
-  const [startDate, setStartDate]       = useState(formattedToday);
-  const [endDate, setEndDate]           = useState(formattedToday);
-  const [records, setRecords]           = useState([]);
-  const [submittedID, setSubmittedID]   = useState('');
-  const [error, setError]               = useState('');
-  const [loading, setLoading]           = useState(false);
-  const [expandedRow, setExpandedRow]   = useState(null);
-  const [sortOrder, setSortOrder]       = useState('desc');
+  const [personID, setPersonID]           = useState(loggedInEmployeeNumber);
+  const [startDate, setStartDate]         = useState(formattedToday);
+  const [endDate, setEndDate]             = useState(formattedToday);
+  const [records, setRecords]             = useState([]);
+  const [submittedID, setSubmittedID]     = useState('');
+  const [error, setError]                 = useState('');
+  const [loading, setLoading]             = useState(false);
+  const [expandedRow, setExpandedRow]     = useState(null);
+  const [sortOrder, setSortOrder]         = useState('desc');
   const [showScrollTop, setShowScrollTop] = useState(false);
-  const [pageLoading, setPageLoading]   = useState(true);
+  const [pageLoading, setPageLoading]     = useState(true);
 
   const [selectedYear, setSelectedYear]   = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(null);
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
-  // ── Snackbar (unified with all modules) ──
+  // ── Snackbar ──
   const [snackbar, setSnackbar]               = useState({ open: false, message: '', severity: 'success' });
   const [snackbarCountdown, setSnackbarCountdown] = useState(6);
 
@@ -362,7 +335,6 @@ const AttendanceUserState = () => {
     return () => clearInterval(timer);
   }, [snackbar.open, snackbarCountdown]);
 
-  // ── Dismiss wireframe once access resolves ──
   useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
 
   const getAuthHeaders = () => {
@@ -386,6 +358,9 @@ const AttendanceUserState = () => {
     setStartDate(formattedToday); setEndDate(formattedToday);
     setSelectedMonth(null);
   };
+
+  const resultsRef    = React.useRef(null);
+  const isFirstRender = React.useRef(true);
 
   const fetchRecords = async (showLoading = true) => {
     if (!personID || !startDate || !endDate) return;
@@ -415,7 +390,6 @@ const AttendanceUserState = () => {
       setSubmittedID(personID);
       setError('');
 
-      // Auto-scroll to results
       if (filteredData.length > 0) {
         setTimeout(() => {
           resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -429,19 +403,11 @@ const AttendanceUserState = () => {
     }
   };
 
-  // Initial fetch
   useEffect(() => {
-    const initialFetch = async () => {
-      await fetchRecords(false);
-    };
+    const initialFetch = async () => { await fetchRecords(false); };
     initialFetch();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Re-fetch on filter changes
-  const isFirstRender = React.useRef(true);
-  const resultsRef = React.useRef(null);
-
-  // Sync month/year highlight from startDate
   useEffect(() => {
     if (!startDate) return;
     const d = new Date(startDate + 'T00:00:00');
@@ -452,7 +418,6 @@ const AttendanceUserState = () => {
   useEffect(() => {
     if (isFirstRender.current) { isFirstRender.current = false; return; }
     fetchRecords();
-
     const intervalId = setInterval(() => { if (!document.hidden) fetchRecords(false); }, 30000);
     const handleVisibility = () => { if (!document.hidden) fetchRecords(false); };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -465,31 +430,7 @@ const AttendanceUserState = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const getAttendanceIcon  = (state) => {
-    switch (state) {
-      case 1: return <CheckCircle sx={{ fontSize: 16, color: '#4caf50' }} />;
-      case 2: return <AccessTime  sx={{ fontSize: 16, color: '#ff9800' }} />;
-      case 3: return <AccessTime  sx={{ fontSize: 16, color: '#ff9800' }} />;
-      case 4: return <CheckCircle sx={{ fontSize: 16, color: '#4caf50' }} />;
-      default: return <Cancel     sx={{ fontSize: 16, color: '#f44336' }} />;
-    }
-  };
-  const getAttendanceColor = (state) => {
-    switch (state) {
-      case 1: return '#4caf50'; case 2: return '#ff9800';
-      case 3: return '#ff9800'; case 4: return '#4caf50';
-      default: return '#f44336';
-    }
-  };
-  const getAttendanceLabel = (state) => {
-    switch (state) {
-      case 1: return 'Time IN'; case 2: return 'Break OUT';
-      case 3: return 'Break IN'; case 4: return 'Time OUT';
-      default: return 'Uncategorized';
-    }
-  };
-
-  const filteredRecords = records.sort((a, b) => {
+  const filteredRecords = [...records].sort((a, b) => {
     const dateA = new Date(a.Date + ' ' + a.Time);
     const dateB = new Date(b.Date + ' ' + b.Time);
     return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
@@ -497,14 +438,8 @@ const AttendanceUserState = () => {
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
-  // ── Wireframe guard ──
-  if (pageLoading || accessLoading) return (
-    <AttendanceUserStateWireframe
-      accentColor={accentColor}
-      primaryColor={primaryColor}
-      secondaryColor={secondaryColor}
-    />
-  );
+  // ── Guards ──
+  if (pageLoading || accessLoading) return <AttendanceUserStateWireframe />;
 
   if (hasAccess === false) return (
     <AccessDenied
@@ -516,19 +451,29 @@ const AttendanceUserState = () => {
   );
 
   return (
-    <Fade in timeout={500}>
+    <Fade in timeout={400}>
       <Box sx={{
-        py: { xs: 2, md: 4 },
-        width: '100vw', mx: 'auto', maxWidth: '100%',
-        overflow: 'hidden', position: 'relative',
-        left: '53%', transform: 'translateX(-51%)',
+        py: { xs: 1, md: 2 },
+        mt: { xs: 0, md: -2 },
+        mb: { xs: 1, md: 2 },
+        width: '100vw', maxWidth: '100%',
+        position: 'relative', left: '63%',
+        transform: 'translateX(-61%)',
         px: { xs: 2, sm: 3, md: 6 },
       }}>
+        <style>{shimmerKf}</style>
 
         {/* ── Snackbar ── */}
-        <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={6000}
+          onClose={handleCloseSnackbar}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        >
           <Alert
-            onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled"
+            onClose={handleCloseSnackbar}
+            severity={snackbar.severity}
+            variant="filled"
             sx={{
               width: '100%', fontWeight: 600,
               backgroundColor: snackbar.severity === 'success' ? '#4caf50' : undefined,
@@ -539,298 +484,406 @@ const AttendanceUserState = () => {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <span>{snackbar.message}</span>
               {snackbar.open && snackbarCountdown > 0 && (
-                <Chip label={`${snackbarCountdown}s`} size="small"
-                  sx={{ backgroundColor: snackbar.severity === 'success' ? 'rgba(255,255,255,0.3)' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, fontWeight: 700 }} />
+                <Chip
+                  label={`${snackbarCountdown}s`} size="small"
+                  sx={{ backgroundColor: snackbar.severity === 'success' ? 'rgba(255,255,255,0.3)' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, fontWeight: 700 }}
+                />
               )}
             </Box>
           </Alert>
         </Snackbar>
 
-        {/* ── Hero Header ── */}
-        <Fade in timeout={500}>
-          <Box sx={{ mb: 4 }}>
-            <GlassCard sx={{
-              background: `rgba(${hexToRgb(primaryColor)},0.95)`,
-              boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`,
-              border: `1px solid ${alpha(accentColor,0.1)}`,
-              '&:hover': { boxShadow: `0 12px 48px ${alpha(accentColor,0.15)}` },
-            }}>
-              <Box sx={{
-                p: 5,
-                background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`,
-                color: textPrimaryColor, position: 'relative', overflow: 'hidden',
-              }}>
-                <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle,${alpha(accentColor,0.1)} 0%,${alpha(accentColor,0)} 70%)` }} />
-                <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, background: `radial-gradient(circle,${alpha(accentColor,0.08)} 0%,${alpha(accentColor,0)} 70%)` }} />
-                <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
-                  <Box display="flex" alignItems="center">
-                    <Avatar sx={{ bgcolor: alpha(accentColor,0.15), mr: 4, width: 64, height: 64, boxShadow: `0 8px 24px ${alpha(accentColor,0.15)}` }}>
-                      <EventNote sx={{ color: textPrimaryColor, fontSize: 32 }} />
-                    </Avatar>
-                    <Box>
-                      <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}>
-                        Attendance Records
-                      </Typography>
-                      <Typography variant="body1" sx={{ opacity: 0.8, color: textPrimaryColor }}>
-                        View and manage your attendance history
+        {/* ── Page Header ── */}
+        <SectionCard sx={{ mb: 2 }}>
+          <Box sx={{
+            px: 4, py: 3,
+            background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            position: 'relative', overflow: 'hidden',
+          }}>
+            <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)' }} />
+            <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)' }} />
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
+              <EventNote sx={{ fontSize: 30, color: T.accent }} />
+              <Box>
+                <Typography sx={{ fontSize: '1.2rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25 }}>
+                  Attendance Records
+                </Typography>
+                <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontWeight: 600 }}>
+                  Employee Portal · View and manage your attendance history
+                </Typography>
+              </Box>
+            </Box>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+              <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
+                <Typography sx={{ fontSize: '0.75rem', color: T.accent, fontWeight: 700 }}>System Generated</Typography>
+              </Box>
+              <button
+                onClick={() => fetchRecords(true)}
+                style={{
+                  background: alpha(T.accent, 0.08),
+                  border: `1px solid ${T.accentBorder}`,
+                  borderRadius: '8px',
+                  padding: '7px 10px',
+                  cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '5px',
+                  color: T.accent, fontSize: '0.75rem', fontWeight: 700,
+                  fontFamily: 'inherit', transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.backgroundColor = alpha(T.accent, 0.14); }}
+                onMouseLeave={e => { e.currentTarget.style.backgroundColor = alpha(T.accent, 0.08); }}
+              >
+                <Refresh sx={{ fontSize: 15 }} />
+                Refresh
+              </button>
+            </Box>
+          </Box>
+        </SectionCard>
+
+        {/* ── Alerts ── */}
+        <Collapse in={!!error}>
+          <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}>
+            {error}
+          </Alert>
+        </Collapse>
+
+        {/* ── Controls Card ── */}
+        <SectionCard sx={{ mb: 2 }}>
+          <PanelHeader icon={FilterList} title="Filter Attendance Records" />
+
+          <Box sx={{ px: 2.5, pt: 2, pb: 2.5 }}>
+
+            {/* Input fields row */}
+            <Box sx={{ display: 'flex', gap: 1.5, mb: 2.5, flexWrap: 'wrap' }}>
+              <Box sx={{ flex: 1, minWidth: 160 }}>
+                <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  Employee Number
+                </Typography>
+                <NativeInput
+                  value={personID}
+                  onChange={null}
+                  placeholder="Employee number"
+                  disabled
+                  icon={<Person sx={{ fontSize: 16, color: T.accentBorder }} />}
+                />
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 160 }}>
+                <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  Start Date
+                </Typography>
+                <NativeInput
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  icon={<CalendarToday sx={{ fontSize: 15, color: T.accentBorder }} />}
+                />
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 160 }}>
+                <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  End Date
+                </Typography>
+                <NativeInput
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  icon={<CalendarToday sx={{ fontSize: 15, color: T.accentBorder }} />}
+                />
+              </Box>
+            </Box>
+
+            {/* Divider + section label */}
+            <Box sx={{ height: 1, bgcolor: T.divider, mb: 2 }} />
+            <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 1.25, letterSpacing: '0.06em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <FilterList sx={{ fontSize: 13 }} />
+              Quick Date Selection
+            </Typography>
+
+            {/* Quick buttons */}
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2.5 }}>
+              {[
+                { label: 'Today',        icon: <Today sx={{ fontSize: 13 }} />,        fn: () => { setStartDate(formattedToday); setEndDate(formattedToday); setSelectedMonth(null); } },
+                { label: 'Yesterday',    icon: <ArrowBackIos sx={{ fontSize: 11 }} />, fn: () => { const y = new Date(today); y.setDate(y.getDate()-1); const s = y.toISOString().substring(0,10); setStartDate(s); setEndDate(s); setSelectedMonth(null); } },
+                { label: 'Last 7 Days',  icon: null, fn: () => { const d = new Date(today); d.setDate(d.getDate()-7); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); setSelectedMonth(null); } },
+                { label: 'Last 15 Days', icon: null, fn: () => { const d = new Date(today); d.setDate(d.getDate()-15); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); setSelectedMonth(null); } },
+                { label: 'Last 30 Days', icon: null, fn: () => { const d = new Date(today); d.setMonth(d.getMonth()-1); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); setSelectedMonth(null); } },
+              ].map(({ label, icon, fn }) => (
+                <QuickBtn key={label} label={label} icon={icon} onClick={fn} />
+              ))}
+            </Box>
+
+            {/* Month picker */}
+            <Box sx={{ p: 2.5, borderRadius: 2, border: `2px dashed ${T.accentBorder}`, bgcolor: T.accentFaint }}>
+              <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2, mb: 2 }}>
+                <Box>
+                  <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.accent, mb: 0.3 }}>
+                    Select Entire Month
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                    Choose a year, then click any month to set the date range
+                  </Typography>
+                </Box>
+
+                {/* Year selector */}
+                <FormControl sx={{ minWidth: 130 }} size="small">
+                  <InputLabel sx={{ fontWeight: 600, fontSize: '0.8rem' }}>Year</InputLabel>
+                  <Select
+                    value={selectedYear}
+                    label="Year"
+                    onChange={(e) => {
+                      setSelectedYear(e.target.value);
+                      setSelectedMonth(null);
+                      showSnackbar('Year changed — please click a month to load records.', 'info');
+                    }}
+                    sx={{
+                      bgcolor: '#fff', borderRadius: 2, fontWeight: 600, fontSize: '0.85rem',
+                      '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+                    }}
+                  >
+                    {yearOptions.map((y) => <MenuItem key={y} value={y} sx={{ fontSize: '0.85rem' }}>{y}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Box>
+
+              {/* Month buttons */}
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, justifyContent: 'center' }}>
+                {months.map((month, index) => {
+                  const sel = selectedMonth === index;
+                  return (
+                    <button
+                      key={month}
+                      onClick={() => handleMonthClick(index)}
+                      style={{
+                        background: sel ? T.accent : '#fff',
+                        border: `1px solid ${sel ? T.accent : T.accentBorder}`,
+                        borderRadius: '6px',
+                        padding: '7px 14px',
+                        cursor: 'pointer',
+                        color: sel ? '#fff' : T.accent,
+                        fontSize: '0.75rem', fontWeight: 700,
+                        fontFamily: 'inherit',
+                        transition: 'all 0.15s ease',
+                        boxShadow: sel ? `0 2px 8px ${alpha(T.accent, 0.25)}` : 'none',
+                        letterSpacing: '0.04em',
+                      }}
+                      onMouseEnter={e => { if (!sel) { e.currentTarget.style.backgroundColor = T.accentFaint; e.currentTarget.style.borderColor = T.accent; }}}
+                      onMouseLeave={e => { if (!sel) { e.currentTarget.style.backgroundColor = '#fff'; e.currentTarget.style.borderColor = T.accentBorder; }}}
+                    >
+                      {month}
+                    </button>
+                  );
+                })}
+              </Box>
+            </Box>
+
+            {/* Clear button */}
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+              <RowBtn
+                icon={<Clear sx={{ fontSize: 13 }} />}
+                label="Clear All Filters"
+                color="#C62828"
+                hoverBg="rgba(198,40,40,0.08)"
+                onClick={handleClearFilters}
+              />
+            </Box>
+          </Box>
+        </SectionCard>
+
+        {/* ── Loading bar ── */}
+        {loading && (
+          <Box sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <CircularProgress size={16} sx={{ color: T.accent }} />
+            <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>Fetching attendance records…</Typography>
+          </Box>
+        )}
+
+        {/* ── Results Table ── */}
+        {submittedID && (
+          <Fade in={!loading} timeout={400}>
+            <SectionCard ref={resultsRef}>
+              <PanelHeader
+                icon={EventNote}
+                title={`Records for Employee #${submittedID}`}
+                right={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>
+                      {startDate} → {endDate}
+                    </Typography>
+                    <Box sx={{
+                      px: 1.5, py: 0.3, borderRadius: 5,
+                      bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}`,
+                    }}>
+                      <Typography sx={{ fontSize: '0.72rem', color: T.accent, fontWeight: 700 }}>
+                        {filteredRecords.length} {filteredRecords.length === 1 ? 'record' : 'records'}
                       </Typography>
                     </Box>
                   </Box>
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Chip label="System Generated" size="small"
-                      sx={{ bgcolor: alpha(accentColor,0.15), color: textPrimaryColor, fontWeight: 500, '& .MuiChip-label': { px: 1 } }} />
-                    <Tooltip title="Refresh Data">
-                      <IconButton onClick={() => fetchRecords(true)}
-                        sx={{ bgcolor: alpha(accentColor,0.1), '&:hover': { bgcolor: alpha(accentColor,0.2) }, color: textPrimaryColor, width: 48, height: 48 }}>
-                        <Refresh />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Box>
-              </Box>
-            </GlassCard>
-          </Box>
-        </Fade>
+                }
+              />
 
-        {/* ── Controls Card ── */}
-        <Fade in timeout={700}>
-          <GlassCard sx={{
-            mb: 4,
-            background: `rgba(${hexToRgb(primaryColor)},0.95)`,
-            boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`,
-            border: `1px solid ${alpha(accentColor,0.1)}`,
-            '&:hover': { boxShadow: `0 12px 48px ${alpha(accentColor,0.15)}` },
-          }}>
-            <CardContent sx={{ p: 4, '&:last-child': { pb: 4 } }}>
-
-              {/* Input fields */}
-              <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+              {/* ── Column headers (sticky) ── */}
+              <Box sx={{
+                display: 'grid',
+                gridTemplateColumns: '2fr 1fr 1.5fr 1fr',
+                px: 2.5, py: 1.25,
+                bgcolor: T.accent,
+                gap: 2,
+                position: 'sticky',
+                top: 0,
+                zIndex: 2,
+              }}>
                 {[
-                  { label: 'Employee Number', value: personID,  onChange: null,                              type: 'text', icon: <Person sx={{ color: textPrimaryColor }} />, disabled: true },
-                  { label: 'Start Date',      value: startDate, onChange: (e) => setStartDate(e.target.value), type: 'date', icon: <CalendarToday sx={{ color: textPrimaryColor }} /> },
-                  { label: 'End Date',        value: endDate,   onChange: (e) => setEndDate(e.target.value),   type: 'date', icon: <CalendarToday sx={{ color: textPrimaryColor }} /> },
-                ].map(({ label, value, onChange, type, icon, disabled }) => (
-                  <Box key={label} sx={{ flex: 1, minWidth: 160 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}>{label}</Typography>
-                    <ModernTextField
-                      type={type} value={value} onChange={onChange} disabled={!!disabled}
-                      InputLabelProps={type === 'date' ? { shrink: true } : {}}
-                      InputProps={{ startAdornment: <InputAdornment position="start">{icon}</InputAdornment> }}
-                      fullWidth
-                    />
-                  </Box>
+                  { label: 'DATE', sortable: true },
+                  { label: 'TIME' },
+                  { label: 'STATUS' },
+                  { label: 'DETAILS' },
+                ].map(({ label, sortable }) => (
+                  <Typography
+                    key={label}
+                    onClick={sortable ? handleSort : undefined}
+                    sx={{
+                      color: '#fff', fontSize: '0.65rem', fontWeight: 700,
+                      letterSpacing: '0.08em',
+                      cursor: sortable ? 'pointer' : 'default',
+                      display: 'flex', alignItems: 'center', gap: 0.5,
+                      userSelect: 'none',
+                      '&:hover': sortable ? { opacity: 0.8 } : {},
+                    }}
+                  >
+                    {label}
+                    {sortable && (sortOrder === 'asc'
+                      ? <KeyboardArrowUp sx={{ fontSize: 14 }} />
+                      : <KeyboardArrowDown sx={{ fontSize: 14 }} />
+                    )}
+                  </Typography>
                 ))}
               </Box>
 
-              <Divider sx={{ my: 3, borderColor: alpha(accentColor,0.1) }} />
+              {/* ── Scrollable rows container ── */}
+              <Box sx={{ maxHeight: 480, overflowY: 'auto' }}>
+                {filteredRecords.length === 0 ? (
+                  <Box sx={{ py: 8, textAlign: 'center' }}>
+                    <Box sx={{ width: 60, height: 60, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                      <Info sx={{ fontSize: 28, color: alpha(T.accent, 0.3) }} />
+                    </Box>
+                    <Typography sx={{ fontSize: '0.88rem', fontWeight: 600, color: T.muted, mb: 0.4 }}>No records found</Typography>
+                    <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>Try adjusting your date range or filters.</Typography>
+                  </Box>
+                ) : (
+                  filteredRecords.map((record, idx) => (
+                    <React.Fragment key={idx}>
+                      <Box
+                        onClick={() => handleRowExpand(idx)}
+                        sx={{
+                          display: 'grid',
+                          gridTemplateColumns: '2fr 1fr 1.5fr 1fr',
+                          px: 2.5, py: 1.75, gap: 2,
+                          alignItems: 'center',
+                          bgcolor: idx % 2 === 0 ? '#fff' : T.rowOdd,
+                          borderBottom: `1px solid ${T.divider}`,
+                          cursor: 'pointer',
+                          transition: 'background 0.13s',
+                          '&:hover': { bgcolor: T.rowHover },
+                          '&:last-child': { borderBottom: 'none' },
+                        }}
+                      >
+                        {/* Date */}
+                        <Typography sx={{ fontWeight: 600, fontSize: '0.82rem', color: T.text }}>
+                          {new Date(record.Date).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                        </Typography>
 
-              {/* Quick Date Selection */}
-              <Box sx={{ mb: 4 }}>
-                <Typography variant="h6" sx={{ color: textPrimaryColor, fontWeight: 600, display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <FilterList sx={{ mr: 2 }} />
-                  Select date range to filter records
-                </Typography>
+                        {/* Time */}
+                        <Typography sx={{ fontSize: '0.8rem', color: T.muted, fontWeight: 500 }}>
+                          {record.Time}
+                        </Typography>
 
-                {/* Quick buttons */}
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+                        {/* Status chip */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+                          <Box sx={{
+                            display: 'inline-flex', alignItems: 'center', gap: 0.6,
+                            px: 1.25, py: 0.4,
+                            borderRadius: '12px',
+                            bgcolor: alpha(getAttendanceColor(record.AttendanceState), 0.1),
+                            border: `1px solid ${alpha(getAttendanceColor(record.AttendanceState), 0.25)}`,
+                          }}>
+                            {getAttendanceIcon(record.AttendanceState)}
+                            <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: getAttendanceColor(record.AttendanceState) }}>
+                              {getAttendanceLabel(record.AttendanceState)}
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        {/* Expand toggle */}
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
+                          <RowBtn
+                            icon={expandedRow === idx ? <KeyboardArrowUp sx={{ fontSize: 13 }} /> : <KeyboardArrowDown sx={{ fontSize: 13 }} />}
+                            label={expandedRow === idx ? 'Collapse' : 'Details'}
+                            color={T.accent}
+                            hoverBg={T.accentFaint}
+                            onClick={(e) => { e.stopPropagation(); handleRowExpand(idx); }}
+                          />
+                        </Box>
+                      </Box>
+
+                      {/* Expanded detail row */}
+                      {expandedRow === idx && (
+                        <Box sx={{ px: 2.5, py: 2, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}` }}>
+                          <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 1.25, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                            Record Details
+                          </Typography>
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                            {[
+                              { label: 'Employee ID', value: record.PersonID },
+                              { label: 'Date',        value: record.Date },
+                              { label: 'Time',        value: record.Time },
+                              { label: 'Status',      value: getAttendanceLabel(record.AttendanceState) },
+                            ].map(({ label, value }) => (
+                              <Box key={label}>
+                                <Typography sx={{ fontSize: '0.68rem', color: T.faint, mb: 0.3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</Typography>
+                                <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.text }}>{value}</Typography>
+                              </Box>
+                            ))}
+                          </Box>
+                        </Box>
+                      )}
+                    </React.Fragment>
+                  ))
+                )}
+              </Box>
+
+              {/* Legend footer */}
+              {filteredRecords.length > 0 && (
+                <Box sx={{
+                  px: 2.5, py: 1.75,
+                  borderTop: `1px solid ${T.divider}`,
+                  bgcolor: T.accentFaint,
+                  display: 'flex', gap: 2.5, flexWrap: 'wrap', alignItems: 'center',
+                }}>
                   {[
-                    { label: 'Today',        icon: <Today />,        fn: () => { setStartDate(formattedToday); setEndDate(formattedToday); setSelectedMonth(null); } },
-                    { label: 'Yesterday',    icon: <ArrowBackIos />, fn: () => { const y = new Date(today); y.setDate(y.getDate()-1); const s = y.toISOString().substring(0,10); setStartDate(s); setEndDate(s); setSelectedMonth(null); } },
-                    { label: 'Last 7 Days',  icon: null,             fn: () => { const d = new Date(today); d.setDate(d.getDate()-7); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); setSelectedMonth(null); } },
-                    { label: 'Last 15 Days', icon: null,             fn: () => { const d = new Date(today); d.setDate(d.getDate()-15); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); setSelectedMonth(null); } },
-                    { label: 'Last 30 Days', icon: null,             fn: () => { const d = new Date(today); d.setMonth(d.getMonth()-1); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); setSelectedMonth(null); } },
-                  ].map(({ label, icon, fn }) => (
-                    <ProfessionalButton key={label} variant="outlined" size="medium" onClick={fn}
-                      startIcon={icon || undefined}
-                      sx={{ borderColor: accentColor, color: textPrimaryColor, fontWeight: 600, py: 1.5, '&:hover': { backgroundColor: alpha(accentColor,0.07), borderWidth: 2 }, transition: 'all 0.3s ease' }}>
-                      {label}
-                    </ProfessionalButton>
+                    { icon: <CheckCircle sx={{ fontSize: 13, color: '#4caf50' }} />, label: 'Time IN / Time OUT' },
+                    { icon: <AccessTime  sx={{ fontSize: 13, color: '#ff9800' }} />, label: 'Break OUT / Break IN' },
+                    { icon: <Cancel      sx={{ fontSize: 13, color: '#f44336' }} />, label: 'Uncategorized' },
+                    { icon: <KeyboardArrowDown sx={{ fontSize: 13, color: T.accent }} />, label: 'Click row to expand details' },
+                  ].map((item, i) => (
+                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+                      {item.icon}
+                      <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{item.label}</Typography>
+                    </Box>
                   ))}
                 </Box>
-
-                {/* Month picker — unified dashed box */}
-                <Box sx={{ p: 3, borderRadius: 2, border: `2px dashed ${alpha(accentColor,0.2)}`, backgroundColor: alpha(primaryColor,0.3) }}>
-                  <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2, mb: 2 }}>
-                    <Box>
-                      <Typography variant="subtitle1" sx={{ color: textPrimaryColor, fontWeight: 600, mb: 0.5 }}>
-                        Select Entire Month
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: alpha(textPrimaryColor,0.7) }}>
-                        Choose a year, then click any month to set the range
-                      </Typography>
-                    </Box>
-
-                    {/* Year selector — fires snackbar on change */}
-                    <FormControl sx={{ minWidth: 140 }}>
-                      <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>
-                      <Select
-                        value={selectedYear} label="Year"
-                        onChange={(e) => {
-                          setSelectedYear(e.target.value);
-                          setSelectedMonth(null);
-                          showSnackbar('Year changed — please click a month to load records.', 'info');
-                        }}
-                        sx={{ backgroundColor: 'white', '& .MuiOutlinedInput-notchedOutline': { borderColor: accentColor }, borderRadius: 2, fontWeight: 600 }}
-                      >
-                        {yearOptions.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
-                      </Select>
-                    </FormControl>
-                  </Box>
-
-                  {/* Month buttons — unified flex wrap centered */}
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
-                    {months.map((month, index) => {
-                      const sel = selectedMonth === index;
-                      return (
-                        <ProfessionalButton key={month} variant={sel ? 'contained' : 'outlined'} size="medium" onClick={() => handleMonthClick(index)}
-                          sx={{
-                            borderColor: accentColor,
-                            backgroundColor: sel ? accentColor : 'transparent',
-                            color: sel ? textSecondaryColor : textPrimaryColor,
-                            py: 1.5, px: 4.5, fontWeight: 600,
-                            '&:hover': { backgroundColor: sel ? accentDark : alpha(accentColor,0.1), borderWidth: 2 },
-                            transition: 'all 0.3s ease',
-                            boxShadow: sel ? `0 4px 12px ${alpha(accentColor,0.3)}` : 'none',
-                          }}>
-                          {month}
-                        </ProfessionalButton>
-                      );
-                    })}
-                  </Box>
-                </Box>
-              </Box>
-
-              {/* Clear button */}
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
-                <ProfessionalButton variant="outlined" startIcon={<Clear />} onClick={handleClearFilters}
-                  sx={{ borderColor: '#d32f2f', color: '#d32f2f', '&:hover': { borderColor: '#b71c1c', backgroundColor: alpha('#d32f2f',0.05) } }}>
-                  Clear All Filters
-                </ProfessionalButton>
-              </Box>
-
-            </CardContent>
-          </GlassCard>
-        </Fade>
-
-        {loading && (
-          <LinearProgress sx={{ mb: 2, borderRadius: 1, bgcolor: alpha(accentColor,0.1), '& .MuiLinearProgress-bar': { bgcolor: accentColor } }} />
-        )}
-
-        {error && (
-          <Fade in timeout={300}>
-            <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{error}</Alert>
+              )}
+            </SectionCard>
           </Fade>
         )}
 
-        {/* ── Results ── */}
-        {submittedID && (
-          <Fade in={!loading} timeout={500}>
-            <GlassCard ref={resultsRef} sx={{ mb: 4, border: `1px solid ${alpha(accentColor,0.1)}` }}>
-              <Box sx={{
-                p: 4,
-                background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`,
-                color: accentColor, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              }}>
-                <Box>
-                  <Typography variant="body2" sx={{ opacity: 0.8, mb: 0.5, textTransform: 'uppercase', letterSpacing: '0.1em', color: accentDark }}>
-                    Employee Number
-                  </Typography>
-                  <Typography variant="h4" sx={{ fontWeight: 600, color: accentColor }}>{submittedID}</Typography>
-                </Box>
-                <Box sx={{ textAlign: 'right' }}>
-                  <Badge badgeContent={filteredRecords.length} color="secondary" sx={{ '& .MuiBadge-badge': { fontSize: '0.8rem', height: 24, minWidth: 24 } }}>
-                    <Typography variant="body2" sx={{ opacity: 0.9 }}>Records Found</Typography>
-                  </Badge>
-                  <Typography variant="caption" sx={{ opacity: 0.8, display: 'block', mt: 0.5, color: accentDark }}>
-                    {startDate} to {endDate}
-                  </Typography>
-                </Box>
-              </Box>
-
-              <PremiumTableContainer>
-                <Table stickyHeader sx={{ minWidth: '800px' }}>
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: alpha(primaryColor,0.7) }}>
-                      <PremiumTableCell isHeader sx={{ color: accentColor, cursor: 'pointer', userSelect: 'none', '&:hover': { bgcolor: alpha(accentColor,0.05) } }} onClick={handleSort}>
-                        <Box display="flex" alignItems="center" gap={1}>
-                          Date
-                          {sortOrder === 'asc' ? <KeyboardArrowUp fontSize="small" /> : <KeyboardArrowDown fontSize="small" />}
-                        </Box>
-                      </PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Time</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Status</PremiumTableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredRecords.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={3} align="center" sx={{ py: 6 }}>
-                          <Box sx={{ textAlign: 'center' }}>
-                            <Info sx={{ fontSize: 64, color: alpha(accentColor,0.3), mb: 2 }} />
-                            <Typography variant="h5" color={alpha(accentColor,0.6)} gutterBottom sx={{ fontWeight: 600 }}>No records found</Typography>
-                            <Typography variant="body1" color={alpha(accentColor,0.4)}>Try adjusting your date range</Typography>
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredRecords.map((record, idx) => (
-                        <React.Fragment key={idx}>
-                          <TableRow
-                            sx={{ '&:nth-of-type(even)': { bgcolor: alpha(primaryColor,0.3) }, '&:hover': { bgcolor: alpha(accentColor,0.05) }, cursor: 'pointer', transition: 'all 0.2s ease' }}
-                            onClick={() => handleRowExpand(idx)}
-                          >
-                            <PremiumTableCell>
-                              <Typography variant="body2" sx={{ fontWeight: 500, color: blackColor }}>
-                                {new Date(record.Date).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
-                              </Typography>
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <Typography variant="body2" sx={{ fontWeight: 500, color: blackColor }}>{record.Time}</Typography>
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <Chip
-                                icon={getAttendanceIcon(record.AttendanceState)}
-                                label={getAttendanceLabel(record.AttendanceState)}
-                                size="small"
-                                sx={{ bgcolor: alpha(getAttendanceColor(record.AttendanceState),0.1), color: getAttendanceColor(record.AttendanceState), fontWeight: 600, '& .MuiChip-icon': { color: getAttendanceColor(record.AttendanceState) } }}
-                              />
-                            </PremiumTableCell>
-                          </TableRow>
-                          {expandedRow === idx && (
-                            <TableRow>
-                              <TableCell colSpan={3} sx={{ p: 0, bgcolor: alpha(primaryColor,0.5) }}>
-                                <Box sx={{ p: 3 }}>
-                                  <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 600, color: blackColor }}>Record Details</Typography>
-                                  <Grid container spacing={2}>
-                                    {[
-                                      { label: 'Employee ID', value: record.PersonID },
-                                      { label: 'Date',        value: record.Date },
-                                      { label: 'Time',        value: record.Time },
-                                      { label: 'Status',      value: getAttendanceLabel(record.AttendanceState) },
-                                    ].map(({ label, value }) => (
-                                      <Grid item xs={6} md={4} key={label}>
-                                        <Typography variant="body2" color="text.secondary">{label}</Typography>
-                                        <Typography variant="body1" sx={{ fontWeight: 500, color: blackColor }}>{value}</Typography>
-                                      </Grid>
-                                    ))}
-                                  </Grid>
-                                </Box>
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </React.Fragment>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </PremiumTableContainer>
-            </GlassCard>
-          </Fade>
-        )}
-
-        {/* ── Scroll to Top ── */}
+        {/* ── Scroll to Top FAB ── */}
         <Zoom in={showScrollTop}>
-          <Fab sx={{ position: 'fixed', bottom: 24, right: 45, zIndex: 1000, bgcolor: accentColor, color: primaryColor, '&:hover': { bgcolor: accentDark } }} onClick={scrollToTop}>
+          <Fab
+            size="small"
+            sx={{ position: 'fixed', bottom: 24, right: 45, zIndex: 1000, bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}` }}
+            onClick={scrollToTop}
+          >
             <KeyboardArrowUp />
           </Fab>
         </Zoom>

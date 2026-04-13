@@ -3,6 +3,14 @@ const router = express.Router();
 const db = require('../db');
 const { authenticateToken, logAudit } = require('../middleware/auth');
 const { notifyPayrollChanged } = require('../socket/socketService');
+const { fillExemptAttendanceForEmployeeOfficialRanges } = require('../services/autoAttendanceService');
+
+async function triggerExemptAutoFill(employeeID) {
+  if (!employeeID || !String(employeeID).trim()) {
+    return { inserted: 0, skipped: 0, errors: ['Auto-attendance skipped: employeeID is missing.'] };
+  }
+  return fillExemptAttendanceForEmployeeOfficialRanges(String(employeeID).trim());
+}
 
 // GET all item table records
 router.get('/api/item-table', authenticateToken, (req, res) => {
@@ -15,7 +23,8 @@ router.get('/api/item-table', authenticateToken, (req, res) => {
       COALESCE(item_code, '') as item_code, 
       COALESCE(salary_grade, '') as salary_grade, 
       COALESCE(step, '') as step, 
-      COALESCE(effectivityDate, '') as effectivityDate, 
+      COALESCE(effectivityDate, '') as effectivityDate,
+      exempt_from_biometrics,
       dateCreated
     FROM item_table
     ORDER BY dateCreated DESC
@@ -32,7 +41,6 @@ router.get('/api/item-table', authenticateToken, (req, res) => {
       });
     }
 
-    // Debug logging
     console.log('=== ITEM TABLE FETCH DEBUG ===');
     console.log('Total records found:', result.length);
     if (result.length > 0) {
@@ -43,8 +51,8 @@ router.get('/api/item-table', authenticateToken, (req, res) => {
         item_description: result[0].item_description,
         salary_grade: result[0].salary_grade,
         step: result[0].step,
+        exempt_from_biometrics: result[0].exempt_from_biometrics,
       });
-      // Check for NULL values
       const nullFields = result.filter(r => 
         r.employeeID === null || 
         r.name === null || 
@@ -73,10 +81,9 @@ router.post('/api/item-table', authenticateToken, (req, res) => {
     salary_grade,
     step,
     effectivityDate,
+    exempt_from_biometrics,
   } = req.body;
 
-  // Normalize values: convert null/undefined to empty string for NOT NULL fields
-  // salary_grade is NOT NULL in database, so ensure it's never null
   const normalizedData = {
     item_description: item_description || null,
     employeeID: employeeID || null,
@@ -85,14 +92,17 @@ router.post('/api/item-table', authenticateToken, (req, res) => {
     salary_grade: salary_grade !== null && salary_grade !== undefined ? salary_grade : '',
     step: step || null,
     effectivityDate: effectivityDate || null,
+    exempt_from_biometrics: exempt_from_biometrics ? 1 : 0,
   };
 
-  // Log the data being inserted for debugging
   console.log('Inserting item data:', normalizedData);
 
   const sql = `
-    INSERT INTO item_table (item_description, employeeID, name, item_code, salary_grade, step, effectivityDate)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO item_table (
+      item_description, employeeID, name, item_code,
+      salary_grade, step, effectivityDate, exempt_from_biometrics
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `;
   db.query(
     sql,
@@ -104,6 +114,7 @@ router.post('/api/item-table', authenticateToken, (req, res) => {
       normalizedData.salary_grade,
       normalizedData.step,
       normalizedData.effectivityDate,
+      normalizedData.exempt_from_biometrics,
     ],
     (err, result) => {
       if (err) {
@@ -129,10 +140,27 @@ router.post('/api/item-table', authenticateToken, (req, res) => {
         employeeID,
       });
 
-      res.json({
+      const finalize = (autoResult) => res.json({
         message: 'Item record added successfully',
         id: result.insertId,
+        autoAttendance: autoResult ? {
+          inserted: autoResult.inserted,
+          skipped: autoResult.skipped,
+          rangesProcessed: autoResult.rangesProcessed,
+        } : undefined,
+        warnings: autoResult && autoResult.errors && autoResult.errors.length
+          ? autoResult.errors
+          : undefined,
       });
+
+      if (normalizedData.exempt_from_biometrics === 1 && normalizedData.employeeID) {
+        triggerExemptAutoFill(normalizedData.employeeID)
+          .then(finalize)
+          .catch((autoErr) => finalize({ inserted: 0, skipped: 0, rangesProcessed: 0, errors: [`Auto-attendance trigger failed: ${autoErr.message}`] }));
+        return;
+      }
+
+      finalize(null);
     }
   );
 });
@@ -148,10 +176,9 @@ router.put('/api/item-table/:id', authenticateToken, (req, res) => {
     salary_grade,
     step,
     effectivityDate,
+    exempt_from_biometrics,
   } = req.body;
 
-  // Normalize values: convert null/undefined to empty string for NOT NULL fields
-  // salary_grade is NOT NULL in database, so ensure it's never null
   const normalizedData = {
     item_description: item_description || null,
     employeeID: employeeID || null,
@@ -160,62 +187,110 @@ router.put('/api/item-table/:id', authenticateToken, (req, res) => {
     salary_grade: salary_grade !== null && salary_grade !== undefined ? salary_grade : '',
     step: step || null,
     effectivityDate: effectivityDate || null,
+    exempt_from_biometrics: exempt_from_biometrics ? 1 : 0,
   };
 
-  // Log the data being updated for debugging
   console.log('Updating item data for ID:', id, normalizedData);
 
-  const sql = `
-    UPDATE item_table SET
-      item_description = ?,
-      employeeID = ?,
-      name = ?,
-      item_code = ?,
-      salary_grade = ?,
-      step = ?,
-      effectivityDate = ?
-    WHERE id = ?
-  `;
   db.query(
-    sql,
-    [
-      normalizedData.item_description,
-      normalizedData.employeeID,
-      normalizedData.name,
-      normalizedData.item_code,
-      normalizedData.salary_grade,
-      normalizedData.step,
-      normalizedData.effectivityDate,
-      id,
-    ],
-    (err, result) => {
-      if (err) {
-        console.error('Database Update Error:', err.message);
-        console.error('SQL Error Code:', err.code);
-        console.error('SQL Error SQL State:', err.sqlState);
-        return res.status(500).json({ 
+    'SELECT employeeID, exempt_from_biometrics FROM item_table WHERE id = ? LIMIT 1',
+    [id],
+    (preErr, preRows) => {
+      if (preErr) {
+        console.error('Database Read Error:', preErr.message);
+        return res.status(500).json({
           error: 'Internal Server Error',
-          message: err.message,
-          details: 'Failed to update item record. Please check the data and try again.'
+          message: preErr.message,
+          details: 'Failed to read existing item record before update.',
         });
       }
-      if (result.affectedRows === 0) {
+
+      if (!preRows || preRows.length === 0) {
         return res.status(404).json({ error: 'Item not found' });
       }
 
-      try {
-        logAudit(req.user, 'Update', 'item_table', id, employeeID);
-      } catch (e) {
-        console.error('Audit log error:', e);
-      }
+      const previous = preRows[0];
 
-      notifyPayrollChanged('updated', {
-        module: 'item-table',
-        id,
-        employeeID,
-      });
+      const sql = `
+        UPDATE item_table SET
+          item_description = ?,
+          employeeID = ?,
+          name = ?,
+          item_code = ?,
+          salary_grade = ?,
+          step = ?,
+          effectivityDate = ?,
+          exempt_from_biometrics = ?
+        WHERE id = ?
+      `;
 
-      res.json({ message: 'Item record updated successfully' });
+      db.query(
+        sql,
+        [
+          normalizedData.item_description,
+          normalizedData.employeeID,
+          normalizedData.name,
+          normalizedData.item_code,
+          normalizedData.salary_grade,
+          normalizedData.step,
+          normalizedData.effectivityDate,
+          normalizedData.exempt_from_biometrics,
+          id,
+        ],
+        (err, result) => {
+          if (err) {
+            console.error('Database Update Error:', err.message);
+            console.error('SQL Error Code:', err.code);
+            console.error('SQL Error SQL State:', err.sqlState);
+            return res.status(500).json({
+              error: 'Internal Server Error',
+              message: err.message,
+              details: 'Failed to update item record. Please check the data and try again.',
+            });
+          }
+          if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Item not found' });
+          }
+
+          try {
+            logAudit(req.user, 'Update', 'item_table', id, employeeID);
+          } catch (e) {
+            console.error('Audit log error:', e);
+          }
+
+          notifyPayrollChanged('updated', {
+            module: 'item-table',
+            id,
+            employeeID,
+          });
+
+          const wasExempt = Number(previous.exempt_from_biometrics) === 1;
+          const isExempt = normalizedData.exempt_from_biometrics === 1;
+          const targetEmployeeID = normalizedData.employeeID || previous.employeeID;
+          const becameExempt = !wasExempt && isExempt && targetEmployeeID;
+
+          const finalize = (autoResult) => res.json({
+            message: 'Item record updated successfully',
+            autoAttendance: autoResult ? {
+              inserted: autoResult.inserted,
+              skipped: autoResult.skipped,
+              rangesProcessed: autoResult.rangesProcessed,
+            } : undefined,
+            warnings: autoResult && autoResult.errors && autoResult.errors.length
+              ? autoResult.errors
+              : undefined,
+          });
+
+          if (becameExempt) {
+            triggerExemptAutoFill(targetEmployeeID)
+              .then(finalize)
+              .catch((autoErr) => finalize({ inserted: 0, skipped: 0, rangesProcessed: 0, errors: [`Auto-attendance trigger failed: ${autoErr.message}`] }));
+            return;
+          }
+
+          finalize(null);
+        }
+      );
     }
   );
 });
@@ -245,7 +320,3 @@ router.delete('/api/item-table/:id', authenticateToken, (req, res) => {
 });
 
 module.exports = router;
-
-
-
-

@@ -688,37 +688,73 @@ const closeModal = () => setModal((p) => ({ ...p, open: false }));
     [suspensionByDate, leaveByDate, holidayByDate]
   );
 
-  // ── Segment calculator (same as original) ──
+  // ── Segment calculator (robust against noon/midnight AM/PM ambiguity) ──
   const calcSegment = (startStr, endStr, officialStartStr, officialEndStr) => {
-    const midnight = new Date("01/01/2000 00:00:00 AM");
-    const start    = new Date(`01/01/2000 ${startStr}`);
-    const end      = new Date(`01/01/2000 ${endStr}`);
-    const offStart = new Date(`01/01/2000 ${officialStartStr}`);
-    const offEnd   = new Date(`01/01/2000 ${officialEndStr}`);
+    const parseTimeToSeconds = (timeStr) => {
+      if (!timeStr || timeStr === "—") return null;
 
-    const effStart =
-      end < offStart ? midnight
-      : start > offEnd ? midnight
-      : start < offStart ? offStart
-      : start;
-    const effEnd =
-      effStart === midnight ? midnight
-      : end < offStart ? midnight
-      : end < offEnd ? end : offEnd;
+      const trimmed = String(timeStr).trim();
+      const m = trimmed.match(/^(\d{1,2}):(\d{2}):(\d{2})(?:\s*(AM|PM))?$/i);
+      if (!m) return null;
 
-    const diffMs = effEnd - effStart;
-    const h = Math.floor(diffMs / 3600000), m = Math.floor((diffMs % 3600000) / 60000), s = Math.floor((diffMs % 60000) / 1000);
-    const rendered = [h, m, s].map(x => String(x).padStart(2, "0")).join(":");
+      let hh = Number(m[1]);
+      const mm = Number(m[2]);
+      const ss = Number(m[3]);
+      const mer = (m[4] || "").toUpperCase();
 
-    const offDiff = offEnd - offStart;
-    const oh = Math.floor(offDiff / 3600000), om = Math.floor((offDiff % 3600000) / 60000), os = Math.floor((offDiff % 60000) / 1000);
-    const maxRendered = [oh, om, os].map(x => String(x).padStart(2, "0")).join(":");
+      if ([hh, mm, ss].some(Number.isNaN)) return null;
 
-    const tard = new Date(`01/01/2000 ${maxRendered}`) - new Date(`01/01/2000 ${rendered}`);
-    const th = Math.floor(tard / 3600000), tm = Math.floor((tard % 3600000) / 60000), ts = Math.floor((tard % 60000) / 1000);
-    const tardiness = [th, tm, ts].map(x => String(x).padStart(2, "0")).join(":");
+      if (mer) {
+        if (hh === 12) hh = 0;
+        if (mer === "PM") hh += 12;
+      }
 
-    return { rendered, maxRendered, tardiness };
+      return hh * 3600 + mm * 60 + ss;
+    };
+
+    const formatSeconds = (secs) => {
+      const safe = Math.max(0, Number(secs) || 0);
+      const h = Math.floor(safe / 3600);
+      const m = Math.floor((safe % 3600) / 60);
+      const s = safe % 60;
+      return [h, m, s].map((x) => String(x).padStart(2, "0")).join(":");
+    };
+
+    const normalizeEnd = (startSec, endSec) => {
+      if (startSec == null || endSec == null) return endSec;
+      let fixedEnd = endSec;
+      while (fixedEnd <= startSec) fixedEnd += 12 * 3600;
+      return fixedEnd;
+    };
+
+    const startSec = parseTimeToSeconds(startStr);
+    const endSecRaw = parseTimeToSeconds(endStr);
+    const offStartSec = parseTimeToSeconds(officialStartStr);
+    const offEndSecRaw = parseTimeToSeconds(officialEndStr);
+
+    if (offStartSec == null || offEndSecRaw == null) {
+      return { rendered: "00:00:00", maxRendered: "00:00:00", tardiness: "00:00:00" };
+    }
+
+    const offEndSec = normalizeEnd(offStartSec, offEndSecRaw);
+    const endSec = normalizeEnd(startSec ?? offStartSec, endSecRaw);
+
+    const maxRenderedSec = Math.max(0, offEndSec - offStartSec);
+
+    let renderedSec = 0;
+    if (startSec != null && endSec != null) {
+      const effectiveStart = Math.max(startSec, offStartSec);
+      const effectiveEnd = Math.min(endSec, offEndSec);
+      renderedSec = Math.max(0, effectiveEnd - effectiveStart);
+    }
+
+    const tardinessSec = Math.max(0, maxRenderedSec - renderedSec);
+
+    return {
+      rendered: formatSeconds(renderedSec),
+      maxRendered: formatSeconds(maxRenderedSec),
+      tardiness: formatSeconds(tardinessSec),
+    };
   };
 
   // ── handleSubmit ──

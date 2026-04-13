@@ -760,11 +760,11 @@ const Settings = () => {
       {/* ══ MAIN CONTENT ══ */}
       <Box sx={{
         width: "100vw", maxWidth: "100%",
-        position: "relative", left: "63%", transform: "translateX(-61%)",
+        position: "relative", left: "67%", transform: "translateX(-68%)",
         boxSizing: "border-box",
         pl: { xs: 2, sm: 3, md: 6 },
-        pr: `${SIDEBAR_W + 16}px`,
-        py: { xs: 2, md: 4 },
+        pr: `${SIDEBAR_W - 35}px`,
+        py: { xs: 2, md: 2 },
       }}>
 
         {errMsg && <Alert severity="error" sx={{ mb: 3, borderRadius: 2, fontWeight: 500, fontSize: "0.84rem" }} onClose={() => setErrMsg("")}>{errMsg}</Alert>}

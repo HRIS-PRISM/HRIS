@@ -3,15 +3,11 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 
-
-
 // Authentication middleware
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
-
   if (!token) return res.status(401).json({ error: 'No token provided' });
-
   jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, user) => {
     if (err) return res.status(403).json({ error: 'Invalid token' });
     req.user = user;
@@ -20,546 +16,539 @@ function authenticateToken(req, res, next) {
 }
 
 // Audit logging
-function logAudit(
-  user,
-  action,
-  tableName,
-  recordId,
-  targetEmployeeNumber = null
-) {
+function logAudit(user, action, tableName, recordId, targetEmployeeNumber = null) {
   const auditQuery = `
     INSERT INTO audit_log (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
     VALUES (?, ?, ?, ?, ?, NOW())
   `;
-
   const employeeNumber =
     user && typeof user === 'object' && user.employeeNumber
       ? user.employeeNumber
       : user || null;
+  db.query(auditQuery, [employeeNumber, action, tableName, recordId, targetEmployeeNumber], (err) => {
+    if (err) console.error('Error inserting audit log:', err);
+  });
+}
 
-  db.query(
-    auditQuery,
-    [employeeNumber, action, tableName, recordId, targetEmployeeNumber],
-    (err) => {
-      if (err) console.error('Error inserting audit log:', err);
+// ============================================================
+// EMPLOYMENT TYPE CONFIG ROUTES (Dynamic types management)
+// ============================================================
+
+// GET all employment type configs (flat + grouped)
+router.get('/employment-type-config', authenticateToken, (req, res) => {
+  const sql = `
+    SELECT id, parentGroup, typeName, colorHex, isActive, sortOrder
+    FROM employment_type_config
+    ORDER BY sortOrder ASC, parentGroup ASC, typeName ASC
+  `;
+  db.query(sql, (err, results) => {
+    if (err) {
+      console.error('Error fetching employment type configs:', err);
+      return res.status(500).json({ message: 'Error fetching employment type configs' });
     }
-  );
-}
+    const grouped = {};
+    results.forEach(row => {
+      if (!grouped[row.parentGroup]) grouped[row.parentGroup] = [];
+      grouped[row.parentGroup].push(row);
+    });
+    res.json({ flat: results, grouped });
+  });
+});
 
-// Helper function to get category label
-function getCategoryLabel(employmentCategory, customCategory) {
-  if (employmentCategory === 5 && customCategory) {
-    return customCategory;
-  }
-  
-  switch (employmentCategory) {
-    case 0: return 'Job Order - Graduate';
-    case 1: return 'Job Order - UnderGrad';
-    case 2: return 'Regular - Non-Teaching';
-    case 3: return 'Regular - Teaching (30Hrs)';
-    case 4: return 'Regular - Designated (40Hrs)';
-    case 5: return 'Other';
-    default: return 'Unknown';
-  }
-}
+// GET all unique parent groups
+router.get('/employment-type-config/groups', authenticateToken, (req, res) => {
+  const sql = `SELECT DISTINCT parentGroup FROM employment_type_config ORDER BY parentGroup ASC`;
+  db.query(sql, (err, results) => {
+    if (err) return res.status(500).json({ message: 'Error fetching groups' });
+    res.json(results.map(r => r.parentGroup));
+  });
+});
 
-// ========================================
+// CREATE new employment type config
+router.post('/employment-type-config', authenticateToken, (req, res) => {
+  const { parentGroup, typeName, colorHex, sortOrder } = req.body;
+
+  if (!parentGroup || !parentGroup.trim())
+    return res.status(400).json({ error: 'Parent group is required' });
+  if (!typeName || !typeName.trim())
+    return res.status(400).json({ error: 'Type name is required' });
+  if (parentGroup.length > 100)
+    return res.status(400).json({ error: 'Parent group must not exceed 100 characters' });
+  if (typeName.length > 100)
+    return res.status(400).json({ error: 'Type name must not exceed 100 characters' });
+
+  const validHex = /^#[0-9A-Fa-f]{6}$/.test(colorHex || '');
+  const finalColor = validHex ? colorHex : '#757575';
+
+  const checkSql = `SELECT id FROM employment_type_config WHERE parentGroup = ? AND typeName = ?`;
+  db.query(checkSql, [parentGroup.trim(), typeName.trim()], (err, existing) => {
+    if (err) return res.status(500).json({ message: 'Error checking duplicate' });
+    if (existing.length > 0)
+      return res.status(409).json({ error: 'This type already exists under that group' });
+
+    const insertSql = `
+      INSERT INTO employment_type_config (parentGroup, typeName, colorHex, sortOrder, isActive)
+      VALUES (?, ?, ?, ?, 1)
+    `;
+    db.query(insertSql, [parentGroup.trim(), typeName.trim(), finalColor, sortOrder || 0], (err, result) => {
+      if (err) {
+        console.error('Error creating employment type config:', err);
+        return res.status(500).json({ message: 'Error creating employment type config' });
+      }
+      logAudit(req.user, 'create', 'employment_type_config', result.insertId, null);
+      res.status(201).json({
+        message: 'Employment type created successfully',
+        id: result.insertId,
+        parentGroup: parentGroup.trim(),
+        typeName: typeName.trim(),
+        colorHex: finalColor,
+        sortOrder: sortOrder || 0,
+        isActive: 1,
+      });
+    });
+  });
+});
+
+// UPDATE employment type config
+router.put('/employment-type-config/:id', authenticateToken, (req, res) => {
+  const { id } = req.params;
+  const { parentGroup, typeName, colorHex, sortOrder, isActive } = req.body;
+
+  if (!parentGroup || !parentGroup.trim())
+    return res.status(400).json({ error: 'Parent group is required' });
+  if (!typeName || !typeName.trim())
+    return res.status(400).json({ error: 'Type name is required' });
+
+  const validHex = /^#[0-9A-Fa-f]{6}$/.test(colorHex || '');
+  const finalColor = validHex ? colorHex : '#757575';
+
+  const checkSql = `SELECT id FROM employment_type_config WHERE parentGroup = ? AND typeName = ? AND id != ?`;
+  db.query(checkSql, [parentGroup.trim(), typeName.trim(), id], (err, existing) => {
+    if (err) return res.status(500).json({ message: 'Error checking duplicate' });
+    if (existing.length > 0)
+      return res.status(409).json({ error: 'This type already exists under that group' });
+
+    const updateSql = `
+      UPDATE employment_type_config
+      SET parentGroup = ?, typeName = ?, colorHex = ?, sortOrder = ?, isActive = ?
+      WHERE id = ?
+    `;
+    db.query(
+      updateSql,
+      [parentGroup.trim(), typeName.trim(), finalColor, sortOrder !== undefined ? sortOrder : 0, isActive !== undefined ? isActive : 1, id],
+      (err, result) => {
+        if (err) {
+          console.error('Error updating employment type config:', err);
+          return res.status(500).json({ message: 'Error updating employment type config' });
+        }
+        if (result.affectedRows === 0)
+          return res.status(404).json({ message: 'Employment type not found' });
+
+        logAudit(req.user, 'update', 'employment_type_config', id, null);
+        res.json({
+          message: 'Employment type updated successfully',
+          id: parseInt(id),
+          parentGroup: parentGroup.trim(),
+          typeName: typeName.trim(),
+          colorHex: finalColor,
+          sortOrder: sortOrder || 0,
+          isActive: isActive !== undefined ? isActive : 1,
+        });
+      }
+    );
+  });
+});
+
+// DELETE employment type config
+router.delete('/employment-type-config/:id', authenticateToken, (req, res) => {
+  const { id } = req.params;
+
+  const checkUsageSql = `SELECT COUNT(*) as count FROM employment_category WHERE employmentCategory = ?`;
+  db.query(checkUsageSql, [id], (err, results) => {
+    if (err) return res.status(500).json({ message: 'Error checking usage' });
+
+    const usageCount = results[0].count;
+    if (usageCount > 0) {
+      return res.status(409).json({
+        error: `Cannot delete: ${usageCount} employee(s) are assigned to this type. Reassign them first.`,
+        usageCount,
+      });
+    }
+
+    const deleteSql = `DELETE FROM employment_type_config WHERE id = ?`;
+    db.query(deleteSql, [id], (err, result) => {
+      if (err) {
+        console.error('Error deleting employment type config:', err);
+        return res.status(500).json({ message: 'Error deleting employment type config' });
+      }
+      if (result.affectedRows === 0)
+        return res.status(404).json({ message: 'Employment type not found' });
+
+      logAudit(req.user, 'delete', 'employment_type_config', id, null);
+      res.json({ message: 'Employment type deleted successfully', deletedId: parseInt(id) });
+    });
+  });
+});
+
+// ============================================================
+// EMPLOYMENT CATEGORY ROUTES
+//
+// FIX: Removed "AND ec.employmentCategory > 5" from every JOIN.
+// That condition incorrectly excluded employment_type_config rows
+// whose auto-increment IDs happen to be 1-5, causing those employees
+// to fall back to wrong legacy hardcoded labels in the UI.
+// The LEFT JOIN alone is sufficient: if no matching type-config row
+// exists the join columns are NULL, which is already handled by the
+// CASE expression and the frontend fallback.
+// ============================================================
+
 // GET ALL - Fetch all employment categories
-// ========================================
 router.get('/employment-category', authenticateToken, (req, res) => {
   const sql = `
-    SELECT 
+    SELECT
       ec.id,
       ec.employeeNumber,
       ec.employmentCategory,
       ec.customCategory,
       CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) AS employeeName,
-      CASE 
-        WHEN ec.employmentCategory = 0 THEN 'Job Order - Graduate'
-        WHEN ec.employmentCategory = 1 THEN 'Job Order - UnderGrad'
-        WHEN ec.employmentCategory = 2 THEN 'Regular - Non-Teaching'
-        WHEN ec.employmentCategory = 3 THEN 'Regular - Teaching (30Hrs)'
-        WHEN ec.employmentCategory = 4 THEN 'Regular - Designated (40Hrs)'
-        WHEN ec.employmentCategory = 5 AND ec.customCategory IS NOT NULL THEN ec.customCategory
-        WHEN ec.employmentCategory = 5 THEN 'Other'
-        ELSE 'Unknown'
+      etc.parentGroup,
+      etc.typeName,
+      etc.colorHex,
+      CASE
+        WHEN etc.id IS NOT NULL THEN CONCAT(etc.parentGroup, ' | ', etc.typeName)
+        WHEN ec.customCategory IS NOT NULL AND ec.customCategory != '' THEN CONCAT('Other (', ec.customCategory, ')')
+        ELSE 'Unassigned'
       END AS categoryLabel
     FROM employment_category ec
     LEFT JOIN person_table pt ON pt.agencyEmployeeNum = ec.employeeNumber
+    LEFT JOIN employment_type_config etc
+      ON etc.id = ec.employmentCategory
     ORDER BY ec.employeeNumber ASC
   `;
 
   db.query(sql, (err, results) => {
     if (err) {
       console.error('Error fetching employment categories:', err);
-      return res
-        .status(500)
-        .json({ message: 'Error fetching employment categories' });
+      return res.status(500).json({ message: 'Error fetching employment categories' });
     }
-
     logAudit(req.user, 'view', 'employment_category', null, null);
     res.json(results);
   });
 });
 
-// ========================================
 // GET ONE - Fetch employment category by employee number
-// ========================================
-router.get(
-  '/employment-category/:employeeNumber',
-  authenticateToken,
-  (req, res) => {
-    const { employeeNumber } = req.params;
+router.get('/employment-category/:employeeNumber', authenticateToken, (req, res) => {
+  const { employeeNumber } = req.params;
 
-    const sql = `
-    SELECT 
+  const sql = `
+    SELECT
       ec.id,
       ec.employeeNumber,
       ec.employmentCategory,
       ec.customCategory,
       CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) AS employeeName,
-      CASE 
-        WHEN ec.employmentCategory = 0 THEN 'Job Order - Graduate'
-        WHEN ec.employmentCategory = 1 THEN 'Job Order - UnderGrad'
-        WHEN ec.employmentCategory = 2 THEN 'Regular - Non-Teaching'
-        WHEN ec.employmentCategory = 3 THEN 'Regular - Teaching (30Hrs)'
-        WHEN ec.employmentCategory = 4 THEN 'Regular - Designated (40Hrs)'
-        WHEN ec.employmentCategory = 5 AND ec.customCategory IS NOT NULL THEN ec.customCategory
-        WHEN ec.employmentCategory = 5 THEN 'Other'
-        ELSE 'Unknown'
+      etc.parentGroup,
+      etc.typeName,
+      etc.colorHex,
+      CASE
+        WHEN etc.id IS NOT NULL THEN CONCAT(etc.parentGroup, ' | ', etc.typeName)
+        WHEN ec.customCategory IS NOT NULL AND ec.customCategory != '' THEN CONCAT('Other (', ec.customCategory, ')')
+        ELSE 'Unassigned'
       END AS categoryLabel
     FROM employment_category ec
     LEFT JOIN person_table pt ON pt.agencyEmployeeNum = ec.employeeNumber
+    LEFT JOIN employment_type_config etc
+      ON etc.id = ec.employmentCategory
     WHERE ec.employeeNumber = ?
   `;
 
-    db.query(sql, [employeeNumber], (err, results) => {
-      if (err) {
-        console.error('Error fetching employment category:', err);
-        return res
-          .status(500)
-          .json({ message: 'Error fetching employment category' });
-      }
-
-      if (results.length === 0) {
-        return res
-          .status(404)
-          .json({ message: 'Employment category not found' });
-      }
-
-      logAudit(
-        req.user,
-        'view',
-        'employment_category',
-        results[0].id,
-        employeeNumber
-      );
-      res.json(results[0]);
-    });
-  }
-);
-
-router.get(
-  '/employment-category/search/:searchTerm',
-  authenticateToken,
-  (req, res) => {
-    const { searchTerm } = req.params;
-
-    if (!searchTerm || searchTerm.trim() === '') {
-      return res.status(400).json({ error: 'Search term is required' });
-    }
-
-    const sql = `
-      SELECT 
-        ec.id,
-        ec.employeeNumber,
-        ec.employmentCategory,
-        ec.customCategory,
-        CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) AS employeeName,
-        CASE 
-          WHEN ec.employmentCategory = 0 THEN 'Job Order - Graduate'
-          WHEN ec.employmentCategory = 1 THEN 'Job Order - UnderGrad'
-          WHEN ec.employmentCategory = 2 THEN 'Regular - Non-Teaching'
-          WHEN ec.employmentCategory = 3 THEN 'Regular - Teaching (30Hrs)'
-          WHEN ec.employmentCategory = 4 THEN 'Regular - Designated (40Hrs)'
-          WHEN ec.employmentCategory = 5 AND ec.customCategory IS NOT NULL THEN ec.customCategory
-          WHEN ec.employmentCategory = 5 THEN 'Other'
-          ELSE 'Unknown'
-        END AS categoryLabel
-      FROM employment_category ec
-      LEFT JOIN person_table pt ON pt.agencyEmployeeNum = ec.employeeNumber
-      WHERE ec.employeeNumber LIKE ? 
-         OR pt.lastName LIKE ?
-         OR pt.firstName LIKE ?
-         OR pt.middleName LIKE ?
-         OR CONCAT(pt.firstName, ' ', pt.lastName) LIKE ?
-         OR CONCAT(pt.lastName, ' ', pt.firstName) LIKE ?
-         OR ec.customCategory LIKE ?
-      ORDER BY ec.employeeNumber ASC
-    `;
-
-    const searchPattern = `%${searchTerm}%`;
-
-    db.query(
-      sql,
-      [
-        searchPattern, 
-        searchPattern, 
-        searchPattern, 
-        searchPattern,
-        searchPattern,
-        searchPattern,
-        searchPattern
-      ],
-      (err, results) => {
-        if (err) {
-          console.error('Error searching employment categories:', err);
-          return res
-            .status(500)
-            .json({ message: 'Error searching employment categories' });
-        }
-
-        // Log audit trail
-        logAudit(req.user, 'search', 'employment_category', null, searchTerm);
-        
-        res.json(results);
-      }
-    );
-  }
-);
-
-// ========================================
-// UPDATE ROUTE - Update employment category
-// ========================================
-router.put('/employment-category/:id', authenticateToken, (req, res) => {
-  const { id } = req.params;
-  const { employeeNumber, employmentCategory, customCategory } = req.body;
-
-  // Validation: Allow integers 0 through 5
-  if (!employeeNumber) {
-    return res.status(400).json({ error: 'Employee number is required' });
-  }
-
-  if (
-    employmentCategory === undefined ||
-    employmentCategory === null ||
-    isNaN(employmentCategory) ||
-    employmentCategory < 0 ||
-    employmentCategory > 5
-  ) {
-    return res.status(400).json({
-      error: 'Invalid employment category. Must be between 0 and 5.',
-    });
-  }
-
-  // Validate customCategory when employmentCategory is 5
-  if (employmentCategory === 5) {
-    if (!customCategory || customCategory.trim() === '') {
-      return res.status(400).json({
-        error: 'Custom category description is required when selecting "Other".',
-      });
-    }
-    if (customCategory.length > 100) {
-      return res.status(400).json({
-        error: 'Custom category description must not exceed 100 characters.',
-      });
-    }
-  }
-
-  // Check if record exists
-  const checkSql = `SELECT employeeNumber FROM employment_category WHERE id = ?`;
-
-  db.query(checkSql, [id], (err, results) => {
+  db.query(sql, [employeeNumber], (err, results) => {
     if (err) {
-      console.error('Error checking record:', err);
-      return res.status(500).json({ message: 'Error checking record' });
+      console.error('Error fetching employment category:', err);
+      return res.status(500).json({ message: 'Error fetching employment category' });
     }
-
-    if (results.length === 0) {
+    if (results.length === 0)
       return res.status(404).json({ message: 'Employment category not found' });
-    }
 
-    const oldEmployeeNumber = results[0].employeeNumber;
-
-    // Check for duplicate if changing employee number
-    if (oldEmployeeNumber !== employeeNumber) {
-      const duplicateCheckSql = `SELECT id FROM employment_category WHERE employeeNumber = ? AND id != ?`;
-
-      db.query(
-        duplicateCheckSql,
-        [employeeNumber, id],
-        (err, duplicateResults) => {
-          if (err) {
-            console.error('Error checking duplicate:', err);
-            return res
-              .status(500)
-              .json({ message: 'Error checking duplicate' });
-          }
-
-          if (duplicateResults.length > 0) {
-            return res.status(409).json({
-              error: 'Employment category already exists for this employee',
-            });
-          }
-
-          // No duplicate found, proceed with update
-          performUpdate();
-        }
-      );
-    } else {
-      // Employee number not changed, proceed with update
-      performUpdate();
-    }
-
-    function performUpdate() {
-      // Set customCategory to null if employmentCategory is not 5
-      const finalCustomCategory = employmentCategory === 5 ? (customCategory || null) : null;
-
-      const updateSql = `
-        UPDATE employment_category 
-        SET employeeNumber = ?, employmentCategory = ?, customCategory = ?
-        WHERE id = ?
-      `;
-
-      db.query(
-        updateSql,
-        [employeeNumber, employmentCategory, finalCustomCategory, id],
-        (err, result) => {
-          if (err) {
-            console.error('Error updating employment category:', err);
-            return res
-              .status(500)
-              .json({ message: 'Error updating employment category' });
-          }
-
-          if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'Employment category not found' });
-          }
-
-          // SYNC: Also update users table
-          const updateUsersSql = `
-            UPDATE users 
-            SET employmentCategory = ?, customCategory = ?
-            WHERE employeeNumber = ?
-          `;
-          
-          db.query(
-            updateUsersSql,
-            [employmentCategory, finalCustomCategory, employeeNumber],
-            (updateErr, updateResult) => {
-              if (updateErr) {
-                console.error('Error updating users table:', updateErr);
-                // Don't fail the whole operation, just log the error
-              }
-
-              // Log audit trail
-              logAudit(
-                req.user,
-                'update',
-                'employment_category',
-                id,
-                employeeNumber
-              );
-              
-              // Send success response
-              res.json({
-                message: 'Employment category updated successfully',
-                id,
-                employeeNumber,
-                employmentCategory,
-                customCategory: finalCustomCategory,
-              });
-            }
-          );
-        }
-      );
-    }
+    logAudit(req.user, 'view', 'employment_category', results[0].id, employeeNumber);
+    res.json(results[0]);
   });
 });
 
-// ========================================
-// CREATE - Add new employment category
-// ========================================
-router.post('/employment-category', authenticateToken, (req, res) => {
-  const { employeeNumber, employmentCategory, customCategory } = req.body;
+// SEARCH
+router.get('/employment-category/search/:searchTerm', authenticateToken, (req, res) => {
+  const { searchTerm } = req.params;
 
-  // Validation
-  if (!employeeNumber) {
-    return res.status(400).json({ error: 'Employee number is required' });
-  }
+  if (!searchTerm || searchTerm.trim() === '')
+    return res.status(400).json({ error: 'Search term is required' });
 
-  if (
-    employmentCategory === undefined ||
-    employmentCategory === null ||
-    isNaN(employmentCategory) ||
-    employmentCategory < 0 ||
-    employmentCategory > 5
-  ) {
-    return res
-      .status(400)
-      .json({
-        error: 'Invalid employment category. Must be between 0 and 5.',
-      });
-  }
+  const sql = `
+    SELECT
+      ec.id,
+      ec.employeeNumber,
+      ec.employmentCategory,
+      ec.customCategory,
+      CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) AS employeeName,
+      etc.parentGroup,
+      etc.typeName,
+      etc.colorHex,
+      CASE
+        WHEN etc.id IS NOT NULL THEN CONCAT(etc.parentGroup, ' | ', etc.typeName)
+        WHEN ec.customCategory IS NOT NULL AND ec.customCategory != '' THEN CONCAT('Other (', ec.customCategory, ')')
+        ELSE 'Unassigned'
+      END AS categoryLabel
+    FROM employment_category ec
+    LEFT JOIN person_table pt ON pt.agencyEmployeeNum = ec.employeeNumber
+    LEFT JOIN employment_type_config etc
+      ON etc.id = ec.employmentCategory
+    WHERE ec.employeeNumber LIKE ?
+       OR pt.lastName LIKE ?
+       OR pt.firstName LIKE ?
+       OR pt.middleName LIKE ?
+       OR CONCAT(pt.firstName, ' ', pt.lastName) LIKE ?
+       OR CONCAT(pt.lastName, ' ', pt.firstName) LIKE ?
+       OR etc.typeName LIKE ?
+       OR etc.parentGroup LIKE ?
+    ORDER BY ec.employeeNumber ASC
+  `;
 
-  // Validate customCategory when employmentCategory is 5
-  if (employmentCategory === 5) {
-    if (!customCategory || customCategory.trim() === '') {
-      return res.status(400).json({
-        error: 'Custom category description is required when selecting "Other".',
-      });
-    }
-    if (customCategory.length > 100) {
-      return res.status(400).json({
-        error: 'Custom category description must not exceed 100 characters.',
-      });
-    }
-  }
-
-  // Check if employee exists
-  const checkEmployeeSql = `SELECT agencyEmployeeNum FROM person_table WHERE agencyEmployeeNum = ?`;
-
-  db.query(checkEmployeeSql, [employeeNumber], (err, employeeResults) => {
-    if (err) {
-      console.error('Error checking employee:', err);
-      return res.status(500).json({ message: 'Error checking employee' });
-    }
-
-    if (employeeResults.length === 0) {
-      return res.status(404).json({ error: 'Employee not found' });
-    }
-
-    // Check if employment category already exists
-    const checkSql = `SELECT id FROM employment_category WHERE employeeNumber = ?`;
-
-    db.query(checkSql, [employeeNumber], (err, results) => {
+  const searchPattern = `%${searchTerm}%`;
+  db.query(
+    sql,
+    [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern],
+    (err, results) => {
       if (err) {
-        console.error('Error checking existing record:', err);
-        return res
-          .status(500)
-          .json({ message: 'Error checking existing record' });
+        console.error('Error searching employment categories:', err);
+        return res.status(500).json({ message: 'Error searching employment categories' });
       }
+      logAudit(req.user, 'search', 'employment_category', null, searchTerm);
+      res.json(results);
+    }
+  );
+});
 
-      if (results.length > 0) {
-        return res
-          .status(409)
-          .json({
-            error: 'Employment category already exists for this employee',
-          });
-      }
+// CREATE - Add new employment category
+router.post('/employment-category', authenticateToken, (req, res) => {
+  const { employeeNumber, employmentCategory } = req.body;
 
-      // Set customCategory to null if employmentCategory is not 5
-      const finalCustomCategory = employmentCategory === 5 ? (customCategory || null) : null;
+  if (!employeeNumber)
+    return res.status(400).json({ error: 'Employee number is required' });
+  if (!employmentCategory || isNaN(employmentCategory))
+    return res.status(400).json({ error: 'Employment category type is required' });
 
-      // Insert new record
-      const insertSql = `
-        INSERT INTO employment_category (employeeNumber, employmentCategory, customCategory)
-        VALUES (?, ?, ?)
-      `;
+  // Verify the type config exists and is active
+  const checkTypeSql = `SELECT id FROM employment_type_config WHERE id = ? AND isActive = 1`;
+  db.query(checkTypeSql, [employmentCategory], (err, typeResults) => {
+    if (err) return res.status(500).json({ message: 'Error checking employment type' });
+    if (typeResults.length === 0)
+      return res.status(404).json({ error: 'Employment type not found or inactive' });
 
-      db.query(
-        insertSql,
-        [employeeNumber, employmentCategory, finalCustomCategory],
-        (err, result) => {
+    const checkEmployeeSql = `SELECT agencyEmployeeNum FROM person_table WHERE agencyEmployeeNum = ?`;
+    db.query(checkEmployeeSql, [employeeNumber], (err, empResults) => {
+      if (err) return res.status(500).json({ message: 'Error checking employee' });
+      if (empResults.length === 0)
+        return res.status(404).json({ error: 'Employee not found' });
+
+      const checkSql = `SELECT id FROM employment_category WHERE employeeNumber = ?`;
+      db.query(checkSql, [employeeNumber], (err, existing) => {
+        if (err) return res.status(500).json({ message: 'Error checking existing record' });
+        if (existing.length > 0)
+          return res.status(409).json({ error: 'Employment category already exists for this employee' });
+
+        const insertSql = `
+          INSERT INTO employment_category (employeeNumber, employmentCategory, customCategory)
+          VALUES (?, ?, NULL)
+        `;
+        db.query(insertSql, [employeeNumber, employmentCategory], (err, result) => {
           if (err) {
             console.error('Error creating employment category:', err);
-            return res
-              .status(500)
-              .json({ message: 'Error creating employment category' });
+            return res.status(500).json({ message: 'Error creating employment category' });
           }
 
-          // Also update users table
-          const updateUsersSql = `UPDATE users SET employmentCategory = ?, customCategory = ? WHERE employeeNumber = ?`;
-          db.query(
-            updateUsersSql,
-            [employmentCategory, finalCustomCategory, employeeNumber],
-            (updateErr) => {
-              if (updateErr) {
-                console.error('Error updating users table:', updateErr);
-              }
-            }
-          );
+          const updateUsersSql = `UPDATE users SET employmentCategory = ?, customCategory = NULL WHERE employeeNumber = ?`;
+          db.query(updateUsersSql, [employmentCategory, employeeNumber], (updateErr) => {
+            if (updateErr) console.error('Error updating users table:', updateErr);
+          });
 
-          logAudit(
-            req.user,
-            'create',
-            'employment_category',
-            result.insertId,
-            employeeNumber
-          );
+          logAudit(req.user, 'create', 'employment_category', result.insertId, employeeNumber);
           res.status(201).json({
             message: 'Employment category created successfully',
             id: result.insertId,
             employeeNumber,
             employmentCategory,
-            customCategory: finalCustomCategory,
           });
-        }
-      );
+        });
+      });
     });
   });
 });
 
-// ========================================
+// UPDATE - Update employment category
+router.put('/employment-category/:id', authenticateToken, (req, res) => {
+  const { id } = req.params;
+  const { employeeNumber, employmentCategory } = req.body;
+
+  if (!employeeNumber)
+    return res.status(400).json({ error: 'Employee number is required' });
+  if (!employmentCategory || isNaN(employmentCategory))
+    return res.status(400).json({ error: 'Employment category type is required' });
+
+  // Verify the type config exists and is active
+  const checkTypeSql = `SELECT id FROM employment_type_config WHERE id = ? AND isActive = 1`;
+  db.query(checkTypeSql, [employmentCategory], (err, typeResults) => {
+    if (err) return res.status(500).json({ message: 'Error checking employment type' });
+    if (typeResults.length === 0)
+      return res.status(404).json({ error: 'Employment type not found or inactive' });
+
+    const checkSql = `SELECT employeeNumber FROM employment_category WHERE id = ?`;
+    db.query(checkSql, [id], (err, results) => {
+      if (err) return res.status(500).json({ message: 'Error checking record' });
+      if (results.length === 0)
+        return res.status(404).json({ message: 'Employment category not found' });
+
+      const oldEmployeeNumber = results[0].employeeNumber;
+
+      const performUpdate = () => {
+        const updateSql = `
+          UPDATE employment_category
+          SET employeeNumber = ?, employmentCategory = ?, customCategory = NULL
+          WHERE id = ?
+        `;
+        db.query(updateSql, [employeeNumber, employmentCategory, id], (err, result) => {
+          if (err) {
+            console.error('Error updating employment category:', err);
+            return res.status(500).json({ message: 'Error updating employment category' });
+          }
+          if (result.affectedRows === 0)
+            return res.status(404).json({ message: 'Employment category not found' });
+
+          const updateUsersSql = `UPDATE users SET employmentCategory = ?, customCategory = NULL WHERE employeeNumber = ?`;
+          db.query(updateUsersSql, [employmentCategory, employeeNumber], (updateErr) => {
+            if (updateErr) console.error('Error updating users table:', updateErr);
+          });
+
+          logAudit(req.user, 'update', 'employment_category', id, employeeNumber);
+          res.json({
+            message: 'Employment category updated successfully',
+            id,
+            employeeNumber,
+            employmentCategory,
+          });
+        });
+      };
+
+      if (oldEmployeeNumber !== employeeNumber) {
+        const dupSql = `SELECT id FROM employment_category WHERE employeeNumber = ? AND id != ?`;
+        db.query(dupSql, [employeeNumber, id], (err, dupResults) => {
+          if (err) return res.status(500).json({ message: 'Error checking duplicate' });
+          if (dupResults.length > 0)
+            return res.status(409).json({ error: 'Employment category already exists for this employee' });
+          performUpdate();
+        });
+      } else {
+        performUpdate();
+      }
+    });
+  });
+});
+
+// POST /employee-category — alias used by UsersList create/edit path (upsert)
+router.post('/employee-category', authenticateToken, (req, res) => {
+  const { employeeNumber, employmentCategory } = req.body;
+
+  if (!employeeNumber)
+    return res.status(400).json({ error: 'Employee number is required' });
+  if (!employmentCategory || isNaN(employmentCategory))
+    return res.status(400).json({ error: 'Employment category type is required' });
+
+  const checkTypeSql = `SELECT id FROM employment_type_config WHERE id = ? AND isActive = 1`;
+  db.query(checkTypeSql, [employmentCategory], (err, typeResults) => {
+    if (err) return res.status(500).json({ message: 'Error checking employment type' });
+    if (typeResults.length === 0)
+      return res.status(404).json({ error: 'Employment type not found or inactive' });
+
+    // Upsert — update if exists, otherwise insert
+    const checkSql = `SELECT id FROM employment_category WHERE employeeNumber = ?`;
+    db.query(checkSql, [employeeNumber], (err, existing) => {
+      if (err) return res.status(500).json({ message: 'Error checking existing record' });
+
+      if (existing.length > 0) {
+        const updateSql = `
+          UPDATE employment_category
+          SET employmentCategory = ?, customCategory = NULL
+          WHERE employeeNumber = ?
+        `;
+        db.query(updateSql, [employmentCategory, employeeNumber], (err) => {
+          if (err) return res.status(500).json({ message: 'Error updating employment category' });
+
+          const updateUsersSql = `UPDATE users SET employmentCategory = ?, customCategory = NULL WHERE employeeNumber = ?`;
+          db.query(updateUsersSql, [employmentCategory, employeeNumber], (updateErr) => {
+            if (updateErr) console.error('Error updating users table:', updateErr);
+          });
+
+          logAudit(req.user, 'update', 'employment_category', existing[0].id, employeeNumber);
+          res.json({ message: 'Employment category updated successfully', employeeNumber, employmentCategory });
+        });
+      } else {
+        const insertSql = `
+          INSERT INTO employment_category (employeeNumber, employmentCategory, customCategory)
+          VALUES (?, ?, NULL)
+        `;
+        db.query(insertSql, [employeeNumber, employmentCategory], (err, result) => {
+          if (err) return res.status(500).json({ message: 'Error creating employment category' });
+
+          const updateUsersSql = `UPDATE users SET employmentCategory = ?, customCategory = NULL WHERE employeeNumber = ?`;
+          db.query(updateUsersSql, [employmentCategory, employeeNumber], (updateErr) => {
+            if (updateErr) console.error('Error updating users table:', updateErr);
+          });
+
+          logAudit(req.user, 'create', 'employment_category', result.insertId, employeeNumber);
+          res.status(201).json({
+            message: 'Employment category created successfully',
+            id: result.insertId,
+            employeeNumber,
+            employmentCategory,
+          });
+        });
+      }
+    });
+  });
+});
+
 // DELETE - Delete employment category
-// ========================================
 router.delete('/employment-category/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
 
-  if (!id || isNaN(id)) {
+  if (!id || isNaN(id))
     return res.status(400).json({ error: 'Invalid ID provided' });
-  }
 
   const getEmployeeNumberSql = `SELECT employeeNumber FROM employment_category WHERE id = ?`;
-
   db.query(getEmployeeNumberSql, [id], (err, results) => {
-    if (err) {
-      console.error('Error fetching record:', err);
-      return res.status(500).json({ message: 'Error fetching record' });
-    }
-
-    if (results.length === 0) {
+    if (err) return res.status(500).json({ message: 'Error fetching record' });
+    if (results.length === 0)
       return res.status(404).json({ message: 'Employment category not found' });
-    }
 
     const employeeNumber = results[0].employeeNumber;
 
     const deleteSql = `DELETE FROM employment_category WHERE id = ?`;
-
     db.query(deleteSql, [id], (err, result) => {
       if (err) {
         console.error('Error deleting employment category:', err);
-        return res
-          .status(500)
-          .json({ message: 'Error deleting employment category' });
+        return res.status(500).json({ message: 'Error deleting employment category' });
       }
-
-      if (result.affectedRows === 0) {
+      if (result.affectedRows === 0)
         return res.status(404).json({ message: 'Employment category not found' });
-      }
 
-      // SYNC: Set employmentCategory to NULL in users table
-      const updateUsersSql = `
-        UPDATE users 
-        SET employmentCategory = NULL, customCategory = NULL
-        WHERE employeeNumber = ?
-      `;
-      
-      db.query(updateUsersSql, [employeeNumber], (updateErr, updateResult) => {
-        if (updateErr) {
-          console.error('Error updating users table:', updateErr);
-          // Log the error but don't fail the delete operation
-        }
+      const updateUsersSql = `UPDATE users SET employmentCategory = NULL, customCategory = NULL WHERE employeeNumber = ?`;
+      db.query(updateUsersSql, [employeeNumber], (updateErr) => {
+        if (updateErr) console.error('Error updating users table:', updateErr);
+      });
 
-        // Log audit trail
-        logAudit(req.user, 'delete', 'employment_category', id, employeeNumber);
-        
-        // Send success response
-        res.json({ 
-          message: 'Employment category deleted successfully',
-          deletedId: id,
-          employeeNumber: employeeNumber
-        });
+      logAudit(req.user, 'delete', 'employment_category', id, employeeNumber);
+      res.json({
+        message: 'Employment category deleted successfully',
+        deletedId: id,
+        employeeNumber,
       });
     });
   });
