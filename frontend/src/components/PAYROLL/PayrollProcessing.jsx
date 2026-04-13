@@ -758,6 +758,10 @@ const PayrollProcess = () => {
         const n = parseInt(v, 10);
         return Number.isFinite(n) ? n : 0;
       };
+      const toFloat = (v) => {
+        const n = parseFloat(String(v ?? '').replace(/,/g, ''));
+        return Number.isFinite(n) ? n : 0;
+      };
       const toSecondsFromHMS = (h, m, s) =>
         toInt(h) * 3600 + toInt(m) * 60 + toInt(s);
       const secondsToHMS = (totalSeconds) => {
