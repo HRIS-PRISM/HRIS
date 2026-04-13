@@ -940,20 +940,18 @@ const PayrollProcess = () => {
 
   const abbreviateGroup = (groupName) => {
     if (!groupName) return '';
+    const skip = ['and', 'of', 'the', 'for', 'de', 'sa'];
     return groupName
       .split(/\s+/)
-      .map((word) => {
-        const skip = ['and', 'of', 'the', 'for', 'de'];
-        return skip.includes(word.toLowerCase())
-          ? null
-          : word.slice(0, 3).toUpperCase();
-      })
+      .map((word) =>
+        skip.includes(word.toLowerCase()) ? null : word.slice(0, 3).toUpperCase(),
+      )
       .filter(Boolean)
       .join('.');
   };
 
-  const handleQuickTab = (group, tabType) => {
-    const key = `${group}|${tabType}`;
+  const handleQuickTab = (group, type) => {
+    const key = `${group}|${type}`;
     if (activeQuickTab === key) {
       setActiveQuickTab(null);
       setSelectedEmpCat('');
@@ -967,7 +965,6 @@ const PayrollProcess = () => {
       );
       return;
     }
-
     setActiveQuickTab(key);
     const empCatValue = `group||${group}`;
     setSelectedEmpCat(empCatValue);
@@ -3057,58 +3054,62 @@ const PayrollProcess = () => {
                               </IconButton>
                             </Tooltip>
                             <Tooltip title="Edit Record">
-                              <IconButton
-                                size="small"
-                                onClick={() => handleEdit(row.id)}
-                                disabled={isRowProcessed(row)}
-                                sx={{
-                                  width: 28,
-                                  height: 28,
-                                  borderRadius: 1.5,
-                                  bgcolor: isRowProcessed(row)
-                                    ? '#f5f5f5'
-                                    : T.accentFaint,
-                                  color: isRowProcessed(row)
-                                    ? '#ccc'
-                                    : T.accent,
-                                  border: `1px solid ${T.accentBorder}`,
-                                  '&:hover': {
-                                    bgcolor: T.accent,
-                                    color: '#fff',
-                                  },
-                                  transition: 'all 0.15s',
-                                }}
-                              >
-                                <EditIcon sx={{ fontSize: 13 }} />
-                              </IconButton>
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleEdit(row.id)}
+                                  disabled={isRowProcessed(row)}
+                                  sx={{
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 1.5,
+                                    bgcolor: isRowProcessed(row)
+                                      ? '#f5f5f5'
+                                      : T.accentFaint,
+                                    color: isRowProcessed(row)
+                                      ? '#ccc'
+                                      : T.accent,
+                                    border: `1px solid ${T.accentBorder}`,
+                                    '&:hover': {
+                                      bgcolor: T.accent,
+                                      color: '#fff',
+                                    },
+                                    transition: 'all 0.15s',
+                                  }}
+                                >
+                                  <EditIcon sx={{ fontSize: 13 }} />
+                                </IconButton>
+                              </span>
                             </Tooltip>
                             <Tooltip title="Delete Record">
-                              <IconButton
-                                size="small"
-                                onClick={() =>
-                                  handleDelete(row.id, row.employeeNumber)
-                                }
-                                disabled={isRowProcessed(row)}
-                                sx={{
-                                  width: 28,
-                                  height: 28,
-                                  borderRadius: 1.5,
-                                  bgcolor: isRowProcessed(row)
-                                    ? '#f5f5f5'
-                                    : alpha('#ef4444', 0.07),
-                                  color: isRowProcessed(row)
-                                    ? '#ccc'
-                                    : '#ef4444',
-                                  border: '1px solid rgba(239,68,68,0.3)',
-                                  '&:hover': {
-                                    bgcolor: '#ef4444',
-                                    color: '#fff',
-                                  },
-                                  transition: 'all 0.15s',
-                                }}
-                              >
-                                <DeleteIcon sx={{ fontSize: 13 }} />
-                              </IconButton>
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() =>
+                                    handleDelete(row.id, row.employeeNumber)
+                                  }
+                                  disabled={isRowProcessed(row)}
+                                  sx={{
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 1.5,
+                                    bgcolor: isRowProcessed(row)
+                                      ? '#f5f5f5'
+                                      : alpha('#ef4444', 0.07),
+                                    color: isRowProcessed(row)
+                                      ? '#ccc'
+                                      : '#ef4444',
+                                    border: '1px solid rgba(239,68,68,0.3)',
+                                    '&:hover': {
+                                      bgcolor: '#ef4444',
+                                      color: '#fff',
+                                    },
+                                    transition: 'all 0.15s',
+                                  }}
+                                >
+                                  <DeleteIcon sx={{ fontSize: 13 }} />
+                                </IconButton>
+                              </span>
                             </Tooltip>
                           </Box>
                         </TableCell>
@@ -3133,17 +3134,17 @@ const PayrollProcess = () => {
           </Box>
         </Box>
 
-        {/* ── Quick Category Tabs ── */}
+        {/* ── Quick View Tabs ── */}
         {Object.keys(groupedEmpCats).length > 0 && (
           <Box
             sx={{
               px: 3.5,
-              py: 1.5,
+              py: 1,
               borderTop: `1px solid ${T.divider}`,
-              bgcolor: '#fafafa',
+              bgcolor: T.accentFaint,
               display: 'flex',
               flexWrap: 'wrap',
-              gap: 1,
+              gap: 0.75,
               alignItems: 'center',
             }}
           >
@@ -3153,41 +3154,48 @@ const PayrollProcess = () => {
                 fontWeight: 700,
                 color: T.faint,
                 textTransform: 'uppercase',
-                letterSpacing: '0.08em',
+                letterSpacing: '0.07em',
                 mr: 0.5,
                 whiteSpace: 'nowrap',
               }}
             >
-              Quick View:
+              Quick view:
             </Typography>
 
-            {Object.keys(groupedEmpCats).map((group) => {
+            {Object.keys(groupedEmpCats).map((group, gIdx) => {
               const abbr = abbreviateGroup(group);
               const tabs = [
-                { type: 'WTAX', label: `WTAX - ${abbr}` },
-                { type: 'PAY', label: `${abbr} - PAY` },
-                { type: 'DEDS', label: `${abbr} - DEDS` },
-              ];
-              const tabColors = {
-                WTAX: {
+                {
+                  type: 'WTAX',
+                  label: `WTAX - ${abbr}`,
+                  tooltip: `${group} — Withholding Tax View`,
+                  activeColor: '#fb8c00',
                   bg: '#fff3e0',
-                  border: '#fb8c00',
-                  color: '#e65100',
-                  hover: '#fb8c00',
+                  border: 'rgba(251,194,90,0.5)',
+                  color: '#a05500',
+                  icon: <Assessment sx={{ fontSize: 10 }} />,
                 },
-                PAY: {
+                {
+                  type: 'PAY',
+                  label: `${abbr} - PAY`,
+                  tooltip: `${group} — Pay / Salary View`,
+                  activeColor: '#43a047',
                   bg: '#e8f5e9',
-                  border: '#43a047',
-                  color: '#2e7d32',
-                  hover: '#43a047',
+                  border: 'rgba(102,187,106,0.5)',
+                  color: '#1b5e20',
+                  icon: <Payment sx={{ fontSize: 10 }} />,
                 },
-                DEDS: {
+                {
+                  type: 'DEDS',
+                  label: `${abbr} - DEDS`,
+                  tooltip: `${group} — Deductions View`,
+                  activeColor: '#e91e63',
                   bg: '#fce4ec',
-                  border: '#e91e63',
+                  border: 'rgba(240,98,146,0.5)',
                   color: '#880e4f',
-                  hover: '#e91e63',
+                  icon: <CreditCard sx={{ fontSize: 10 }} />,
                 },
-              };
+              ];
 
               return (
                 <Box
@@ -3195,64 +3203,70 @@ const PayrollProcess = () => {
                   sx={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 0.5,
-                    mr: 1,
-                    '&:not(:last-child)::after': {
-                      content: '""',
-                      display: 'block',
-                      width: '1px',
-                      height: 20,
-                      bgcolor: T.divider,
-                      ml: 1,
-                    },
+                    gap: 0.4,
+                    ...(gIdx < Object.keys(groupedEmpCats).length - 1 && {
+                      pr: 1.25,
+                      mr: 0.5,
+                      borderRight: `0.5px solid ${T.divider}`,
+                    }),
                   }}
                 >
-                  {tabs.map(({ type, label }) => {
-                    const isActive = activeQuickTab === `${group}|${type}`;
-                    const c = tabColors[type];
-                    return (
-                      <Tooltip
-                        key={type}
-                        title={`${group} — ${type === 'WTAX' ? 'Withholding Tax View' : type === 'PAY' ? 'Pay / Salary View' : 'Deductions View'}`}
-                        arrow
-                        placement="top"
-                      >
-                        <Box
-                          onClick={() => handleQuickTab(group, type)}
-                          sx={{
-                            px: 1.25,
-                            py: 0.4,
-                            borderRadius: '6px',
-                            border: `1.5px solid ${isActive ? c.hover : alpha(c.border, 0.35)}`,
-                            bgcolor: isActive ? c.hover : c.bg,
-                            color: isActive ? '#fff' : c.color,
-                            fontSize: '0.68rem',
-                            fontWeight: 700,
-                            letterSpacing: '0.04em',
-                            cursor: 'pointer',
-                            whiteSpace: 'nowrap',
-                            userSelect: 'none',
-                            transition: 'all 0.15s ease',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 0.5,
-                            '&:hover': {
-                              bgcolor: c.hover,
-                              color: '#fff',
-                              border: `1.5px solid ${c.hover}`,
-                              transform: 'translateY(-1px)',
-                              boxShadow: `0 3px 8px ${alpha(c.hover, 0.35)}`,
-                            },
-                          }}
-                        >
-                          {type === 'WTAX' && <Assessment sx={{ fontSize: 10 }} />}
-                          {type === 'PAY' && <Payment sx={{ fontSize: 10 }} />}
-                          {type === 'DEDS' && <CreditCard sx={{ fontSize: 10 }} />}
-                          {label}
-                        </Box>
-                      </Tooltip>
-                    );
-                  })}
+                  {tabs.map(
+                    ({
+                      type,
+                      label,
+                      tooltip,
+                      activeColor,
+                      bg,
+                      border,
+                      color,
+                      icon,
+                    }) => {
+                      const isActive = activeQuickTab === `${group}|${type}`;
+                      return (
+                        <Tooltip key={type} title={tooltip} arrow placement="top">
+                          <Box
+                            onClick={() => handleQuickTab(group, type)}
+                            sx={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 0.5,
+                              px: 1.1,
+                              py: 0.35,
+                              borderRadius: '5px',
+                              border: `1.5px solid ${isActive ? activeColor : border}`,
+                              bgcolor: isActive ? activeColor : bg,
+                              color: isActive ? '#fff' : color,
+                              fontSize: '0.68rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                              userSelect: 'none',
+                              transition: 'all 0.15s ease',
+                              '&:hover': {
+                                bgcolor: activeColor,
+                                color: '#fff',
+                                border: `1.5px solid ${activeColor}`,
+                                transform: 'translateY(-1px)',
+                                boxShadow: `0 3px 8px ${alpha(activeColor, 0.3)}`,
+                              },
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: '50%',
+                                bgcolor: isActive ? '#fff' : activeColor,
+                                flexShrink: 0,
+                              }}
+                            />
+                            {label}
+                          </Box>
+                        </Tooltip>
+                      );
+                    },
+                  )}
                 </Box>
               );
             })}
@@ -3272,18 +3286,18 @@ const PayrollProcess = () => {
                   );
                 }}
                 sx={{
-                  px: 1.25,
-                  py: 0.4,
-                  borderRadius: '6px',
-                  border: `1.5px solid ${alpha('#d32f2f', 0.35)}`,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 0.4,
+                  px: 1.1,
+                  py: 0.35,
+                  borderRadius: '5px',
+                  border: '1.5px solid rgba(211,47,47,0.35)',
                   bgcolor: alpha('#d32f2f', 0.06),
                   color: '#d32f2f',
                   fontSize: '0.68rem',
                   fontWeight: 700,
                   cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.5,
                   transition: 'all 0.15s ease',
                   '&:hover': {
                     bgcolor: '#d32f2f',
