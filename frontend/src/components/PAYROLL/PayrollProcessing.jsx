@@ -214,6 +214,7 @@ const PayrollProcess = () => {
   const [payrollFormulasData, setPayrollFormulasData] = useState([]);
   const [empCatMap, setEmpCatMap] = useState({});
   const [selectedEmpCat, setSelectedEmpCat] = useState('');
+  const [activeQuickTab, setActiveQuickTab] = useState(null);
 
   const groupedEmpCats = useMemo(() => {
     const g = {};
@@ -629,6 +630,7 @@ const PayrollProcess = () => {
   const handleEmpCatChange = (e) => {
     const v = e.target.value;
     setSelectedEmpCat(v);
+    setActiveQuickTab(null);
     applyFilters(
       selectedDepartment,
       searchTerm,
@@ -663,6 +665,7 @@ const PayrollProcess = () => {
     setSelectedMonth('');
     setSelectedYear('');
     setSelectedEmpCat('');
+    setActiveQuickTab(null);
     applyFilters('', searchTerm, '', '', '', '');
   };
   const hasActiveFilters =
@@ -934,6 +937,49 @@ const PayrollProcess = () => {
       minimumFractionDigits: dec,
       maximumFractionDigits: dec,
     });
+
+  const abbreviateGroup = (groupName) => {
+    if (!groupName) return '';
+    return groupName
+      .split(/\s+/)
+      .map((word) => {
+        const skip = ['and', 'of', 'the', 'for', 'de'];
+        return skip.includes(word.toLowerCase())
+          ? null
+          : word.slice(0, 3).toUpperCase();
+      })
+      .filter(Boolean)
+      .join('.');
+  };
+
+  const handleQuickTab = (group, tabType) => {
+    const key = `${group}|${tabType}`;
+    if (activeQuickTab === key) {
+      setActiveQuickTab(null);
+      setSelectedEmpCat('');
+      applyFilters(
+        selectedDepartment,
+        searchTerm,
+        selectedStatus,
+        selectedMonth,
+        selectedYear,
+        '',
+      );
+      return;
+    }
+
+    setActiveQuickTab(key);
+    const empCatValue = `group||${group}`;
+    setSelectedEmpCat(empCatValue);
+    applyFilters(
+      selectedDepartment,
+      searchTerm,
+      selectedStatus,
+      selectedMonth,
+      selectedYear,
+      empCatValue,
+    );
+  };
 
   const computedRows = filteredData.map((item) => {
     const c = calculatePayroll(item) || item;
@@ -3086,6 +3132,172 @@ const PayrollProcess = () => {
             </Table>
           </Box>
         </Box>
+
+        {/* ── Quick Category Tabs ── */}
+        {Object.keys(groupedEmpCats).length > 0 && (
+          <Box
+            sx={{
+              px: 3.5,
+              py: 1.5,
+              borderTop: `1px solid ${T.divider}`,
+              bgcolor: '#fafafa',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 1,
+              alignItems: 'center',
+            }}
+          >
+            <Typography
+              sx={{
+                fontSize: '0.68rem',
+                fontWeight: 700,
+                color: T.faint,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                mr: 0.5,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Quick View:
+            </Typography>
+
+            {Object.keys(groupedEmpCats).map((group) => {
+              const abbr = abbreviateGroup(group);
+              const tabs = [
+                { type: 'WTAX', label: `WTAX - ${abbr}` },
+                { type: 'PAY', label: `${abbr} - PAY` },
+                { type: 'DEDS', label: `${abbr} - DEDS` },
+              ];
+              const tabColors = {
+                WTAX: {
+                  bg: '#fff3e0',
+                  border: '#fb8c00',
+                  color: '#e65100',
+                  hover: '#fb8c00',
+                },
+                PAY: {
+                  bg: '#e8f5e9',
+                  border: '#43a047',
+                  color: '#2e7d32',
+                  hover: '#43a047',
+                },
+                DEDS: {
+                  bg: '#fce4ec',
+                  border: '#e91e63',
+                  color: '#880e4f',
+                  hover: '#e91e63',
+                },
+              };
+
+              return (
+                <Box
+                  key={group}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.5,
+                    mr: 1,
+                    '&:not(:last-child)::after': {
+                      content: '""',
+                      display: 'block',
+                      width: '1px',
+                      height: 20,
+                      bgcolor: T.divider,
+                      ml: 1,
+                    },
+                  }}
+                >
+                  {tabs.map(({ type, label }) => {
+                    const isActive = activeQuickTab === `${group}|${type}`;
+                    const c = tabColors[type];
+                    return (
+                      <Tooltip
+                        key={type}
+                        title={`${group} — ${type === 'WTAX' ? 'Withholding Tax View' : type === 'PAY' ? 'Pay / Salary View' : 'Deductions View'}`}
+                        arrow
+                        placement="top"
+                      >
+                        <Box
+                          onClick={() => handleQuickTab(group, type)}
+                          sx={{
+                            px: 1.25,
+                            py: 0.4,
+                            borderRadius: '6px',
+                            border: `1.5px solid ${isActive ? c.hover : alpha(c.border, 0.35)}`,
+                            bgcolor: isActive ? c.hover : c.bg,
+                            color: isActive ? '#fff' : c.color,
+                            fontSize: '0.68rem',
+                            fontWeight: 700,
+                            letterSpacing: '0.04em',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            userSelect: 'none',
+                            transition: 'all 0.15s ease',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.5,
+                            '&:hover': {
+                              bgcolor: c.hover,
+                              color: '#fff',
+                              border: `1.5px solid ${c.hover}`,
+                              transform: 'translateY(-1px)',
+                              boxShadow: `0 3px 8px ${alpha(c.hover, 0.35)}`,
+                            },
+                          }}
+                        >
+                          {type === 'WTAX' && <Assessment sx={{ fontSize: 10 }} />}
+                          {type === 'PAY' && <Payment sx={{ fontSize: 10 }} />}
+                          {type === 'DEDS' && <CreditCard sx={{ fontSize: 10 }} />}
+                          {label}
+                        </Box>
+                      </Tooltip>
+                    );
+                  })}
+                </Box>
+              );
+            })}
+
+            {activeQuickTab && (
+              <Box
+                onClick={() => {
+                  setActiveQuickTab(null);
+                  setSelectedEmpCat('');
+                  applyFilters(
+                    selectedDepartment,
+                    searchTerm,
+                    selectedStatus,
+                    selectedMonth,
+                    selectedYear,
+                    '',
+                  );
+                }}
+                sx={{
+                  px: 1.25,
+                  py: 0.4,
+                  borderRadius: '6px',
+                  border: `1.5px solid ${alpha('#d32f2f', 0.35)}`,
+                  bgcolor: alpha('#d32f2f', 0.06),
+                  color: '#d32f2f',
+                  fontSize: '0.68rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  transition: 'all 0.15s ease',
+                  '&:hover': {
+                    bgcolor: '#d32f2f',
+                    color: '#fff',
+                    transform: 'translateY(-1px)',
+                  },
+                }}
+              >
+                <Close sx={{ fontSize: 10 }} />
+                Clear
+              </Box>
+            )}
+          </Box>
+        )}
 
         {/* Pagination */}
         <Box
