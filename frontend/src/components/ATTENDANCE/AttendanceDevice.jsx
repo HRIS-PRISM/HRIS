@@ -63,7 +63,7 @@ import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 
-// ─── Theme tokens ──────────────────────────────────────────────────────────
+// ─── Theme tokens (mirrors AttendanceUserState T object) ───────────────────
 const T = {
   accent:       '#6d2323',
   accentDark:   '#5a1d1d',
@@ -112,12 +112,14 @@ const ViewAttendanceWireframe = () => (
       position: 'relative', left: '63%', transform: 'translateX(-61%)',
       px: { xs: 2, sm: 3, md: 6 },
     }}>
+      {/* Header */}
       <Box sx={{ mb: 2, borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', animation: 'blink 2s ease-in-out infinite' }}>
         <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', gap: 2.5 }}>
           <Box sx={{ width: 30, height: 30, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
           <Box><Bone w={280} h={18} sx={{ mb: 1 }} /><Bone w={380} h={11} /></Box>
         </Box>
       </Box>
+      {/* Controls */}
       <Box sx={{ mb: 2, borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff', animation: 'blink 2s ease-in-out 0.1s infinite' }}>
         <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1.25, minHeight: 42 }}>
           <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.2)' }} />
@@ -134,6 +136,7 @@ const ViewAttendanceWireframe = () => (
           </Box>
         </Box>
       </Box>
+      {/* Table */}
       <Box sx={{ borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff', animation: 'blink 2s ease-in-out 0.2s infinite' }}>
         <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accent, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 2 }}>
           {[100, 80, 80, 80].map((w, i) => <Box key={i} sx={{ height: 10, width: w, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.22)' }} />)}
@@ -148,7 +151,7 @@ const ViewAttendanceWireframe = () => (
   </>
 );
 
-// ─── Styled primitives ─────────────────────────────────────────────────────
+// ─── Styled primitives (mirrors AttendanceUserState) ───────────────────────
 const SectionCard = styled(Card)({
   borderRadius: 12,
   boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
@@ -218,7 +221,7 @@ const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, ic
   </Box>
 );
 
-// ─── Row action button (small, for table/panel actions) ────────────────────
+// ─── Row action button ─────────────────────────────────────────────────────
 const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
   <button
     onClick={onClick}
@@ -241,33 +244,6 @@ const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
     onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.borderColor = `${color}40`; }}
   >
     {icon}{label}
-  </button>
-);
-
-// ─── Large action button (matches AttendanceModuleFaculty style) ───────────
-const ActionBtn = ({ icon, label, onClick, color, hoverBg, disabled = false, loading = false }) => (
-  <button
-    onClick={onClick}
-    disabled={disabled}
-    style={{
-      background: 'transparent',
-      border: `1px solid ${color}40`,
-      borderRadius: '8px',
-      padding: '9px 18px',
-      cursor: disabled ? 'not-allowed' : 'pointer',
-      color,
-      display: 'flex', alignItems: 'center', gap: '6px',
-      fontSize: '0.85rem', fontWeight: 700,
-      fontFamily: 'inherit',
-      transition: 'background-color 0.15s, border-color 0.15s',
-      whiteSpace: 'nowrap',
-      opacity: disabled ? 0.5 : 1,
-    }}
-    onMouseEnter={e => { if (!disabled) { e.currentTarget.style.backgroundColor = hoverBg; e.currentTarget.style.borderColor = color; }}}
-    onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.borderColor = `${color}40`; }}
-  >
-    {loading ? <CircularProgress size={14} sx={{ color }} /> : icon}
-    {label}
   </button>
 );
 
@@ -650,30 +626,6 @@ const ViewAttendanceRecord = () => {
 
   const pct = progressTotal > 0 ? Math.min(100, Math.round((progressDone / progressTotal) * 100)) : 0;
 
-  // ─── View mode toggle (reused in filter panel header) ─────────────────────
-  const ViewModeToggle = (
-    <Box sx={{ display: 'flex', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, overflow: 'hidden' }}>
-      {['single', 'multiple'].map((mode) => (
-        <button
-          key={mode}
-          onClick={() => setViewMode(mode)}
-          style={{
-            background: viewMode === mode ? T.accent : 'transparent',
-            border: 'none',
-            padding: '5px 14px',
-            cursor: 'pointer',
-            color: viewMode === mode ? '#fff' : T.accent,
-            fontSize: '0.75rem', fontWeight: 700,
-            fontFamily: 'inherit',
-            transition: 'all 0.15s',
-          }}
-        >
-          {mode === 'single' ? 'Single User' : 'All Users'}
-        </button>
-      ))}
-    </Box>
-  );
-
   return (
     <Fade in timeout={400}>
       <Box sx={{
@@ -762,8 +714,29 @@ const ViewAttendanceRecord = () => {
               </Box>
             </Box>
 
-            {/* Header right — only Auto-Save badge + Refresh */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+              {/* View mode toggle */}
+              <Box sx={{ display: 'flex', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, overflow: 'hidden' }}>
+                {['single', 'multiple'].map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setViewMode(mode)}
+                    style={{
+                      background: viewMode === mode ? T.accent : 'transparent',
+                      border: 'none',
+                      padding: '7px 14px',
+                      cursor: 'pointer',
+                      color: viewMode === mode ? '#fff' : T.accent,
+                      fontSize: '0.75rem', fontWeight: 700,
+                      fontFamily: 'inherit',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {mode === 'single' ? 'Single User' : 'All Users'}
+                  </button>
+                ))}
+              </Box>
+
               <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha('#4caf50', 0.12), border: '1px solid rgba(76,175,80,0.25)' }}>
                 <Typography sx={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <CheckCircle sx={{ fontSize: 12 }} /> Auto-Save Enabled
@@ -800,12 +773,7 @@ const ViewAttendanceRecord = () => {
 
         {/* ── Controls Card ── */}
         <SectionCard sx={{ mb: 2 }}>
-          {/* Panel header now contains the view mode toggle on the right */}
-          <PanelHeader
-            icon={FilterList}
-            title="Filter Attendance Records"
-            right={ViewModeToggle}
-          />
+          <PanelHeader icon={FilterList} title="Filter Attendance Records" />
 
           <Box sx={{ px: 2.5, pt: 2, pb: 2.5 }}>
 
@@ -961,38 +929,22 @@ const ViewAttendanceRecord = () => {
               </Box>
             </Box>
 
-            {/* ── Clear + Action button row ── */}
+            {/* Clear + Submit */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 1 }}>
-              {/* Clear — large style */}
-              <ActionBtn
-                icon={<Clear sx={{ fontSize: 15 }} />}
+              <RowBtn
+                icon={<Clear sx={{ fontSize: 13 }} />}
                 label="Clear All Filters"
                 color="#C62828"
                 hoverBg="rgba(198,40,40,0.08)"
                 onClick={handleClearFilters}
               />
-
-              {/* Single user: Fetch Records */}
               {viewMode === 'single' && (
-                <ActionBtn
-                  icon={<Search sx={{ fontSize: 15 }} />}
+                <RowBtn
+                  icon={<Search sx={{ fontSize: 13 }} />}
                   label="Fetch Records"
                   color={T.accent}
                   hoverBg={T.accentFaint}
                   onClick={() => fetchRecords(true)}
-                />
-              )}
-
-              {/* All users: Load All Users */}
-              {viewMode === 'multiple' && (
-                <ActionBtn
-                  icon={<People sx={{ fontSize: 15 }} />}
-                  label={loadingAllUsers ? 'Loading…' : 'Load All Users'}
-                  color={T.accent}
-                  hoverBg={T.accentFaint}
-                  onClick={fetchAllUsersDTR}
-                  disabled={loadingAllUsers || !startDate || !endDate}
-                  loading={loadingAllUsers}
                 />
               )}
             </Box>
@@ -1017,16 +969,26 @@ const ViewAttendanceRecord = () => {
                 icon={People}
                 title="All Users DTR List (Auto-Saved)"
                 right={
-                  allUsersDTR.length > 0 ? (
+                  <Box sx={{ display: 'flex', gap: 1 }}>
                     <RowBtn
-                      icon={<Send sx={{ fontSize: 13 }} />}
-                      label={`View DTR (${selectedCountInFiltered})`}
-                      color="#2e7d32"
-                      hoverBg="rgba(46,125,50,0.08)"
-                      onClick={handleBulkSendToDTR}
-                      disabled={selectedCountInFiltered === 0}
+                      icon={loadingAllUsers ? <CircularProgress size={12} /> : <People sx={{ fontSize: 13 }} />}
+                      label={loadingAllUsers ? 'Loading…' : 'Load All Users'}
+                      color={T.accent}
+                      hoverBg={T.accentFaint}
+                      onClick={fetchAllUsersDTR}
+                      disabled={loadingAllUsers || !startDate || !endDate}
                     />
-                  ) : null
+                    {allUsersDTR.length > 0 && (
+                      <RowBtn
+                        icon={<Send sx={{ fontSize: 13 }} />}
+                        label={`View DTR (${selectedCountInFiltered})`}
+                        color="#2e7d32"
+                        hoverBg="rgba(46,125,50,0.08)"
+                        onClick={handleBulkSendToDTR}
+                        disabled={selectedCountInFiltered === 0}
+                      />
+                    )}
+                  </Box>
                 }
               />
 
@@ -1035,6 +997,7 @@ const ViewAttendanceRecord = () => {
                   <>
                     {/* Toolbar */}
                     <Box sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {/* Search */}
                       <Box sx={{ flex: 1, minWidth: 220 }}>
                         <NativeInput
                           value={searchQuery}
@@ -1044,6 +1007,7 @@ const ViewAttendanceRecord = () => {
                         />
                       </Box>
 
+                      {/* Record filter */}
                       <FormControl size="small" sx={{ minWidth: 140 }}>
                         <Select
                           value={recordFilter}
@@ -1188,7 +1152,7 @@ const ViewAttendanceRecord = () => {
                       <People sx={{ fontSize: 24, color: alpha(T.accent, 0.3) }} />
                     </Box>
                     <Typography sx={{ fontSize: '0.88rem', fontWeight: 600, color: T.muted, mb: 0.4 }}>No data loaded</Typography>
-                    <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>Click "Load All Users" in the filter panel above to fetch and auto-save all users' DTR data.</Typography>
+                    <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>Click "Load All Users" to fetch and auto-save all users' DTR data.</Typography>
                   </Box>
                 )}
               </Box>

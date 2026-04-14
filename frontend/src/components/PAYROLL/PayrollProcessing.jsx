@@ -1483,7 +1483,7 @@ const PayrollProcess = () => {
     fontFamily: T.font,
     position: 'sticky',
     right: STICKY_ACTIONS_WIDTH,
-    zIndex: 50,
+    zIndex: 52,
     width: STICKY_STATUS_WIDTH,
     minWidth: STICKY_STATUS_WIDTH,
   };
@@ -1503,7 +1503,7 @@ const PayrollProcess = () => {
     fontFamily: T.font,
     position: 'sticky',
     right: 0,
-    zIndex: 51,
+    zIndex: 53,
     boxShadow: `-2px 0 6px ${alpha(T.accent, 0.07)}`,
   };
 
@@ -1516,7 +1516,7 @@ const PayrollProcess = () => {
     zIndex: 40,
     width: STICKY_STATUS_WIDTH,
     minWidth: STICKY_STATUS_WIDTH,
-    bgcolor: index % 2 === 0 ? T.rowEven : T.rowOdd,
+  bgcolor: index % 2 === 0 ? '#ffffff' : '#f9f4f4',
   });
 
   const getStickyActionsBodySx = (index) => ({
@@ -1526,9 +1526,9 @@ const PayrollProcess = () => {
     position: 'sticky',
     right: 0,
     zIndex: 41,
-    bgcolor: index % 2 === 0 ? T.rowEven : T.rowOdd,
-    boxShadow: `-2px 0 6px ${alpha(T.accent, 0.07)}`,
-    borderLeft: `2px solid ${T.accentBorder}`,
+ bgcolor: index % 2 === 0 ? '#ffffff' : '#f9f4f4',
+  boxShadow: `-2px 0 6px ${alpha(T.accent, 0.07)}`,
+  borderLeft: `2px solid ${T.accentBorder}`,
   });
 
   const ActionButtons = ({ row, contextView }) => (
