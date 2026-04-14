@@ -84,15 +84,7 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PendingIcon from '@mui/icons-material/Pending';
 
-// ── Inject Poppins font ────────────────────────────────────────────────────────
-const poppinsStyle = document.createElement('style');
-poppinsStyle.textContent = `
-  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
-`;
-if (!document.head.querySelector('[data-poppins]')) {
-  poppinsStyle.setAttribute('data-poppins', '1');
-  document.head.appendChild(poppinsStyle);
-}
+
 
 const isRowProcessed = (row) => row.status === 'Processed' || row.status === 1;
 

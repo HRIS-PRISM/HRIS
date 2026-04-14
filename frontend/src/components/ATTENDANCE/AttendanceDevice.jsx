@@ -172,20 +172,32 @@ const AccentButton = styled(Button)({
 });
 
 // ─── Shared panel header bar ───────────────────────────────────────────────
-const PanelHeader = ({ icon: Icon, title, right }) => (
-  <Box sx={{
-    px: 2.5, py: 1.25,
-    borderBottom: `1px solid ${T.divider}`,
-    display: 'flex', alignItems: 'center', gap: 1.25,
-    bgcolor: T.accentFaint, minHeight: 42,
-  }}>
-    <Icon sx={{ fontSize: 14, color: T.accent }} />
-    <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.accent }}>
-      {title}
-    </Typography>
-    {right && <><Box sx={{ flex: 1 }} />{right}</>}
-  </Box>
-);
+const PanelHeader = ({ icon: Icon, title, rightContent }) => {
+  return (
+    <Box
+      sx={{
+        px: 2.5,
+        py: 1.5,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between', // 👈 ADD THIS
+        borderBottom: `1px solid ${T.divider}`,
+        bgcolor: T.accentFaint,
+      }}
+    >
+      {/* LEFT */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Icon sx={{ fontSize: 15, color: T.accent }} />
+        <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.accent }}>
+          {title}
+        </Typography>
+      </Box>
+
+      {/* RIGHT (NEW) */}
+      {rightContent}
+    </Box>
+  );
+};
 
 // ─── Native input ──────────────────────────────────────────────────────────
 const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, icon }) => (
@@ -229,12 +241,13 @@ const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
     style={{
       background: 'transparent',
       border: `1px solid ${color}40`,
-      borderRadius: '6px',
-      padding: '4px 10px',
+      borderRadius: '8px',
+      padding: '9px 18px',        // ← was 4px 10px
       cursor: disabled ? 'default' : 'pointer',
       color,
-      display: 'flex', alignItems: 'center', gap: '4px',
-      fontSize: '0.72rem', fontWeight: 700,
+      display: 'flex', alignItems: 'center', gap: '6px',
+      fontSize: '0.85rem',        // ← was 0.72rem
+      fontWeight: 700,
       fontFamily: 'inherit',
       transition: 'background-color 0.15s, border-color 0.15s',
       whiteSpace: 'nowrap',
@@ -716,26 +729,7 @@ const ViewAttendanceRecord = () => {
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
               {/* View mode toggle */}
-              <Box sx={{ display: 'flex', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, overflow: 'hidden' }}>
-                {['single', 'multiple'].map((mode) => (
-                  <button
-                    key={mode}
-                    onClick={() => setViewMode(mode)}
-                    style={{
-                      background: viewMode === mode ? T.accent : 'transparent',
-                      border: 'none',
-                      padding: '7px 14px',
-                      cursor: 'pointer',
-                      color: viewMode === mode ? '#fff' : T.accent,
-                      fontSize: '0.75rem', fontWeight: 700,
-                      fontFamily: 'inherit',
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    {mode === 'single' ? 'Single User' : 'All Users'}
-                  </button>
-                ))}
-              </Box>
+   
 
               <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha('#4caf50', 0.12), border: '1px solid rgba(76,175,80,0.25)' }}>
                 <Typography sx={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -773,8 +767,40 @@ const ViewAttendanceRecord = () => {
 
         {/* ── Controls Card ── */}
         <SectionCard sx={{ mb: 2 }}>
-          <PanelHeader icon={FilterList} title="Filter Attendance Records" />
-
+<PanelHeader
+  icon={FilterList}
+  title="Filter Attendance Records"
+  rightContent={
+    <Box
+      sx={{
+        display: 'flex',
+        borderRadius: '8px',
+        border: `1px solid ${T.accentBorder}`,
+        overflow: 'hidden',
+      }}
+    >
+      {['single', 'multiple'].map((mode) => (
+        <button
+          key={mode}
+          onClick={() => setViewMode(mode)}
+          style={{
+            background: viewMode === mode ? T.accent : 'transparent',
+            border: 'none',
+            padding: '6px 12px',
+            cursor: 'pointer',
+            color: viewMode === mode ? '#fff' : T.accent,
+            fontSize: '0.7rem',
+            fontWeight: 700,
+            fontFamily: 'inherit',
+            transition: 'all 0.15s',
+          }}
+        >
+          {mode === 'single' ? 'Single User' : 'All Users'}
+        </button>
+      ))}
+    </Box>
+  }
+/>                
           <Box sx={{ px: 2.5, pt: 2, pb: 2.5 }}>
 
             {/* Input fields */}
@@ -929,25 +955,35 @@ const ViewAttendanceRecord = () => {
               </Box>
             </Box>
 
-            {/* Clear + Submit */}
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 1 }}>
-              <RowBtn
-                icon={<Clear sx={{ fontSize: 13 }} />}
-                label="Clear All Filters"
-                color="#C62828"
-                hoverBg="rgba(198,40,40,0.08)"
-                onClick={handleClearFilters}
-              />
-              {viewMode === 'single' && (
-                <RowBtn
-                  icon={<Search sx={{ fontSize: 13 }} />}
-                  label="Fetch Records"
-                  color={T.accent}
-                  hoverBg={T.accentFaint}
-                  onClick={() => fetchRecords(true)}
-                />
-              )}
-            </Box>
+{/* Clear + Submit */}
+<Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 1 }}>
+  <RowBtn
+    icon={<Clear sx={{ fontSize: 16 }} />}
+    label="Clear All Filters"
+    color="#C62828"
+    hoverBg="rgba(198,40,40,0.08)"
+    onClick={handleClearFilters}
+  />
+  {viewMode === 'single' && (
+    <RowBtn
+      icon={<Search sx={{ fontSize: 16 }} />}
+      label="Search Records"
+      color={T.accent}
+      hoverBg={T.accentFaint}
+      onClick={() => fetchRecords(true)}
+    />
+  )}
+  {viewMode === 'multiple' && (
+    <RowBtn
+      icon={loadingAllUsers ? <CircularProgress size={14} /> : <People sx={{ fontSize: 16 }} />}
+      label={loadingAllUsers ? 'Loading…' : 'Load All Users'}
+      color={T.accent}
+      hoverBg={T.accentFaint}
+      onClick={fetchAllUsersDTR}
+      disabled={loadingAllUsers || !startDate || !endDate}
+    />
+  )}
+</Box>
           </Box>
         </SectionCard>
 
@@ -968,16 +1004,9 @@ const ViewAttendanceRecord = () => {
               <PanelHeader
                 icon={People}
                 title="All Users DTR List (Auto-Saved)"
-                right={
+                rightContent={
                   <Box sx={{ display: 'flex', gap: 1 }}>
-                    <RowBtn
-                      icon={loadingAllUsers ? <CircularProgress size={12} /> : <People sx={{ fontSize: 13 }} />}
-                      label={loadingAllUsers ? 'Loading…' : 'Load All Users'}
-                      color={T.accent}
-                      hoverBg={T.accentFaint}
-                      onClick={fetchAllUsersDTR}
-                      disabled={loadingAllUsers || !startDate || !endDate}
-                    />
+                   
                     {allUsersDTR.length > 0 && (
                       <RowBtn
                         icon={<Send sx={{ fontSize: 13 }} />}
