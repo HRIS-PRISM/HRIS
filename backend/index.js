@@ -58,6 +58,7 @@ const settingsExtendedRoutes = require('./routes/settings-extended');
 const confidentialPasswordRoutes = require('./routes/confidential-password');
 const commutationRoute = require('./routes/commutation');
 const pdsTemplatesRoutes = require('./routes/pds-templates');
+const workingHoursRoutes = require('./routes/workingHoursRoutes');
 
 
 
@@ -314,6 +315,37 @@ db.query(ensureContactStatusEnumSQL, (err) => {
   }
 });
 
+// Ensure working hours rate settings exist (only editable source rates are stored)
+const ensureWorkingHoursRatesTableSQL = `
+  CREATE TABLE IF NOT EXISTS working_hours_rates (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    rate_key VARCHAR(20) NOT NULL,
+    rate_value VARCHAR(20) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_rate_key (rate_key)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+
+db.query(ensureWorkingHoursRatesTableSQL, (err) => {
+  if (err) {
+    console.error('Failed to ensure working_hours_rates table exists:', err.message);
+  } else {
+    console.log('working_hours_rates table ready');
+
+    db.query(
+      `INSERT INTO working_hours_rates (rate_key, rate_value)
+       VALUES ('hour', '0.125'), ('minute', '0.002')
+       ON DUPLICATE KEY UPDATE rate_value = VALUES(rate_value)`,
+      (seedErr) => {
+        if (seedErr) {
+          console.error('working_hours_rates seed migration:', seedErr.message);
+        }
+      },
+    );
+  }
+});
+
 // existing routes
 app.use('/ChildrenRoute', childrenRouter);
 app.use('/VoluntaryRoute', VoluntaryWork);
@@ -364,6 +396,7 @@ app.use('/', PayrollFormulas);
 app.use('/commutationRoute', commutationRoute);
 app.use('/pds-templates', pdsTemplatesRoutes);
 app.use('/auto-attendance', AutoAttendance);
+app.use('/api/working-hours', workingHoursRoutes);
 
 // Server startup with Socket.IO
 const PORT = process.env.WEB_PORT || 5000;

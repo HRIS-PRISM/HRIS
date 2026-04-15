@@ -90,6 +90,7 @@ const PAYROLL_FIELDS = [
   { value: 's',                      label: 'Seconds Worked',                     category: 'Time'       },
   { value: 'gsisSalaryLoan',         label: 'GSIS Salary Loan',                   category: 'Loans'      },
   { value: 'gsisPolicyLoan',         label: 'GSIS Policy Loan',                   category: 'Loans'      },
+  { value: 'gfal',                   label: 'GFAL',                               category: 'Loans'      },
   { value: 'gsisArrears',            label: 'GSIS Arrears',                       category: 'Loans'      },
   { value: 'cpl',                    label: 'CPL',                                category: 'Loans'      },
   { value: 'mpl',                    label: 'MPL',                                category: 'Loans'      },
@@ -156,7 +157,6 @@ const scrollSx = {
 const formatForDisplay = (formula) => {
   if (!formula) return '';
   return formula
-    .replace(/parseFloat\s*\(/g, '')
     .replace(/parseFloat\(item\.(\w+)\s*\|\|\s*0\)/g, '$1')
     .replace(/parseFloat\((\w+)\s*\|\|\s*0\)/g, '$1')
     .replace(/parseFloat\(([^)]+)\)/g, '$1')

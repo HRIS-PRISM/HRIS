@@ -103,7 +103,7 @@ router.get('/employee-remittance', authenticateToken, (req, res) => {
                END
              )
            ) as name,
-           r.liquidatingCash, r.gsisSalaryLoan, r.gsisPolicyLoan, r.gsisArrears,
+           r.liquidatingCash, r.gsisSalaryLoan, r.gsisPolicyLoan, r.gfal, r.gsisArrears,
            r.cpl, r.mpl, r.mplLite, r.emergencyLoan, r.nbc594, r.increment, r.sss,
            r.pagibig, r.pagibigFundCont, r.pagibig2, r.multiPurpLoan,
            r.landbankSalaryLoan, r.earistCreditCoop, r.feu, r.created_at
@@ -167,6 +167,7 @@ router.post('/employee-remittance', authenticateToken, (req, res) => {
     liquidatingCash,
     gsisSalaryLoan,
     gsisPolicyLoan,
+    gfal,
     gsisArrears,
     cpl,
     mpl,
@@ -234,12 +235,12 @@ router.post('/employee-remittance', authenticateToken, (req, res) => {
       // If employee exists and no duplicate found, proceed with insertion
       const sql = `
         INSERT INTO remittance_table (
-          employeeNumber, liquidatingCash, gsisSalaryLoan, gsisPolicyLoan, gsisArrears,
+          employeeNumber, liquidatingCash, gsisSalaryLoan, gsisPolicyLoan, gfal, gsisArrears,
           cpl, mpl, mplLite, emergencyLoan, nbc594, increment, sss,
           pagibig, pagibigFundCont, pagibig2, multiPurpLoan,
           landbankSalaryLoan, earistCreditCoop, feu
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
 
@@ -248,6 +249,7 @@ router.post('/employee-remittance', authenticateToken, (req, res) => {
         liquidatingCash || 0,
         gsisSalaryLoan || 0,
         gsisPolicyLoan || 0,
+        gfal || 0,
         gsisArrears || 0,
         cpl || 0,
         mpl || 0,
@@ -311,6 +313,7 @@ router.put('/employee-remittance/:id', authenticateToken, (req, res) => {
     liquidatingCash,
     gsisSalaryLoan,
     gsisPolicyLoan,
+    gfal,
     gsisArrears,
     cpl,
     mpl,
@@ -385,6 +388,7 @@ router.put('/employee-remittance/:id', authenticateToken, (req, res) => {
             liquidatingCash = ?,
             gsisSalaryLoan = ?,
             gsisPolicyLoan = ?,
+          gfal = ?,
             gsisArrears = ?,
             cpl = ?,
             mpl = ?,
@@ -409,6 +413,7 @@ router.put('/employee-remittance/:id', authenticateToken, (req, res) => {
           liquidatingCash || 0,
           gsisSalaryLoan || 0,
           gsisPolicyLoan || 0,
+          gfal || 0,
           gsisArrears || 0,
           cpl || 0,
           mpl || 0,
@@ -475,6 +480,7 @@ router.put('/employee-remittance/:id', authenticateToken, (req, res) => {
     liquidatingCash,
     gsisSalaryLoan,
     gsisPolicyLoan,
+    gfal,
     gsisArrears,
     cpl,
     mpl,
@@ -520,6 +526,7 @@ router.put('/employee-remittance/:id', authenticateToken, (req, res) => {
           liquidatingCash = ?,
           gsisSalaryLoan = ?,
           gsisPolicyLoan = ?,
+          gfal = ?,
           gsisArrears = ?,
           cpl = ?,
           mpl = ?,
@@ -544,6 +551,7 @@ router.put('/employee-remittance/:id', authenticateToken, (req, res) => {
       liquidatingCash || 0,
       gsisSalaryLoan || 0,
       gsisPolicyLoan || 0,
+      gfal || 0,
       gsisArrears || 0,
       cpl || 0,
       mpl || 0,

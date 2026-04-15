@@ -48,11 +48,16 @@ import {
   VerifiedUser,
   Person,
   KeyboardArrowUp,
-  Info,
+  EventNote,
+  TableRows,
+  AddCircleOutline,
 } from "@mui/icons-material";
 import { useSystemSettings } from "../../hooks/useSystemSettings";
 import usePageAccess from "../../hooks/usePageAccess";
 import AccessDenied from "../AccessDenied";
+
+// ─── Poppins font import ───────────────────────────────────────────────────
+const poppinsImport = `@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');`;
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────
 const T = {
@@ -61,7 +66,7 @@ const T = {
   accentMid:    "#8B4545",
   accentFaint:  "rgba(109,35,35,0.06)",
   accentBorder: "rgba(109,35,35,0.14)",
-  accentHover:  "rgba(109,35,35,0.10)",
+  accentHover:  "rgba(109,35,35,0.055)",
   rowOdd:       "rgba(109,35,35,0.025)",
   rowHover:     "rgba(109,35,35,0.055)",
   text:         "#1a1a1a",
@@ -69,10 +74,16 @@ const T = {
   faint:        "#a0a0a0",
   surface:      "#ffffff",
   divider:      "rgba(0,0,0,0.08)",
+  weekend:      "rgba(109,35,35,0.045)",
+  noRecord:     "rgba(245,158,11,0.06)",
+  noRecordBorder:"rgba(245,158,11,0.25)",
+  font:         "'Poppins', sans-serif",
 };
 
 // ─── Shimmer keyframes ─────────────────────────────────────────────────────
 const shimmerKf = `
+${poppinsImport}
+* { font-family: 'Poppins', sans-serif !important; }
 @keyframes shimmer {
   0%   { background-position: -800px 0; }
   100% { background-position:  800px 0; }
@@ -82,7 +93,6 @@ const shimmerKf = `
   50%       { opacity: 0.55; }
 }`;
 
-// ─── Shimmer bone ──────────────────────────────────────────────────────────
 const Bone = ({ w = "100%", h = 14, r = 6, sx = {} }) => (
   <Box sx={{
     width: w, height: h, borderRadius: r,
@@ -93,7 +103,6 @@ const Bone = ({ w = "100%", h = 14, r = 6, sx = {} }) => (
   }} />
 );
 
-// ─── Wireframe skeleton ────────────────────────────────────────────────────
 const AttendanceSearchWireframe = () => (
   <>
     <style>{shimmerKf}</style>
@@ -103,14 +112,12 @@ const AttendanceSearchWireframe = () => (
       position: "relative", left: "63%", transform: "translateX(-61%)",
       px: { xs: 2, sm: 3, md: 6 },
     }}>
-      {/* Header */}
       <Box sx={{ mb: 2, borderRadius: "12px", overflow: "hidden", border: "0.5px solid rgba(0,0,0,0.09)", animation: "blink 2s ease-in-out infinite" }}>
         <Box sx={{ px: 4, py: 3, background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)", display: "flex", alignItems: "center", gap: 2.5 }}>
           <Box sx={{ width: 30, height: 30, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.12)" }} />
           <Box><Bone w={280} h={18} sx={{ mb: 1 }} /><Bone w={380} h={11} /></Box>
         </Box>
       </Box>
-      {/* Controls */}
       <Box sx={{ mb: 2, borderRadius: "12px", overflow: "hidden", border: "0.5px solid rgba(0,0,0,0.09)", bgcolor: "#fff", animation: "blink 2s ease-in-out 0.1s infinite" }}>
         <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.25, minHeight: 42 }}>
           <Box sx={{ width: 14, height: 14, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.2)" }} />
@@ -131,7 +138,6 @@ const AttendanceSearchWireframe = () => (
           </Box>
         </Box>
       </Box>
-      {/* Table skeleton */}
       <Box sx={{ borderRadius: "12px", overflow: "hidden", border: "0.5px solid rgba(0,0,0,0.09)", bgcolor: "#fff", animation: "blink 2s ease-in-out 0.2s infinite" }}>
         <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accent, display: "grid", gridTemplateColumns: "1.2fr 1fr 0.8fr 1.4fr 1.4fr 1.4fr 1.4fr", gap: 2 }}>
           {[100, 70, 55, 90, 115, 120, 88].map((w, i) => (
@@ -158,9 +164,9 @@ const SectionCard = styled(Card)({
   border: "0.5px solid rgba(0,0,0,0.09)",
   overflow: "hidden",
   background: "#fff",
+  fontFamily: "'Poppins', sans-serif",
 });
 
-// ─── Panel header bar ──────────────────────────────────────────────────────
 const PanelHeader = ({ icon: Icon, title, right }) => (
   <Box sx={{
     px: 2.5, py: 1.25,
@@ -169,12 +175,11 @@ const PanelHeader = ({ icon: Icon, title, right }) => (
     bgcolor: T.accentFaint, minHeight: 42,
   }}>
     <Icon sx={{ fontSize: 14, color: T.accent }} />
-    <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.accent }}>{title}</Typography>
+    <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.accent, fontFamily: T.font }}>{title}</Typography>
     {right && <><Box sx={{ flex: 1 }} />{right}</>}
   </Box>
 );
 
-// ─── Native input ──────────────────────────────────────────────────────────
 const NativeInput = ({ value, onChange, type = "text", placeholder, disabled, icon }) => (
   <Box sx={{ position: "relative", display: "flex", alignItems: "center" }}>
     {icon && (
@@ -191,7 +196,7 @@ const NativeInput = ({ value, onChange, type = "text", placeholder, disabled, ic
         borderRadius: "8px",
         border: `1px solid ${T.accentBorder}`,
         fontSize: "0.875rem", outline: "none",
-        fontFamily: "inherit", boxSizing: "border-box",
+        fontFamily: T.font, boxSizing: "border-box",
         transition: "border-color 0.18s",
         background: disabled ? "#f5f5f5" : "#fff",
         color: T.text,
@@ -203,33 +208,169 @@ const NativeInput = ({ value, onChange, type = "text", placeholder, disabled, ic
   </Box>
 );
 
-// ─── Inline editable time input ────────────────────────────────────────────
-const TimeInput = ({ value, onChange, unsaved, savedMod }) => (
-  <Box>
-    <input
-      type="text"
-      value={value}
-      onChange={onChange}
-      style={{
-        width: "120px",
-        padding: "7px 10px",
-        borderRadius: "6px",
-        border: `1.5px solid ${unsaved ? "#e65100" : savedMod ? "#2e7d32" : T.accentBorder}`,
-        fontSize: "0.8rem",
-        outline: "none",
-        fontFamily: "inherit",
-        boxSizing: "border-box",
-        background: unsaved ? "rgba(230,81,0,0.04)" : savedMod ? "rgba(46,125,50,0.04)" : "#fff",
-        color: T.text,
-        transition: "border-color 0.15s",
-      }}
-      onFocus={(e) => { e.target.style.borderColor = unsaved ? "#e65100" : T.accent; e.target.style.boxShadow = `0 0 0 1.5px ${unsaved ? "#e65100" : T.accent}22`; }}
-      onBlur={(e) => { e.target.style.borderColor = unsaved ? "#e65100" : savedMod ? "#2e7d32" : T.accentBorder; e.target.style.boxShadow = "none"; }}
-    />
-  </Box>
-);
+// ─── Auto-colon Time Input ─────────────────────────────────────────────────
+const digitsOnly = (str) => (str || "").replace(/\D/g, "");
 
-// ─── Row button ────────────────────────────────────────────────────────────
+const formatTimeDigits = (digits) => {
+  const d = digits.slice(0, 6);
+  if (d.length <= 2) return d;
+  if (d.length <= 4) return `${d.slice(0, 2)}:${d.slice(2)}`;
+  return `${d.slice(0, 2)}:${d.slice(2, 4)}:${d.slice(4)}`;
+};
+
+const parseStoredTime = (val) => {
+  if (!val || String(val).trim() === "") return { digits: "", ampm: "AM" };
+  const str = String(val).trim().toUpperCase();
+  let ampm = "AM";
+  let timePart = str;
+  if (str.endsWith(" PM")) { ampm = "PM"; timePart = str.slice(0, -3).trim(); }
+  else if (str.endsWith(" AM")) { ampm = "AM"; timePart = str.slice(0, -3).trim(); }
+  else if (str.endsWith("PM")) { ampm = "PM"; timePart = str.slice(0, -2).trim(); }
+  else if (str.endsWith("AM")) { ampm = "AM"; timePart = str.slice(0, -2).trim(); }
+  else {
+    const hm = str.match(/^(\d{1,2}):/);
+    if (hm) ampm = parseInt(hm[1], 10) >= 12 ? "PM" : "AM";
+  }
+  return { digits: digitsOnly(timePart), ampm };
+};
+
+const buildStoredTime = (digits, ampm) => {
+  if (!digits) return "";
+  return `${formatTimeDigits(digits)} ${ampm}`;
+};
+
+const TimeInput = ({ value, onChange, unsaved, savedMod, isNewRow }) => {
+  const { digits: initDigits, ampm: initAmPm } = parseStoredTime(value);
+  const [localDigits, setLocalDigits] = useState(initDigits);
+  const [ampm, setAmPm] = useState(initAmPm);
+
+  useEffect(() => {
+    const { digits, ampm: ap } = parseStoredTime(value);
+    setLocalDigits(digits);
+    setAmPm(ap);
+  }, [value]);
+
+  const borderColor = unsaved
+    ? "#e65100"
+    : savedMod
+    ? "#2e7d32"
+    : isNewRow
+    ? "rgba(245,158,11,0.4)"
+    : T.accentBorder;
+
+  const bgColor = unsaved
+    ? "rgba(230,81,0,0.04)"
+    : savedMod
+    ? "rgba(46,125,50,0.04)"
+    : isNewRow
+    ? "rgba(245,158,11,0.04)"
+    : "#fff";
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Backspace") {
+      e.preventDefault();
+      const newDigits = localDigits.slice(0, -1);
+      setLocalDigits(newDigits);
+      onChange({ target: { value: buildStoredTime(newDigits, ampm) } });
+      return;
+    }
+    if (e.key === "Delete") {
+      e.preventDefault();
+      setLocalDigits("");
+      onChange({ target: { value: "" } });
+      return;
+    }
+    if (/^\d$/.test(e.key)) {
+      e.preventDefault();
+      if (localDigits.length >= 6) return;
+      const newDigits = localDigits + e.key;
+      setLocalDigits(newDigits);
+      onChange({ target: { value: buildStoredTime(newDigits, ampm) } });
+    }
+  };
+
+  const toggleAmPm = () => {
+    const newAmPm = ampm === "AM" ? "PM" : "AM";
+    setAmPm(newAmPm);
+    onChange({ target: { value: buildStoredTime(localDigits, newAmPm) } });
+  };
+
+  const displayValue = formatTimeDigits(localDigits);
+
+  return (
+    <Box sx={{ display: "flex", alignItems: "center" }}>
+      <input
+        type="text"
+        value={displayValue}
+        onKeyDown={handleKeyDown}
+        onChange={() => {}}
+        readOnly={false}
+        placeholder="HH:MM:SS"
+        style={{
+          width: "90px",
+          padding: "7px 8px",
+          borderRadius: "6px 0 0 6px",
+          border: `1.5px solid ${borderColor}`,
+          borderRight: "none",
+          fontSize: "0.78rem",
+          outline: "none",
+          fontFamily: "monospace",
+          boxSizing: "border-box",
+          background: bgColor,
+          color: T.text,
+          transition: "border-color 0.15s",
+          letterSpacing: "0.04em",
+          caretColor: T.accent,
+        }}
+        onFocus={(e) => {
+          e.target.style.borderColor = unsaved ? "#e65100" : T.accent;
+          e.target.style.boxShadow = `0 0 0 1.5px ${unsaved ? "#e65100" : T.accent}22`;
+        }}
+        onBlur={(e) => {
+          e.target.style.borderColor = borderColor;
+          e.target.style.boxShadow = "none";
+        }}
+      />
+      <button
+        type="button"
+        onClick={toggleAmPm}
+        title={`Click to switch to ${ampm === "AM" ? "PM" : "AM"}`}
+        style={{
+          width: "38px",
+          padding: "7px 4px",
+          borderRadius: "0 6px 6px 0",
+          border: `1.5px solid ${borderColor}`,
+          fontSize: "0.68rem",
+          fontWeight: 800,
+          fontFamily: T.font,
+          cursor: "pointer",
+          background: ampm === "AM"
+            ? "rgba(25,118,210,0.10)"
+            : "rgba(198,40,40,0.10)",
+          color: ampm === "AM" ? "#1565c0" : "#b71c1c",
+          transition: "all 0.15s",
+          letterSpacing: "0.03em",
+          userSelect: "none",
+          lineHeight: 1,
+          boxSizing: "border-box",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = ampm === "AM"
+            ? "rgba(25,118,210,0.18)"
+            : "rgba(198,40,40,0.18)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = ampm === "AM"
+            ? "rgba(25,118,210,0.10)"
+            : "rgba(198,40,40,0.10)";
+        }}
+      >
+        {ampm}
+      </button>
+    </Box>
+  );
+};
+
 const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
   <button
     onClick={onClick} disabled={disabled}
@@ -238,7 +379,7 @@ const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
       borderRadius: "6px", padding: "4px 10px",
       cursor: disabled ? "default" : "pointer", color,
       display: "flex", alignItems: "center", gap: "4px",
-      fontSize: "0.72rem", fontWeight: 700, fontFamily: "inherit",
+      fontSize: "0.72rem", fontWeight: 700, fontFamily: T.font,
       transition: "background-color 0.15s, border-color 0.15s",
       whiteSpace: "nowrap", opacity: disabled ? 0.5 : 1,
     }}
@@ -249,7 +390,6 @@ const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
   </button>
 );
 
-// ─── Quick filter button ───────────────────────────────────────────────────
 const QuickBtn = ({ label, icon, onClick, active }) => (
   <button
     onClick={onClick}
@@ -259,7 +399,7 @@ const QuickBtn = ({ label, icon, onClick, active }) => (
       borderRadius: "6px", padding: "6px 14px", cursor: "pointer",
       color: active ? "#fff" : T.accent,
       display: "flex", alignItems: "center", gap: "5px",
-      fontSize: "0.78rem", fontWeight: 700, fontFamily: "inherit",
+      fontSize: "0.78rem", fontWeight: 700, fontFamily: T.font,
       transition: "all 0.15s ease", whiteSpace: "nowrap",
     }}
     onMouseEnter={(e) => { if (!active) { e.currentTarget.style.backgroundColor = T.accentFaint; e.currentTarget.style.borderColor = T.accent; } }}
@@ -267,6 +407,58 @@ const QuickBtn = ({ label, icon, onClick, active }) => (
   >
     {icon}{label}
   </button>
+);
+
+const TabBtn = ({ active, icon: Icon, label, badge, onClick }) => (
+  <button
+    onClick={onClick}
+    style={{
+      display: "flex", alignItems: "center", gap: "6px",
+      padding: "8px 18px",
+      borderRadius: "8px 8px 0 0",
+      border: `1px solid ${active ? T.accentBorder : "transparent"}`,
+      borderBottom: active ? "1px solid #fff" : `1px solid ${T.divider}`,
+      background: active ? "#fff" : "transparent",
+      cursor: "pointer",
+      color: active ? T.accent : T.muted,
+      fontSize: "0.8rem", fontWeight: active ? 800 : 600,
+      fontFamily: T.font,
+      marginBottom: active ? "-1px" : "0",
+      transition: "all 0.15s ease",
+      position: "relative", zIndex: active ? 2 : 1,
+    }}
+    onMouseEnter={(e) => { if (!active) { e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accentFaint; } }}
+    onMouseLeave={(e) => { if (!active) { e.currentTarget.style.color = T.muted; e.currentTarget.style.background = "transparent"; } }}
+  >
+    <Icon sx={{ fontSize: 14 }} />
+    {label}
+    {badge != null && (
+      <Box sx={{
+        px: 0.75, py: 0.1, borderRadius: "10px",
+        bgcolor: active ? T.accent : "rgba(0,0,0,0.1)",
+        color: active ? "#fff" : T.muted,
+        fontSize: "0.65rem", fontWeight: 800, lineHeight: 1.6,
+        minWidth: 18, textAlign: "center",
+      }}>
+        {badge}
+      </Box>
+    )}
+  </button>
+);
+
+const ManualEntryBadge = () => (
+  <Box sx={{
+    display: "inline-flex", alignItems: "center", gap: 0.5,
+    px: 0.9, py: 0.3, borderRadius: "4px",
+    bgcolor: alpha("#7b1fa2", 0.10),
+    border: `1px solid ${alpha("#7b1fa2", 0.28)}`,
+    mt: 0.5,
+  }}>
+    <Edit sx={{ fontSize: 9, color: "#6a1b9a" }} />
+    <Typography sx={{ fontSize: "0.6rem", fontWeight: 800, color: "#6a1b9a", letterSpacing: "0.04em", fontFamily: T.font }}>
+      ADMIN ADDED
+    </Typography>
+  </Box>
 );
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -293,31 +485,55 @@ const isDirty = (current, saved) => {
   return EDITABLE_FIELDS.some((f) => (current[f] || "") !== (saved[f] || ""));
 };
 
+const isWeekend = (dayName) => dayName === "Saturday" || dayName === "Sunday";
+
+const hasAnyTime = (record) =>
+  EDITABLE_FIELDS.some((f) => record[f] && String(record[f]).trim() !== "");
+
 // ─── Authorization Dialog ──────────────────────────────────────────────────
-const AuthorizationDialog = ({ open, onClose, onConfirm, records, savedRecords }) => {
+const AuthorizationDialog = ({ open, onClose, onConfirm, records, savedRecords, isFullMonth = false }) => {
   const [acknowledged, setAcknowledged] = useState(false);
   const [showDiff, setShowDiff]         = useState(true);
 
   useEffect(() => { if (open) { setAcknowledged(false); setShowDiff(true); } }, [open]);
 
-  const changedRows = (savedRecords || [])
-    .map((saved, idx) => {
-      const current = records[idx];
-      if (!current) return null;
-      const changes = getChanges(current, saved);
-      if (changes.length === 0) return null;
-      return { date: saved.date, day: saved.Day, changes };
-    })
-    .filter(Boolean);
+  const changedRows = isFullMonth
+    ? (records || [])
+        .filter((rec) => {
+          if (rec.isNew) return hasAnyTime(rec);
+          const saved = (savedRecords || []).find((s) => s.date === rec.date);
+          return saved && isDirty(rec, saved);
+        })
+        .map((rec) => {
+          if (rec.isNew) {
+            return {
+              date: rec.date, day: rec.Day, isInsert: true,
+              changes: EDITABLE_FIELDS
+                .filter((f) => rec[f] && String(rec[f]).trim() !== "")
+                .map((f) => ({ label: FIELD_LABELS[f], before: "—", after: rec[f] || "—" })),
+            };
+          }
+          const saved = (savedRecords || []).find((s) => s.date === rec.date);
+          return { date: rec.date, day: rec.Day, isInsert: false, changes: getChanges(rec, saved) };
+        })
+        .filter((r) => r.changes.length > 0)
+    : (savedRecords || [])
+        .map((saved, idx) => {
+          const current = records[idx];
+          if (!current) return null;
+          const changes = getChanges(current, saved);
+          if (changes.length === 0) return null;
+          return { date: saved.date, day: saved.Day, isInsert: false, changes };
+        })
+        .filter(Boolean);
 
   const canConfirm = acknowledged && changedRows.length > 0;
 
   return (
     <Dialog
       open={open} onClose={onClose} maxWidth="md" fullWidth
-      PaperProps={{ sx: { borderRadius: "12px", overflow: "hidden", border: `1.5px solid ${alpha(T.accent, 0.2)}`, boxShadow: `0 20px 60px ${alpha(T.accent, 0.25)}` } }}
+      PaperProps={{ sx: { borderRadius: "12px", overflow: "hidden", border: `1.5px solid ${alpha(T.accent, 0.2)}`, boxShadow: `0 20px 60px ${alpha(T.accent, 0.25)}`, fontFamily: T.font } }}
     >
-      {/* Header */}
       <DialogTitle sx={{ p: 0 }}>
         <Box sx={{
           px: 3, py: 2.5,
@@ -330,14 +546,15 @@ const AuthorizationDialog = ({ open, onClose, onConfirm, records, savedRecords }
             <AdminPanelSettings sx={{ fontSize: 22, color: "#FEF9E1" }} />
           </Box>
           <Box sx={{ zIndex: 1 }}>
-            <Typography sx={{ fontSize: "1rem", fontWeight: 800, color: "#FEF9E1", lineHeight: 1.2 }}>Confirm Modification</Typography>
-            <Typography sx={{ fontSize: "0.75rem", color: "rgba(254,249,225,0.75)", mt: 0.3 }}>Attendance record modification</Typography>
+            <Typography sx={{ fontSize: "1rem", fontWeight: 800, color: "#FEF9E1", lineHeight: 1.2, fontFamily: T.font }}>Confirm Modification</Typography>
+            <Typography sx={{ fontSize: "0.75rem", color: "rgba(254,249,225,0.75)", mt: 0.3, fontFamily: T.font }}>
+              {isFullMonth ? "Full month attendance modification (includes new insertions)" : "Attendance record modification"}
+            </Typography>
           </Box>
         </Box>
       </DialogTitle>
 
       <DialogContent sx={{ p: 0, bgcolor: "#FFFDF5" }}>
-        {/* Change Summary */}
         <Box sx={{ px: 3, pt: 2.5, pb: 1 }}>
           <Box
             onClick={() => setShowDiff((p) => !p)}
@@ -345,14 +562,14 @@ const AuthorizationDialog = ({ open, onClose, onConfirm, records, savedRecords }
               display: "flex", alignItems: "center", justifyContent: "space-between",
               cursor: "pointer", px: 2, py: 1.25, borderRadius: "8px",
               bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`,
-              "&:hover": { bgcolor: T.accentHover }, transition: "all 0.18s",
+              "&:hover": { bgcolor: "rgba(109,35,35,0.10)" }, transition: "all 0.18s",
             }}
           >
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <CompareArrows sx={{ fontSize: 16, color: T.accent }} />
-              <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Pending Changes Summary</Typography>
+              <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent, fontFamily: T.font }}>Pending Changes Summary</Typography>
             </Box>
-            <Typography sx={{ fontSize: "0.7rem", color: T.faint }}>{showDiff ? "Hide ▲" : "Show ▼"}</Typography>
+            <Typography sx={{ fontSize: "0.7rem", color: T.faint, fontFamily: T.font }}>{showDiff ? "Hide ▲" : "Show ▼"}</Typography>
           </Box>
 
           <Collapse in={showDiff}>
@@ -360,14 +577,14 @@ const AuthorizationDialog = ({ open, onClose, onConfirm, records, savedRecords }
               {changedRows.length === 0 ? (
                 <Box sx={{ py: 4, textAlign: "center" }}>
                   <CheckCircle sx={{ color: "#4caf50", fontSize: 36, mb: 1 }} />
-                  <Typography sx={{ fontSize: "0.82rem", color: T.muted }}>No changes detected.</Typography>
+                  <Typography sx={{ fontSize: "0.82rem", color: T.muted, fontFamily: T.font }}>No changes detected.</Typography>
                 </Box>
               ) : (
                 <Table size="small" stickyHeader>
                   <TableHead>
                     <TableRow>
-                      {["Date", "Day", "Field", "Before", "After"].map((h) => (
-                        <TableCell key={h} sx={{ fontWeight: 700, color: T.accent, fontSize: "0.72rem", bgcolor: T.accentFaint, py: 1, letterSpacing: "0.05em" }}>{h}</TableCell>
+                      {["Date", "Day", "Type", "Field", "Before", "After"].map((h) => (
+                        <TableCell key={h} sx={{ fontWeight: 700, color: T.accent, fontSize: "0.72rem", bgcolor: T.accentFaint, py: 1, letterSpacing: "0.05em", fontFamily: T.font }}>{h}</TableCell>
                       ))}
                     </TableRow>
                   </TableHead>
@@ -377,11 +594,16 @@ const AuthorizationDialog = ({ open, onClose, onConfirm, records, savedRecords }
                         <TableRow key={`${ri}-${ci}`} sx={{ "&:nth-of-type(even)": { bgcolor: "rgba(109,35,35,0.02)" } }}>
                           {ci === 0 && (
                             <>
-                              <TableCell rowSpan={row.changes.length} sx={{ fontWeight: 600, color: T.accent, borderRight: `1px solid ${T.divider}`, verticalAlign: "top", pt: 1.5, fontSize: "0.78rem" }}>{row.date}</TableCell>
-                              <TableCell rowSpan={row.changes.length} sx={{ color: T.muted, borderRight: `1px solid ${T.divider}`, verticalAlign: "top", pt: 1.5, fontSize: "0.78rem" }}>{row.day}</TableCell>
+                              <TableCell rowSpan={row.changes.length} sx={{ fontWeight: 600, color: T.accent, borderRight: `1px solid ${T.divider}`, verticalAlign: "top", pt: 1.5, fontSize: "0.78rem", fontFamily: T.font }}>{row.date}</TableCell>
+                              <TableCell rowSpan={row.changes.length} sx={{ color: T.muted, borderRight: `1px solid ${T.divider}`, verticalAlign: "top", pt: 1.5, fontSize: "0.78rem", fontFamily: T.font }}>{row.day}</TableCell>
+                              <TableCell rowSpan={row.changes.length} sx={{ verticalAlign: "top", pt: 1.5 }}>
+                                <Box sx={{ display: "inline-flex", px: 1, py: 0.25, borderRadius: "4px", bgcolor: row.isInsert ? alpha("#f59e0b", 0.12) : alpha(T.accent, 0.08), border: `1px solid ${row.isInsert ? alpha("#f59e0b", 0.3) : T.accentBorder}` }}>
+                                  <Typography sx={{ fontSize: "0.67rem", fontWeight: 800, color: row.isInsert ? "#b45309" : T.accent, fontFamily: T.font }}>{row.isInsert ? "NEW" : "EDIT"}</Typography>
+                                </Box>
+                              </TableCell>
                             </>
                           )}
-                          <TableCell sx={{ fontSize: "0.78rem", fontWeight: 600, color: T.text }}>{ch.label}</TableCell>
+                          <TableCell sx={{ fontSize: "0.78rem", fontWeight: 600, color: T.text, fontFamily: T.font }}>{ch.label}</TableCell>
                           <TableCell>
                             <Box sx={{ display: "inline-flex", alignItems: "center", px: 1, py: 0.25, borderRadius: "4px", bgcolor: alpha("#d32f2f", 0.08), border: `1px solid ${alpha("#d32f2f", 0.2)}` }}>
                               <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#b71c1c", fontFamily: "monospace" }}>{ch.before}</Typography>
@@ -402,7 +624,6 @@ const AuthorizationDialog = ({ open, onClose, onConfirm, records, savedRecords }
           </Collapse>
         </Box>
 
-        {/* Acknowledgement */}
         <Box sx={{ px: 3, pt: 2, pb: 2.5 }}>
           <Box sx={{
             p: 2, borderRadius: "8px",
@@ -419,7 +640,7 @@ const AuthorizationDialog = ({ open, onClose, onConfirm, records, savedRecords }
                 />
               }
               label={
-                <Typography sx={{ fontSize: "0.8rem", fontWeight: 500, color: T.text, lineHeight: 1.6 }}>
+                <Typography sx={{ fontSize: "0.8rem", fontWeight: 500, color: T.text, lineHeight: 1.6, fontFamily: T.font }}>
                   I hereby confirm that the above attendance records are accurate and formally authorize the requested modifications. I acknowledge full responsibility for the accuracy and validity of these changes.
                 </Typography>
               }
@@ -429,7 +650,6 @@ const AuthorizationDialog = ({ open, onClose, onConfirm, records, savedRecords }
         </Box>
       </DialogContent>
 
-      {/* Actions */}
       <DialogActions sx={{ px: 3, py: 2, bgcolor: "#FFFDF5", borderTop: `1px solid ${T.divider}`, gap: 1.5 }}>
         <RowBtn
           icon={<Cancel sx={{ fontSize: 13 }} />}
@@ -448,7 +668,7 @@ const AuthorizationDialog = ({ open, onClose, onConfirm, records, savedRecords }
             padding: "10px 20px", cursor: canConfirm ? "pointer" : "not-allowed",
             color: canConfirm ? "#fff" : "rgba(0,0,0,0.3)",
             display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
-            fontSize: "0.82rem", fontWeight: 700, fontFamily: "inherit",
+            fontSize: "0.82rem", fontWeight: 700, fontFamily: T.font,
             transition: "all 0.18s", boxShadow: canConfirm ? "0 4px 14px rgba(46,125,50,0.3)" : "none",
           }}
           onMouseEnter={(e) => { if (canConfirm) e.currentTarget.style.background = "linear-gradient(135deg,#1b5e20 0%,#2e7d32 100%)"; }}
@@ -466,40 +686,54 @@ const AuthorizationDialog = ({ open, onClose, onConfirm, records, savedRecords }
 const AttendanceSearch = () => {
   const { settings } = useSystemSettings();
 
-  const accentColor        = settings.primaryColor       || T.accent;
-  const textSecondaryColor = settings.textSecondaryColor || "#FEF9E1";
-
   const today          = new Date();
   const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
   const { hasAccess, loading: accessLoading } = usePageAccess("search-attendance");
 
-  const [personID, setPersonID]                         = useState("");
-  const [startDate, setStartDate]                       = useState("");
-  const [endDate, setEndDate]                           = useState("");
-  const [records, setRecords]                           = useState([]);
-  const [savedRecords, setSavedRecords]                 = useState([]);
-  const [everModifiedFields, setEverModifiedFields]     = useState(new Set());
-  const [loading, setLoading]                           = useState(false);
-  const [error, setError]                               = useState("");
-  const [success, setSuccess]                           = useState("");
-  const [selectedYear, setSelectedYear]                 = useState(new Date().getFullYear());
-  const [selectedMonth, setSelectedMonth]               = useState(null);
-  const [pageLoading, setPageLoading]                   = useState(true);
-  const [authDialogOpen, setAuthDialogOpen]             = useState(false);
-  const [showScrollTop, setShowScrollTop]               = useState(false);
+  // ── Shared filter state ──
+  const [personID, setPersonID]   = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate]     = useState("");
+  const [selectedYear, setSelectedYear]   = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(null);
 
-  const resultsRef = useRef(null);
+  // ── Tab state ──
+  const [activeTab, setActiveTab] = useState("records");
+
+  // ── Records-only tab state ──
+  const [records, setRecords]                         = useState([]);
+  const [savedRecords, setSavedRecords]               = useState([]);
+  const [everModifiedFields, setEverModifiedFields]   = useState(new Set());
+
+  // ── Full-month tab state ──
+  const [fullRecords, setFullRecords]             = useState([]);
+  const [savedFullRecords, setSavedFullRecords]   = useState([]);
+  const [fullEverModified, setFullEverModified]   = useState(new Set());
+
+  const [loadedTabs, setLoadedTabs] = useState(new Set());
+
+  // ── UI state ──
+  const [loading, setLoading]             = useState(false);
+  const [error, setError]                 = useState("");
+  const [success, setSuccess]             = useState("");
+  const [pageLoading, setPageLoading]     = useState(true);
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [snackbar, setSnackbar]           = useState({ open: false, message: "", severity: "success" });
+  const [snackbarCountdown, setSnackbarCountdown] = useState(6);
+
+  const resultsRef    = useRef(null);
+  const fullResultsRef = useRef(null);
 
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
   const months = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
 
-  // ── Snackbar ──
-  const [snackbar, setSnackbar]                   = useState({ open: false, message: "", severity: "success" });
-  const [snackbarCountdown, setSnackbarCountdown] = useState(6);
-
-  const showSnackbar = (message, severity = "success") => { setSnackbar({ open: true, message, severity }); setSnackbarCountdown(6); };
+  const showSnackbar = (message, severity = "success") => {
+    setSnackbar({ open: true, message, severity });
+    setSnackbarCountdown(6);
+  };
   const handleCloseSnackbar = () => setSnackbar((p) => ({ ...p, open: false }));
 
   useEffect(() => {
@@ -524,6 +758,7 @@ const AttendanceSearch = () => {
     return { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } };
   };
 
+  // ── Fetch: Records-only ──────────────────────────────────────────────────
   const fetchRecords = async (showLoading = true) => {
     if (!personID || !startDate || !endDate) return;
     if (showLoading) setLoading(true);
@@ -538,13 +773,11 @@ const AttendanceSearch = () => {
       setRecords(fetched);
       setSavedRecords(deepClone(fetched));
       setEverModifiedFields(new Set());
-    if (fetched.length > 0) {
-  setTimeout(() => {
-    resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, 150);
-}
+      setLoadedTabs((prev) => new Set([...prev, "records"]));
+      if (fetched.length > 0) {
+        setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+      }
     } catch (err) {
-      console.error("Axios error:", err.response ? err.response.data : err);
       const msg = "Failed to fetch attendance records. Please try again.";
       setError(msg);
       showSnackbar(msg, "error");
@@ -553,6 +786,67 @@ const AttendanceSearch = () => {
     }
   };
 
+  // ── Fetch: Full-month (all days) ─────────────────────────────────────────
+  const fetchFullRecords = async (showLoading = true) => {
+    if (!personID || !startDate || !endDate) return;
+    if (showLoading) setLoading(true);
+    setError(""); setSuccess("");
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/attendance/api/view-attendance-full`,
+        { personID, startDate, endDate },
+        getAuthHeaders()
+      );
+      const fetched = response.data;
+      setFullRecords(fetched);
+      setSavedFullRecords(deepClone(fetched));
+      // NOTE: fullEverModified is intentionally NOT reset here so saved
+      // modification indicators persist after re-fetch. It is reset only
+      // when filters change (see filter useEffect below).
+      setLoadedTabs((prev) => new Set([...prev, "fullMonth"]));
+      if (fetched.length > 0) {
+        setTimeout(() => fullResultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+      }
+    } catch (err) {
+      const msg = "Failed to fetch full-month attendance records. Please try again.";
+      setError(msg);
+      showSnackbar(msg, "error");
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  };
+
+  // When filters change, reset everything and fetch only the active tab.
+  useEffect(() => {
+    if (!personID || !startDate || !endDate) return;
+    setRecords([]); setSavedRecords([]); setEverModifiedFields(new Set());
+    setFullRecords([]); setSavedFullRecords([]); setFullEverModified(new Set());
+    setLoadedTabs(new Set());
+
+    if (activeTab === "records") fetchRecords(true);
+    else fetchFullRecords(true);
+  }, [personID, startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleTabSwitch = (tab) => {
+    setActiveTab(tab);
+    if (!personID || !startDate || !endDate) return;
+    if (tab === "records" && !loadedTabs.has("records")) fetchRecords(true);
+    if (tab === "fullMonth" && !loadedTabs.has("fullMonth")) fetchFullRecords(true);
+  };
+
+  const handleRefresh = () => {
+    if (activeTab === "records") {
+      setLoadedTabs((prev) => { const s = new Set(prev); s.delete("records"); return s; });
+      fetchRecords(true);
+    } else {
+      setLoadedTabs((prev) => { const s = new Set(prev); s.delete("fullMonth"); return s; });
+      fetchFullRecords(true);
+    }
+  };
+
+  // ── Save: Records-only ───────────────────────────────────────────────────
+  // FIX: re-fetch from server after save so UI reflects actual saved data,
+  // including any server-side formatting or computed fields.
   const saveAll = async () => {
     setAuthDialogOpen(false);
     try {
@@ -566,6 +860,7 @@ const AttendanceSearch = () => {
       setSuccess(msg);
       showSnackbar(msg, "success");
 
+      // Build the modSet BEFORE re-fetching so indicators survive the fetch.
       const modSet = new Set();
       records.forEach((rec, i) => {
         EDITABLE_FIELDS.forEach((f) => {
@@ -573,10 +868,63 @@ const AttendanceSearch = () => {
             modSet.add(`${rec.personID}-${rec.date}-${f}`);
         });
       });
+
+      // Re-fetch fresh server data (this resets everModifiedFields to new Set inside).
+      await fetchRecords(false);
+
+      // Re-apply modSet AFTER fetch so green indicators show correctly.
       setEverModifiedFields(modSet);
-      setSavedRecords(deepClone(records));
     } catch (err) {
-      console.error(err);
+      const msg = err.response?.data?.message || "Failed to save records. Please try again.";
+      setError(msg);
+      showSnackbar(msg, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Save: Full-month ─────────────────────────────────────────────────────
+  // FIX: build modSet before fetching, then apply it after so it isn't
+  // wiped by the fetch's internal state resets.
+  const saveFullMonth = async () => {
+    setAuthDialogOpen(false);
+
+    const toSave = fullRecords.filter((rec) => {
+      if (rec.isNew) return hasAnyTime(rec);
+      const saved = savedFullRecords.find((s) => s.date === rec.date);
+      return saved && isDirty(rec, saved);
+    });
+
+    if (toSave.length === 0) {
+      showSnackbar("No changes to save.", "info");
+      return;
+    }
+
+    try {
+      setLoading(true); setError(""); setSuccess("");
+      const response = await axios.put(
+        `${API_BASE_URL}/attendance/api/view-attendance-full`,
+        { records: toSave },
+        getAuthHeaders()
+      );
+      const msg = response.data.message || "Records saved successfully!";
+      setSuccess(msg);
+      showSnackbar(msg, "success");
+
+      // Build modSet BEFORE the re-fetch resets internal state.
+      const modSet = new Set(fullEverModified);
+      toSave.forEach((rec) => {
+        EDITABLE_FIELDS.forEach((f) => {
+          if (rec[f] && String(rec[f]).trim() !== "") modSet.add(`${rec.date}-${f}`);
+        });
+      });
+
+      // Re-fetch fresh data from server.
+      await fetchFullRecords(false);
+
+      // Re-apply modSet AFTER fetch so green indicators are not wiped.
+      setFullEverModified(modSet);
+    } catch (err) {
       const msg = err.response?.data?.message || "Failed to save records. Please try again.";
       setError(msg);
       showSnackbar(msg, "error");
@@ -591,6 +939,12 @@ const AttendanceSearch = () => {
     setRecords(updated);
   };
 
+  const handleFullInputChange = (index, field, value) => {
+    const updated = [...fullRecords];
+    updated[index] = { ...updated[index], [field]: value };
+    setFullRecords(updated);
+  };
+
   const handleMonthClick = (monthIndex) => {
     const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
     const end   = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
@@ -602,16 +956,16 @@ const AttendanceSearch = () => {
   const handleClearFilters = () => {
     setPersonID(""); setStartDate(""); setEndDate("");
     setRecords([]); setSavedRecords([]); setEverModifiedFields(new Set());
+    setFullRecords([]); setSavedFullRecords([]); setFullEverModified(new Set());
     setError(""); setSuccess(""); setSelectedMonth(null);
+    setLoadedTabs(new Set());
   };
 
-  useEffect(() => {
-    if (personID && startDate && endDate) fetchRecords(false);
-  }, [startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  const recordsCount   = records.length;
+  const fullDaysCount  = fullRecords.length;
+  const missingCount   = fullRecords.filter((r) => r.isNew).length;
 
-  // ── Guards ──
   if (pageLoading || accessLoading) return <AttendanceSearchWireframe />;
-
   if (hasAccess === false) return (
     <AccessDenied
       title="Access Denied"
@@ -628,39 +982,50 @@ const AttendanceSearch = () => {
         width: "100vw", maxWidth: "100%",
         position: "relative", left: "63%", transform: "translateX(-61%)",
         px: { xs: 2, sm: 3, md: 6 },
+        fontFamily: T.font,
       }}>
         <style>{shimmerKf}</style>
 
-        {/* ── Authorization Dialog ── */}
         <AuthorizationDialog
           open={authDialogOpen}
           onClose={() => setAuthDialogOpen(false)}
-          onConfirm={saveAll}
-          records={records}
-          savedRecords={savedRecords}
+          onConfirm={activeTab === "records" ? saveAll : saveFullMonth}
+          records={activeTab === "records" ? records : fullRecords}
+          savedRecords={activeTab === "records" ? savedRecords : savedFullRecords}
+          isFullMonth={activeTab === "fullMonth"}
         />
+        
 
-        {/* ── Snackbar ── */}
         <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: "top", horizontal: "center" }}>
-          <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled" sx={{ width: "100%", fontWeight: 600, backgroundColor: snackbar.severity === "success" ? "#4caf50" : undefined, color: snackbar.severity === "success" ? "#ffffff" : undefined, "& .MuiAlert-icon": { color: snackbar.severity === "success" ? "#ffffff" : undefined } }}>
+          <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled" sx={{ width: "100%", fontWeight: 600, fontFamily: T.font, backgroundColor: snackbar.severity === "success" ? "#4caf50" : undefined, color: snackbar.severity === "success" ? "#ffffff" : undefined, "& .MuiAlert-icon": { color: snackbar.severity === "success" ? "#ffffff" : undefined } }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <span>{snackbar.message}</span>
               {snackbar.open && snackbarCountdown > 0 && (
-                <Chip label={`${snackbarCountdown}s`} size="small" sx={{ backgroundColor: snackbar.severity === "success" ? "rgba(255,255,255,0.3)" : undefined, color: snackbar.severity === "success" ? "#ffffff" : undefined, fontWeight: 700 }} />
+                <Chip label={`${snackbarCountdown}s`} size="small" sx={{ backgroundColor: snackbar.severity === "success" ? "rgba(255,255,255,0.3)" : undefined, color: snackbar.severity === "success" ? "#ffffff" : undefined, fontWeight: 700, fontFamily: T.font }} />
               )}
             </Box>
           </Alert>
-        </Snackbar>
+        </Snackbar>   
 
-        {/* ── Loading Backdrop ── */}
-        <Backdrop sx={{ color: "#FEF9E1", zIndex: (theme) => theme.zIndex.drawer + 1 }} open={loading}>
+          {/* <Backdrop
+          sx={{
+            color: "#FEF9E1",
+            zIndex: 9999,
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+          }}
+          open={loading}
+        >
           <Box sx={{ textAlign: "center" }}>
             <CircularProgress color="inherit" size={52} thickness={4} />
-            <Typography sx={{ mt: 2, color: "#FEF9E1", fontWeight: 600, fontSize: "0.95rem" }}>
+            <Typography sx={{ mt: 2, color: "#FEF9E1", fontWeight: 600, fontSize: "0.95rem", fontFamily: T.font }}>
               Processing attendance records...
             </Typography>
           </Box>
-        </Backdrop>
+        </Backdrop> */}
 
         {/* ── Page Header ── */}
         <SectionCard sx={{ mb: 2 }}>
@@ -676,10 +1041,10 @@ const AttendanceSearch = () => {
             <Box sx={{ display: "flex", alignItems: "center", gap: 2.5, position: "relative", zIndex: 1 }}>
               <Edit sx={{ fontSize: 30, color: T.accent }} />
               <Box>
-                <Typography sx={{ fontSize: "1.2rem", fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25 }}>
+                <Typography sx={{ fontSize: "1.2rem", fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25, fontFamily: T.font }}>
                   Attendance Management
                 </Typography>
-                <Typography sx={{ fontSize: "0.78rem", color: T.accentMid, fontWeight: 600 }}>
+                <Typography sx={{ fontSize: "0.78rem", color: T.accentMid, fontWeight: 600, fontFamily: T.font }}>
                   Admin Portal · Review and manage attendance records
                 </Typography>
               </Box>
@@ -687,10 +1052,10 @@ const AttendanceSearch = () => {
 
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, position: "relative", zIndex: 1 }}>
               <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
-                <Typography sx={{ fontSize: "0.75rem", color: T.accent, fontWeight: 700 }}>Editable Records</Typography>
+                <Typography sx={{ fontSize: "0.75rem", color: T.accent, fontWeight: 700, fontFamily: T.font }}>Editable Records</Typography>
               </Box>
               <button
-                onClick={() => fetchRecords(true)}
+                onClick={handleRefresh}
                 disabled={!personID || !startDate || !endDate}
                 style={{
                   background: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`,
@@ -698,7 +1063,7 @@ const AttendanceSearch = () => {
                   cursor: (!personID || !startDate || !endDate) ? "not-allowed" : "pointer",
                   display: "flex", alignItems: "center", gap: "5px",
                   color: T.accent, fontSize: "0.75rem", fontWeight: 700,
-                  fontFamily: "inherit", transition: "all 0.15s",
+                  fontFamily: T.font, transition: "all 0.15s",
                   opacity: (!personID || !startDate || !endDate) ? 0.5 : 1,
                 }}
                 onMouseEnter={(e) => { if (personID && startDate && endDate) e.currentTarget.style.backgroundColor = alpha(T.accent, 0.14); }}
@@ -711,12 +1076,11 @@ const AttendanceSearch = () => {
           </Box>
         </SectionCard>
 
-        {/* ── Alerts ── */}
         <Collapse in={!!error}>
-          <Alert severity="error" onClose={() => setError("")} sx={{ mb: 1.5, borderRadius: 2, fontSize: "0.82rem" }}>{error}</Alert>
+          <Alert severity="error" onClose={() => setError("")} sx={{ mb: 1.5, borderRadius: 2, fontSize: "0.82rem", fontFamily: T.font }}>{error}</Alert>
         </Collapse>
         <Collapse in={!!success}>
-          <Alert severity="success" onClose={() => setSuccess("")} sx={{ mb: 1.5, borderRadius: 2, fontSize: "0.82rem" }}>{success}</Alert>
+          <Alert severity="success" onClose={() => setSuccess("")} sx={{ mb: 1.5, borderRadius: 2, fontSize: "0.82rem", fontFamily: T.font }}>{success}</Alert>
         </Collapse>
 
         {/* ── Controls Card ── */}
@@ -724,8 +1088,6 @@ const AttendanceSearch = () => {
           <PanelHeader icon={FilterList} title="Filter Attendance Records" />
 
           <Box sx={{ px: 2.5, pt: 2, pb: 2.5 }}>
-
-            {/* Input fields row */}
             <Box sx={{ display: "flex", gap: 1.5, mb: 2.5, flexWrap: "wrap" }}>
               {[
                 { label: "Employee Number", value: personID,  onChange: (e) => setPersonID(e.target.value),  type: "text", icon: <Person sx={{ fontSize: 16, color: T.accentBorder }} /> },
@@ -733,7 +1095,7 @@ const AttendanceSearch = () => {
                 { label: "End Date",        value: endDate,   onChange: (e) => setEndDate(e.target.value),   type: "date", icon: <CalendarToday sx={{ fontSize: 15, color: T.accentBorder }} /> },
               ].map(({ label, value, onChange, type, icon }) => (
                 <Box key={label} sx={{ flex: 1, minWidth: 160 }}>
-                  <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: T.font }}>
                     {label}
                   </Typography>
                   <NativeInput type={type} value={value} onChange={onChange} placeholder={type === "text" ? "Enter employee number" : undefined} icon={icon} />
@@ -741,13 +1103,11 @@ const AttendanceSearch = () => {
               ))}
             </Box>
 
-            {/* Divider */}
             <Box sx={{ height: 1, bgcolor: T.divider, mb: 2 }} />
-            <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: T.accent, mb: 1.25, letterSpacing: "0.06em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 0.75 }}>
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: T.accent, mb: 1.25, letterSpacing: "0.06em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 0.75, fontFamily: T.font }}>
               <FilterList sx={{ fontSize: 13 }} />Quick Date Selection
             </Typography>
 
-            {/* Quick buttons */}
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2.5 }}>
               {[
                 { label: "Today",        icon: <Today sx={{ fontSize: 13 }} />,        fn: () => { setStartDate(formattedToday); setEndDate(formattedToday); setSelectedMonth(null); } },
@@ -760,21 +1120,20 @@ const AttendanceSearch = () => {
               ))}
             </Box>
 
-            {/* Month picker */}
             <Box sx={{ p: 2.5, borderRadius: 2, border: `2px dashed ${T.accentBorder}`, bgcolor: T.accentFaint }}>
               <Box sx={{ display: "flex", flexDirection: { xs: "column", sm: "row" }, alignItems: { xs: "flex-start", sm: "center" }, justifyContent: "space-between", gap: 2, mb: 2 }}>
                 <Box>
-                  <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.accent, mb: 0.3 }}>Select Entire Month</Typography>
-                  <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>Choose a year, then click any month to set the date range</Typography>
+                  <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.accent, mb: 0.3, fontFamily: T.font }}>Select Entire Month</Typography>
+                  <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.font }}>Choose a year, then click any month to set the date range</Typography>
                 </Box>
                 <FormControl sx={{ minWidth: 130 }} size="small">
-                  <InputLabel sx={{ fontWeight: 600, fontSize: "0.8rem" }}>Year</InputLabel>
+                  <InputLabel sx={{ fontWeight: 600, fontSize: "0.8rem", fontFamily: T.font }}>Year</InputLabel>
                   <Select
                     value={selectedYear} label="Year"
                     onChange={(e) => { setSelectedYear(e.target.value); setSelectedMonth(null); showSnackbar("Year changed — please click a month to load records.", "info"); }}
-                    sx={{ bgcolor: "#fff", borderRadius: 2, fontWeight: 600, fontSize: "0.85rem", "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accentBorder } }}
+                    sx={{ bgcolor: "#fff", borderRadius: 2, fontWeight: 600, fontSize: "0.85rem", fontFamily: T.font, "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accentBorder } }}
                   >
-                    {yearOptions.map((y) => <MenuItem key={y} value={y} sx={{ fontSize: "0.85rem" }}>{y}</MenuItem>)}
+                    {yearOptions.map((y) => <MenuItem key={y} value={y} sx={{ fontSize: "0.85rem", fontFamily: T.font }}>{y}</MenuItem>)}
                   </Select>
                 </FormControl>
               </Box>
@@ -790,7 +1149,7 @@ const AttendanceSearch = () => {
                         border: `1px solid ${sel ? T.accent : T.accentBorder}`,
                         borderRadius: "6px", padding: "7px 14px", cursor: "pointer",
                         color: sel ? "#fff" : T.accent,
-                        fontSize: "0.75rem", fontWeight: 700, fontFamily: "inherit",
+                        fontSize: "0.75rem", fontWeight: 700, fontFamily: T.font,
                         transition: "all 0.15s ease",
                         boxShadow: sel ? `0 2px 8px ${alpha(T.accent, 0.25)}` : "none",
                         letterSpacing: "0.04em",
@@ -805,7 +1164,6 @@ const AttendanceSearch = () => {
               </Box>
             </Box>
 
-            {/* Clear button */}
             <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
               <RowBtn
                 icon={<Clear sx={{ fontSize: 13 }} />}
@@ -817,127 +1175,367 @@ const AttendanceSearch = () => {
           </Box>
         </SectionCard>
 
-        {/* ── Editable Records Table ── */}
-        {records.length > 0 && (
+        {/* ── Tab Switcher + Results ── */}
+        {(records.length > 0 || fullRecords.length > 0) && (
           <Fade in={!loading} timeout={400}>
-            <SectionCard sx={{ mb: 2 }} ref={resultsRef}>
-              <PanelHeader
-                icon={Edit}
-                title={`Records for ${personID}`}
-                right={
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                    <Typography sx={{ fontSize: "0.72rem", color: T.faint }}>{startDate} → {endDate}</Typography>
-                    <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
-                      <Typography sx={{ fontSize: "0.72rem", color: T.accent, fontWeight: 700 }}>
-                        {records.length} {records.length === 1 ? "record" : "records"}
+            <Box>
+              {/* Tab bar */}
+              <Box sx={{
+                display: "flex", alignItems: "flex-end", gap: 0.5,
+                borderBottom: `1px solid ${T.divider}`, mb: 0,
+                px: 0.5,
+              }}>
+                <TabBtn
+                  active={activeTab === "records"}
+                  icon={TableRows}
+                  label="Records Only"
+                  badge={recordsCount > 0 ? recordsCount : null}
+                  onClick={() => handleTabSwitch("records")}
+                />
+                <TabBtn
+                  active={activeTab === "fullMonth"}
+                  icon={EventNote}
+                  label="Full Month View"
+                  badge={fullDaysCount > 0 ? fullDaysCount : null}
+                  onClick={() => handleTabSwitch("fullMonth")}
+                />
+                {activeTab === "fullMonth" && missingCount > 0 && (
+                  <Box sx={{ ml: 1, mb: 0.5, display: "flex", alignItems: "center", gap: 0.5, px: 1.25, py: 0.3, borderRadius: 5, bgcolor: alpha("#f59e0b", 0.12), border: `1px solid ${alpha("#f59e0b", 0.3)}` }}>
+                    <AddCircleOutline sx={{ fontSize: 12, color: "#b45309" }} />
+                    <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: "#b45309", fontFamily: T.font }}>
+                      {missingCount} missing {missingCount === 1 ? "day" : "days"}
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+
+              {/* ══ TAB 1: Records Only ═══════════════════════════════════════════════ */}
+              {activeTab === "records" && records.length > 0 && (
+                <SectionCard sx={{ mb: 2, borderRadius: "0 12px 12px 12px" }} ref={resultsRef}>
+                  <PanelHeader
+                    icon={Edit}
+                    title={`Records for ${personID}`}
+                    right={
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                        <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.font }}>{startDate} → {endDate}</Typography>
+                        <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
+                          <Typography sx={{ fontSize: "0.72rem", color: T.accent, fontWeight: 700, fontFamily: T.font }}>
+                            {records.length} {records.length === 1 ? "record" : "records"}
+                          </Typography>
+                        </Box>
+                        <button
+                          onClick={() => setAuthDialogOpen(true)}
+                          disabled={loading}
+                          style={{
+                            background: loading ? T.accentFaint : T.accent,
+                            border: `1px solid ${loading ? T.accentBorder : T.accent}`,
+                            borderRadius: "6px", padding: "5px 12px",
+                            cursor: loading ? "not-allowed" : "pointer",
+                            color: loading ? T.accentMid : "#fff",
+                            display: "flex", alignItems: "center", gap: "5px",
+                            fontSize: "0.72rem", fontWeight: 700, fontFamily: T.font,
+                            transition: "all 0.15s", opacity: loading ? 0.65 : 1,
+                          }}
+                          onMouseEnter={(e) => { if (!loading) e.currentTarget.style.backgroundColor = T.accentDark; }}
+                          onMouseLeave={(e) => { if (!loading) e.currentTarget.style.backgroundColor = T.accent; }}
+                        >
+                          <SaveAs sx={{ fontSize: 13 }} />
+                          Save Changes
+                        </button>
+                      </Box>
+                    }
+                  />
+
+                  {/* Legend */}
+                  <Box sx={{ px: 2.5, py: 1, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: "flex", gap: 2.5, flexWrap: "wrap", alignItems: "center" }}>
+                    {[
+                      { color: "#e65100", label: "Unsaved changes" },
+                      { color: "#2e7d32", label: "Saved modifications" },
+                      { color: "#7b1fa2", label: "Admin added (no device record)" },
+                    ].map(({ color, label }) => (
+                      <Box key={label} sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
+                        <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: color, flexShrink: 0 }} />
+                        <Typography sx={{ fontSize: "0.68rem", color: T.faint, fontFamily: T.font }}>{label}</Typography>
+                      </Box>
+                    ))}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, ml: "auto" }}>
+                      <Typography sx={{ fontSize: "0.66rem", color: T.faint, fontStyle: "italic", fontFamily: T.font }}>
+                        💡 Type digits only — colons auto-insert · Click <strong>AM</strong>/<strong>PM</strong> to toggle
                       </Typography>
                     </Box>
-                    <button
-                      onClick={() => setAuthDialogOpen(true)}
-                      disabled={loading}
-                      style={{
-                        background: loading ? T.accentFaint : T.accent,
-                        border: `1px solid ${loading ? T.accentBorder : T.accent}`,
-                        borderRadius: "6px", padding: "5px 12px",
-                        cursor: loading ? "not-allowed" : "pointer",
-                        color: loading ? T.accentMid : "#fff",
-                        display: "flex", alignItems: "center", gap: "5px",
-                        fontSize: "0.72rem", fontWeight: 700, fontFamily: "inherit",
-                        transition: "all 0.15s", opacity: loading ? 0.65 : 1,
-                      }}
-                      onMouseEnter={(e) => { if (!loading) e.currentTarget.style.backgroundColor = T.accentDark; }}
-                      onMouseLeave={(e) => { if (!loading) e.currentTarget.style.backgroundColor = T.accent; }}
-                    >
-                      <SaveAs sx={{ fontSize: 13 }} />
-                      Save Changes
-                    </button>
                   </Box>
-                }
-              />
 
-              {/* Legend row */}
-              <Box sx={{ px: 2.5, py: 1, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: "flex", gap: 2.5, flexWrap: "wrap", alignItems: "center" }}>
-                {[
-                  { color: "#e65100", label: "Unsaved changes" },
-                  { color: "#2e7d32", label: "Saved modifications" },
-                ].map(({ color, label }) => (
-                  <Box key={label} sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
-                    <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: color, flexShrink: 0 }} />
-                    <Typography sx={{ fontSize: "0.68rem", color: T.faint }}>{label}</Typography>
+                  {/* Column headers */}
+                  <Box sx={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 0.8fr 1.6fr 1.6fr 1.6fr 1.6fr", px: 2.5, py: 1.25, bgcolor: T.accent, gap: 2, position: "sticky", top: 0, zIndex: 2 }}>
+                    {["EMPLOYEE #", "DATE", "DAY", "TIME IN", "BREAKTIME IN", "BREAKTIME OUT", "TIME OUT"].map((col) => (
+                      <Typography key={col} sx={{ color: "#fff", fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", fontFamily: T.font }}>{col}</Typography>
+                    ))}
                   </Box>
-                ))}
-              </Box>
 
-              {/* Sticky column headers */}
-              <Box sx={{
-                display: "grid",
-                gridTemplateColumns: "1.2fr 1fr 0.8fr 1.4fr 1.4fr 1.4fr 1.4fr",
-                px: 2.5, py: 1.25, bgcolor: T.accent, gap: 2,
-                position: "sticky", top: 0, zIndex: 2,
-              }}>
-                {["EMPLOYEE #", "DATE", "DAY", "TIME IN", "BREAKTIME IN", "BREAKTIME OUT", "TIME OUT"].map((col) => (
-                  <Typography key={col} sx={{ color: "#fff", fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em" }}>{col}</Typography>
-                ))}
-              </Box>
+                  {/* Rows */}
+                  <Box sx={{ maxHeight: 520, overflowY: "auto", overflowX: "auto" }}>
+                    {records.map((record, index) => {
+                      const rowDirty    = isDirty(record, savedRecords[index]);
+                      const rowSavedMod = !rowDirty && EDITABLE_FIELDS.some((f) => everModifiedFields.has(`${record.personID}-${record.date}-${f}`));
+                      const isManual    = record.manualEntry === 1;
+                      const leftBorder  = rowDirty ? "3px solid #e65100" : rowSavedMod ? "3px solid #2e7d32" : isManual ? "3px solid #7b1fa2" : "3px solid transparent";
+                      return (
+                        <Box
+                          key={index}
+                          sx={{
+                            display: "grid", gridTemplateColumns: "1.2fr 1fr 0.8fr 1.6fr 1.6fr 1.6fr 1.6fr",
+                            px: 2.5, py: 1.5, gap: 2, alignItems: "center",
+                            bgcolor: rowDirty
+                              ? alpha("#e65100", 0.04)
+                              : rowSavedMod
+                              ? alpha("#2e7d32", 0.04)
+                              : isManual
+                              ? alpha("#7b1fa2", 0.04)
+                              : index % 2 === 0 ? "#fff" : T.rowOdd,
+                            borderBottom: `1px solid ${T.divider}`, borderLeft: leftBorder,
+                            transition: "background 0.13s",
+                            "&:hover": { bgcolor: T.rowHover },
+                            minWidth: 960,
+                          }}
+                        >
+                          <Box>
+                            <Typography sx={{ fontWeight: 600, fontSize: "0.8rem", color: T.text, fontFamily: T.font }}>{record.personID}</Typography>
+                            {isManual && <ManualEntryBadge />}
+                          </Box>
+                          <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontWeight: 500, fontFamily: T.font }}>{record.date}</Typography>
+                          <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontWeight: 500, fontFamily: T.font }}>{record.Day}</Typography>
+                          {EDITABLE_FIELDS.map((field) => {
+                            const unsaved  = savedRecords[index] && (record[field] || "") !== (savedRecords[index][field] || "");
+                            const savedMod = !unsaved && everModifiedFields.has(`${record.personID}-${record.date}-${field}`);
+                            return (
+                              <Box key={field}>
+                                <TimeInput
+                                  value={record[field] || ""}
+                                  onChange={(e) => handleInputChange(index, field, e.target.value)}
+                                  unsaved={unsaved}
+                                  savedMod={savedMod}
+                                />
+                                {unsaved && (
+                                  <Typography sx={{ fontSize: "0.67rem", mt: 0.3, color: "#b71c1c", fontFamily: "monospace" }}>
+                                    was: {savedRecords[index][field] || "—"}
+                                  </Typography>
+                                )}
+                              </Box>
+                            );
+                          })}
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </SectionCard>
+              )}
 
-              {/* Scrollable rows */}
-              <Box sx={{ maxHeight: 520, overflowY: "auto", overflowX: "auto" }}>
-                {records.map((record, index) => {
-                  const rowDirty    = isDirty(record, savedRecords[index]);
-                  const rowSavedMod = !rowDirty && EDITABLE_FIELDS.some((f) => everModifiedFields.has(`${index}-${f}`));
-                  const leftBorder  = rowDirty ? "3px solid #e65100" : rowSavedMod ? "3px solid #2e7d32" : `3px solid transparent`;
-                  return (
-                    <Box
-                      key={index}
-                      sx={{
-                        display: "grid",
-                        gridTemplateColumns: "1.2fr 1fr 0.8fr 1.4fr 1.4fr 1.4fr 1.4fr",
-                        px: 2.5, py: 1.5, gap: 2,
-                        alignItems: "center",
-                        bgcolor: rowDirty
-                          ? alpha("#e65100", 0.04)
-                          : rowSavedMod
-                            ? alpha("#2e7d32", 0.04)
-                            : index % 2 === 0 ? "#fff" : T.rowOdd,
-                        borderBottom: `1px solid ${T.divider}`,
-                        borderLeft: leftBorder,
-                        transition: "background 0.13s",
-                        "&:hover": { bgcolor: T.rowHover },
-                        minWidth: 900,
-                      }}
-                    >
-                      <Typography sx={{ fontWeight: 600, fontSize: "0.8rem", color: T.text }}>{record.personID}</Typography>
-                      <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontWeight: 500 }}>{record.date}</Typography>
-                      <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontWeight: 500 }}>{record.Day}</Typography>
+              {/* ══ TAB 2: Full Month View ════════════════════════════════════════════ */}
+              {activeTab === "fullMonth" && fullRecords.length > 0 && (
+                <SectionCard sx={{ mb: 2, borderRadius: "0 12px 12px 12px" }} ref={fullResultsRef}>
+                  <PanelHeader
+                    icon={EventNote}
+                    title={`Full Month View — ${personID}`}
+                    right={
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                        <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.font }}>{startDate} → {endDate}</Typography>
+                        <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
+                          <Typography sx={{ fontSize: "0.72rem", color: T.accent, fontWeight: 700, fontFamily: T.font }}>
+                            {fullDaysCount - missingCount} / {fullDaysCount} days
+                          </Typography>
+                        </Box>
+                        {missingCount > 0 && (
+                          <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: alpha("#f59e0b", 0.12), border: `1px solid ${alpha("#f59e0b", 0.3)}` }}>
+                            <Typography sx={{ fontSize: "0.72rem", color: "#b45309", fontWeight: 700, fontFamily: T.font }}>
+                              {missingCount} no record
+                            </Typography>
+                          </Box>
+                        )}
+                        <button
+                          onClick={() => setAuthDialogOpen(true)}
+                          disabled={loading}
+                          style={{
+                            background: loading ? T.accentFaint : T.accent,
+                            border: `1px solid ${loading ? T.accentBorder : T.accent}`,
+                            borderRadius: "6px", padding: "5px 12px",
+                            cursor: loading ? "not-allowed" : "pointer",
+                            color: loading ? T.accentMid : "#fff",
+                            display: "flex", alignItems: "center", gap: "5px",
+                            fontSize: "0.72rem", fontWeight: 700, fontFamily: T.font,
+                            transition: "all 0.15s", opacity: loading ? 0.65 : 1,
+                          }}
+                          onMouseEnter={(e) => { if (!loading) e.currentTarget.style.backgroundColor = T.accentDark; }}
+                          onMouseLeave={(e) => { if (!loading) e.currentTarget.style.backgroundColor = T.accent; }}
+                        >
+                          <SaveAs sx={{ fontSize: 13 }} />
+                          Save Changes
+                        </button>
+                      </Box>
+                    }
+                  />
 
-                      {EDITABLE_FIELDS.map((field) => {
-                        const unsaved  = savedRecords[index] && (record[field] || "") !== (savedRecords[index][field] || "");
-                        const savedMod = !unsaved && everModifiedFields.has(`${index}-${field}`);
-                        return (
-                          <Box key={field}>
-                            <TimeInput
-                              value={record[field] || ""}
-                              onChange={(e) => handleInputChange(index, field, e.target.value)}
-                              unsaved={unsaved}
-                              savedMod={savedMod}
-                            />
-                            {unsaved && (
-                              <Typography sx={{ fontSize: "0.67rem", mt: 0.3, color: "#b71c1c", fontFamily: "monospace" }}>
-                                was: {savedRecords[index][field] || "—"}
-                              </Typography>
+                  {/* Legend */}
+                  <Box sx={{ px: 2.5, py: 1, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: "flex", gap: 2.5, flexWrap: "wrap", alignItems: "center" }}>
+                    {[
+                      { color: "#f59e0b", label: "No existing record — type to create" },
+                      { color: "#e65100", label: "Unsaved changes" },
+                      { color: "#2e7d32", label: "Saved modifications" },
+                      { color: T.accentMid, label: "Weekend" },
+                    ].map(({ color, label }) => (
+                      <Box key={label} sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
+                        <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: color, flexShrink: 0 }} />
+                        <Typography sx={{ fontSize: "0.68rem", color: T.faint, fontFamily: T.font }}>{label}</Typography>
+                      </Box>
+                    ))}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, ml: "auto" }}>
+                      <Typography sx={{ fontSize: "0.66rem", color: T.faint, fontStyle: "italic", fontFamily: T.font }}>
+                        💡 Type digits only — colons auto-insert · Click <strong>AM</strong>/<strong>PM</strong> to toggle
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {/* Column headers */}
+                  <Box sx={{ display: "grid", gridTemplateColumns: "0.6fr 1fr 0.8fr 1.6fr 1.6fr 1.6fr 1.6fr", px: 2.5, py: 1.25, bgcolor: T.accent, gap: 2, position: "sticky", top: 0, zIndex: 2 }}>
+                    {["STATUS", "DATE", "DAY", "TIME IN", "BREAKTIME IN", "BREAKTIME OUT", "TIME OUT"].map((col) => (
+                      <Typography key={col} sx={{ color: "#fff", fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em", fontFamily: T.font }}>{col}</Typography>
+                    ))}
+                  </Box>
+
+                  {/* Rows */}
+                  <Box sx={{ maxHeight: 580, overflowY: "auto", overflowX: "auto" }}>
+                    {fullRecords.map((record, index) => {
+                      const weekend     = isWeekend(record.Day);
+                      const savedRow    = savedFullRecords[index];
+                      const rowDirty    = !record.isNew && isDirty(record, savedRow);
+                      const rowSavedMod = !record.isNew && !rowDirty && EDITABLE_FIELDS.some((f) => fullEverModified.has(`${record.date}-${f}`));
+                      const hasTyped    = record.isNew && hasAnyTime(record);
+
+                      const leftBorder = rowDirty
+                        ? "3px solid #e65100"
+                        : rowSavedMod
+                          ? "3px solid #2e7d32"
+                          : hasTyped
+                            ? "3px solid #f59e0b"
+                            : "3px solid transparent";
+
+                      const rowBg = rowDirty
+                        ? alpha("#e65100", 0.04)
+                        : rowSavedMod
+                          ? alpha("#2e7d32", 0.04)
+                          : record.isNew
+                            ? T.noRecord
+                            : weekend
+                              ? T.weekend
+                              : index % 2 === 0 ? "#fff" : T.rowOdd;
+
+                      return (
+                        <Box
+                          key={record.date}
+                          sx={{
+                            display: "grid",
+                            gridTemplateColumns: "0.6fr 1fr 0.8fr 1.6fr 1.6fr 1.6fr 1.6fr",
+                            px: 2.5, py: 1.25, gap: 2, alignItems: "center",
+                            bgcolor: rowBg,
+                            borderBottom: `1px solid ${T.divider}`,
+                            borderLeft: leftBorder,
+                            transition: "background 0.13s",
+                            "&:hover": { bgcolor: T.rowHover },
+                            minWidth: 960,
+                          }}
+                        >
+                          <Box>
+                            {record.isNew ? (
+                              <Box sx={{
+                                display: "inline-flex", alignItems: "center", gap: 0.4,
+                                px: 0.9, py: 0.25, borderRadius: "4px",
+                                bgcolor: alpha("#f59e0b", 0.14),
+                                border: `1px solid ${alpha("#f59e0b", 0.35)}`,
+                              }}>
+                                <Box sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: "#f59e0b" }} />
+                                <Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: "#92400e", whiteSpace: "nowrap", fontFamily: T.font }}>
+                                  NO RECORD
+                                </Typography>
+                              </Box>
+                            ) : (
+                              <Box sx={{
+                                display: "inline-flex", alignItems: "center", gap: 0.4,
+                                px: 0.9, py: 0.25, borderRadius: "4px",
+                                bgcolor: alpha("#2e7d32", 0.1),
+                                border: `1px solid ${alpha("#2e7d32", 0.25)}`,
+                              }}>
+                                <Box sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: "#2e7d32" }} />
+                                <Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: "#1b5e20", whiteSpace: "nowrap", fontFamily: T.font }}>
+                                  HAS RECORD
+                                </Typography>
+                              </Box>
                             )}
                           </Box>
-                        );
-                      })}
-                    </Box>
-                  );
-                })}
-              </Box>
-            </SectionCard>
+
+                          <Typography sx={{ fontSize: "0.78rem", color: weekend ? T.accentMid : T.muted, fontWeight: weekend ? 700 : 500, fontFamily: T.font }}>
+                            {record.date}
+                          </Typography>
+                          <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontWeight: 500, fontFamily: T.font }}>
+                            {record.Day}
+                          </Typography>
+
+                          {EDITABLE_FIELDS.map((field) => {
+                            const unsaved  = !record.isNew && savedRow && (record[field] || "") !== (savedRow[field] || "");
+                            const savedMod = !record.isNew && !unsaved && fullEverModified.has(`${record.date}-${field}`);
+                            return (
+                              <Box key={field}>
+                                <TimeInput
+                                  value={record[field] || ""}
+                                  onChange={(e) => handleFullInputChange(index, field, e.target.value)}
+                                  unsaved={unsaved}
+                                  savedMod={savedMod}
+                                  isNewRow={record.isNew}
+                                />
+                                {unsaved && (
+                                  <Typography sx={{ fontSize: "0.67rem", mt: 0.3, color: "#b71c1c", fontFamily: "monospace" }}>
+                                    was: {savedRow[field] || "—"}
+                                  </Typography>
+                                )}
+                              </Box>
+                            );
+                          })}
+                        </Box>
+                      );
+                    })}
+                  </Box>
+
+                  <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accentFaint, borderTop: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1 }}>
+                    <AddCircleOutline sx={{ fontSize: 13, color: T.accentMid }} />
+                    <Typography sx={{ fontSize: "0.7rem", color: T.muted, fontFamily: T.font }}>
+                      Type times into any <strong style={{ color: "#92400e" }}>NO RECORD</strong> row to create a new attendance entry for that day.
+                    </Typography>
+                  </Box>
+                </SectionCard>
+              )}
+
+              {activeTab === "fullMonth" && fullRecords.length === 0 && !loading && personID && startDate && endDate && (
+                <SectionCard sx={{ mb: 2, borderRadius: "0 12px 12px 12px" }}>
+                  <Box sx={{ py: 5, textAlign: "center" }}>
+                    <EventNote sx={{ fontSize: 40, color: T.accentBorder, mb: 1 }} />
+                    <Typography sx={{ fontSize: "0.85rem", color: T.muted, mb: 1.5, fontFamily: T.font }}>
+                      No calendar data loaded yet.
+                    </Typography>
+                    <button
+                      onClick={() => fetchFullRecords(true)}
+                      style={{
+                        background: T.accent, border: "none", borderRadius: "8px",
+                        padding: "9px 20px", cursor: "pointer", color: "#fff",
+                        fontSize: "0.8rem", fontWeight: 700, fontFamily: T.font,
+                      }}
+                    >
+                      Load Full Month
+                    </button>
+                  </Box>
+                </SectionCard>
+              )}
+            </Box>
           </Fade>
         )}
 
-        {/* ── Scroll to Top FAB ── */}
         <Zoom in={showScrollTop}>
           <Fab
             size="small"

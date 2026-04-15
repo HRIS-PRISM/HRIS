@@ -490,7 +490,15 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
       ot.officialServiceCreditTimeIN,
       ot.officialServiceCreditTimeOUT,
       ot.officialOverTimeIN,
-      ot.officialOverTimeOUT
+      ot.officialOverTimeOUT,
+      CASE
+        WHEN NOT EXISTS (
+          SELECT 1 FROM AttendanceRecordInfo ari
+          WHERE ari.PersonID = ar.personID
+            AND DATE(FROM_UNIXTIME(ari.AttendanceDateTime/1000)) = ar.date
+        ) THEN 1
+        ELSE 0
+      END AS manualEntry
     FROM attendancerecord ar
     INNER JOIN person_table p ON ar.personID = p.agencyEmployeeNum
     LEFT JOIN officialtime ot ON DAYNAME(ar.date) = ot.day
@@ -502,13 +510,13 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
 
   db.query(query, [personID, startDate, endDate], (err, results) => {
     if (err) return res.status(500).send(err);
-   logAudit(
-  req.user,
-  `Viewed DTR Records`,
-  'Daily Time Record Overall',
-  `${startDate} to ${endDate}`,
-  personID,
-);
+    logAudit(
+      req.user,
+      `Viewed DTR Records`,
+      'Daily Time Record Overall',
+      `${startDate} to ${endDate}`,
+      personID,
+    );
     res.send(results);
   });
 });
@@ -1976,6 +1984,284 @@ router.get('/api/holiday', authenticateToken, (req, res) => {
       byDate,
     });
   });
+});
+
+// ── Fetch ALL days in range (including days with no record) ──────────────────
+// Uses a recursive CTE to generate every date, then LEFT JOINs attendance data.
+// Rows with no matching attendancerecord will have null time fields + isNew:true
+router.post('/api/view-attendance-full', authenticateToken, (req, res) => {
+  const { personID, startDate, endDate } = req.body;
+
+  if (!personID || !startDate || !endDate) {
+    return res.status(400).json({ error: 'personID, startDate, endDate are required.' });
+  }
+
+  // Recursive CTE generates every calendar date in the range.
+  // LEFT JOIN pulls attendance & schedule data; missing rows stay null.
+  const query = `
+    WITH RECURSIVE date_series AS (
+      SELECT CAST(? AS DATE) AS cal_date
+      UNION ALL
+      SELECT DATE_ADD(cal_date, INTERVAL 1 DAY)
+      FROM   date_series
+      WHERE  cal_date < CAST(? AS DATE)
+    )
+    SELECT
+      ? AS personID,
+      DATE_FORMAT(ds.cal_date, '%Y-%m-%d')  AS date,
+      DAYNAME(ds.cal_date)                   AS Day,
+
+      -- attendance fields (NULL when no record exists)
+      ar.id          AS recordId,
+      ar.timeIN,
+      ar.breaktimeIN,
+      ar.breaktimeOUT,
+      ar.timeOUT,
+      ar.specialType,
+      ar.specialTimeIN,
+      ar.specialTimeOUT,
+
+      -- person info
+      p.firstName,
+      p.lastName,
+      p.middleName,
+      p.agencyEmployeeNum,
+
+      -- official schedule (NULL when no officialtime row covers this date)
+      ot.officialTimeIN,
+      ot.officialTimeOUT,
+      ot.officialBreaktimeIN,
+      ot.officialBreaktimeOUT,
+      ot.officialHonorariumTimeIN,
+      ot.officialHonorariumTimeOUT,
+      ot.officialServiceCreditTimeIN,
+      ot.officialServiceCreditTimeOUT,
+      ot.officialOverTimeIN,
+      ot.officialOverTimeOUT
+
+    FROM date_series ds
+
+    -- person (no filter needed; same person every row)
+    LEFT JOIN person_table p
+           ON p.agencyEmployeeNum = ?
+
+    -- attendance record for this person + date
+    LEFT JOIN attendancerecord ar
+           ON ar.personID = ?
+          AND ar.date     = DATE_FORMAT(ds.cal_date, '%Y-%m-%d')
+
+    -- official schedule covering this date + day-of-week
+    LEFT JOIN officialtime ot
+           ON ot.employeeID = ?
+          AND ot.day        = DAYNAME(ds.cal_date)
+          AND ds.cal_date   BETWEEN ot.startDate AND ot.endDate
+
+    ORDER BY ds.cal_date ASC;
+  `;
+
+  db.query(
+    query,
+    [startDate, endDate, personID, personID, personID, personID],
+    (err, results) => {
+      if (err) {
+        console.error('view-attendance-full error:', err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      logAudit(
+        req.user,
+        'Viewed Full-Month Attendance (all days)',
+        'Attendance Modification – Full View',
+        `${startDate} to ${endDate}`,
+        personID,
+      );
+
+      // Tag each row so the frontend knows whether it already exists in the DB
+      const tagged = results.map((row) => ({
+        ...row,
+        isNew: row.recordId == null,   // true  → INSERT needed on save
+        // normalise nulls to empty strings so inputs are controlled
+        timeIN:       row.timeIN       ?? '',
+        breaktimeIN:  row.breaktimeIN  ?? '',
+        breaktimeOUT: row.breaktimeOUT ?? '',
+        timeOUT:      row.timeOUT      ?? '',
+      }));
+
+      res.json(tagged);
+    },
+  );
+});
+
+
+// ── Upsert full-month records (INSERT new rows / UPDATE existing ones) ────────
+// Payload: { records: [ { personID, date, Day, timeIN, breaktimeIN,
+//                          breaktimeOUT, timeOUT, isNew, recordId } ] }
+//
+// Rules:
+//   • isNew === true  AND all time fields empty  → skip (don't insert blank rows)
+//   • isNew === true  AND at least one time field → INSERT
+//   • isNew === false                             → UPDATE (even if clearing times)
+router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
+  const { records } = req.body;
+
+  if (!Array.isArray(records) || records.length === 0) {
+    return res.status(400).json({ error: 'records array is required.' });
+  }
+
+  const isEmpty = (v) => !v || String(v).trim() === '';
+
+  try {
+    let inserted = 0;
+    let updated  = 0;
+    let skipped  = 0;
+
+    for (const record of records) {
+      const allEmpty =
+        isEmpty(record.timeIN) &&
+        isEmpty(record.breaktimeIN) &&
+        isEmpty(record.breaktimeOUT) &&
+        isEmpty(record.timeOUT);
+
+      // ── INSERT ──────────────────────────────────────────────────────────────
+      if (record.isNew) {
+        if (allEmpty) { skipped++; continue; }
+
+        // Guard against duplicate: someone may have saved in another tab
+        const checkSql = `
+          SELECT id FROM attendancerecord
+          WHERE personID = ? AND date = ?
+          LIMIT 1
+        `;
+        const existing = await new Promise((resolve, reject) => {
+          db.query(checkSql, [record.personID, record.date], (err, rows) => {
+            if (err) reject(err); else resolve(rows[0] ?? null);
+          });
+        });
+
+        if (existing) {
+          // Row was created after the page loaded — fall through to UPDATE
+          const updateSql = `
+            UPDATE attendancerecord
+            SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?
+            WHERE id = ?
+          `;
+          await new Promise((resolve, reject) => {
+            db.query(
+              updateSql,
+              [record.timeIN || null, record.breaktimeIN || null,
+               record.breaktimeOUT || null, record.timeOUT || null,
+               existing.id],
+              (err) => { if (err) reject(err); else resolve(); },
+            );
+          });
+          updated++;
+          logAudit(
+            req.user,
+            `Updated Attendance Record (full-month, race-condition) | ${record.date} | timeIN: ${record.timeIN}, timeOUT: ${record.timeOUT}`,
+            'Attendance Modification – Full View',
+            record.date,
+            record.personID,
+          );
+        } else {
+          const insertSql = `
+            INSERT INTO attendancerecord
+              (personID, date, Day, timeIN, breaktimeIN, breaktimeOUT, timeOUT)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `;
+          await new Promise((resolve, reject) => {
+            db.query(
+              insertSql,
+              [record.personID, record.date, record.Day,
+               record.timeIN || null, record.breaktimeIN || null,
+               record.breaktimeOUT || null, record.timeOUT || null],
+              (err) => { if (err) reject(err); else resolve(); },
+            );
+          });
+          inserted++;
+          logAudit(
+            req.user,
+            `Inserted New Attendance Record (full-month) | ${record.date} | timeIN: ${record.timeIN}, timeOUT: ${record.timeOUT}`,
+            'Attendance Modification – Full View',
+            record.date,
+            record.personID,
+          );
+        }
+
+      // ── UPDATE ──────────────────────────────────────────────────────────────
+      } else {
+        // Fetch old values first to build a meaningful audit diff
+        const fetchSql = `
+          SELECT timeIN, breaktimeIN, breaktimeOUT, timeOUT
+          FROM attendancerecord
+          WHERE personID = ? AND date = ?
+        `;
+        const oldRow = await new Promise((resolve, reject) => {
+          db.query(fetchSql, [record.personID, record.date], (err, rows) => {
+            if (err) reject(err); else resolve(rows[0] ?? {});
+          });
+        });
+
+        const normalize = (v) => (v == null ? '' : String(v).trim());
+        const fields = [
+          { key: 'timeIN',       label: 'Time IN'       },
+          { key: 'breaktimeIN',  label: 'Breaktime IN'  },
+          { key: 'breaktimeOUT', label: 'Breaktime OUT' },
+          { key: 'timeOUT',      label: 'Time OUT'      },
+        ];
+        const diff = fields
+          .filter(({ key }) => normalize(oldRow[key]) !== normalize(record[key]))
+          .map(({ key, label }) =>
+            `${label}: [${normalize(oldRow[key]) || 'empty'} → ${normalize(record[key]) || 'empty'}]`,
+          )
+          .join(' | ');
+
+        const updateSql = `
+          UPDATE attendancerecord
+          SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?
+          WHERE personID = ? AND date = ?
+        `;
+        await new Promise((resolve, reject) => {
+          db.query(
+            updateSql,
+            [record.timeIN || null, record.breaktimeIN || null,
+             record.breaktimeOUT || null, record.timeOUT || null,
+             record.personID, record.date],
+            (err) => { if (err) reject(err); else resolve(); },
+          );
+        });
+        updated++;
+
+        if (diff) {
+          logAudit(
+            req.user,
+            `Updated Attendance Record (full-month) | ${record.date} | ${diff}`,
+            'Attendance Modification – Full View',
+            record.date,
+            record.personID,
+          );
+        }
+      }
+    }
+
+    // Notify connected sockets
+    const personIDs = [...new Set(records.map((r) => r.personID).filter(Boolean))];
+    notifyAttendanceChanged('full-month-updated', {
+      scope: 'attendancerecord',
+      personIDs,
+      inserted,
+      updated,
+    });
+
+    res.json({
+      message: `Saved successfully. ${inserted} inserted, ${updated} updated, ${skipped} skipped.`,
+      inserted,
+      updated,
+      skipped,
+    });
+  } catch (err) {
+    console.error('view-attendance-full PUT error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

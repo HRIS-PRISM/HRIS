@@ -129,6 +129,7 @@ router.get('/payroll/search', authenticateToken, (req, res) => {
       r.increment,
       r.gsisSalaryLoan,
       r.gsisPolicyLoan,
+      r.gfal,
       r.gsisArrears,
       r.cpl,
       r.mpl,
@@ -306,6 +307,7 @@ router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
         r.increment,
         r.gsisSalaryLoan,
         r.gsisPolicyLoan,
+        r.gfal,
         r.gsisArrears,
         r.cpl,
         r.mpl,
@@ -467,6 +469,7 @@ router.put(
       increment,
       gsisSalaryLoan,
       gsisPolicyLoan,
+      gfal,
       gsisArrears,
       cpl,
       mpl,
@@ -612,6 +615,7 @@ router.put(
                 increment || 0,
                 gsisSalaryLoan || 0,
                 gsisPolicyLoan || 0,
+                gfal || 0,
                 gsisArrears || 0,
                 cpl || 0,
                 mpl || 0,
@@ -631,7 +635,7 @@ router.put(
                 const updateRemittanceQuery = `
               UPDATE remittance_table SET
                 nbc594 = ?, increment = ?,
-                gsisSalaryLoan = ?, gsisPolicyLoan = ?, gsisArrears = ?,
+                gsisSalaryLoan = ?, gsisPolicyLoan = ?, gfal = ?, gsisArrears = ?,
                 cpl = ?, mpl = ?, eal = ?, mplLite = ?, emergencyLoan = ?,
                 pagibigFundCont = ?, pagibig2 = ?, multiPurpLoan = ?,
                 liquidatingCash = ?, landbankSalaryLoan = ?,
@@ -655,12 +659,12 @@ router.put(
                 const insertRemittanceQuery = `
               INSERT INTO remittance_table (
                 employeeNumber, nbc594, increment,
-                gsisSalaryLoan, gsisPolicyLoan, gsisArrears,
+                gsisSalaryLoan, gsisPolicyLoan, gfal, gsisArrears,
                 cpl, mpl, eal, mplLite, emergencyLoan,
                 pagibigFundCont, pagibig2, multiPurpLoan,
                 liquidatingCash, landbankSalaryLoan,
                 earistCreditCoop, feu
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
                 db.query(
                   insertRemittanceQuery,
@@ -970,6 +974,7 @@ router.post('/payroll-processed', authenticateToken, async (req, res) => {
         entry.increment,
         entry.gsisSalaryLoan,
         entry.gsisPolicyLoan,
+        entry.gfal,
         entry.gsisArrears,
         entry.cpl,
         entry.mpl,
@@ -999,7 +1004,7 @@ router.post('/payroll-processed', authenticateToken, async (req, res) => {
         totalGsisDeds, totalPagibigDeds, totalOtherDeds,
         totalDeductions, pay1st, pay2nd,
         pay1stCompute, pay2ndCompute, rtIns, ec, increment,
-        gsisSalaryLoan, gsisPolicyLoan, gsisArrears,
+        gsisSalaryLoan, gsisPolicyLoan, gfal, gsisArrears,
         cpl, mpl, eal, mplLite, emergencyLoan,
         pagibigFundCont, pagibig2, multiPurpLoan,
         position, liquidatingCash, landbankSalaryLoan,

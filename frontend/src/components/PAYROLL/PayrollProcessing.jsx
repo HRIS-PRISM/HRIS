@@ -228,6 +228,7 @@ const PayrollProcess = () => {
     'personalLifeRetIns',
     'gsisSalaryLoan',
     'gsisPolicyLoan',
+    'gfal',
     'gsisArrears',
     'cpl',
     'mpl',
@@ -619,6 +620,7 @@ const PayrollProcess = () => {
           increment: item.increment ?? 0,
           gsisSalaryLoan: item.gsisSalaryLoan ?? 0,
           gsisPolicyLoan: item.gsisPolicyLoan ?? 0,
+          gfal: item.gfal ?? 0,
           gsisArrears: item.gsisArrears ?? 0,
           cpl: item.cpl ?? 0,
           mpl: item.mpl ?? 0,
@@ -895,6 +897,7 @@ const PayrollProcess = () => {
           increment: parseFloat(item.increment) || 0,
           gsisSalaryLoan: parseFloat(item.gsisSalaryLoan) || 0,
           gsisPolicyLoan: parseFloat(item.gsisPolicyLoan) || 0,
+          gfal: parseFloat(item.gfal) || 0,
           gsisArrears: parseFloat(item.gsisArrears) || 0,
           cpl: parseFloat(item.cpl) || 0,
           mpl: parseFloat(item.mpl) || 0,
@@ -994,6 +997,7 @@ const PayrollProcess = () => {
         increment: sanitizedEditRow.increment ?? 0,
         gsisSalaryLoan: sanitizedEditRow.gsisSalaryLoan ?? 0,
         gsisPolicyLoan: sanitizedEditRow.gsisPolicyLoan ?? 0,
+        gfal: sanitizedEditRow.gfal ?? 0,
         gsisArrears: sanitizedEditRow.gsisArrears ?? 0,
         cpl: sanitizedEditRow.cpl ?? 0,
         mpl: sanitizedEditRow.mpl ?? 0,
@@ -1101,6 +1105,7 @@ const PayrollProcess = () => {
     'gsisArrears',
     'gsisSalaryLoan',
     'gsisPolicyLoan',
+    'gfal',
     'eal',
     'cpl',
     'mpl',
@@ -1213,10 +1218,12 @@ const PayrollProcess = () => {
       : '0.00';
     const lwopValue =
       calendarDays > 0 && Number.isFinite(rate) ? rate / calendarDays : 0;
-    const valueText = lwopValue.toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
+    const valueText = Number.isFinite(lwopValue)
+      ? lwopValue.toLocaleString('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 3,
+        })
+      : '0.00';
     return {
       valueText,
       formulaText: `${rateText} / ${monthLabel} (${calendarDays} days)`,
@@ -1252,6 +1259,7 @@ const PayrollProcess = () => {
             increment: item.increment ?? 0,
             gsisSalaryLoan: item.gsisSalaryLoan ?? 0,
             gsisPolicyLoan: item.gsisPolicyLoan ?? 0,
+            gfal: item.gfal ?? 0,
             gsisArrears: item.gsisArrears ?? 0,
             cpl: item.cpl ?? 0,
             mpl: item.mpl ?? 0,
@@ -2347,7 +2355,7 @@ const PayrollProcess = () => {
                     { title: 'Salary Rate and Adjustments', fields: [{ label: 'Rate NBC 584', value: editRow.rateNbc584 || '0.00' }, { label: 'NBC 594', value: editRow.nbc594 || '0.00' }, { label: 'NBC 597 (2nd Tranche)', value: editRow.rateNbc594 || '0.00', highlight: true }, { label: "NBC DIFF'L 597", value: editRow.nbcDiffl597 || '0.00' }, { label: 'Increment', value: editRow.increment || '0.00' }, { label: 'Gross Salary', value: editRow.grossSalary || '0.00', highlight: true }] },
                     { title: 'Absent Deductions & Leave', fields: [{ label: 'TEVL', value: editRow.tevl || '0.00' }, { label: 'ABS', value: editRow.abs || '0.00' }, { label: 'Hours (H)', value: editRow.h || '0' }, { label: 'Minutes (M)', value: editRow.m || '0' }] },
                     { title: 'Payroll Disbursement', fields: [{ label: '1st Pay', value: editRow.pay1st || '0.00' }, { label: '2nd Pay', value: editRow.pay2nd || '0.00' }, { label: 'EC', value: editRow.ec || '0.00' }] },
-                    { title: 'GSIS Deductions', fields: [{ label: 'Personal Life Ret Ins', value: editRow.personalLifeRetIns || '0.00' }, { label: 'GSIS Salary Loan', value: editRow.gsisSalaryLoan || '0.00' }, { label: 'GSIS Policy Loan', value: editRow.gsisPolicyLoan || '0.00' }, { label: 'GSIS Arrears', value: editRow.gsisArrears || '0.00' }, { label: 'MPL', value: editRow.mpl || '0.00' }, { label: 'EAL', value: editRow.eal || '0.00' }, { label: 'CPL', value: editRow.cpl || '0.00' }, { label: 'MPL Lite', value: editRow.mplLite || '0.00' }, { label: 'Emergency Loan', value: editRow.emergencyLoan || '0.00' }] },
+                    { title: 'GSIS Deductions', fields: [{ label: 'Personal Life Ret Ins', value: editRow.personalLifeRetIns || '0.00' }, { label: 'GSIS Salary Loan', value: editRow.gsisSalaryLoan || '0.00' }, { label: 'GSIS Policy Loan', value: editRow.gsisPolicyLoan || '0.00' }, { label: 'GFAL', value: editRow.gfal || '0.00' }, { label: 'GSIS Arrears', value: editRow.gsisArrears || '0.00' }, { label: 'MPL', value: editRow.mpl || '0.00' }, { label: 'EAL', value: editRow.eal || '0.00' }, { label: 'CPL', value: editRow.cpl || '0.00' }, { label: 'MPL Lite', value: editRow.mplLite || '0.00' }, { label: 'Emergency Loan', value: editRow.emergencyLoan || '0.00' }] },
                     { title: 'Pag-IBIG Deductions', fields: [{ label: 'Pag-ibig Fund Cont', value: editRow.pagibigFundCont || '0.00' }, { label: 'Multi-Purpose Loan', value: editRow.multiPurpLoan || '0.00' }, { label: 'Pag-ibig 2', value: editRow.pagibig2 || '0.00' }] },
                     { title: 'Other Deductions', fields: [{ label: 'Liquidating Cash', value: editRow.liquidatingCash || '0.00' }, { label: 'Earist Credit Coop', value: editRow.earistCreditCoop || '0.00' }, { label: 'FEU', value: editRow.feu || '0.00' }, { label: 'LandBank Salary Loan', value: editRow.landbankSalaryLoan || '0.00' }] },
                     { title: 'Total Contributions & Deductions', fields: [{ label: 'Withholding Tax', value: editRow.withholdingTax || '0.00' }, { label: 'Total GSIS Deds', value: editRow.totalGsisDeds || '0.00' }, { label: 'Total Pag-ibig Deds', value: editRow.totalPagibigDeds || '0.00' }, { label: 'PhilHealth', value: editRow.PhilHealthContribution || '0.00' }, { label: 'Total Other Deds', value: editRow.totalOtherDeds || '0.00' }, { label: 'Total Deductions', value: editRow.totalDeductions || '0.00', bold: true, red: true }] },
@@ -2434,7 +2442,7 @@ const PayrollProcess = () => {
                       title: 'GSIS Deductions',
                       content: (
                         <Grid container spacing={1.5}>
-                          {[['Personal Life Ret Ins', 'personalLifeRetIns'], ['GSIS Salary Loan', 'gsisSalaryLoan'], ['GSIS Policy Loan', 'gsisPolicyLoan'], ['GSIS Arrears', 'gsisArrears'], ['MPL', 'mpl'], ['EAL', 'eal'], ['CPL', 'cpl'], ['MPL Lite', 'mplLite'], ['Emergency Loan', 'emergencyLoan']].map(([label, name]) => (
+                          {[['Personal Life Ret Ins', 'personalLifeRetIns'], ['GSIS Salary Loan', 'gsisSalaryLoan'], ['GSIS Policy Loan', 'gsisPolicyLoan'], ['GFAL', 'gfal'], ['GSIS Arrears', 'gsisArrears'], ['MPL', 'mpl'], ['EAL', 'eal'], ['CPL', 'cpl'], ['MPL Lite', 'mplLite'], ['Emergency Loan', 'emergencyLoan']].map(([label, name]) => (
                             <Grid item xs={6} key={name}><FieldInput fullWidth label={label} name={name} value={editRow[name] || ''} onChange={handleModalChange} size="small" /></Grid>
                           ))}
                         </Grid>
@@ -2517,7 +2525,7 @@ const PayrollProcess = () => {
                   { title: 'Salary Rate and Adjustments', fields: [{ label: 'Rate NBC 584', value: viewRow.rateNbc584 }, { label: 'NBC 594', value: viewRow.nbc594 }, { label: 'Rate NBC 594', value: viewRow.rateNbc594, green: true }, { label: "NBC DIFF'L 597", value: viewRow.nbcDiffl597 }, { label: 'Increment', value: viewRow.increment }, { label: 'Gross Salary', value: viewRow.grossSalary, green: true }], cols: 4 },
                   { title: 'Absent Deductions & Leave', fields: [{ label: 'TEVL', value: viewRow.tevl }, { label: 'ABS', value: viewRow.abs }, { label: 'Hours (H)', value: viewRow.h }, { label: 'Minutes (M)', value: viewRow.m }, { label: 'Net Salary', value: viewRow.netSalary, green: true }], cols: 4 },
                   { title: 'Payroll Disbursement', fields: [{ label: '1st Pay', value: viewRow.pay1st, red: true }, { label: '2nd Pay', value: viewRow.pay2nd, red: true }, { label: 'EC', value: viewRow.ec }, { label: 'RT Ins.', value: viewRow.rtIns }], cols: 3 },
-                  { title: 'GSIS Deductions', fields: [{ label: 'Personal Life Ret Ins', value: viewRow.personalLifeRetIns }, { label: 'GSIS Salary Loan', value: viewRow.gsisSalaryLoan }, { label: 'GSIS Policy Loan', value: viewRow.gsisPolicyLoan }, { label: 'GSIS Arrears', value: viewRow.gsisArrears }, { label: 'MPL', value: viewRow.mpl }, { label: 'EAL', value: viewRow.eal }, { label: 'CPL', value: viewRow.cpl }, { label: 'MPL Lite', value: viewRow.mplLite }, { label: 'Emergency Loan', value: viewRow.emergencyLoan }, { label: 'Total GSIS Deductions', value: viewRow.totalGsisDeds, red: true }], cols: 4 },
+                  { title: 'GSIS Deductions', fields: [{ label: 'Personal Life Ret Ins', value: viewRow.personalLifeRetIns }, { label: 'GSIS Salary Loan', value: viewRow.gsisSalaryLoan }, { label: 'GSIS Policy Loan', value: viewRow.gsisPolicyLoan }, { label: 'GFAL', value: viewRow.gfal }, { label: 'GSIS Arrears', value: viewRow.gsisArrears }, { label: 'MPL', value: viewRow.mpl }, { label: 'EAL', value: viewRow.eal }, { label: 'CPL', value: viewRow.cpl }, { label: 'MPL Lite', value: viewRow.mplLite }, { label: 'Emergency Loan', value: viewRow.emergencyLoan }, { label: 'Total GSIS Deductions', value: viewRow.totalGsisDeds, red: true }], cols: 4 },
                   { title: 'Pag-IBIG Deductions', fields: [{ label: 'Pag-ibig Fund Cont', value: viewRow.pagibigFundCont }, { label: 'Multi-Purpose Loan', value: viewRow.multiPurpLoan }, { label: 'Pag-ibig 2', value: viewRow.pagibig2 }, { label: 'Total Pag-ibig Deductions', value: viewRow.totalPagibigDeds, red: true }], cols: 4 },
                   { title: 'Other Deductions', fields: [{ label: 'Liquidating Cash', value: viewRow.liquidatingCash }, { label: 'Earist Credit Coop', value: viewRow.earistCreditCoop }, { label: 'FEU', value: viewRow.feu }, { label: 'LandBank Salary Loan', value: viewRow.landbankSalaryLoan }, { label: 'Total Other Deductions', value: viewRow.totalOtherDeds, red: true }], cols: 4 },
                   { title: 'Total Contributions & Deductions', fields: [{ label: 'Withholding Tax', value: viewRow.withholdingTax }, { label: 'PhilHealth', value: viewRow.PhilHealthContribution }, { label: 'Total Deductions', value: viewRow.totalDeductions, big: true }], cols: 4, highlight: true },

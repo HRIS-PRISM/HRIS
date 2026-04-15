@@ -140,6 +140,7 @@ import AdminSecurity from "./components/AdminManagement";
 import PayrollJO from "./components/PAYROLL/PayrollJO";
 import UnderConstruction from "./components/UnderConstruction";
 import DailyTimeRecordFaculty from "./components/ATTENDANCE/DailyTimeRecordOverall";
+import WorkingHoursConverter from "./components/WorkingHoursConverter";
 
 function applySystemCSSVariables(s) {
   const root = document.documentElement;
@@ -1770,6 +1771,7 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route path="/working-hours" element={<WorkingHoursConverter />} />
             <Route path="/under-construction" element={<UnderConstruction />} />
             <Route path="/access-denied" element={<AccessDenied />} />
           </Routes>
