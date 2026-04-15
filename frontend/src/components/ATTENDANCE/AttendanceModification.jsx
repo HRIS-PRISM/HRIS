@@ -1,44 +1,36 @@
 import API_BASE_URL from "../../apiConfig";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import {
   Box,
-  TextField,
-  Button,
   Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Card,
-  CardContent,
-  CardHeader,
-  InputAdornment,
-  Divider,
-  Avatar,
-  IconButton,
-  Tooltip,
-  Chip,
-  Fade,
   Alert,
-  alpha,
-  styled,
+  Collapse,
+  Chip,
+  CircularProgress,
+  Fade,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
   Snackbar,
+  alpha,
+  styled,
+  Card,
+  Fab,
+  Zoom,
   Backdrop,
-  CircularProgress,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   FormControlLabel,
   Checkbox,
-  Collapse,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
 } from "@mui/material";
 import {
   CalendarToday,
@@ -51,229 +43,262 @@ import {
   FilterList,
   CheckCircle,
   CompareArrows,
-  WarningAmber,
   AdminPanelSettings,
   Cancel,
   VerifiedUser,
-  History,
   Person,
+  KeyboardArrowUp,
+  Info,
 } from "@mui/icons-material";
 import { useSystemSettings } from "../../hooks/useSystemSettings";
-import { useCRUDButtonStyles } from "../../hooks/useCRUDButtonStyles";
 import usePageAccess from "../../hooks/usePageAccess";
 import AccessDenied from "../AccessDenied";
 
-// ─────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
-    : "109, 35, 35";
+// ─── Theme tokens ──────────────────────────────────────────────────────────
+const T = {
+  accent:       "#6d2323",
+  accentDark:   "#5a1d1d",
+  accentMid:    "#8B4545",
+  accentFaint:  "rgba(109,35,35,0.06)",
+  accentBorder: "rgba(109,35,35,0.14)",
+  accentHover:  "rgba(109,35,35,0.10)",
+  rowOdd:       "rgba(109,35,35,0.025)",
+  rowHover:     "rgba(109,35,35,0.055)",
+  text:         "#1a1a1a",
+  muted:        "#6b6b6b",
+  faint:        "#a0a0a0",
+  surface:      "#ffffff",
+  divider:      "rgba(0,0,0,0.08)",
 };
 
+// ─── Shimmer keyframes ─────────────────────────────────────────────────────
+const shimmerKf = `
+@keyframes shimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}`;
+
+// ─── Shimmer bone ──────────────────────────────────────────────────────────
+const Bone = ({ w = "100%", h = 14, r = 6, sx = {} }) => (
+  <Box sx={{
+    width: w, height: h, borderRadius: r,
+    background: "linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)",
+    backgroundSize: "800px 100%",
+    animation: "shimmer 1.6s infinite linear",
+    flexShrink: 0, ...sx,
+  }} />
+);
+
+// ─── Wireframe skeleton ────────────────────────────────────────────────────
+const AttendanceSearchWireframe = () => (
+  <>
+    <style>{shimmerKf}</style>
+    <Box sx={{
+      py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 },
+      width: "100vw", maxWidth: "100%",
+      position: "relative", left: "63%", transform: "translateX(-61%)",
+      px: { xs: 2, sm: 3, md: 6 },
+    }}>
+      {/* Header */}
+      <Box sx={{ mb: 2, borderRadius: "12px", overflow: "hidden", border: "0.5px solid rgba(0,0,0,0.09)", animation: "blink 2s ease-in-out infinite" }}>
+        <Box sx={{ px: 4, py: 3, background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)", display: "flex", alignItems: "center", gap: 2.5 }}>
+          <Box sx={{ width: 30, height: 30, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.12)" }} />
+          <Box><Bone w={280} h={18} sx={{ mb: 1 }} /><Bone w={380} h={11} /></Box>
+        </Box>
+      </Box>
+      {/* Controls */}
+      <Box sx={{ mb: 2, borderRadius: "12px", overflow: "hidden", border: "0.5px solid rgba(0,0,0,0.09)", bgcolor: "#fff", animation: "blink 2s ease-in-out 0.1s infinite" }}>
+        <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.25, minHeight: 42 }}>
+          <Box sx={{ width: 14, height: 14, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.2)" }} />
+          <Bone w={180} h={12} />
+        </Box>
+        <Box sx={{ px: 2.5, py: 2.5 }}>
+          <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
+            {[1, 2, 3].map((i) => (
+              <Box key={i} sx={{ flex: 1, height: 40, borderRadius: "8px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }} />
+            ))}
+          </Box>
+          <Box sx={{ border: `2px dashed ${T.accentBorder}`, borderRadius: "8px", p: 3 }}>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, justifyContent: "center" }}>
+              {Array.from({ length: 12 }).map((_, i) => (
+                <Box key={i} sx={{ width: 64, height: 36, borderRadius: "6px", bgcolor: T.accentFaint }} />
+              ))}
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+      {/* Table skeleton */}
+      <Box sx={{ borderRadius: "12px", overflow: "hidden", border: "0.5px solid rgba(0,0,0,0.09)", bgcolor: "#fff", animation: "blink 2s ease-in-out 0.2s infinite" }}>
+        <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accent, display: "grid", gridTemplateColumns: "1.2fr 1fr 0.8fr 1.4fr 1.4fr 1.4fr 1.4fr", gap: 2 }}>
+          {[100, 70, 55, 90, 115, 120, 88].map((w, i) => (
+            <Box key={i} sx={{ height: 10, width: w, borderRadius: 3, bgcolor: "rgba(255,255,255,0.22)" }} />
+          ))}
+        </Box>
+        {[...Array(5)].map((_, i) => (
+          <Box key={i} sx={{ px: 2.5, py: 2, display: "grid", gridTemplateColumns: "1.2fr 1fr 0.8fr 1.4fr 1.4fr 1.4fr 1.4fr", gap: 2, alignItems: "center", borderBottom: "1px solid rgba(0,0,0,0.05)", bgcolor: i % 2 === 0 ? "#fff" : T.rowOdd }}>
+            <Bone w={90} h={12} /><Bone w={70} h={12} /><Bone w={55} h={12} />
+            {[0, 1, 2, 3].map((ci) => (
+              <Box key={ci} sx={{ height: 36, borderRadius: "6px", border: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint }} />
+            ))}
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  </>
+);
+
+// ─── Styled primitives ─────────────────────────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: "0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)",
+  border: "0.5px solid rgba(0,0,0,0.09)",
+  overflow: "hidden",
+  background: "#fff",
+});
+
+// ─── Panel header bar ──────────────────────────────────────────────────────
+const PanelHeader = ({ icon: Icon, title, right }) => (
+  <Box sx={{
+    px: 2.5, py: 1.25,
+    borderBottom: `1px solid ${T.divider}`,
+    display: "flex", alignItems: "center", gap: 1.25,
+    bgcolor: T.accentFaint, minHeight: 42,
+  }}>
+    <Icon sx={{ fontSize: 14, color: T.accent }} />
+    <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.accent }}>{title}</Typography>
+    {right && <><Box sx={{ flex: 1 }} />{right}</>}
+  </Box>
+);
+
+// ─── Native input ──────────────────────────────────────────────────────────
+const NativeInput = ({ value, onChange, type = "text", placeholder, disabled, icon }) => (
+  <Box sx={{ position: "relative", display: "flex", alignItems: "center" }}>
+    {icon && (
+      <Box sx={{ position: "absolute", left: 10, color: T.accentMid, display: "flex", alignItems: "center", zIndex: 1, pointerEvents: "none" }}>
+        {icon}
+      </Box>
+    )}
+    <input
+      type={type} value={value} onChange={onChange}
+      placeholder={placeholder} disabled={disabled}
+      style={{
+        width: "100%",
+        padding: icon ? "9px 13px 9px 34px" : "9px 13px",
+        borderRadius: "8px",
+        border: `1px solid ${T.accentBorder}`,
+        fontSize: "0.875rem", outline: "none",
+        fontFamily: "inherit", boxSizing: "border-box",
+        transition: "border-color 0.18s",
+        background: disabled ? "#f5f5f5" : "#fff",
+        color: T.text,
+        cursor: disabled ? "not-allowed" : "text",
+      }}
+      onFocus={(e) => { if (!disabled) { e.target.style.borderColor = T.accent; e.target.style.boxShadow = `0 0 0 1.5px ${T.accent}22`; } }}
+      onBlur={(e) => { e.target.style.borderColor = T.accentBorder; e.target.style.boxShadow = "none"; }}
+    />
+  </Box>
+);
+
+// ─── Inline editable time input ────────────────────────────────────────────
+const TimeInput = ({ value, onChange, unsaved, savedMod }) => (
+  <Box>
+    <input
+      type="text"
+      value={value}
+      onChange={onChange}
+      style={{
+        width: "120px",
+        padding: "7px 10px",
+        borderRadius: "6px",
+        border: `1.5px solid ${unsaved ? "#e65100" : savedMod ? "#2e7d32" : T.accentBorder}`,
+        fontSize: "0.8rem",
+        outline: "none",
+        fontFamily: "inherit",
+        boxSizing: "border-box",
+        background: unsaved ? "rgba(230,81,0,0.04)" : savedMod ? "rgba(46,125,50,0.04)" : "#fff",
+        color: T.text,
+        transition: "border-color 0.15s",
+      }}
+      onFocus={(e) => { e.target.style.borderColor = unsaved ? "#e65100" : T.accent; e.target.style.boxShadow = `0 0 0 1.5px ${unsaved ? "#e65100" : T.accent}22`; }}
+      onBlur={(e) => { e.target.style.borderColor = unsaved ? "#e65100" : savedMod ? "#2e7d32" : T.accentBorder; e.target.style.boxShadow = "none"; }}
+    />
+  </Box>
+);
+
+// ─── Row button ────────────────────────────────────────────────────────────
+const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
+  <button
+    onClick={onClick} disabled={disabled}
+    style={{
+      background: "transparent", border: `1px solid ${color}40`,
+      borderRadius: "6px", padding: "4px 10px",
+      cursor: disabled ? "default" : "pointer", color,
+      display: "flex", alignItems: "center", gap: "4px",
+      fontSize: "0.72rem", fontWeight: 700, fontFamily: "inherit",
+      transition: "background-color 0.15s, border-color 0.15s",
+      whiteSpace: "nowrap", opacity: disabled ? 0.5 : 1,
+    }}
+    onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.backgroundColor = hoverBg; e.currentTarget.style.borderColor = color; } }}
+    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.borderColor = `${color}40`; }}
+  >
+    {icon}{label}
+  </button>
+);
+
+// ─── Quick filter button ───────────────────────────────────────────────────
+const QuickBtn = ({ label, icon, onClick, active }) => (
+  <button
+    onClick={onClick}
+    style={{
+      background: active ? T.accent : "transparent",
+      border: `1px solid ${active ? T.accent : T.accentBorder}`,
+      borderRadius: "6px", padding: "6px 14px", cursor: "pointer",
+      color: active ? "#fff" : T.accent,
+      display: "flex", alignItems: "center", gap: "5px",
+      fontSize: "0.78rem", fontWeight: 700, fontFamily: "inherit",
+      transition: "all 0.15s ease", whiteSpace: "nowrap",
+    }}
+    onMouseEnter={(e) => { if (!active) { e.currentTarget.style.backgroundColor = T.accentFaint; e.currentTarget.style.borderColor = T.accent; } }}
+    onMouseLeave={(e) => { if (!active) { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.borderColor = T.accentBorder; } }}
+  >
+    {icon}{label}
+  </button>
+);
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
 const deepClone = (arr) => arr.map((r) => ({ ...r }));
 
 const EDITABLE_FIELDS = ["timeIN", "breaktimeIN", "breaktimeOUT", "timeOUT"];
 const FIELD_LABELS = {
-  timeIN: "Time IN",
-  breaktimeIN: "Breaktime IN",
+  timeIN:       "Time IN",
+  breaktimeIN:  "Breaktime IN",
   breaktimeOUT: "Breaktime OUT",
-  timeOUT: "Time OUT",
+  timeOUT:      "Time OUT",
 };
 
-/** Returns list of changed fields between current and saved */
 const getChanges = (current, saved) => {
   if (!saved) return [];
-  return EDITABLE_FIELDS.filter(
-    (f) => (current[f] || "") !== (saved[f] || "")
-  ).map((f) => ({
-    field: f,
-    label: FIELD_LABELS[f],
-    before: saved[f] || "—",
-    after: current[f] || "—",
+  return EDITABLE_FIELDS.filter((f) => (current[f] || "") !== (saved[f] || "")).map((f) => ({
+    field: f, label: FIELD_LABELS[f],
+    before: saved[f] || "—", after: current[f] || "—",
   }));
 };
 
-/** Returns true if a record differs from its saved snapshot */
 const isDirty = (current, saved) => {
   if (!saved) return false;
   return EDITABLE_FIELDS.some((f) => (current[f] || "") !== (saved[f] || ""));
 };
 
-// ─────────────────────────────────────────────
-// WIREFRAME
-// ─────────────────────────────────────────────
-const SHIMMER_CSS = `
-@keyframes amsShimmer {
-  0%   { background-position: -900px 0; }
-  100% { background-position:  900px 0; }
-}
-@keyframes amsPulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.55; }
-}`;
-
-const S = ({ w = "100%", h = 14, r = 6, sx = {}, accent = "#6d2323" }) => (
-  <Box sx={{ width: w, height: h, borderRadius: r, flexShrink: 0, background: `linear-gradient(90deg, ${alpha(accent, 0.07)} 25%, ${alpha(accent, 0.18)} 50%, ${alpha(accent, 0.07)} 75%)`, backgroundSize: "900px 100%", animation: "amsShimmer 1.6s infinite linear", ...sx }} />
-);
-
-const Placeholder = ({ w, h, r = 4, color = "rgba(109,35,35,0.08)", sx = {} }) => (
-  <Box sx={{ width: w, height: h, borderRadius: r, bgcolor: color, flexShrink: 0, ...sx }} />
-);
-
-const AttendanceSearchWireframe = ({ accentColor = "#6d2323", primaryColor = "#FEF9E1", secondaryColor = "#FFF8E7" }) => {
-  const ac = accentColor;
-  const grad = `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`;
-  return (
-    <>
-      <style>{SHIMMER_CSS}</style>
-      <Box sx={{ py: { xs: 2, md: 4 }, width: "100vw", mx: "auto", maxWidth: "100%", overflow: "hidden", position: "relative", left: "53%", transform: "translateX(-51%)", px: { xs: 2, sm: 3, md: 6 } }}>
-        <Box sx={{ mb: 4, borderRadius: "20px", overflow: "hidden", border: `1px solid ${alpha(ac, 0.1)}`, boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`, animation: "amsPulse 2.2s ease-in-out infinite" }}>
-          <Box sx={{ p: 5, background: grad, position: "relative", overflow: "hidden" }}>
-            <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle,${alpha(ac,0.1)} 0%,${alpha(ac,0)} 70%)` }} />
-            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <Placeholder w={64} h={64} r="50%" color={alpha(ac, 0.13)} />
-                <Box sx={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                  <S w={260} h={26} r={6} accent={ac} />
-                  <S w={310} h={13} r={4} accent={ac} />
-                </Box>
-              </Box>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                <S w={145} h={26} r={13} accent={ac} />
-                <Placeholder w={48} h={48} r="50%" color={alpha(ac, 0.12)} />
-              </Box>
-            </Box>
-          </Box>
-        </Box>
-        <Box sx={{ mb: 4, borderRadius: "20px", overflow: "hidden", border: `1px solid ${alpha(ac, 0.1)}`, boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`, animation: "amsPulse 2.2s ease-in-out 0.08s infinite", bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)` }}>
-          <Box sx={{ p: 4 }}>
-            <Box sx={{ display: "flex", gap: 3, mb: 3, flexWrap: "wrap" }}>
-              {[0, 1, 2].map((fi) => (<Box key={fi} sx={{ flex: 1, minWidth: 160 }}><S w={fi === 0 ? 120 : 72} h={12} r={3} accent={ac} sx={{ mb: "6px" }} /><Box sx={{ height: 56, borderRadius: "12px", border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: "rgba(255,255,255,0.85)", display: "flex", alignItems: "center", px: 1.5, gap: 1 }}><Placeholder w={20} h={20} r="50%" color={alpha(ac, 0.12)} /><S w={fi === 0 ? "45%" : "55%"} h={13} r={4} accent={ac} /></Box></Box>))}
-            </Box>
-            <Box sx={{ height: 1, bgcolor: alpha(ac, 0.1), my: 3 }} />
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}><Placeholder w={20} h={20} r="50%" color={alpha(ac, 0.15)} /><S w={180} h={14} r={4} accent={ac} /></Box>
-            <S w={320} h={11} r={3} accent={ac} sx={{ mb: 3 }} />
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 3 }}>
-              {[80, 100, 108, 108, 114].map((w, i) => (<Box key={i} sx={{ width: w, height: 48, borderRadius: "12px", border: `1px solid ${alpha(ac, 0.20)}`, animation: `amsPulse 2.2s ease-in-out ${i * 0.07}s infinite` }} />))}
-            </Box>
-            <Box sx={{ p: 3, borderRadius: 2, border: `2px dashed ${alpha(ac, 0.20)}`, bgcolor: alpha(primaryColor, 0.30) }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-                <Box sx={{ display: "flex", flexDirection: "column", gap: "6px" }}><S w={185} h={14} r={4} accent={ac} /><S w={300} h={11} r={3} accent={ac} /></Box>
-                <Box sx={{ width: 140, height: 40, borderRadius: "8px", border: `1px solid ${alpha(ac, 0.25)}`, bgcolor: "white", display: "flex", alignItems: "center", px: 1.5, gap: 1 }}><S w="50%" h={12} r={3} accent={ac} /><Placeholder w={18} h={18} r={3} color={alpha(ac, 0.15)} sx={{ ml: "auto" }} /></Box>
-              </Box>
-              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, justifyContent: "center" }}>
-                {Array.from({ length: 12 }, (_, i) => (<S key={i} w={64} h={44} r={10} accent={ac} sx={{ animation: `amsShimmer 1.6s infinite linear ${i * 0.05}s` }} />))}
-              </Box>
-            </Box>
-            <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 3 }}><Box sx={{ width: 160, height: 48, borderRadius: "12px", border: "1px solid rgba(211,47,47,0.30)" }} /></Box>
-          </Box>
-        </Box>
-        <Box sx={{ mb: 4, borderRadius: "20px", overflow: "hidden", border: `1px solid ${alpha(ac, 0.1)}`, boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`, animation: "amsPulse 2.2s ease-in-out 0.15s infinite", bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)` }}>
-          <Box sx={{ p: 4, background: grad, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <Box><S w={160} h={10} r={3} accent={ac} sx={{ mb: "6px" }} /><S w={140} h={20} r={4} accent={ac} sx={{ mb: 2 }} /><Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><S w={100} h={22} r={11} accent={ac} /><S w={130} h={10} r={3} accent={ac} /></Box></Box>
-            <Placeholder w={80} h={80} r="50%" color={alpha(ac, 0.13)} />
-          </Box>
-          <Box sx={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1.4fr 1.4fr 1.4fr 1.4fr", gap: 1, px: 3, py: 2, bgcolor: alpha(primaryColor, 0.7), borderBottom: `2px solid ${alpha(ac, 0.1)}` }}>
-            {[100, 70, 55, 90, 115, 120, 88].map((w, i) => (<S key={i} w={w} h={10} r={3} accent={ac} />))}
-          </Box>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Box key={i} sx={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1.4fr 1.4fr 1.4fr 1.4fr", gap: 1, px: 3, py: 2.25, alignItems: "center", borderBottom: i < 5 ? `1px solid ${alpha(ac, 0.06)}` : "none", bgcolor: i % 2 === 0 ? "#fff" : alpha(primaryColor, 0.3), animation: `amsPulse 2.2s ease-in-out ${i * 0.06}s infinite` }}>
-              <S w={90} h={12} r={3} accent={ac} /><S w={70} h={12} r={3} accent={ac} /><S w={55} h={12} r={3} accent={ac} />
-              {[0, 1, 2, 3].map((ci) => (<Box key={ci} sx={{ height: 40, borderRadius: "10px", border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: "rgba(255,255,255,0.7)" }} />))}
-            </Box>
-          ))}
-        </Box>
-        <Box sx={{ mb: 4, borderRadius: "20px", overflow: "hidden", border: `1px solid ${alpha(ac, 0.1)}`, boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`, animation: "amsPulse 2.2s ease-in-out 0.2s infinite", bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)` }}>
-          <Box sx={{ p: 2.5, bgcolor: alpha(primaryColor, 0.5), borderBottom: `1px solid ${alpha(ac, 0.1)}`, display: "flex", alignItems: "center", gap: 2 }}><Placeholder w={40} h={40} r="50%" color={alpha(ac, 0.13)} /><S w={280} h={12} r={3} accent={ac} /></Box>
-          <Box sx={{ p: 4 }}><Box sx={{ height: 52, borderRadius: "12px", bgcolor: alpha(ac, 0.85) }} /></Box>
-        </Box>
-      </Box>
-    </>
-  );
-};
-
-// ─────────────────────────────────────────────
-// STYLED COMPONENTS
-// ─────────────────────────────────────────────
-const GlassCard = styled(Card)(() => ({
-  borderRadius: 20,
-  backdropFilter: "blur(10px)",
-  overflow: "hidden",
-  transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-  "&:hover": { transform: "translateY(-4px)" },
-}));
-
-const ProfessionalButton = styled(Button)(({ variant }) => ({
-  borderRadius: 12,
-  fontWeight: 600,
-  padding: "12px 24px",
-  transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-  textTransform: "none",
-  fontSize: "0.95rem",
-  letterSpacing: "0.025em",
-  boxShadow: variant === "contained" ? "0 4px 14px rgba(254,249,225,0.25)" : "none",
-  "&:hover": { transform: "translateY(-2px)", boxShadow: variant === "contained" ? "0 6px 20px rgba(254,249,225,0.35)" : "none" },
-  "&:active": { transform: "translateY(0)" },
-}));
-
-const ModernTextField = styled(TextField)(() => ({
-  "& .MuiOutlinedInput-root": {
-    borderRadius: 12,
-    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    backgroundColor: "rgba(255,255,255,0.8)",
-    "&:hover": { transform: "translateY(-1px)", backgroundColor: "rgba(255,255,255,0.95)" },
-    "&.Mui-focused": { transform: "translateY(-1px)", boxShadow: "0 4px 20px rgba(254,249,225,0.25)", backgroundColor: "rgba(255,255,255,1)" },
-  },
-  "& .MuiInputLabel-root": { fontWeight: 500 },
-}));
-
-const PremiumTableContainer = styled(TableContainer)(() => ({
-  borderRadius: 16,
-  overflow: "auto",
-  boxShadow: "0 4px 24px rgba(109,35,35,0.06)",
-  border: "1px solid rgba(109,35,35,0.08)",
-  maxHeight: "600px",
-  "&::-webkit-scrollbar": { width: "8px", height: "8px" },
-  "&::-webkit-scrollbar-track": { background: "rgba(254,249,225,0.3)", borderRadius: "4px" },
-  "&::-webkit-scrollbar-thumb": { background: "rgba(109,35,35,0.4)", borderRadius: "4px", "&:hover": { background: "rgba(109,35,35,0.6)" } },
-}));
-
-const PremiumTableCell = styled(TableCell)(({ isHeader = false }) => ({
-  fontWeight: isHeader ? 600 : 500,
-  padding: "18px 20px",
-  borderBottom: isHeader ? "2px solid rgba(254,249,225,0.5)" : "1px solid rgba(109,35,35,0.06)",
-  fontSize: "0.95rem",
-  letterSpacing: "0.025em",
-  whiteSpace: "nowrap",
-}));
-
-// ─────────────────────────────────────────────
-// AUTHORIZATION DIALOG
-// ─────────────────────────────────────────────
-const AuthorizationDialog = ({
-  open,
-  onClose,
-  onConfirm,
-  records,
-  savedRecords,
-  accentColor,
-  primaryColor,
-  personID,
-  startDate,
-  endDate,
-}) => {
+// ─── Authorization Dialog ──────────────────────────────────────────────────
+const AuthorizationDialog = ({ open, onClose, onConfirm, records, savedRecords }) => {
   const [acknowledged, setAcknowledged] = useState(false);
   const [showDiff, setShowDiff]         = useState(true);
 
-  useEffect(() => {
-    if (open) {
-      setAcknowledged(false);
-      setShowDiff(true);
-    }
-  }, [open]);
+  useEffect(() => { if (open) { setAcknowledged(false); setShowDiff(true); } }, [open]);
 
   const changedRows = (savedRecords || [])
     .map((saved, idx) => {
@@ -289,105 +314,83 @@ const AuthorizationDialog = ({
 
   return (
     <Dialog
-      open={open}
-      onClose={onClose}
-      maxWidth="md"
-      fullWidth
-      PaperProps={{
-        sx: {
-          borderRadius: "20px",
-          overflow: "hidden",
-          border: `2px solid ${alpha(accentColor, 0.2)}`,
-          boxShadow: `0 24px 80px ${alpha(accentColor, 0.25)}`,
-        },
-      }}
+      open={open} onClose={onClose} maxWidth="md" fullWidth
+      PaperProps={{ sx: { borderRadius: "12px", overflow: "hidden", border: `1.5px solid ${alpha(T.accent, 0.2)}`, boxShadow: `0 20px 60px ${alpha(T.accent, 0.25)}` } }}
     >
-      {/* ── Header ── */}
+      {/* Header */}
       <DialogTitle sx={{ p: 0 }}>
         <Box sx={{
-          p: 4,
-          background: `linear-gradient(135deg, #4a0e0e 0%, #6d2323 50%, #8B3333 100%)`,
-          color: "#FEF9E1",
-          position: "relative",
-          overflow: "hidden",
+          px: 3, py: 2.5,
+          background: `linear-gradient(135deg, #4a0e0e 0%, ${T.accent} 50%, ${T.accentMid} 100%)`,
+          display: "flex", alignItems: "center", gap: 2,
+          position: "relative", overflow: "hidden",
         }}>
-          <Box sx={{ position: "absolute", top: -40, right: -40, width: 180, height: 180, background: "radial-gradient(circle, rgba(254,249,225,0.1) 0%, transparent 70%)" }} />
-          <Box sx={{ display: "flex", alignItems: "center", gap: 3, position: "relative", zIndex: 1 }}>
-            <Avatar sx={{ bgcolor: alpha("#FEF9E1", 0.15), width: 60, height: 60, border: "2px solid rgba(254,249,225,0.3)" }}>
-              <AdminPanelSettings sx={{ fontSize: 32, color: "#FEF9E1" }} />
-            </Avatar>
-            <Box>
-              <Typography variant="h5" sx={{ fontWeight: 700, color: "#FEF9E1", letterSpacing: "0.02em" }}>
-                Confirm Modification
-              </Typography>
-              <Typography variant="body2" sx={{ color: alpha("#FEF9E1", 0.75), mt: 0.5 }}>
-                Attendance record modification 
-              </Typography>
-            </Box>
+          <Box sx={{ position: "absolute", top: -40, right: -40, width: 160, height: 160, background: "radial-gradient(circle,rgba(254,249,225,0.1) 0%,transparent 70%)" }} />
+          <Box sx={{ width: 44, height: 44, borderRadius: "50%", bgcolor: "rgba(254,249,225,0.15)", display: "flex", alignItems: "center", justifyContent: "center", border: "1.5px solid rgba(254,249,225,0.3)", flexShrink: 0, zIndex: 1 }}>
+            <AdminPanelSettings sx={{ fontSize: 22, color: "#FEF9E1" }} />
           </Box>
-
+          <Box sx={{ zIndex: 1 }}>
+            <Typography sx={{ fontSize: "1rem", fontWeight: 800, color: "#FEF9E1", lineHeight: 1.2 }}>Confirm Modification</Typography>
+            <Typography sx={{ fontSize: "0.75rem", color: "rgba(254,249,225,0.75)", mt: 0.3 }}>Attendance record modification</Typography>
+          </Box>
         </Box>
       </DialogTitle>
 
       <DialogContent sx={{ p: 0, bgcolor: "#FFFDF5" }}>
-
-        {/* ── Change Summary ── */}
-        <Box sx={{ px: 4, pt: 3, pb: 1 }}>
+        {/* Change Summary */}
+        <Box sx={{ px: 3, pt: 2.5, pb: 1 }}>
           <Box
             onClick={() => setShowDiff((p) => !p)}
             sx={{
               display: "flex", alignItems: "center", justifyContent: "space-between",
-              cursor: "pointer", p: 2, borderRadius: "12px",
-              bgcolor: alpha(accentColor, 0.06),
-              border: `1px solid ${alpha(accentColor, 0.15)}`,
-              "&:hover": { bgcolor: alpha(accentColor, 0.09) },
-              transition: "all 0.2s ease",
+              cursor: "pointer", px: 2, py: 1.25, borderRadius: "8px",
+              bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`,
+              "&:hover": { bgcolor: T.accentHover }, transition: "all 0.18s",
             }}
           >
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-              <CompareArrows sx={{ color: accentColor }} />
-              <Typography variant="subtitle1" sx={{ fontWeight: 700, color: accentColor }}>
-                Pending Changes Summary
-              </Typography>
-
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <CompareArrows sx={{ fontSize: 16, color: T.accent }} />
+              <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Pending Changes Summary</Typography>
             </Box>
-            <Typography variant="caption" sx={{ color: alpha(accentColor, 0.6) }}>
-              {showDiff ? "Hide ▲" : "Show ▼"}
-            </Typography>
+            <Typography sx={{ fontSize: "0.7rem", color: T.faint }}>{showDiff ? "Hide ▲" : "Show ▼"}</Typography>
           </Box>
 
           <Collapse in={showDiff}>
-            <Box sx={{ mt: 2, maxHeight: 280, overflowY: "auto", borderRadius: "12px", border: `1px solid ${alpha(accentColor, 0.1)}` }}>
+            <Box sx={{ mt: 1.5, maxHeight: 260, overflowY: "auto", borderRadius: "8px", border: `1px solid ${T.accentBorder}` }}>
               {changedRows.length === 0 ? (
-                <Box sx={{ p: 4, textAlign: "center" }}>
-                  <CheckCircle sx={{ color: "#4caf50", fontSize: 40, mb: 1 }} />
-                  <Typography variant="body2" sx={{ color: "#555" }}>No changes detected.</Typography>
+                <Box sx={{ py: 4, textAlign: "center" }}>
+                  <CheckCircle sx={{ color: "#4caf50", fontSize: 36, mb: 1 }} />
+                  <Typography sx={{ fontSize: "0.82rem", color: T.muted }}>No changes detected.</Typography>
                 </Box>
               ) : (
                 <Table size="small" stickyHeader>
                   <TableHead>
                     <TableRow>
                       {["Date", "Day", "Field", "Before", "After"].map((h) => (
-                        <TableCell key={h} sx={{ fontWeight: 700, color: accentColor, fontSize: "0.8rem", bgcolor: alpha(accentColor, 0.07), py: 1.5 }}>{h}</TableCell>
+                        <TableCell key={h} sx={{ fontWeight: 700, color: T.accent, fontSize: "0.72rem", bgcolor: T.accentFaint, py: 1, letterSpacing: "0.05em" }}>{h}</TableCell>
                       ))}
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {changedRows.flatMap((row, ri) =>
                       row.changes.map((ch, ci) => (
-                        <TableRow key={`${ri}-${ci}`} sx={{ "&:nth-of-type(even)": { bgcolor: alpha(primaryColor, 0.4) } }}>
+                        <TableRow key={`${ri}-${ci}`} sx={{ "&:nth-of-type(even)": { bgcolor: "rgba(109,35,35,0.02)" } }}>
                           {ci === 0 && (
                             <>
-                              <TableCell rowSpan={row.changes.length} sx={{ fontWeight: 600, color: accentColor, borderRight: `1px solid ${alpha(accentColor, 0.1)}`, verticalAlign: "top", pt: 2 }}>{row.date}</TableCell>
-                              <TableCell rowSpan={row.changes.length} sx={{ color: "#555", borderRight: `1px solid ${alpha(accentColor, 0.1)}`, verticalAlign: "top", pt: 2 }}>{row.day}</TableCell>
+                              <TableCell rowSpan={row.changes.length} sx={{ fontWeight: 600, color: T.accent, borderRight: `1px solid ${T.divider}`, verticalAlign: "top", pt: 1.5, fontSize: "0.78rem" }}>{row.date}</TableCell>
+                              <TableCell rowSpan={row.changes.length} sx={{ color: T.muted, borderRight: `1px solid ${T.divider}`, verticalAlign: "top", pt: 1.5, fontSize: "0.78rem" }}>{row.day}</TableCell>
                             </>
                           )}
-                          <TableCell sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#333" }}>{ch.label}</TableCell>
+                          <TableCell sx={{ fontSize: "0.78rem", fontWeight: 600, color: T.text }}>{ch.label}</TableCell>
                           <TableCell>
-                            <Chip label={ch.before} size="small" sx={{ bgcolor: alpha("#d32f2f", 0.1), color: "#b71c1c", fontWeight: 600, fontSize: "0.78rem", fontFamily: "monospace" }} />
+                            <Box sx={{ display: "inline-flex", alignItems: "center", px: 1, py: 0.25, borderRadius: "4px", bgcolor: alpha("#d32f2f", 0.08), border: `1px solid ${alpha("#d32f2f", 0.2)}` }}>
+                              <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#b71c1c", fontFamily: "monospace" }}>{ch.before}</Typography>
+                            </Box>
                           </TableCell>
                           <TableCell>
-                            <Chip label={ch.after} size="small" sx={{ bgcolor: alpha("#2e7d32", 0.1), color: "#1b5e20", fontWeight: 600, fontSize: "0.78rem", fontFamily: "monospace" }} />
+                            <Box sx={{ display: "inline-flex", alignItems: "center", px: 1, py: 0.25, borderRadius: "4px", bgcolor: alpha("#2e7d32", 0.08), border: `1px solid ${alpha("#2e7d32", 0.2)}` }}>
+                              <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#1b5e20", fontFamily: "monospace" }}>{ch.after}</Typography>
+                            </Box>
                           </TableCell>
                         </TableRow>
                       ))
@@ -399,118 +402,104 @@ const AuthorizationDialog = ({
           </Collapse>
         </Box>
 
-        {/* ── Acknowledgement checkbox ── */}
-        <Box sx={{ px: 4, pt: 3, pb: 3 }}>
+        {/* Acknowledgement */}
+        <Box sx={{ px: 3, pt: 2, pb: 2.5 }}>
           <Box sx={{
-            p: 2.5, borderRadius: "14px",
-            border: `2px solid ${acknowledged ? alpha("#2e7d32", 0.4) : alpha(accentColor, 0.2)}`,
-            bgcolor: acknowledged ? alpha("#2e7d32", 0.05) : alpha(accentColor, 0.03),
-            transition: "all 0.3s ease",
+            p: 2, borderRadius: "8px",
+            border: `1.5px solid ${acknowledged ? alpha("#2e7d32", 0.35) : T.accentBorder}`,
+            bgcolor: acknowledged ? alpha("#2e7d32", 0.04) : T.accentFaint,
+            transition: "all 0.25s ease",
           }}>
             <FormControlLabel
               control={
                 <Checkbox
                   checked={acknowledged}
                   onChange={(e) => setAcknowledged(e.target.checked)}
-                  sx={{ color: accentColor, "&.Mui-checked": { color: "#2e7d32" }, "& .MuiSvgIcon-root": { fontSize: 22 } }}
+                  sx={{ color: T.accent, "&.Mui-checked": { color: "#2e7d32" }, "& .MuiSvgIcon-root": { fontSize: 20 } }}
                 />
               }
               label={
-                <Typography variant="body2" sx={{ fontWeight: 500, color: "#333", lineHeight: 1.6 }}>
-I hereby confirm that the above attendance records are accurate and formally authorize the requested modifications. I acknowledge full responsibility for the accuracy and validity of these changes.
+                <Typography sx={{ fontSize: "0.8rem", fontWeight: 500, color: T.text, lineHeight: 1.6 }}>
+                  I hereby confirm that the above attendance records are accurate and formally authorize the requested modifications. I acknowledge full responsibility for the accuracy and validity of these changes.
                 </Typography>
               }
               sx={{ alignItems: "flex-start", "& .MuiFormControlLabel-label": { mt: 0.3 } }}
             />
           </Box>
         </Box>
-
-
-
       </DialogContent>
 
-      {/* ── Actions ── */}
-      <DialogActions sx={{ p: 3, pt: 2, bgcolor: "#FFFDF5", gap: 2 }}>
-        <Button
+      {/* Actions */}
+      <DialogActions sx={{ px: 3, py: 2, bgcolor: "#FFFDF5", borderTop: `1px solid ${T.divider}`, gap: 1.5 }}>
+        <RowBtn
+          icon={<Cancel sx={{ fontSize: 13 }} />}
+          label="Cancel"
           onClick={onClose}
-          variant="outlined"
-          startIcon={<Cancel />}
-          sx={{
-            borderRadius: "12px", fontWeight: 600, textTransform: "none",
-            borderColor: alpha("#d32f2f", 0.4), color: "#d32f2f",
-            px: 3, py: 1.5,
-            "&:hover": { borderColor: "#d32f2f", bgcolor: alpha("#d32f2f", 0.05) },
-          }}
-        >
-          Cancel
-        </Button>
-        <Button
+          color="#C62828"
+          hoverBg="rgba(198,40,40,0.08)"
+        />
+        <button
           onClick={onConfirm}
           disabled={!canConfirm}
-          variant="contained"
-          startIcon={<VerifiedUser />}
-          sx={{
-            borderRadius: "12px", fontWeight: 700, textTransform: "none",
-            background: canConfirm ? `linear-gradient(135deg, #2e7d32 0%, #388e3c 100%)` : undefined,
-            color: "#fff",
-            px: 4, py: 1.5, flex: 1,
-            boxShadow: canConfirm ? "0 4px 16px rgba(46,125,50,0.35)" : "none",
-            "&:hover": { background: "linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%)", boxShadow: "0 6px 20px rgba(46,125,50,0.45)" },
-            "&:disabled": { bgcolor: alpha("#333", 0.12), color: alpha("#333", 0.4) },
-            transition: "all 0.3s ease",
+          style={{
+            flex: 1,
+            background: canConfirm ? "linear-gradient(135deg,#2e7d32 0%,#388e3c 100%)" : "rgba(0,0,0,0.08)",
+            border: "none", borderRadius: "8px",
+            padding: "10px 20px", cursor: canConfirm ? "pointer" : "not-allowed",
+            color: canConfirm ? "#fff" : "rgba(0,0,0,0.3)",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+            fontSize: "0.82rem", fontWeight: 700, fontFamily: "inherit",
+            transition: "all 0.18s", boxShadow: canConfirm ? "0 4px 14px rgba(46,125,50,0.3)" : "none",
           }}
+          onMouseEnter={(e) => { if (canConfirm) e.currentTarget.style.background = "linear-gradient(135deg,#1b5e20 0%,#2e7d32 100%)"; }}
+          onMouseLeave={(e) => { if (canConfirm) e.currentTarget.style.background = "linear-gradient(135deg,#2e7d32 0%,#388e3c 100%)"; }}
         >
-          Confirm & Save Changes
-        </Button>
+          <VerifiedUser sx={{ fontSize: 15 }} />
+          Confirm &amp; Save Changes
+        </button>
       </DialogActions>
     </Dialog>
   );
 };
 
-// ─────────────────────────────────────────────
-// MAIN COMPONENT
-// ─────────────────────────────────────────────
+// ─── Main Component ────────────────────────────────────────────────────────
 const AttendanceSearch = () => {
-  const { settings }     = useSystemSettings();
-  const saveButtonStyles = useCRUDButtonStyles("save");
+  const { settings } = useSystemSettings();
 
-  const primaryColor       = settings.accentColor        || "#FEF9E1";
-  const secondaryColor     = settings.backgroundColor    || "#FFF8E7";
-  const accentColor        = settings.primaryColor       || "#6d2323";
-  const accentDark         = settings.secondaryColor     || "#8B3333";
-  const textPrimaryColor   = settings.textPrimaryColor   || "#6d2323";
+  const accentColor        = settings.primaryColor       || T.accent;
   const textSecondaryColor = settings.textSecondaryColor || "#FEF9E1";
 
   const today          = new Date();
-  const formattedToday = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+  const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
   const { hasAccess, loading: accessLoading } = usePageAccess("search-attendance");
 
-  const [personID, setPersonID]             = useState("");
-  const [startDate, setStartDate]           = useState("");
-  const [endDate, setEndDate]               = useState("");
-  const [records, setRecords]               = useState([]);
-  const [savedRecords, setSavedRecords]     = useState([]);   // snapshot of last-saved state
-  const [everModifiedFields, setEverModifiedFields] = useState(new Set()); // persists post-save
-  const [loading, setLoading]               = useState(false);
-  const [error, setError]                   = useState("");
-  const [success, setSuccess]               = useState("");
-  const [selectedYear, setSelectedYear]     = useState(new Date().getFullYear());
-  const [selectedMonth, setSelectedMonth]   = useState(null);
-  const [pageLoading, setPageLoading]       = useState(true);
-  const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const [personID, setPersonID]                         = useState("");
+  const [startDate, setStartDate]                       = useState("");
+  const [endDate, setEndDate]                           = useState("");
+  const [records, setRecords]                           = useState([]);
+  const [savedRecords, setSavedRecords]                 = useState([]);
+  const [everModifiedFields, setEverModifiedFields]     = useState(new Set());
+  const [loading, setLoading]                           = useState(false);
+  const [error, setError]                               = useState("");
+  const [success, setSuccess]                           = useState("");
+  const [selectedYear, setSelectedYear]                 = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth]               = useState(null);
+  const [pageLoading, setPageLoading]                   = useState(true);
+  const [authDialogOpen, setAuthDialogOpen]             = useState(false);
+  const [showScrollTop, setShowScrollTop]               = useState(false);
+
+  const resultsRef = useRef(null);
 
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
   const months = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
 
+  // ── Snackbar ──
   const [snackbar, setSnackbar]                   = useState({ open: false, message: "", severity: "success" });
   const [snackbarCountdown, setSnackbarCountdown] = useState(6);
 
-  const showSnackbar = (message, severity = "success") => {
-    setSnackbar({ open: true, message, severity });
-    setSnackbarCountdown(6);
-  };
+  const showSnackbar = (message, severity = "success") => { setSnackbar({ open: true, message, severity }); setSnackbarCountdown(6); };
   const handleCloseSnackbar = () => setSnackbar((p) => ({ ...p, open: false }));
 
   useEffect(() => {
@@ -521,6 +510,14 @@ const AttendanceSearch = () => {
   }, [snackbar.open, snackbarCountdown]);
 
   useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
+
+  useEffect(() => {
+    const handleScroll = () => setShowScrollTop(window.scrollY > 300);
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem("token");
@@ -539,8 +536,13 @@ const AttendanceSearch = () => {
       );
       const fetched = response.data;
       setRecords(fetched);
-      setSavedRecords(deepClone(fetched)); // snapshot = original server state
-      setEverModifiedFields(new Set());   // clear saved-change markers on fresh fetch
+      setSavedRecords(deepClone(fetched));
+      setEverModifiedFields(new Set());
+    if (fetched.length > 0) {
+  setTimeout(() => {
+    resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 150);
+}
     } catch (err) {
       console.error("Axios error:", err.response ? err.response.data : err);
       const msg = "Failed to fetch attendance records. Please try again.";
@@ -551,44 +553,37 @@ const AttendanceSearch = () => {
     }
   };
 
-  // Called by AuthorizationDialog after confirmation
-const saveAll = async () => {
-  setAuthDialogOpen(false);
-  try {
-    setLoading(true); setError(""); setSuccess("");
+  const saveAll = async () => {
+    setAuthDialogOpen(false);
+    try {
+      setLoading(true); setError(""); setSuccess("");
+      const response = await axios.put(
+        `${API_BASE_URL}/attendance/api/view-attendance`,
+        { records },
+        getAuthHeaders()
+      );
+      const msg = response.data.message || "Records saved successfully!";
+      setSuccess(msg);
+      showSnackbar(msg, "success");
 
-    const response = await axios.put(
-      `${API_BASE_URL}/attendance/api/view-attendance`,
-      { records },
-      getAuthHeaders()
-    );
-
-    const msg = response.data.message || "Records saved successfully!";
-    setSuccess(msg);
-    showSnackbar(msg, "success");
-
-    // ✅ FIXED: use stable key instead of index
-    const modSet = new Set();
-    records.forEach((rec, i) => {
-      EDITABLE_FIELDS.forEach((f) => {
-        if ((rec[f] || "") !== (savedRecords[i]?.[f] || "")) {
-          modSet.add(`${rec.personID}-${rec.date}-${f}`);
-        }
+      const modSet = new Set();
+      records.forEach((rec, i) => {
+        EDITABLE_FIELDS.forEach((f) => {
+          if ((rec[f] || "") !== (savedRecords[i]?.[f] || ""))
+            modSet.add(`${rec.personID}-${rec.date}-${f}`);
+        });
       });
-    });
-
-    setEverModifiedFields(modSet);
-    setSavedRecords(deepClone(records));
-
-  } catch (err) {
-    console.error(err);
-    const msg = err.response?.data?.message || "Failed to save records. Please try again.";
-    setError(msg);
-    showSnackbar(msg, "error");
-  } finally {
-    setLoading(false);
-  }
-};
+      setEverModifiedFields(modSet);
+      setSavedRecords(deepClone(records));
+    } catch (err) {
+      console.error(err);
+      const msg = err.response?.data?.message || "Failed to save records. Please try again.";
+      setError(msg);
+      showSnackbar(msg, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleInputChange = (index, field, value) => {
     const updated = [...records];
@@ -606,17 +601,16 @@ const saveAll = async () => {
 
   const handleClearFilters = () => {
     setPersonID(""); setStartDate(""); setEndDate("");
-    setRecords([]); setSavedRecords([]); setEverModifiedFields(new Set()); setError(""); setSuccess("");
-    setSelectedMonth(null);
+    setRecords([]); setSavedRecords([]); setEverModifiedFields(new Set());
+    setError(""); setSuccess(""); setSelectedMonth(null);
   };
 
   useEffect(() => {
     if (personID && startDate && endDate) fetchRecords(false);
   }, [startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (pageLoading || accessLoading) return (
-    <AttendanceSearchWireframe accentColor={accentColor} primaryColor={primaryColor} secondaryColor={secondaryColor} />
-  );
+  // ── Guards ──
+  if (pageLoading || accessLoading) return <AttendanceSearchWireframe />;
 
   if (hasAccess === false) return (
     <AccessDenied
@@ -628,14 +622,14 @@ const saveAll = async () => {
   );
 
   return (
-    <Fade in timeout={500}>
+    <Fade in timeout={400}>
       <Box sx={{
-        py: { xs: 2, md: 4 },
-        width: "100vw", mx: "auto", maxWidth: "100%",
-        overflow: "hidden", position: "relative",
-        left: "53%", transform: "translateX(-51%)",
+        py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 },
+        width: "100vw", maxWidth: "100%",
+        position: "relative", left: "63%", transform: "translateX(-61%)",
         px: { xs: 2, sm: 3, md: 6 },
       }}>
+        <style>{shimmerKf}</style>
 
         {/* ── Authorization Dialog ── */}
         <AuthorizationDialog
@@ -644,11 +638,6 @@ const saveAll = async () => {
           onConfirm={saveAll}
           records={records}
           savedRecords={savedRecords}
-          accentColor={accentColor}
-          primaryColor={primaryColor}
-          personID={personID}
-          startDate={startDate}
-          endDate={endDate}
         />
 
         {/* ── Snackbar ── */}
@@ -664,255 +653,300 @@ const saveAll = async () => {
         </Snackbar>
 
         {/* ── Loading Backdrop ── */}
-        <Backdrop sx={{ color: primaryColor, zIndex: (theme) => theme.zIndex.drawer + 1 }} open={loading}>
+        <Backdrop sx={{ color: "#FEF9E1", zIndex: (theme) => theme.zIndex.drawer + 1 }} open={loading}>
           <Box sx={{ textAlign: "center" }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: primaryColor }}>Processing attendance records...</Typography>
+            <CircularProgress color="inherit" size={52} thickness={4} />
+            <Typography sx={{ mt: 2, color: "#FEF9E1", fontWeight: 600, fontSize: "0.95rem" }}>
+              Processing attendance records...
+            </Typography>
           </Box>
         </Backdrop>
 
-        {/* ── Hero Header ── */}
-        <Fade in timeout={500}>
-          <Box sx={{ mb: 4 }}>
-            <GlassCard sx={{ background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}`, "&:hover": { boxShadow: `0 12px 48px ${alpha(accentColor,0.15)}` } }}>
-              <Box sx={{ p: 5, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, color: textPrimaryColor, position: "relative", overflow: "hidden" }}>
-                <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle,${alpha(accentColor,0.1)} 0%,${alpha(accentColor,0)} 70%)` }} />
-                <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, background: `radial-gradient(circle,${alpha(accentColor,0.08)} 0%,${alpha(accentColor,0)} 70%)` }} />
-                <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
-                  <Box display="flex" alignItems="center">
-                    <Avatar sx={{ bgcolor: alpha(accentColor,0.15), mr: 4, width: 64, height: 64, boxShadow: `0 8px 24px ${alpha(accentColor,0.15)}` }}>
-                      <Edit sx={{ color: textPrimaryColor, fontSize: 32 }} />
-                    </Avatar>
-                    <Box>
-                      <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}>
-                        Attendance Management
-                      </Typography>
-                      <Typography variant="body1" sx={{ opacity: 0.8, color: textPrimaryColor }}>
-                        Review and manage attendance records
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Chip label="Editable Records" size="small" sx={{ bgcolor: alpha(accentColor,0.15), color: textPrimaryColor, fontWeight: 500, "& .MuiChip-label": { px: 1 } }} />
-                    <Tooltip title="Refresh Data">
-                      <IconButton onClick={() => fetchRecords(true)} disabled={!personID || !startDate || !endDate} sx={{ bgcolor: alpha(accentColor,0.1), "&:hover": { bgcolor: alpha(accentColor,0.2) }, color: textPrimaryColor, width: 48, height: 48, "&:disabled": { bgcolor: alpha(accentColor,0.05), color: alpha(accentColor,0.3) } }}>
-                        <Refresh />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Box>
+        {/* ── Page Header ── */}
+        <SectionCard sx={{ mb: 2 }}>
+          <Box sx={{
+            px: 4, py: 3,
+            background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            position: "relative", overflow: "hidden",
+          }}>
+            <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)" }} />
+            <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, borderRadius: "50%", background: "radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)" }} />
+
+            <Box sx={{ display: "flex", alignItems: "center", gap: 2.5, position: "relative", zIndex: 1 }}>
+              <Edit sx={{ fontSize: 30, color: T.accent }} />
+              <Box>
+                <Typography sx={{ fontSize: "1.2rem", fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25 }}>
+                  Attendance Management
+                </Typography>
+                <Typography sx={{ fontSize: "0.78rem", color: T.accentMid, fontWeight: 600 }}>
+                  Admin Portal · Review and manage attendance records
+                </Typography>
               </Box>
-            </GlassCard>
+            </Box>
+
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, position: "relative", zIndex: 1 }}>
+              <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
+                <Typography sx={{ fontSize: "0.75rem", color: T.accent, fontWeight: 700 }}>Editable Records</Typography>
+              </Box>
+              <button
+                onClick={() => fetchRecords(true)}
+                disabled={!personID || !startDate || !endDate}
+                style={{
+                  background: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`,
+                  borderRadius: "8px", padding: "7px 10px",
+                  cursor: (!personID || !startDate || !endDate) ? "not-allowed" : "pointer",
+                  display: "flex", alignItems: "center", gap: "5px",
+                  color: T.accent, fontSize: "0.75rem", fontWeight: 700,
+                  fontFamily: "inherit", transition: "all 0.15s",
+                  opacity: (!personID || !startDate || !endDate) ? 0.5 : 1,
+                }}
+                onMouseEnter={(e) => { if (personID && startDate && endDate) e.currentTarget.style.backgroundColor = alpha(T.accent, 0.14); }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = alpha(T.accent, 0.08); }}
+              >
+                <Refresh sx={{ fontSize: 15 }} />
+                Refresh
+              </button>
+            </Box>
           </Box>
-        </Fade>
+        </SectionCard>
+
+        {/* ── Alerts ── */}
+        <Collapse in={!!error}>
+          <Alert severity="error" onClose={() => setError("")} sx={{ mb: 1.5, borderRadius: 2, fontSize: "0.82rem" }}>{error}</Alert>
+        </Collapse>
+        <Collapse in={!!success}>
+          <Alert severity="success" onClose={() => setSuccess("")} sx={{ mb: 1.5, borderRadius: 2, fontSize: "0.82rem" }}>{success}</Alert>
+        </Collapse>
 
         {/* ── Controls Card ── */}
-        <Fade in timeout={700}>
-          <GlassCard sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}`, "&:hover": { boxShadow: `0 12px 48px ${alpha(accentColor,0.15)}` } }}>
-            <CardContent sx={{ p: 4, "&:last-child": { pb: 4 } }}>
-              <Box sx={{ display: "flex", gap: 2, mb: 3, flexWrap: "wrap" }}>
+        <SectionCard sx={{ mb: 2 }}>
+          <PanelHeader icon={FilterList} title="Filter Attendance Records" />
+
+          <Box sx={{ px: 2.5, pt: 2, pb: 2.5 }}>
+
+            {/* Input fields row */}
+            <Box sx={{ display: "flex", gap: 1.5, mb: 2.5, flexWrap: "wrap" }}>
+              {[
+                { label: "Employee Number", value: personID,  onChange: (e) => setPersonID(e.target.value),  type: "text", icon: <Person sx={{ fontSize: 16, color: T.accentBorder }} /> },
+                { label: "Start Date",      value: startDate, onChange: (e) => setStartDate(e.target.value), type: "date", icon: <CalendarToday sx={{ fontSize: 15, color: T.accentBorder }} /> },
+                { label: "End Date",        value: endDate,   onChange: (e) => setEndDate(e.target.value),   type: "date", icon: <CalendarToday sx={{ fontSize: 15, color: T.accentBorder }} /> },
+              ].map(({ label, value, onChange, type, icon }) => (
+                <Box key={label} sx={{ flex: 1, minWidth: 160 }}>
+                  <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                    {label}
+                  </Typography>
+                  <NativeInput type={type} value={value} onChange={onChange} placeholder={type === "text" ? "Enter employee number" : undefined} icon={icon} />
+                </Box>
+              ))}
+            </Box>
+
+            {/* Divider */}
+            <Box sx={{ height: 1, bgcolor: T.divider, mb: 2 }} />
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: T.accent, mb: 1.25, letterSpacing: "0.06em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 0.75 }}>
+              <FilterList sx={{ fontSize: 13 }} />Quick Date Selection
+            </Typography>
+
+            {/* Quick buttons */}
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2.5 }}>
+              {[
+                { label: "Today",        icon: <Today sx={{ fontSize: 13 }} />,        fn: () => { setStartDate(formattedToday); setEndDate(formattedToday); setSelectedMonth(null); } },
+                { label: "Yesterday",    icon: <ArrowBackIos sx={{ fontSize: 11 }} />, fn: () => { const y = new Date(today); y.setDate(y.getDate() - 1); const s = y.toISOString().substring(0, 10); setStartDate(s); setEndDate(s); setSelectedMonth(null); } },
+                { label: "Last 7 Days",  icon: null, fn: () => { const d = new Date(today); d.setDate(d.getDate() - 7); setStartDate(d.toISOString().substring(0, 10)); setEndDate(formattedToday); setSelectedMonth(null); } },
+                { label: "Last 15 Days", icon: null, fn: () => { const d = new Date(today); d.setDate(d.getDate() - 15); setStartDate(d.toISOString().substring(0, 10)); setEndDate(formattedToday); setSelectedMonth(null); } },
+                { label: "Last 30 Days", icon: null, fn: () => { const d = new Date(today); d.setMonth(d.getMonth() - 1); setStartDate(d.toISOString().substring(0, 10)); setEndDate(formattedToday); setSelectedMonth(null); } },
+              ].map(({ label, icon, fn }) => (
+                <QuickBtn key={label} label={label} icon={icon} onClick={fn} />
+              ))}
+            </Box>
+
+            {/* Month picker */}
+            <Box sx={{ p: 2.5, borderRadius: 2, border: `2px dashed ${T.accentBorder}`, bgcolor: T.accentFaint }}>
+              <Box sx={{ display: "flex", flexDirection: { xs: "column", sm: "row" }, alignItems: { xs: "flex-start", sm: "center" }, justifyContent: "space-between", gap: 2, mb: 2 }}>
+                <Box>
+                  <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.accent, mb: 0.3 }}>Select Entire Month</Typography>
+                  <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>Choose a year, then click any month to set the date range</Typography>
+                </Box>
+                <FormControl sx={{ minWidth: 130 }} size="small">
+                  <InputLabel sx={{ fontWeight: 600, fontSize: "0.8rem" }}>Year</InputLabel>
+                  <Select
+                    value={selectedYear} label="Year"
+                    onChange={(e) => { setSelectedYear(e.target.value); setSelectedMonth(null); showSnackbar("Year changed — please click a month to load records.", "info"); }}
+                    sx={{ bgcolor: "#fff", borderRadius: 2, fontWeight: 600, fontSize: "0.85rem", "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accentBorder } }}
+                  >
+                    {yearOptions.map((y) => <MenuItem key={y} value={y} sx={{ fontSize: "0.85rem" }}>{y}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Box>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, justifyContent: "center" }}>
+                {months.map((month, index) => {
+                  const sel = selectedMonth === index;
+                  return (
+                    <button
+                      key={month}
+                      onClick={() => handleMonthClick(index)}
+                      style={{
+                        background: sel ? T.accent : "#fff",
+                        border: `1px solid ${sel ? T.accent : T.accentBorder}`,
+                        borderRadius: "6px", padding: "7px 14px", cursor: "pointer",
+                        color: sel ? "#fff" : T.accent,
+                        fontSize: "0.75rem", fontWeight: 700, fontFamily: "inherit",
+                        transition: "all 0.15s ease",
+                        boxShadow: sel ? `0 2px 8px ${alpha(T.accent, 0.25)}` : "none",
+                        letterSpacing: "0.04em",
+                      }}
+                      onMouseEnter={(e) => { if (!sel) { e.currentTarget.style.backgroundColor = T.accentFaint; e.currentTarget.style.borderColor = T.accent; } }}
+                      onMouseLeave={(e) => { if (!sel) { e.currentTarget.style.backgroundColor = "#fff"; e.currentTarget.style.borderColor = T.accentBorder; } }}
+                    >
+                      {month}
+                    </button>
+                  );
+                })}
+              </Box>
+            </Box>
+
+            {/* Clear button */}
+            <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
+              <RowBtn
+                icon={<Clear sx={{ fontSize: 13 }} />}
+                label="Clear All Filters"
+                color="#C62828" hoverBg="rgba(198,40,40,0.08)"
+                onClick={handleClearFilters}
+              />
+            </Box>
+          </Box>
+        </SectionCard>
+
+        {/* ── Editable Records Table ── */}
+        {records.length > 0 && (
+          <Fade in={!loading} timeout={400}>
+            <SectionCard sx={{ mb: 2 }} ref={resultsRef}>
+              <PanelHeader
+                icon={Edit}
+                title={`Records for ${personID}`}
+                right={
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                    <Typography sx={{ fontSize: "0.72rem", color: T.faint }}>{startDate} → {endDate}</Typography>
+                    <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
+                      <Typography sx={{ fontSize: "0.72rem", color: T.accent, fontWeight: 700 }}>
+                        {records.length} {records.length === 1 ? "record" : "records"}
+                      </Typography>
+                    </Box>
+                    <button
+                      onClick={() => setAuthDialogOpen(true)}
+                      disabled={loading}
+                      style={{
+                        background: loading ? T.accentFaint : T.accent,
+                        border: `1px solid ${loading ? T.accentBorder : T.accent}`,
+                        borderRadius: "6px", padding: "5px 12px",
+                        cursor: loading ? "not-allowed" : "pointer",
+                        color: loading ? T.accentMid : "#fff",
+                        display: "flex", alignItems: "center", gap: "5px",
+                        fontSize: "0.72rem", fontWeight: 700, fontFamily: "inherit",
+                        transition: "all 0.15s", opacity: loading ? 0.65 : 1,
+                      }}
+                      onMouseEnter={(e) => { if (!loading) e.currentTarget.style.backgroundColor = T.accentDark; }}
+                      onMouseLeave={(e) => { if (!loading) e.currentTarget.style.backgroundColor = T.accent; }}
+                    >
+                      <SaveAs sx={{ fontSize: 13 }} />
+                      Save Changes
+                    </button>
+                  </Box>
+                }
+              />
+
+              {/* Legend row */}
+              <Box sx={{ px: 2.5, py: 1, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: "flex", gap: 2.5, flexWrap: "wrap", alignItems: "center" }}>
                 {[
-                  { label: "Employee Number", value: personID,  onChange: (e) => setPersonID(e.target.value),  type: "text", icon: <Person sx={{ color: textPrimaryColor }} /> },
-                  { label: "Start Date",      value: startDate, onChange: (e) => setStartDate(e.target.value), type: "date", icon: <CalendarToday sx={{ color: textPrimaryColor }} /> },
-                  { label: "End Date",        value: endDate,   onChange: (e) => setEndDate(e.target.value),   type: "date", icon: <CalendarToday sx={{ color: textPrimaryColor }} /> },
-                ].map(({ label, value, onChange, type, icon }) => (
-                  <Box key={label} sx={{ flex: 1, minWidth: 160 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}>{label}</Typography>
-                    <ModernTextField type={type} value={value} onChange={onChange} required InputLabelProps={type === "date" ? { shrink: true } : {}} InputProps={{ startAdornment: <InputAdornment position="start">{icon}</InputAdornment> }} fullWidth />
+                  { color: "#e65100", label: "Unsaved changes" },
+                  { color: "#2e7d32", label: "Saved modifications" },
+                ].map(({ color, label }) => (
+                  <Box key={label} sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
+                    <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: color, flexShrink: 0 }} />
+                    <Typography sx={{ fontSize: "0.68rem", color: T.faint }}>{label}</Typography>
                   </Box>
                 ))}
               </Box>
-              <Divider sx={{ my: 3, borderColor: alpha(accentColor,0.1) }} />
-              <Box sx={{ mb: 4 }}>
-                <Typography variant="h6" sx={{ color: textPrimaryColor, fontWeight: 600, display: "flex", alignItems: "center", mb: 1 }}>
-                  <FilterList sx={{ mr: 2 }} />Quick Date Selection
-                </Typography>
-                <Typography variant="body2" sx={{ color: alpha(textPrimaryColor,0.7), mb: 2 }}>
-                  Click any option below to automatically set the date range:
-                </Typography>
-                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 3 }}>
-                  {[
-                    { label: "Today",        icon: <Today />,        fn: () => { setStartDate(formattedToday); setEndDate(formattedToday); setSelectedMonth(null); } },
-                    { label: "Yesterday",    icon: <ArrowBackIos />, fn: () => { const y = new Date(today); y.setDate(y.getDate()-1); const s = y.toISOString().substring(0,10); setStartDate(s); setEndDate(s); setSelectedMonth(null); } },
-                    { label: "Last 7 Days",  icon: null,             fn: () => { const d = new Date(today); d.setDate(d.getDate()-7); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); setSelectedMonth(null); } },
-                    { label: "Last 15 Days", icon: null,             fn: () => { const d = new Date(today); d.setDate(d.getDate()-15); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); setSelectedMonth(null); } },
-                    { label: "Last 30 Days", icon: null,             fn: () => { const d = new Date(today); d.setMonth(d.getMonth()-1); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); setSelectedMonth(null); } },
-                  ].map(({ label, icon, fn }) => (
-                    <ProfessionalButton key={label} variant="outlined" size="medium" onClick={fn} startIcon={icon || undefined} sx={{ borderColor: accentColor, color: textPrimaryColor, fontWeight: 600, py: 1.5, "&:hover": { backgroundColor: alpha(accentColor,0.07), borderWidth: 2 }, transition: "all 0.3s ease" }}>
-                      {label}
-                    </ProfessionalButton>
-                  ))}
-                </Box>
-                <Box sx={{ p: 3, borderRadius: 2, border: `2px dashed ${alpha(accentColor,0.2)}`, backgroundColor: alpha(primaryColor,0.3) }}>
-                  <Box sx={{ display: "flex", flexDirection: { xs: "column", sm: "row" }, alignItems: { xs: "flex-start", sm: "center" }, justifyContent: "space-between", gap: 2, mb: 2 }}>
-                    <Box>
-                      <Typography variant="subtitle1" sx={{ color: textPrimaryColor, fontWeight: 600, mb: 0.5 }}>Select Entire Month</Typography>
-                      <Typography variant="body2" sx={{ color: alpha(textPrimaryColor,0.7) }}>Choose a year, then click any month to view records for that entire month</Typography>
+
+              {/* Sticky column headers */}
+              <Box sx={{
+                display: "grid",
+                gridTemplateColumns: "1.2fr 1fr 0.8fr 1.4fr 1.4fr 1.4fr 1.4fr",
+                px: 2.5, py: 1.25, bgcolor: T.accent, gap: 2,
+                position: "sticky", top: 0, zIndex: 2,
+              }}>
+                {["EMPLOYEE #", "DATE", "DAY", "TIME IN", "BREAKTIME IN", "BREAKTIME OUT", "TIME OUT"].map((col) => (
+                  <Typography key={col} sx={{ color: "#fff", fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.08em" }}>{col}</Typography>
+                ))}
+              </Box>
+
+              {/* Scrollable rows */}
+              <Box sx={{ maxHeight: 520, overflowY: "auto", overflowX: "auto" }}>
+                {records.map((record, index) => {
+                  const rowDirty    = isDirty(record, savedRecords[index]);
+                  const rowSavedMod = !rowDirty && EDITABLE_FIELDS.some((f) => everModifiedFields.has(`${index}-${f}`));
+                  const leftBorder  = rowDirty ? "3px solid #e65100" : rowSavedMod ? "3px solid #2e7d32" : `3px solid transparent`;
+                  return (
+                    <Box
+                      key={index}
+                      sx={{
+                        display: "grid",
+                        gridTemplateColumns: "1.2fr 1fr 0.8fr 1.4fr 1.4fr 1.4fr 1.4fr",
+                        px: 2.5, py: 1.5, gap: 2,
+                        alignItems: "center",
+                        bgcolor: rowDirty
+                          ? alpha("#e65100", 0.04)
+                          : rowSavedMod
+                            ? alpha("#2e7d32", 0.04)
+                            : index % 2 === 0 ? "#fff" : T.rowOdd,
+                        borderBottom: `1px solid ${T.divider}`,
+                        borderLeft: leftBorder,
+                        transition: "background 0.13s",
+                        "&:hover": { bgcolor: T.rowHover },
+                        minWidth: 900,
+                      }}
+                    >
+                      <Typography sx={{ fontWeight: 600, fontSize: "0.8rem", color: T.text }}>{record.personID}</Typography>
+                      <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontWeight: 500 }}>{record.date}</Typography>
+                      <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontWeight: 500 }}>{record.Day}</Typography>
+
+                      {EDITABLE_FIELDS.map((field) => {
+                        const unsaved  = savedRecords[index] && (record[field] || "") !== (savedRecords[index][field] || "");
+                        const savedMod = !unsaved && everModifiedFields.has(`${index}-${field}`);
+                        return (
+                          <Box key={field}>
+                            <TimeInput
+                              value={record[field] || ""}
+                              onChange={(e) => handleInputChange(index, field, e.target.value)}
+                              unsaved={unsaved}
+                              savedMod={savedMod}
+                            />
+                            {unsaved && (
+                              <Typography sx={{ fontSize: "0.67rem", mt: 0.3, color: "#b71c1c", fontFamily: "monospace" }}>
+                                was: {savedRecords[index][field] || "—"}
+                              </Typography>
+                            )}
+                          </Box>
+                        );
+                      })}
                     </Box>
-                    <FormControl sx={{ minWidth: 140 }}>
-                      <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>
-                      <Select value={selectedYear} label="Year" onChange={(e) => { setSelectedYear(e.target.value); setSelectedMonth(null); showSnackbar("Year changed — please click a month to load records.", "info"); }} sx={{ backgroundColor: "white", "& .MuiOutlinedInput-notchedOutline": { borderColor: accentColor }, borderRadius: 2, fontWeight: 600 }}>
-                        {yearOptions.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
-                      </Select>
-                    </FormControl>
-                  </Box>
-                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, justifyContent: "center" }}>
-                    {months.map((month, index) => {
-                      const sel = selectedMonth === index;
-                      return (
-                        <ProfessionalButton key={month} variant={sel ? "contained" : "outlined"} size="medium" onClick={() => handleMonthClick(index)} sx={{ borderColor: accentColor, backgroundColor: sel ? accentColor : "transparent", color: sel ? textSecondaryColor : textPrimaryColor, py: 1.5, px: 4.5, fontWeight: 600, "&:hover": { backgroundColor: sel ? accentDark : alpha(accentColor,0.1), borderWidth: 2 }, transition: "all 0.3s ease", boxShadow: sel ? `0 4px 12px ${alpha(accentColor,0.3)}` : "none" }}>
-                          {month}
-                        </ProfessionalButton>
-                      );
-                    })}
-                  </Box>
-                </Box>
+                  );
+                })}
               </Box>
-              <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 3 }}>
-                <ProfessionalButton variant="outlined" startIcon={<Clear />} onClick={handleClearFilters} sx={{ borderColor: "#d32f2f", color: "#d32f2f", "&:hover": { borderColor: "#b71c1c", backgroundColor: alpha("#d32f2f",0.05) } }}>
-                  Clear All Filters
-                </ProfessionalButton>
-              </Box>
-            </CardContent>
-          </GlassCard>
-        </Fade>
-
-        {error && (
-          <Fade in timeout={300}>
-            <Alert severity="error" sx={{ mb: 3, borderRadius: 3 }} onClose={() => setError("")}>{error}</Alert>
-          </Fade>
-        )}
-        {success && (
-          <Fade in timeout={300}>
-            <Alert severity="success" sx={{ mb: 3, borderRadius: 3 }} onClose={() => setSuccess("")}>{success}</Alert>
+            </SectionCard>
           </Fade>
         )}
 
-        {/* ── Results — editable table ── */}
-        {records.length > 0 && (
-          <Fade in={!loading} timeout={500}>
-            <GlassCard sx={{ mb: 4, border: `1px solid ${alpha(accentColor,0.1)}` }}>
-              <Box sx={{ p: 4, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, color: accentColor, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <Box>
-                  <Typography variant="body2" sx={{ opacity: 0.8, mb: 0.5, textTransform: "uppercase", letterSpacing: "0.1em", color: accentDark }}>
-                    Editable Attendance Records
-                  </Typography>
-                  <Typography variant="h4" sx={{ fontWeight: 600, color: accentColor }}><b>{personID}</b></Typography>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 2, flexWrap: "wrap" }}>
-                    <Chip icon={<Edit />} label={`${records.length} Records`} size="small" sx={{ bgcolor: alpha(accentColor,0.15), color: accentColor, fontWeight: 500 }} />
-                    <Typography variant="body2" sx={{ opacity: 0.8, color: accentDark }}>{startDate} to {endDate}</Typography>
-                  </Box>
-                </Box>
-                <Avatar sx={{ bgcolor: alpha(accentColor,0.15), width: 80, height: 80, color: accentColor }}>
-                  <Edit sx={{ fontSize: 36 }} />
-                </Avatar>
-              </Box>
-
-              <PremiumTableContainer>
-                <Table sx={{ minWidth: 1000 }}>
-                  <TableHead sx={{ bgcolor: alpha(primaryColor,0.7) }}>
-                    <TableRow>
-                      {[
-                        { label: "Employee Number", minWidth: 140 },
-                        { label: "Date",            minWidth: 100 },
-                        { label: "Day",             minWidth: 80  },
-                        { label: "Time IN",         minWidth: 150 },
-                        { label: "Breaktime IN",    minWidth: 150 },
-                        { label: "Breaktime OUT",   minWidth: 150 },
-                        { label: "Time OUT",        minWidth: 150 },
-                      ].map(({ label, minWidth }) => (
-                        <PremiumTableCell key={label} isHeader sx={{ color: accentColor, minWidth }}>{label}</PremiumTableCell>
-                      ))}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {records.map((record, index) => {
-                      const rowDirty    = isDirty(record, savedRecords[index]);
-                      const rowSavedMod = !rowDirty && EDITABLE_FIELDS.some((f) => everModifiedFields.has(`${index}-${f}`));
-                      const rowBg       = rowDirty ? alpha("#e65100", 0.06) : rowSavedMod ? alpha("#2e7d32", 0.06) : null;
-                      const rowBorder   = rowDirty ? "4px solid #e65100" : rowSavedMod ? "4px solid #2e7d32" : "4px solid transparent";
-                      return (
-                        <TableRow
-                          key={index}
-                          sx={{
-                            "&:nth-of-type(even)": { bgcolor: rowBg ?? alpha(primaryColor, 0.3) },
-                            "&:nth-of-type(odd)":  { bgcolor: rowBg ?? "#fff" },
-                            "&:hover": { bgcolor: alpha(accentColor, 0.05) },
-                            transition: "all 0.2s ease",
-                            borderLeft: rowBorder,
-                          }}
-                        >
-                          <PremiumTableCell>{record.personID}</PremiumTableCell>
-                          <PremiumTableCell>{record.date}</PremiumTableCell>
-                          <PremiumTableCell>{record.Day}</PremiumTableCell>
-                         {EDITABLE_FIELDS.map((field) => {
-  const unsaved  = savedRecords[index] && (record[field] || "") !== (savedRecords[index][field] || "");
-  const savedMod = !unsaved && everModifiedFields.has(`${index}-${field}`);
-  return (
-    <PremiumTableCell key={field}>
-      <ModernTextField
-        value={record[field] || ""}
-        onChange={(e) => handleInputChange(index, field, e.target.value)}
-        size="small"
-        sx={{
-          width: "140px",
-          "& .MuiOutlinedInput-root .MuiOutlinedInput-notchedOutline": unsaved
-            ? { borderColor: "#e65100", borderWidth: "2px" }
-            : savedMod
-              ? { borderColor: "#2e7d32", borderWidth: "2px" }
-              : {},
-        }}
-      />
-      {unsaved && (
-        <Typography variant="caption" sx={{ display: "block", mt: 0.4, color: "#b71c1c", fontFamily: "monospace", fontSize: "0.7rem" }}>
-          was: {savedRecords[index][field] || "—"}
-        </Typography>
-      )}
-    </PremiumTableCell>
-  );
-})}
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </PremiumTableContainer>
-            </GlassCard>
-          </Fade>
-        )}
-
-        {/* ── Save / Authorize Card ── */}
-        {records.length > 0 && (
-          <Fade in timeout={900}>
-            <GlassCard sx={{ background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
-              <CardHeader
-                title={
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                    <Avatar sx={{ bgcolor: alpha(primaryColor,0.8), color: accentColor }}>
-                      <SaveAs />
-                    </Avatar>
-                    <Typography variant="body2" sx={{ color: accentDark }}>
-                      Apply all modifications to the attendance records
-                    </Typography>
-                  </Box>
-                }
-                sx={{ bgcolor: alpha(primaryColor,0.5), pb: 2, borderBottom: `1px solid ${alpha(accentColor,0.1)}` }}
-              />
-              <CardContent sx={{ p: 4, "&:last-child": { pb: 4 } }}>
-                <ProfessionalButton
-                  variant="contained"
-                  fullWidth
-                  startIcon={<SaveAs />}
-                  onClick={() => setAuthDialogOpen(true)}
-                  disabled={loading}
-                  sx={{ py: 2, fontSize: "1rem", ...saveButtonStyles }}
-                >
-                  Save All Changes
-                </ProfessionalButton>
-              </CardContent>
-            </GlassCard>
-          </Fade>
-        )}
+        {/* ── Scroll to Top FAB ── */}
+        <Zoom in={showScrollTop}>
+          <Fab
+            size="small"
+            sx={{ position: "fixed", bottom: 24, right: 45, zIndex: 1000, bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark }, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}` }}
+            onClick={scrollToTop}
+          >
+            <KeyboardArrowUp />
+          </Fab>
+        </Zoom>
 
       </Box>
     </Fade>
