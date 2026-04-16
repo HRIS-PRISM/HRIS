@@ -1555,7 +1555,7 @@ const LeaveAssignment = () => {
               <Box sx={{ display: "flex", alignItems: "center", gap: 3, position: "relative", zIndex: 1 }}>
                 <EventNote sx={{ fontSize: 32, color: T.accent }} />
                 <Box>
-                  <Typography sx={{ fontSize: "1.25rem", fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3, fontFamily: T.poppins }}>Leave Assignment Management</Typography>
+                  <Typography sx={{ fontSize: "1.25rem", fontWeight: 700, color: T.accent, lineHeight: 1.2, mb: 0.3, fontFamily: T.poppins }}>Leave Assignment Management</Typography>
                   <Typography sx={{ fontSize: "0.82rem", color: T.accentMid, fontWeight: 700, opacity: 0.9, fontFamily: T.poppins }}>Administrative Panel • Assign leave types and manage leave credits</Typography>
                 </Box>
               </Box>
