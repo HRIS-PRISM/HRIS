@@ -996,7 +996,9 @@ function LeaveCreditsTab({ isTech }) {
   useEffect(() => {
     (async () => {
       try {
-const { data } = await axios.get(`${API_BASE_URL}/api/working-hours/leave-credits/rates`);
+        const { data } = await axios.get(
+          `${API_BASE_URL}/api/working-hours/leave-credits/rates`,
+        );
         // data.lwp = [{ d, e }]  |  data.abs = [{ a, e }]
         if (Array.isArray(data.lwp) && data.lwp.length === 30) {
           setLwpTable(data.lwp);
@@ -1060,13 +1062,18 @@ const { data } = await axios.get(`${API_BASE_URL}/api/working-hours/leave-credit
       setIsSaving(true);
       setSaveErr("");
       setSaveMsg("");
-const { data } = await axios.put(`${API_BASE_URL}/api/working-hours/leave-credits/rates`, {
-  lwp: lwpTable,
-  abs: absTable,
-});
+      const { data } = await axios.put(
+        `${API_BASE_URL}/api/working-hours/leave-credits/rates`,
+        {
+          lwp: lwpTable,
+          abs: absTable,
+        },
+      );
       // Hydrate from server response (same pattern as WorkingHoursConverter)
-      if (Array.isArray(data.lwp) && data.lwp.length === 30) setLwpTable(data.lwp);
-      if (Array.isArray(data.abs) && data.abs.length === 60) setAbsTable(data.abs);
+      if (Array.isArray(data.lwp) && data.lwp.length === 30)
+        setLwpTable(data.lwp);
+      if (Array.isArray(data.abs) && data.abs.length === 60)
+        setAbsTable(data.abs);
       setSaveMsg("Rates saved successfully.");
     } catch (e) {
       setSaveErr(
@@ -1214,15 +1221,15 @@ const { data } = await axios.put(`${API_BASE_URL}/api/working-hours/leave-credit
                     p: "10px 8px",
                     borderRadius: "8px",
                     textAlign: "center",
-                    bgcolor: T.accentFaint,
-                    border: `1px solid ${T.accentBorder}`,
+                    bgcolor: T.accent,
+                    border: `1px solid ${T.accent}`,
                   }}
                 >
                   <Typography
                     sx={{
                       fontSize: "0.58rem",
                       fontWeight: 700,
-                      color: alpha(T.accent, 0.5),
+                      color: "rgba(255,255,255,0.6)",
                       textTransform: "uppercase",
                       letterSpacing: "0.06em",
                       mb: 0.5,
@@ -1234,7 +1241,7 @@ const { data } = await axios.put(`${API_BASE_URL}/api/working-hours/leave-credit
                   <Typography
                     sx={{
                       fontWeight: 900,
-                      color: T.accent,
+                      color: "#fff",
                       fontSize: "1.25rem",
                       lineHeight: 1,
                       fontFamily: T.poppins,
@@ -1244,13 +1251,14 @@ const { data } = await axios.put(`${API_BASE_URL}/api/working-hours/leave-credit
                   </Typography>
                   <Typography
                     sx={{
-                      fontSize: "0.62rem",
-                      color: T.faint,
+                      fontSize: "0.60rem",
+                      fontWeight: 700,
+                      color: "rgba(255,255,255,0.5)",
                       mt: 0.4,
                       fontFamily: T.poppins,
                     }}
                   >
-                    {lcDays} Day(s)
+                    {lcDays} Day (s)
                   </Typography>
                 </Box>
                 <Box
@@ -1259,15 +1267,15 @@ const { data } = await axios.put(`${API_BASE_URL}/api/working-hours/leave-credit
                     p: "10px 8px",
                     borderRadius: "8px",
                     textAlign: "center",
-                    bgcolor: T.accentFaint,
-                    border: `1px solid ${T.accentBorder}`,
+                    bgcolor: T.accent,
+                    border: `1px solid ${T.accent}`,
                   }}
                 >
                   <Typography
                     sx={{
                       fontSize: "0.58rem",
                       fontWeight: 700,
-                      color: alpha(T.accent, 0.5),
+                      color: "rgba(255,255,255,0.6)",
                       textTransform: "uppercase",
                       letterSpacing: "0.06em",
                       mb: 0.5,
@@ -1279,7 +1287,7 @@ const { data } = await axios.put(`${API_BASE_URL}/api/working-hours/leave-credit
                   <Typography
                     sx={{
                       fontWeight: 900,
-                      color: T.accent,
+                      color: "#fff",
                       fontSize: "1.25rem",
                       lineHeight: 1,
                       fontFamily: T.poppins,
@@ -1289,13 +1297,14 @@ const { data } = await axios.put(`${API_BASE_URL}/api/working-hours/leave-credit
                   </Typography>
                   <Typography
                     sx={{
-                      fontSize: "0.62rem",
-                      color: T.faint,
+                      fontSize: "0.60rem",
+                      fontWeight: 700,
+                      color: "rgba(255,255,255,0.5)",
                       mt: 0.4,
                       fontFamily: T.poppins,
                     }}
                   >
-                    {lcAbs > 0 ? `${lcAbs} Day(s)` : "none"}
+                    {lcAbs > 0 ? `${lcAbs} Day (s)` : "None"}
                   </Typography>
                 </Box>
               </Box>
@@ -1737,8 +1746,8 @@ export default function WorkingHoursConverter({ userRole: propRole }) {
                     fontFamily: T.poppins,
                   }}
                 >
-                  Working Hours&nbsp;•&nbsp;Leave Credits Earned During Leave
-                  of Absent&nbsp;•&nbsp;Days | Hours | Minutes
+                  Working Hours&nbsp;•&nbsp;Leave Credits Earned During Leave of
+                  Absent&nbsp;•&nbsp;Days | Hours | Minutes
                 </Typography>
               </Box>
             </Box>
@@ -1761,7 +1770,9 @@ export default function WorkingHoursConverter({ userRole: propRole }) {
                     fontFamily: T.poppins,
                   }}
                 >
-                  {activeTab === "wh" ? "Working Hours" : "Leave Credits Earned During Leave of Absent"}
+                  {activeTab === "wh"
+                    ? "Working Hours"
+                    : "Leave Credits Earned During Leave of Absent"}
                 </Typography>
               </Box>
             </Box>
