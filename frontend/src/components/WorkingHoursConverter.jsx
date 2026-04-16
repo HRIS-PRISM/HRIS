@@ -822,7 +822,7 @@ export default function WorkingHoursConverter({ userRole: propRole }) {
             <ClockIcon sx={{ fontSize: 32, color: T.accent }} />
             <Box>
               <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: T.accent, lineHeight: 1.2, mb: 0.3, fontFamily: T.poppins }}>
-                 Conversion Tools
+                Working Hours Conversion Tools
               </Typography>
               <Typography sx={{ fontSize: "0.78rem", color: T.accentMid, fontWeight: 700, opacity: 0.9, fontFamily: T.poppins }}>
                 Working Hours Decimal &nbsp;•&nbsp; Leave Credits During Leave of Absence
