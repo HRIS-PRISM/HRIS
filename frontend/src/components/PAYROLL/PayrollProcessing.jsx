@@ -1221,7 +1221,7 @@ const PayrollProcess = () => {
     const valueText = Number.isFinite(lwopValue)
       ? lwopValue.toLocaleString('en-US', {
           minimumFractionDigits: 2,
-          maximumFractionDigits: 3,
+          maximumFractionDigits: 2,
         })
       : '0.00';
     return {
