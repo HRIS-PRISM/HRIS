@@ -1,5 +1,5 @@
 import API_BASE_URL from "../../apiConfig";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import axios from "axios";
 import {
   Box,
@@ -8,6 +8,7 @@ import {
   Collapse,
   Chip,
   CircularProgress,
+  LinearProgress,
   Fade,
   FormControl,
   InputLabel,
@@ -31,6 +32,13 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  TextField,
+  Paper,
+  List,
+  ListItem,
+  Avatar,
+  InputAdornment,
+  IconButton,
 } from "@mui/material";
 import {
   CalendarToday,
@@ -51,6 +59,9 @@ import {
   EventNote,
   TableRows,
   AddCircleOutline,
+  Close,
+  ExpandMore,
+  ExpandLess,
 } from "@mui/icons-material";
 import { useSystemSettings } from "../../hooks/useSystemSettings";
 import usePageAccess from "../../hooks/usePageAccess";
@@ -166,6 +177,16 @@ const SectionCard = styled(Card)({
   background: "#fff",
   fontFamily: "'Poppins', sans-serif",
 });
+
+const ModernTextField = styled(TextField)(() => ({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8, backgroundColor: '#fff', transition: 'border-color 0.18s',
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent },
+  },
+  '& label.Mui-focused': { color: T.accent },
+  '& .MuiInputLabel-root': { fontWeight: 500 },
+}));
 
 const PanelHeader = ({ icon: Icon, title, right }) => (
   <Box sx={{
@@ -371,6 +392,197 @@ const TimeInput = ({ value, onChange, unsaved, savedMod, isNewRow }) => {
   );
 };
 
+const MemoTimeInput = memo(TimeInput);
+
+const RecordsRow = memo(function RecordsRow({
+  record,
+  savedRecord,
+  index,
+  everModifiedFields,
+  onFieldChange,
+}) {
+  const rowDirty = isDirty(record, savedRecord);
+  const rowSavedMod =
+    !rowDirty &&
+    EDITABLE_FIELDS.some((f) =>
+      everModifiedFields.has(`${record.personID}-${record.date}-${f}`)
+    );
+  const isManual = record.manualEntry === 1;
+  const leftBorder = rowDirty
+    ? "3px solid #e65100"
+    : rowSavedMod
+    ? "3px solid #2e7d32"
+    : isManual
+    ? "3px solid #7b1fa2"
+    : "3px solid transparent";
+
+  return (
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: "1.2fr 1fr 0.8fr 1.6fr 1.6fr 1.6fr 1.6fr",
+        px: 2.5,
+        py: 1.5,
+        gap: 2,
+        alignItems: "center",
+        bgcolor: rowDirty
+          ? alpha("#e65100", 0.04)
+          : rowSavedMod
+          ? alpha("#2e7d32", 0.04)
+          : isManual
+          ? alpha("#7b1fa2", 0.04)
+          : index % 2 === 0
+          ? "#fff"
+          : T.rowOdd,
+        borderBottom: `1px solid ${T.divider}`,
+        borderLeft: leftBorder,
+        transition: "background 0.13s",
+        "&:hover": { bgcolor: T.rowHover },
+        minWidth: 960,
+      }}
+    >
+      <Box>
+        <Typography
+          sx={{ fontWeight: 600, fontSize: "0.8rem", color: T.text, fontFamily: T.font }}
+        >
+          {record.personID}
+        </Typography>
+        {isManual && <ManualEntryBadge />}
+      </Box>
+      <Typography
+        sx={{ fontSize: "0.78rem", color: T.muted, fontWeight: 500, fontFamily: T.font }}
+      >
+        {record.date}
+      </Typography>
+      <Typography
+        sx={{ fontSize: "0.78rem", color: T.muted, fontWeight: 500, fontFamily: T.font }}
+      >
+        {record.Day}
+      </Typography>
+      {EDITABLE_FIELDS.map((field) => {
+        const unsaved = savedRecord && (record[field] || "") !== (savedRecord[field] || "");
+        const savedMod = !unsaved && everModifiedFields.has(`${record.personID}-${record.date}-${field}`);
+        return (
+          <Box key={field}>
+            <MemoTimeInput
+              value={record[field] || ""}
+              onChange={(e) => onFieldChange(index, field, e.target.value)}
+              unsaved={unsaved}
+              savedMod={savedMod}
+            />
+            {unsaved && (
+              <Typography sx={{ fontSize: "0.67rem", mt: 0.3, color: "#b71c1c", fontFamily: "monospace" }}>
+                was: {savedRecord[field] || "—"}
+              </Typography>
+            )}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+});
+
+const FullMonthRow = memo(function FullMonthRow({
+  record,
+  savedRow,
+  index,
+  fullEverModified,
+  onFieldChange,
+}) {
+  const weekend = isWeekend(record.Day);
+  const rowDirty = !record.isNew && isDirty(record, savedRow);
+  const rowSavedMod =
+    !record.isNew &&
+    !rowDirty &&
+    EDITABLE_FIELDS.some((f) => fullEverModified.has(`${record.date}-${f}`));
+  const hasTyped = record.isNew && hasAnyTime(record);
+
+  const leftBorder = rowDirty
+    ? "3px solid #e65100"
+    : rowSavedMod
+    ? "3px solid #2e7d32"
+    : hasTyped
+    ? "3px solid #f59e0b"
+    : "3px solid transparent";
+
+  const rowBg = rowDirty
+    ? alpha("#e65100", 0.04)
+    : rowSavedMod
+    ? alpha("#2e7d32", 0.04)
+    : record.isNew
+    ? T.noRecord
+    : weekend
+    ? T.weekend
+    : index % 2 === 0
+    ? "#fff"
+    : T.rowOdd;
+
+  return (
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: "0.6fr 1fr 0.8fr 1.6fr 1.6fr 1.6fr 1.6fr",
+        px: 2.5,
+        py: 1.25,
+        gap: 2,
+        alignItems: "center",
+        bgcolor: rowBg,
+        borderBottom: `1px solid ${T.divider}`,
+        borderLeft: leftBorder,
+        transition: "background 0.13s",
+        "&:hover": { bgcolor: T.rowHover },
+        minWidth: 960,
+      }}
+    >
+      <Box>
+        {record.isNew ? (
+          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.4, px: 0.9, py: 0.25, borderRadius: "4px", bgcolor: alpha("#f59e0b", 0.14), border: `1px solid ${alpha("#f59e0b", 0.35)}` }}>
+            <Box sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: "#f59e0b" }} />
+            <Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: "#92400e", whiteSpace: "nowrap", fontFamily: T.font }}>
+              NO RECORD
+            </Typography>
+          </Box>
+        ) : (
+          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.4, px: 0.9, py: 0.25, borderRadius: "4px", bgcolor: alpha("#2e7d32", 0.1), border: `1px solid ${alpha("#2e7d32", 0.25)}` }}>
+            <Box sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: "#2e7d32" }} />
+            <Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: "#1b5e20", whiteSpace: "nowrap", fontFamily: T.font }}>
+              HAS RECORD
+            </Typography>
+          </Box>
+        )}
+      </Box>
+
+      <Typography sx={{ fontSize: "0.78rem", color: weekend ? T.accentMid : T.muted, fontWeight: weekend ? 700 : 500, fontFamily: T.font }}>
+        {record.date}
+      </Typography>
+      <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontWeight: 500, fontFamily: T.font }}>
+        {record.Day}
+      </Typography>
+
+      {EDITABLE_FIELDS.map((field) => {
+        const unsaved = !record.isNew && savedRow && (record[field] || "") !== (savedRow[field] || "");
+        const savedMod = !record.isNew && !unsaved && fullEverModified.has(`${record.date}-${field}`);
+        return (
+          <Box key={field}>
+            <MemoTimeInput
+              value={record[field] || ""}
+              onChange={(e) => onFieldChange(index, field, e.target.value)}
+              unsaved={unsaved}
+              savedMod={savedMod}
+              isNewRow={record.isNew}
+            />
+            {unsaved && (
+              <Typography sx={{ fontSize: "0.67rem", mt: 0.3, color: "#b71c1c", fontFamily: "monospace" }}>
+                was: {savedRow[field] || "—"}
+              </Typography>
+            )}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+});
+
 const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
   <button
     onClick={onClick} disabled={disabled}
@@ -489,6 +701,18 @@ const isWeekend = (dayName) => dayName === "Saturday" || dayName === "Sunday";
 
 const hasAnyTime = (record) =>
   EDITABLE_FIELDS.some((f) => record[f] && String(record[f]).trim() !== "");
+
+const getEmployeeIdentifier = (emp) => {
+  if (!emp || typeof emp !== "object") return "";
+  const raw =
+    emp.personID ??
+    emp.PersonID ??
+    emp.employeeNum ??
+    emp.employeeNumber ??
+    emp.agencyEmployeeNum ??
+    "";
+  return String(raw).trim();
+};
 
 // ─── Authorization Dialog ──────────────────────────────────────────────────
 const AuthorizationDialog = ({ open, onClose, onConfirm, records, savedRecords, isFullMonth = false }) => {
@@ -682,9 +906,257 @@ const AuthorizationDialog = ({ open, onClose, onConfirm, records, savedRecords, 
   );
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// EMPLOYEE AUTOCOMPLETE — debounced, lazy load, mirrors OfficialTimeForm
+// ─────────────────────────────────────────────────────────────────────────────
+const EmployeeSearchField = ({ onSelect, selectedEmployee, onClear, disabled = false }) => {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const debounceRef = useRef(null);
+  const dropdownRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Sync query when employee is cleared externally
+  useEffect(() => {
+    if (!selectedEmployee) setQuery("");
+    else setQuery(selectedEmployee.name || "");
+  }, [selectedEmployee]);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await axios.get(`${API_BASE_URL}/Remittance/employees/search`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      });
+      setResults(r.data || []);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchByQuery = useCallback(async (q) => {
+    setLoading(true);
+    try {
+      const r = await axios.get(
+        `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(q)}`,
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
+      );
+      setResults(r.data || []);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleInputChange = (e) => {
+    const val = e.target.value;
+    setQuery(val);
+    setOpen(true);
+
+    // If user typed after selection, clear it
+    if (selectedEmployee) {
+      onClear();
+    }
+
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      if (val.trim().length === 0) fetchAll();
+      else if (val.trim().length >= 2) fetchByQuery(val.trim());
+      else setResults([]);
+    }, 300);
+  };
+
+  const handleFocus = () => {
+    setOpen(true);
+    if (!results.length && !loading) {
+      query.trim().length >= 2 ? fetchByQuery(query.trim()) : fetchAll();
+    }
+  };
+
+  const handleSelect = (emp) => {
+    const resolvedId = getEmployeeIdentifier(emp);
+    setQuery(resolvedId || emp.name || "");
+    setOpen(false);
+    onSelect(emp);
+  };
+
+  const handleClear = () => {
+    setQuery("");
+    setResults([]);
+    onClear();
+    setOpen(false);
+    inputRef.current?.focus();
+  };
+
+  return (
+    <Box sx={{ position: "relative", width: "100%" }} ref={dropdownRef}>
+      <ModernTextField
+        inputRef={inputRef}
+        fullWidth
+        size="small"
+        placeholder="Type name or employee number…"
+        value={query}
+        onChange={handleInputChange}
+        onFocus={handleFocus}
+        onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
+        disabled={disabled}
+        autoComplete="off"
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <Person sx={{ color: T.accentMid, fontSize: 18 }} />
+            </InputAdornment>
+          ),
+          endAdornment: (
+            <InputAdornment position="end">
+              {loading ? (
+                <CircularProgress size={14} sx={{ color: T.accent }} />
+              ) : selectedEmployee ? (
+                <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}>
+                  <Close sx={{ fontSize: 14, color: T.faint }} />
+                </IconButton>
+              ) : (
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    setOpen((o) => !o);
+                    if (!open && !results.length) fetchAll();
+                  }}
+                  sx={{ p: 0.25 }}
+                >
+                  {open ? (
+                    <ExpandLess sx={{ fontSize: 16, color: T.faint }} />
+                  ) : (
+                    <ExpandMore sx={{ fontSize: 16, color: T.faint }} />
+                  )}
+                </IconButton>
+              )}
+            </InputAdornment>
+          ),
+        }}
+        sx={{
+          "& .MuiOutlinedInput-root": {
+            borderColor: selectedEmployee ? T.accent : undefined,
+            "& fieldset": selectedEmployee
+              ? { borderColor: T.accent, borderWidth: 1.5 }
+              : {},
+          },
+        }}
+      />
+
+      {open && (
+        <Paper
+          elevation={6}
+          sx={{
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            right: 0,
+            zIndex: 1400,
+            maxHeight: 260,
+            overflow: "auto",
+            mt: 0.5,
+            borderRadius: "10px",
+            border: `1px solid ${T.accentBorder}`,
+            "&::-webkit-scrollbar": { width: "5px" },
+            "&::-webkit-scrollbar-thumb": { background: "#d0b8b8", borderRadius: "4px" },
+          }}
+        >
+          {loading ? (
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 1,
+                py: 2.5,
+              }}
+            >
+              <CircularProgress size={16} sx={{ color: T.accent }} />
+              <Typography sx={{ fontSize: "0.8rem", color: T.muted }}>
+                Searching…
+              </Typography>
+            </Box>
+          ) : results.length > 0 ? (
+            <List dense disablePadding>
+              {results.map((emp) => (
+                <ListItem
+                  key={emp.employeeNumber}
+                  button
+                  onClick={() => handleSelect(emp)}
+                  sx={{
+                    py: 1,
+                    px: 1.5,
+                    borderBottom: `1px solid ${T.divider}`,
+                    "&:hover": { bgcolor: T.accentFaint },
+                    "&:last-child": { borderBottom: "none" },
+                  }}
+                >
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                    <Avatar
+                      sx={{
+                        width: 30,
+                        height: 30,
+                        fontSize: "0.72rem",
+                        bgcolor: alpha(T.accent, 0.15),
+                        color: T.accent,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {emp.name?.charAt(0)?.toUpperCase() || "?"}
+                    </Avatar>
+                    <Box>
+                      <Typography
+                        sx={{
+                          fontSize: "0.83rem",
+                          fontWeight: 700,
+                          color: T.text,
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        {emp.name}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>
+                        #{getEmployeeIdentifier(emp)}
+                        {emp.department ? ` · ${emp.department}` : ""}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </ListItem>
+              ))}
+            </List>
+          ) : (
+            <Box sx={{ py: 2.5, textAlign: "center" }}>
+              <Typography sx={{ fontSize: "0.8rem", color: T.faint, fontStyle: "italic" }}>
+                {query.length >= 2 ? `No results for "${query}"` : "Type to search or browse"}
+              </Typography>
+            </Box>
+          )}
+        </Paper>
+      )}
+    </Box>
+  );
+};
+
 // ─── Main Component ────────────────────────────────────────────────────────
 const AttendanceSearch = () => {
   const { settings } = useSystemSettings();
+  const INITIAL_VISIBLE_ROWS = 60;
+  const VISIBLE_ROWS_STEP = 60;
 
   const today          = new Date();
   const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
@@ -697,6 +1169,7 @@ const AttendanceSearch = () => {
   const [endDate, setEndDate]     = useState("");
   const [selectedYear, setSelectedYear]   = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(null);
+    const [selectedEmployee, setSelectedEmployee] = useState(null);
 
   // ── Tab state ──
   const [activeTab, setActiveTab] = useState("records");
@@ -712,11 +1185,15 @@ const AttendanceSearch = () => {
   const [fullEverModified, setFullEverModified]   = useState(new Set());
 
   const [loadedTabs, setLoadedTabs] = useState(new Set());
+  const [recordsVisibleCount, setRecordsVisibleCount] = useState(INITIAL_VISIBLE_ROWS);
+  const [fullVisibleCount, setFullVisibleCount] = useState(INITIAL_VISIBLE_ROWS);
 
   // ── UI state ──
   const [loading, setLoading]             = useState(false);
   const [error, setError]                 = useState("");
   const [success, setSuccess]             = useState("");
+  const [submittedID, setSubmittedID]     = useState("");
+  const [hasSearched, setHasSearched]     = useState(false);
   const [pageLoading, setPageLoading]     = useState(true);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -725,10 +1202,23 @@ const AttendanceSearch = () => {
 
   const resultsRef    = useRef(null);
   const fullResultsRef = useRef(null);
+  const recordsControllerRef = useRef(null);
+  const fullControllerRef = useRef(null);
+  const recordsCacheRef = useRef(new Map());
+  const fullCacheRef = useRef(new Map());
 
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
   const months = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+
+  const visibleRecords = useMemo(
+    () => records.slice(0, recordsVisibleCount),
+    [records, recordsVisibleCount]
+  );
+  const visibleFullRecords = useMemo(
+    () => fullRecords.slice(0, fullVisibleCount),
+    [fullRecords, fullVisibleCount]
+  );
 
   const showSnackbar = (message, severity = "success") => {
     setSnackbar({ open: true, message, severity });
@@ -759,45 +1249,92 @@ const AttendanceSearch = () => {
   };
 
   // ── Fetch: Records-only ──────────────────────────────────────────────────
-  const fetchRecords = async (showLoading = true) => {
+  const fetchRecords = async (showLoading = true, { force = false } = {}) => {
     if (!personID || !startDate || !endDate) return;
+    const normalizedPersonID = String(personID || "").trim();
+    const cacheKey = `${normalizedPersonID}|${startDate}|${endDate}`;
+    setSubmittedID(normalizedPersonID);
+    setHasSearched(true);
+
+    if (!force && recordsCacheRef.current.has(cacheKey)) {
+      const cached = recordsCacheRef.current.get(cacheKey) || [];
+      setRecords(cached);
+      setSavedRecords(deepClone(cached));
+      setLoadedTabs((prev) => new Set([...prev, "records"]));
+      setLoading(false);
+      return;
+    }
+
+    if (recordsControllerRef.current) recordsControllerRef.current.abort();
+    const controller = new AbortController();
+    recordsControllerRef.current = controller;
+
     if (showLoading) setLoading(true);
     setError(""); setSuccess("");
     try {
       const response = await axios.post(
         `${API_BASE_URL}/attendance/api/view-attendance`,
-        { personID, startDate, endDate },
-        getAuthHeaders()
+        { personID: normalizedPersonID, startDate, endDate },
+        { ...getAuthHeaders(), signal: controller.signal }
       );
       const fetched = response.data;
+      recordsCacheRef.current.set(cacheKey, fetched);
+      if (recordsCacheRef.current.size > 20) {
+        const firstKey = recordsCacheRef.current.keys().next().value;
+        recordsCacheRef.current.delete(firstKey);
+      }
       setRecords(fetched);
       setSavedRecords(deepClone(fetched));
       setEverModifiedFields(new Set());
       setLoadedTabs((prev) => new Set([...prev, "records"]));
       if (fetched.length > 0) {
-        setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+        requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
       }
     } catch (err) {
+      if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError") return;
       const msg = "Failed to fetch attendance records. Please try again.";
       setError(msg);
       showSnackbar(msg, "error");
     } finally {
-      if (showLoading) setLoading(false);
+      if (showLoading && recordsControllerRef.current === controller) setLoading(false);
     }
   };
 
   // ── Fetch: Full-month (all days) ─────────────────────────────────────────
-  const fetchFullRecords = async (showLoading = true) => {
+  const fetchFullRecords = async (showLoading = true, { force = false } = {}) => {
     if (!personID || !startDate || !endDate) return;
+    const normalizedPersonID = String(personID || "").trim();
+    const cacheKey = `${normalizedPersonID}|${startDate}|${endDate}`;
+    setSubmittedID(normalizedPersonID);
+    setHasSearched(true);
+
+    if (!force && fullCacheRef.current.has(cacheKey)) {
+      const cached = fullCacheRef.current.get(cacheKey) || [];
+      setFullRecords(cached);
+      setSavedFullRecords(deepClone(cached));
+      setLoadedTabs((prev) => new Set([...prev, "fullMonth"]));
+      setLoading(false);
+      return;
+    }
+
+    if (fullControllerRef.current) fullControllerRef.current.abort();
+    const controller = new AbortController();
+    fullControllerRef.current = controller;
+
     if (showLoading) setLoading(true);
     setError(""); setSuccess("");
     try {
       const response = await axios.post(
         `${API_BASE_URL}/attendance/api/view-attendance-full`,
-        { personID, startDate, endDate },
-        getAuthHeaders()
+        { personID: normalizedPersonID, startDate, endDate },
+        { ...getAuthHeaders(), signal: controller.signal }
       );
       const fetched = response.data;
+      fullCacheRef.current.set(cacheKey, fetched);
+      if (fullCacheRef.current.size > 20) {
+        const firstKey = fullCacheRef.current.keys().next().value;
+        fullCacheRef.current.delete(firstKey);
+      }
       setFullRecords(fetched);
       setSavedFullRecords(deepClone(fetched));
       // NOTE: fullEverModified is intentionally NOT reset here so saved
@@ -805,14 +1342,15 @@ const AttendanceSearch = () => {
       // when filters change (see filter useEffect below).
       setLoadedTabs((prev) => new Set([...prev, "fullMonth"]));
       if (fetched.length > 0) {
-        setTimeout(() => fullResultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+        requestAnimationFrame(() => fullResultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
       }
     } catch (err) {
+      if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError") return;
       const msg = "Failed to fetch full-month attendance records. Please try again.";
       setError(msg);
       showSnackbar(msg, "error");
     } finally {
-      if (showLoading) setLoading(false);
+      if (showLoading && fullControllerRef.current === controller) setLoading(false);
     }
   };
 
@@ -822,13 +1360,29 @@ const AttendanceSearch = () => {
     setRecords([]); setSavedRecords([]); setEverModifiedFields(new Set());
     setFullRecords([]); setSavedFullRecords([]); setFullEverModified(new Set());
     setLoadedTabs(new Set());
+    setRecordsVisibleCount(INITIAL_VISIBLE_ROWS);
+    setFullVisibleCount(INITIAL_VISIBLE_ROWS);
+    setHasSearched(true);
+    setSubmittedID(String(personID || "").trim());
 
-    if (activeTab === "records") fetchRecords(true);
-    else fetchFullRecords(true);
+    const timer = setTimeout(() => {
+      if (activeTab === "records") fetchRecords(true, { force: true });
+      else fetchFullRecords(true, { force: true });
+    }, 180);
+    return () => clearTimeout(timer);
   }, [personID, startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    return () => {
+      recordsControllerRef.current?.abort();
+      fullControllerRef.current?.abort();
+    };
+  }, []);
 
   const handleTabSwitch = (tab) => {
     setActiveTab(tab);
+    if (tab === "records") setRecordsVisibleCount(INITIAL_VISIBLE_ROWS);
+    if (tab === "fullMonth") setFullVisibleCount(INITIAL_VISIBLE_ROWS);
     if (!personID || !startDate || !endDate) return;
     if (tab === "records" && !loadedTabs.has("records")) fetchRecords(true);
     if (tab === "fullMonth" && !loadedTabs.has("fullMonth")) fetchFullRecords(true);
@@ -837,10 +1391,10 @@ const AttendanceSearch = () => {
   const handleRefresh = () => {
     if (activeTab === "records") {
       setLoadedTabs((prev) => { const s = new Set(prev); s.delete("records"); return s; });
-      fetchRecords(true);
+      fetchRecords(true, { force: true });
     } else {
       setLoadedTabs((prev) => { const s = new Set(prev); s.delete("fullMonth"); return s; });
-      fetchFullRecords(true);
+      fetchFullRecords(true, { force: true });
     }
   };
 
@@ -870,7 +1424,7 @@ const AttendanceSearch = () => {
       });
 
       // Re-fetch fresh server data (this resets everModifiedFields to new Set inside).
-      await fetchRecords(false);
+      await fetchRecords(false, { force: true });
 
       // Re-apply modSet AFTER fetch so green indicators show correctly.
       setEverModifiedFields(modSet);
@@ -920,7 +1474,7 @@ const AttendanceSearch = () => {
       });
 
       // Re-fetch fresh data from server.
-      await fetchFullRecords(false);
+      await fetchFullRecords(false, { force: true });
 
       // Re-apply modSet AFTER fetch so green indicators are not wiped.
       setFullEverModified(modSet);
@@ -933,17 +1487,17 @@ const AttendanceSearch = () => {
     }
   };
 
-  const handleInputChange = (index, field, value) => {
+  const handleInputChange = useCallback((index, field, value) => {
     const updated = [...records];
     updated[index] = { ...updated[index], [field]: value };
     setRecords(updated);
-  };
+  }, [records]);
 
-  const handleFullInputChange = (index, field, value) => {
+  const handleFullInputChange = useCallback((index, field, value) => {
     const updated = [...fullRecords];
     updated[index] = { ...updated[index], [field]: value };
     setFullRecords(updated);
-  };
+  }, [fullRecords]);
 
   const handleMonthClick = (monthIndex) => {
     const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
@@ -954,11 +1508,18 @@ const AttendanceSearch = () => {
   };
 
   const handleClearFilters = () => {
-    setPersonID(""); setStartDate(""); setEndDate("");
+    setPersonID(""); setSelectedEmployee(null); setStartDate(""); setEndDate("");
     setRecords([]); setSavedRecords([]); setEverModifiedFields(new Set());
     setFullRecords([]); setSavedFullRecords([]); setFullEverModified(new Set());
     setError(""); setSuccess(""); setSelectedMonth(null);
     setLoadedTabs(new Set());
+    setRecordsVisibleCount(INITIAL_VISIBLE_ROWS);
+    setFullVisibleCount(INITIAL_VISIBLE_ROWS);
+    setSubmittedID(""); setHasSearched(false); setLoading(false);
+    recordsCacheRef.current.clear();
+    fullCacheRef.current.clear();
+    recordsControllerRef.current?.abort();
+    fullControllerRef.current?.abort();
   };
 
   const recordsCount   = records.length;
@@ -1089,18 +1650,45 @@ const AttendanceSearch = () => {
 
           <Box sx={{ px: 2.5, pt: 2, pb: 2.5 }}>
             <Box sx={{ display: "flex", gap: 1.5, mb: 2.5, flexWrap: "wrap" }}>
-              {[
-                { label: "Employee Number", value: personID,  onChange: (e) => setPersonID(e.target.value),  type: "text", icon: <Person sx={{ fontSize: 16, color: T.accentBorder }} /> },
-                { label: "Start Date",      value: startDate, onChange: (e) => setStartDate(e.target.value), type: "date", icon: <CalendarToday sx={{ fontSize: 15, color: T.accentBorder }} /> },
-                { label: "End Date",        value: endDate,   onChange: (e) => setEndDate(e.target.value),   type: "date", icon: <CalendarToday sx={{ fontSize: 15, color: T.accentBorder }} /> },
-              ].map(({ label, value, onChange, type, icon }) => (
-                <Box key={label} sx={{ flex: 1, minWidth: 160 }}>
+                <Box sx={{ flex: 1, minWidth: 160 }}>
                   <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: T.font }}>
-                    {label}
+                    Employee Number
                   </Typography>
-                  <NativeInput type={type} value={value} onChange={onChange} placeholder={type === "text" ? "Enter employee number" : undefined} icon={icon} />
+                  <EmployeeSearchField
+                    onSelect={(emp) => {
+                      const resolvedEmployeeId = getEmployeeIdentifier(emp);
+                      setSelectedEmployee(emp);
+                      setPersonID(resolvedEmployeeId);
+                    }}
+                    selectedEmployee={selectedEmployee}
+                    onClear={() => {
+                      setSelectedEmployee(null);
+                      setPersonID("");
+                    }}
+                  />
                 </Box>
-              ))}
+                <Box sx={{ flex: 1, minWidth: 160 }}>
+                  <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: T.font }}>
+                    Start Date
+                  </Typography>
+                  <NativeInput
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    icon={<CalendarToday sx={{ fontSize: 15, color: T.accentBorder }} />}
+                  />
+                </Box>
+                <Box sx={{ flex: 1, minWidth: 160 }}>
+                  <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: T.font }}>
+                    End Date
+                  </Typography>
+                  <NativeInput
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    icon={<CalendarToday sx={{ fontSize: 15, color: T.accentBorder }} />}
+                  />
+                </Box>
             </Box>
 
             <Box sx={{ height: 1, bgcolor: T.divider, mb: 2 }} />
@@ -1172,12 +1760,25 @@ const AttendanceSearch = () => {
                 onClick={handleClearFilters}
               />
             </Box>
+
+            {loading && (
+              <Box sx={{ mt: 1.5 }}>
+                <LinearProgress
+                  sx={{
+                    height: 3,
+                    borderRadius: 999,
+                    bgcolor: alpha(T.accent, 0.08),
+                    "& .MuiLinearProgress-bar": { bgcolor: T.accent },
+                  }}
+                />
+              </Box>
+            )}
           </Box>
         </SectionCard>
 
         {/* ── Tab Switcher + Results ── */}
-        {(records.length > 0 || fullRecords.length > 0) && (
-          <Fade in={!loading} timeout={400}>
+        {hasSearched && submittedID && startDate && endDate && (
+          <Fade in timeout={400}>
             <Box>
               {/* Tab bar */}
               <Box sx={{
@@ -1274,58 +1875,54 @@ const AttendanceSearch = () => {
 
                   {/* Rows */}
                   <Box sx={{ maxHeight: 520, overflowY: "auto", overflowX: "auto" }}>
-                    {records.map((record, index) => {
-                      const rowDirty    = isDirty(record, savedRecords[index]);
-                      const rowSavedMod = !rowDirty && EDITABLE_FIELDS.some((f) => everModifiedFields.has(`${record.personID}-${record.date}-${f}`));
-                      const isManual    = record.manualEntry === 1;
-                      const leftBorder  = rowDirty ? "3px solid #e65100" : rowSavedMod ? "3px solid #2e7d32" : isManual ? "3px solid #7b1fa2" : "3px solid transparent";
-                      return (
-                        <Box
-                          key={index}
-                          sx={{
-                            display: "grid", gridTemplateColumns: "1.2fr 1fr 0.8fr 1.6fr 1.6fr 1.6fr 1.6fr",
-                            px: 2.5, py: 1.5, gap: 2, alignItems: "center",
-                            bgcolor: rowDirty
-                              ? alpha("#e65100", 0.04)
-                              : rowSavedMod
-                              ? alpha("#2e7d32", 0.04)
-                              : isManual
-                              ? alpha("#7b1fa2", 0.04)
-                              : index % 2 === 0 ? "#fff" : T.rowOdd,
-                            borderBottom: `1px solid ${T.divider}`, borderLeft: leftBorder,
-                            transition: "background 0.13s",
-                            "&:hover": { bgcolor: T.rowHover },
-                            minWidth: 960,
+                    {visibleRecords.map((record, index) => (
+                      <RecordsRow
+                        key={`${record.personID}-${record.date}-${index}`}
+                        record={record}
+                        savedRecord={savedRecords[index]}
+                        index={index}
+                        everModifiedFields={everModifiedFields}
+                        onFieldChange={handleInputChange}
+                      />
+                    ))}
+
+                    {records.length > recordsVisibleCount && (
+                      <Box sx={{ px: 2.5, py: 1.5, borderTop: `1px solid ${T.divider}`, bgcolor: "#fff", display: "flex", justifyContent: "center" }}>
+                        <button
+                          type="button"
+                          onClick={() => setRecordsVisibleCount((p) => Math.min(records.length, p + VISIBLE_ROWS_STEP))}
+                          style={{
+                            background: alpha(T.accent, 0.08),
+                            border: `1px solid ${T.accentBorder}`,
+                            borderRadius: "8px",
+                            padding: "8px 14px",
+                            cursor: "pointer",
+                            color: T.accent,
+                            fontSize: "0.74rem",
+                            fontWeight: 700,
+                            fontFamily: T.font,
                           }}
                         >
-                          <Box>
-                            <Typography sx={{ fontWeight: 600, fontSize: "0.8rem", color: T.text, fontFamily: T.font }}>{record.personID}</Typography>
-                            {isManual && <ManualEntryBadge />}
-                          </Box>
-                          <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontWeight: 500, fontFamily: T.font }}>{record.date}</Typography>
-                          <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontWeight: 500, fontFamily: T.font }}>{record.Day}</Typography>
-                          {EDITABLE_FIELDS.map((field) => {
-                            const unsaved  = savedRecords[index] && (record[field] || "") !== (savedRecords[index][field] || "");
-                            const savedMod = !unsaved && everModifiedFields.has(`${record.personID}-${record.date}-${field}`);
-                            return (
-                              <Box key={field}>
-                                <TimeInput
-                                  value={record[field] || ""}
-                                  onChange={(e) => handleInputChange(index, field, e.target.value)}
-                                  unsaved={unsaved}
-                                  savedMod={savedMod}
-                                />
-                                {unsaved && (
-                                  <Typography sx={{ fontSize: "0.67rem", mt: 0.3, color: "#b71c1c", fontFamily: "monospace" }}>
-                                    was: {savedRecords[index][field] || "—"}
-                                  </Typography>
-                                )}
-                              </Box>
-                            );
-                          })}
-                        </Box>
-                      );
-                    })}
+                          Load more records ({records.length - recordsVisibleCount} remaining)
+                        </button>
+                      </Box>
+                    )}
+                  </Box>
+                </SectionCard>
+              )}
+
+              {activeTab === "records" && records.length === 0 && !loading && (
+                <SectionCard sx={{ mb: 2, borderRadius: "0 12px 12px 12px" }} ref={resultsRef}>
+                  <PanelHeader
+                    icon={Edit}
+                    title={`Records for ${submittedID}`}
+                    right={<Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.font }}>{startDate} → {endDate}</Typography>}
+                  />
+                  <Box sx={{ py: 6, textAlign: "center" }}>
+                    <EventNote sx={{ fontSize: 40, color: T.accentBorder, mb: 1 }} />
+                    <Typography sx={{ fontSize: "0.86rem", color: T.muted, fontFamily: T.font }}>
+                      No records found for this employee and date range.
+                    </Typography>
                   </Box>
                 </SectionCard>
               )}
@@ -1403,104 +2000,38 @@ const AttendanceSearch = () => {
 
                   {/* Rows */}
                   <Box sx={{ maxHeight: 580, overflowY: "auto", overflowX: "auto" }}>
-                    {fullRecords.map((record, index) => {
-                      const weekend     = isWeekend(record.Day);
-                      const savedRow    = savedFullRecords[index];
-                      const rowDirty    = !record.isNew && isDirty(record, savedRow);
-                      const rowSavedMod = !record.isNew && !rowDirty && EDITABLE_FIELDS.some((f) => fullEverModified.has(`${record.date}-${f}`));
-                      const hasTyped    = record.isNew && hasAnyTime(record);
+                    {visibleFullRecords.map((record, index) => (
+                      <FullMonthRow
+                        key={`${record.date}-${index}`}
+                        record={record}
+                        savedRow={savedFullRecords[index]}
+                        index={index}
+                        fullEverModified={fullEverModified}
+                        onFieldChange={handleFullInputChange}
+                      />
+                    ))}
 
-                      const leftBorder = rowDirty
-                        ? "3px solid #e65100"
-                        : rowSavedMod
-                          ? "3px solid #2e7d32"
-                          : hasTyped
-                            ? "3px solid #f59e0b"
-                            : "3px solid transparent";
-
-                      const rowBg = rowDirty
-                        ? alpha("#e65100", 0.04)
-                        : rowSavedMod
-                          ? alpha("#2e7d32", 0.04)
-                          : record.isNew
-                            ? T.noRecord
-                            : weekend
-                              ? T.weekend
-                              : index % 2 === 0 ? "#fff" : T.rowOdd;
-
-                      return (
-                        <Box
-                          key={record.date}
-                          sx={{
-                            display: "grid",
-                            gridTemplateColumns: "0.6fr 1fr 0.8fr 1.6fr 1.6fr 1.6fr 1.6fr",
-                            px: 2.5, py: 1.25, gap: 2, alignItems: "center",
-                            bgcolor: rowBg,
-                            borderBottom: `1px solid ${T.divider}`,
-                            borderLeft: leftBorder,
-                            transition: "background 0.13s",
-                            "&:hover": { bgcolor: T.rowHover },
-                            minWidth: 960,
+                    {fullRecords.length > fullVisibleCount && (
+                      <Box sx={{ px: 2.5, py: 1.5, borderTop: `1px solid ${T.divider}`, bgcolor: "#fff", display: "flex", justifyContent: "center" }}>
+                        <button
+                          type="button"
+                          onClick={() => setFullVisibleCount((p) => Math.min(fullRecords.length, p + VISIBLE_ROWS_STEP))}
+                          style={{
+                            background: alpha(T.accent, 0.08),
+                            border: `1px solid ${T.accentBorder}`,
+                            borderRadius: "8px",
+                            padding: "8px 14px",
+                            cursor: "pointer",
+                            color: T.accent,
+                            fontSize: "0.74rem",
+                            fontWeight: 700,
+                            fontFamily: T.font,
                           }}
                         >
-                          <Box>
-                            {record.isNew ? (
-                              <Box sx={{
-                                display: "inline-flex", alignItems: "center", gap: 0.4,
-                                px: 0.9, py: 0.25, borderRadius: "4px",
-                                bgcolor: alpha("#f59e0b", 0.14),
-                                border: `1px solid ${alpha("#f59e0b", 0.35)}`,
-                              }}>
-                                <Box sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: "#f59e0b" }} />
-                                <Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: "#92400e", whiteSpace: "nowrap", fontFamily: T.font }}>
-                                  NO RECORD
-                                </Typography>
-                              </Box>
-                            ) : (
-                              <Box sx={{
-                                display: "inline-flex", alignItems: "center", gap: 0.4,
-                                px: 0.9, py: 0.25, borderRadius: "4px",
-                                bgcolor: alpha("#2e7d32", 0.1),
-                                border: `1px solid ${alpha("#2e7d32", 0.25)}`,
-                              }}>
-                                <Box sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: "#2e7d32" }} />
-                                <Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: "#1b5e20", whiteSpace: "nowrap", fontFamily: T.font }}>
-                                  HAS RECORD
-                                </Typography>
-                              </Box>
-                            )}
-                          </Box>
-
-                          <Typography sx={{ fontSize: "0.78rem", color: weekend ? T.accentMid : T.muted, fontWeight: weekend ? 700 : 500, fontFamily: T.font }}>
-                            {record.date}
-                          </Typography>
-                          <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontWeight: 500, fontFamily: T.font }}>
-                            {record.Day}
-                          </Typography>
-
-                          {EDITABLE_FIELDS.map((field) => {
-                            const unsaved  = !record.isNew && savedRow && (record[field] || "") !== (savedRow[field] || "");
-                            const savedMod = !record.isNew && !unsaved && fullEverModified.has(`${record.date}-${field}`);
-                            return (
-                              <Box key={field}>
-                                <TimeInput
-                                  value={record[field] || ""}
-                                  onChange={(e) => handleFullInputChange(index, field, e.target.value)}
-                                  unsaved={unsaved}
-                                  savedMod={savedMod}
-                                  isNewRow={record.isNew}
-                                />
-                                {unsaved && (
-                                  <Typography sx={{ fontSize: "0.67rem", mt: 0.3, color: "#b71c1c", fontFamily: "monospace" }}>
-                                    was: {savedRow[field] || "—"}
-                                  </Typography>
-                                )}
-                              </Box>
-                            );
-                          })}
-                        </Box>
-                      );
-                    })}
+                          Load more days ({fullRecords.length - fullVisibleCount} remaining)
+                        </button>
+                      </Box>
+                    )}
                   </Box>
 
                   <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accentFaint, borderTop: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1 }}>

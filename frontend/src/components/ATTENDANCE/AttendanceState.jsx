@@ -1,5 +1,5 @@
 import API_BASE_URL from "../../apiConfig";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import axios from "axios";
 import { useSocket } from "../../contexts/SocketContext";
 import {
@@ -9,6 +9,7 @@ import {
   Collapse,
   Chip,
   CircularProgress,
+  LinearProgress,
   Fade,
   FormControl,
   InputLabel,
@@ -22,6 +23,13 @@ import {
   Fab,
   Zoom,
   Badge,
+  TextField,
+  Paper,
+  List,
+  ListItem,
+  Avatar,
+  InputAdornment,
+  IconButton,
 } from "@mui/material";
 import {
   Search,
@@ -38,6 +46,9 @@ import {
   KeyboardArrowUp,
   KeyboardArrowDown,
   FilterList,
+  Close,
+  ExpandMore,
+  ExpandLess,
 } from "@mui/icons-material";
 import { useSystemSettings } from "../../hooks/useSystemSettings";
 import usePageAccess from "../../hooks/usePageAccess";
@@ -153,7 +164,15 @@ const SectionCard = styled(Card)({
   overflow: "hidden",
   background: "#fff",
 });
-
+const ModernTextField = styled(TextField)(() => ({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8, backgroundColor: '#fff', transition: 'border-color 0.18s',
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent },
+  },
+  '& label.Mui-focused': { color: T.accent },
+  '& .MuiInputLabel-root': { fontWeight: 500 },
+}));
 // ─── Shared panel header bar ───────────────────────────────────────────────
 const PanelHeader = ({ icon: Icon, title, right }) => (
   <Box
@@ -298,6 +317,264 @@ const getAttendanceLabel = (state) => {
   }
 };
 
+const getEmployeeIdentifier = (emp) => {
+  if (!emp || typeof emp !== "object") return "";
+  const raw =
+    emp.personID ??
+    emp.PersonID ??
+    emp.employeeNum ??
+    emp.employeeNumber ??
+    emp.agencyEmployeeNum ??
+    "";
+  return String(raw).trim();
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EMPLOYEE AUTOCOMPLETE — debounced, lazy load, mirrors OfficialTimeForm
+// ─────────────────────────────────────────────────────────────────────────────
+const EmployeeSearchField = ({ onSelect, selectedEmployee, onClear, disabled = false }) => {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const debounceRef = useRef(null);
+  const dropdownRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Sync query when employee is cleared externally
+  useEffect(() => {
+    if (!selectedEmployee) setQuery("");
+    else setQuery(selectedEmployee.name || "");
+  }, [selectedEmployee]);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await axios.get(`${API_BASE_URL}/Remittance/employees/search`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      });
+      setResults(r.data || []);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchByQuery = useCallback(async (q) => {
+    setLoading(true);
+    try {
+      const r = await axios.get(
+        `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(q)}`,
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
+      );
+      setResults(r.data || []);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleInputChange = (e) => {
+    const val = e.target.value;
+    setQuery(val);
+    setOpen(true);
+
+    // If user typed after selection, clear it
+    if (selectedEmployee) {
+      onClear();
+    }
+
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      if (val.trim().length === 0) fetchAll();
+      else if (val.trim().length >= 2) fetchByQuery(val.trim());
+      else setResults([]);
+    }, 300);
+  };
+
+  const handleFocus = () => {
+    setOpen(true);
+    if (!results.length && !loading) {
+      query.trim().length >= 2 ? fetchByQuery(query.trim()) : fetchAll();
+    }
+  };
+
+  const handleSelect = (emp) => {
+    const resolvedId = getEmployeeIdentifier(emp);
+    setQuery(resolvedId || emp.name || "");
+    setOpen(false);
+    onSelect(emp);
+  };
+
+  const handleClear = () => {
+    setQuery("");
+    setResults([]);
+    onClear();
+    setOpen(false);
+    inputRef.current?.focus();
+  };
+
+  return (
+    <Box sx={{ position: "relative", width: "100%" }} ref={dropdownRef}>
+      <ModernTextField
+        inputRef={inputRef}
+        fullWidth
+        size="small"
+        placeholder="Type name or employee number…"
+        value={query}
+        onChange={handleInputChange}
+        onFocus={handleFocus}
+        onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
+        disabled={disabled}
+        autoComplete="off"
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <Person sx={{ color: T.accentMid, fontSize: 18 }} />
+            </InputAdornment>
+          ),
+          endAdornment: (
+            <InputAdornment position="end">
+              {loading ? (
+                <CircularProgress size={14} sx={{ color: T.accent }} />
+              ) : selectedEmployee ? (
+                <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}>
+                  <Close sx={{ fontSize: 14, color: T.faint }} />
+                </IconButton>
+              ) : (
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    setOpen((o) => !o);
+                    if (!open && !results.length) fetchAll();
+                  }}
+                  sx={{ p: 0.25 }}
+                >
+                  {open ? (
+                    <ExpandLess sx={{ fontSize: 16, color: T.faint }} />
+                  ) : (
+                    <ExpandMore sx={{ fontSize: 16, color: T.faint }} />
+                  )}
+                </IconButton>
+              )}
+            </InputAdornment>
+          ),
+        }}
+        sx={{
+          "& .MuiOutlinedInput-root": {
+            borderColor: selectedEmployee ? T.accent : undefined,
+            "& fieldset": selectedEmployee
+              ? { borderColor: T.accent, borderWidth: 1.5 }
+              : {},
+          },
+        }}
+      />
+
+      {open && (
+        <Paper
+          elevation={6}
+          sx={{
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            right: 0,
+            zIndex: 1400,
+            maxHeight: 260,
+            overflow: "auto",
+            mt: 0.5,
+            borderRadius: "10px",
+            border: `1px solid ${T.accentBorder}`,
+            "&::-webkit-scrollbar": { width: "5px" },
+            "&::-webkit-scrollbar-thumb": { background: "#d0b8b8", borderRadius: "4px" },
+          }}
+        >
+          {loading ? (
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 1,
+                py: 2.5,
+              }}
+            >
+              <CircularProgress size={16} sx={{ color: T.accent }} />
+              <Typography sx={{ fontSize: "0.8rem", color: T.muted }}>
+                Searching…
+              </Typography>
+            </Box>
+          ) : results.length > 0 ? (
+            <List dense disablePadding>
+              {results.map((emp) => (
+                <ListItem
+                  key={emp.employeeNumber}
+                  button
+                  onClick={() => handleSelect(emp)}
+                  sx={{
+                    py: 1,
+                    px: 1.5,
+                    borderBottom: `1px solid ${T.divider}`,
+                    "&:hover": { bgcolor: T.accentFaint },
+                    "&:last-child": { borderBottom: "none" },
+                  }}
+                >
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                    <Avatar
+                      sx={{
+                        width: 30,
+                        height: 30,
+                        fontSize: "0.72rem",
+                        bgcolor: alpha(T.accent, 0.15),
+                        color: T.accent,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {emp.name?.charAt(0)?.toUpperCase() || "?"}
+                    </Avatar>
+                    <Box>
+                      <Typography
+                        sx={{
+                          fontSize: "0.83rem",
+                          fontWeight: 700,
+                          color: T.text,
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        {emp.name}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>
+                        #{getEmployeeIdentifier(emp)}
+                        {emp.department ? ` · ${emp.department}` : ""}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </ListItem>
+              ))}
+            </List>
+          ) : (
+            <Box sx={{ py: 2.5, textAlign: "center" }}>
+              <Typography sx={{ fontSize: "0.8rem", color: T.faint, fontStyle: "italic" }}>
+                {query.length >= 2 ? `No results for "${query}"` : "Type to search or browse"}
+              </Typography>
+            </Box>
+          )}
+        </Paper>
+      )}
+    </Box>
+  );
+};
+
 // ─── Main Component ────────────────────────────────────────────────────────
 const AllAttendanceRecord = () => {
   const { socket, connected } = useSocket();
@@ -309,6 +586,7 @@ const AllAttendanceRecord = () => {
   const textSecondaryColor = settings.textSecondaryColor || "#FEF9E1";
 
   const [personID, setPersonID]           = useState("");
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [startDate, setStartDate]         = useState("");
   const [endDate, setEndDate]             = useState("");
   const [records, setRecords]             = useState([]);
@@ -323,6 +601,9 @@ const AllAttendanceRecord = () => {
   const [pageLoading, setPageLoading]     = useState(true);
 
   const fetchRecordsRef = useRef(null);
+  const requestControllerRef = useRef(null);
+  const queryCacheRef = useRef(new Map());
+  const socketRefreshTimeoutRef = useRef(null);
 
   // ── Snackbar ──
   const [snackbar, setSnackbar]               = useState({ open: false, message: "", severity: "success" });
@@ -368,14 +649,33 @@ const AllAttendanceRecord = () => {
   const handleSort       = () => setSortOrder(sortOrder === "asc" ? "desc" : "asc");
   const handleRowExpand  = (i) => setExpandedRow(expandedRow === i ? null : i);
   const handleClearFilters = () => {
-    setPersonID(""); setStartDate(""); setEndDate("");
+    setPersonID(""); setSelectedEmployee(null); setStartDate(""); setEndDate("");
     setRecords([]); setSubmittedID(""); setSelectedMonth(null);
   };
 
-  const fetchRecords = async (showLoading = true) => {
+  const fetchRecords = async (showLoading = true, { force = false } = {}) => {
     if (!personID || !startDate || !endDate) return;
+    const normalizedPersonID = String(personID || "").trim();
+    const queryKey = `${normalizedPersonID}|${startDate}|${endDate}`;
+
+    setSubmittedID(normalizedPersonID);
+    setExpandedRow(null);
+
+    if (!force && queryCacheRef.current.has(queryKey)) {
+      setRecords(queryCacheRef.current.get(queryKey) || []);
+      setLoading(false);
+      return;
+    }
+
     if (showLoading) setLoading(true);
     setError("");
+
+    if (requestControllerRef.current) {
+      requestControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+
     try {
       const adjustedStart = new Date(startDate);
       adjustedStart.setDate(adjustedStart.getDate() - 1);
@@ -384,8 +684,8 @@ const AllAttendanceRecord = () => {
 
       const response = await axios.post(
         `${API_BASE_URL}/attendance/api/attendance`,
-        { personID, startDate: adjustedStart.toISOString().substring(0, 10), endDate: adjustedEnd.toISOString().substring(0, 10) },
-        getAuthHeaders()
+        { personID: normalizedPersonID, startDate: adjustedStart.toISOString().substring(0, 10), endDate: adjustedEnd.toISOString().substring(0, 10) },
+        { ...getAuthHeaders(), signal: controller.signal }
       );
 
       const filteredData = response.data.filter((record) => {
@@ -396,18 +696,28 @@ const AllAttendanceRecord = () => {
         }
         return false;
       });
-setRecords(filteredData);
-setSubmittedID(personID);
-if (filteredData.length > 0) {
-  setTimeout(() => {
-    resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, 150);
-}
+      queryCacheRef.current.set(queryKey, filteredData);
+      if (queryCacheRef.current.size > 20) {
+        const firstKey = queryCacheRef.current.keys().next().value;
+        queryCacheRef.current.delete(firstKey);
+      }
+
+      setRecords(filteredData);
+      if (filteredData.length > 0) {
+        requestAnimationFrame(() => {
+          resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
     } catch (err) {
+      if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError") {
+        return;
+      }
       console.error("Error fetching attendance records:", err);
       setError("Failed to fetch attendance records");
     } finally {
-      if (showLoading) setLoading(false);
+      if (showLoading && requestControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 
@@ -420,17 +730,38 @@ if (filteredData.length > 0) {
       const changedPersonIDs = Array.isArray(payload?.personIDs)
         ? payload.personIDs
         : payload?.personID ? [payload.personID] : [];
-      if (personID && changedPersonIDs.length > 0 && !changedPersonIDs.includes(personID)) return;
-      if (personID && startDate && endDate) fetchRecordsRef.current?.(false);
+      const currentPersonID = String(personID || "").trim();
+      const normalizedChangedIDs = changedPersonIDs.map((id) => String(id || "").trim());
+      if (currentPersonID && normalizedChangedIDs.length > 0 && !normalizedChangedIDs.includes(currentPersonID)) return;
+      if (personID && startDate && endDate) {
+        if (socketRefreshTimeoutRef.current) clearTimeout(socketRefreshTimeoutRef.current);
+        socketRefreshTimeoutRef.current = setTimeout(() => {
+          fetchRecordsRef.current?.(false, { force: true });
+        }, 250);
+      }
     };
     socket.on("attendanceChanged", handleAttendanceChanged);
-    return () => { socket.off("attendanceChanged", handleAttendanceChanged); };
+    return () => {
+      socket.off("attendanceChanged", handleAttendanceChanged);
+      if (socketRefreshTimeoutRef.current) clearTimeout(socketRefreshTimeoutRef.current);
+    };
   }, [socket, connected, personID, startDate, endDate]);
 
   // ── Re-fetch when dates change (if personID present) ──
   useEffect(() => {
-    if (personID && startDate && endDate) fetchRecords(false);
-  }, [startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!personID || !startDate || !endDate) return;
+    const timer = setTimeout(() => {
+      fetchRecords(true);
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [personID, startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    return () => {
+      requestControllerRef.current?.abort();
+      if (socketRefreshTimeoutRef.current) clearTimeout(socketRefreshTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => setShowScrollTop(window.scrollY > 300);
@@ -438,11 +769,24 @@ if (filteredData.length > 0) {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const filteredRecords = [...records].sort((a, b) => {
-    const dateA = new Date(a.Date + " " + a.Time);
-    const dateB = new Date(b.Date + " " + b.Time);
-    return sortOrder === "asc" ? dateA - dateB : dateB - dateA;
-  });
+  const filteredRecords = useMemo(() => {
+    const toTimestamp = (record) => {
+      const [month, day, year] = String(record?.Date || "").split("/");
+      if (month && day && year) {
+        const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T${record?.Time || "00:00:00"}`;
+        const ts = new Date(iso).getTime();
+        if (!Number.isNaN(ts)) return ts;
+      }
+      const fallback = new Date(`${record?.Date || ""} ${record?.Time || ""}`).getTime();
+      return Number.isNaN(fallback) ? 0 : fallback;
+    };
+
+    return [...records].sort((a, b) => {
+      const dateA = toTimestamp(a);
+      const dateB = toTimestamp(b);
+      return sortOrder === "asc" ? dateA - dateB : dateB - dateA;
+    });
+  }, [records, sortOrder]);
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
@@ -537,7 +881,7 @@ if (filteredData.length > 0) {
                 <Typography sx={{ fontSize: "0.75rem", color: T.accent, fontWeight: 700 }}>System Generated</Typography>
               </Box>
               <button
-                onClick={() => fetchRecords(true)}
+                onClick={() => fetchRecords(true, { force: true })}
                 disabled={!personID || !startDate || !endDate}
                 style={{
                   background: alpha(T.accent, 0.08),
@@ -579,11 +923,17 @@ if (filteredData.length > 0) {
                 <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                   Employee Number
                 </Typography>
-                <NativeInput
-                  value={personID}
-                  onChange={(e) => setPersonID(e.target.value)}
-                  placeholder="Enter employee number"
-                  icon={<Person sx={{ fontSize: 16, color: T.accentBorder }} />}
+                <EmployeeSearchField
+                  onSelect={(emp) => {
+                    const resolvedEmployeeId = getEmployeeIdentifier(emp);
+                    setSelectedEmployee(emp);
+                    setPersonID(resolvedEmployeeId);
+                  }}
+                  selectedEmployee={selectedEmployee}
+                  onClear={() => {
+                    setSelectedEmployee(null);
+                    setPersonID("");
+                  }}
                 />
               </Box>
               <Box sx={{ flex: 1, minWidth: 160 }}>
@@ -706,6 +1056,19 @@ if (filteredData.length > 0) {
                 onClick={handleClearFilters}
               />
             </Box>
+
+            {loading && (
+              <Box sx={{ mt: 1.5 }}>
+                <LinearProgress
+                  sx={{
+                    height: 3,
+                    borderRadius: 999,
+                    bgcolor: alpha(T.accent, 0.08),
+                    "& .MuiLinearProgress-bar": { bgcolor: T.accent },
+                  }}
+                />
+              </Box>
+            )}
           </Box>
         </SectionCard>
 
@@ -719,7 +1082,7 @@ if (filteredData.length > 0) {
 
         {/* ── Results Table ── */}
         {submittedID && (
-          <Fade in={!loading} timeout={400}>
+          <Fade in timeout={400}>
 <SectionCard ref={resultsRef}>              <PanelHeader
                 icon={Search}
                 title={`Records for ${submittedID}`}
@@ -782,7 +1145,14 @@ if (filteredData.length > 0) {
 
               {/* ── Scrollable rows ── */}
               <Box sx={{ maxHeight: 480, overflowY: "auto" }}>
-                {filteredRecords.length === 0 ? (
+                {loading && filteredRecords.length === 0 ? (
+                  <Box sx={{ py: 8, textAlign: "center" }}>
+                    <CircularProgress size={18} sx={{ color: T.accent, mb: 1 }} />
+                    <Typography sx={{ fontSize: "0.82rem", color: T.muted }}>
+                      Loading records...
+                    </Typography>
+                  </Box>
+                ) : filteredRecords.length === 0 ? (
                   <Box sx={{ py: 8, textAlign: "center" }}>
                     <Box sx={{ width: 60, height: 60, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 2 }}>
                       <Info sx={{ fontSize: 28, color: alpha(T.accent, 0.3) }} />
