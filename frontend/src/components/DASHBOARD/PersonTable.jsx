@@ -99,6 +99,8 @@ const T = {
   poppins: "'Poppins', sans-serif",
 };
 
+const STEP_OK = '#2e7d32';
+
 // ─── Styled primitives ────────────────────────────────────────
 const SectionCard = styled(Card)({
   borderRadius: 12,
@@ -157,6 +159,157 @@ const shimmerKeyframes = `
   50%       { opacity: 0.60; }
 }
 `;
+
+const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
+  <Box
+    sx={{
+      width: w,
+      height: h,
+      borderRadius: r,
+      background:
+        'linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)',
+      backgroundSize: '800px 100%',
+      animation: 'ptShimmer 1.6s infinite linear',
+      flexShrink: 0,
+      ...sx,
+    }}
+  />
+);
+
+const PersonTableWireframe = () => (
+  <>
+    <style>{shimmerKeyframes}</style>
+    <Box
+      sx={{
+        py: { xs: 2, md: 4 },
+        mt: { xs: 0, md: -5 },
+        width: '100vw',
+        maxWidth: '100%',
+        position: 'relative',
+        left: '63%',
+        transform: 'translateX(-61%)',
+        px: { xs: 2, sm: 3, md: 6 },
+      }}
+    >
+      <Box
+        sx={{
+          mb: 3,
+          borderRadius: 3,
+          overflow: 'hidden',
+          border: `1px solid ${T.accentBorder}`,
+          animation: 'ptPulse 2s ease-in-out infinite',
+        }}
+      >
+        <Box
+          sx={{
+            p: 3.5,
+            background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2.5,
+            position: 'relative',
+            overflow: 'hidden',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              top: -50,
+              right: -50,
+              width: 180,
+              height: 180,
+              borderRadius: '50%',
+              bgcolor: 'rgba(109,35,35,0.06)',
+            }}
+          />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box
+              sx={{
+                width: 52,
+                height: 52,
+                borderRadius: '50%',
+                bgcolor: 'rgba(109,35,35,0.12)',
+                flexShrink: 0,
+              }}
+            />
+            <Box sx={{ flex: 1 }}>
+              <Bone w={260} h={18} sx={{ mb: 1 }} />
+              <Bone w={420} h={11} />
+            </Box>
+          </Box>
+          <Box
+            sx={{
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              bgcolor: 'rgba(109,35,35,0.1)',
+            }}
+          />
+        </Box>
+      </Box>
+
+      <Grid container spacing={3}>
+        {[0, 1].map((col) => (
+          <Grid item xs={12} lg={col === 0 ? 4 : 8} key={col}>
+            <Box
+              sx={{
+                borderRadius: 3,
+                border: `1px solid ${T.accentBorder}`,
+                bgcolor: '#fff',
+                overflow: 'hidden',
+                animation: `ptPulse 2s ease-in-out ${col * 0.1}s infinite`,
+                height: 'calc(100vh - 280px)',
+              }}
+            >
+              <Box
+                sx={{
+                  px: 3.5,
+                  py: 1.25,
+                  borderBottom: `1px solid ${T.divider}`,
+                  bgcolor: T.accentFaint,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 15,
+                    height: 15,
+                    borderRadius: '50%',
+                    bgcolor: 'rgba(109,35,35,0.12)',
+                  }}
+                />
+                <Bone w={col === 0 ? 180 : 240} h={13} />
+              </Box>
+              <Box
+                sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}
+              >
+                {(col === 0
+                  ? [120, 180, 130, 155, 110, 145, 170]
+                  : [200, 120, 230, 160, 190]
+                ).map((w, i) => (
+                  <Box key={i}>
+                    <Bone w={w} h={10} sx={{ mb: 1 }} />
+                    <Box
+                      sx={{
+                        height: 40,
+                        borderRadius: 2,
+                        border: `1px solid ${T.accentBorder}`,
+                        bgcolor: '#fafafa',
+                      }}
+                    />
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
+  </>
+);
 
 // ─── Field label sx (modal view mode) ────────────────────────
 const fieldLabelSx = {
@@ -946,10 +1099,12 @@ const PersonTable = () => {
   const [rowsPerPage, setRowsPerPage] = useState(24);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [successOpen, setSuccessOpen] = useState(false);
   const [successAction, setSuccessAction] = useState('');
   const [errors, setErrors] = useState({});
   const [stepErrors, setStepErrors] = useState({});
+  const [checkedSteps, setCheckedSteps] = useState({});
   const [viewMode, setViewMode] = useState('grid');
   const [activeStep, setActiveStep] = useState(0);
 
@@ -1046,7 +1201,7 @@ const PersonTable = () => {
   const fetchPersonsRef = useRef(null);
 
   useEffect(() => {
-    fetchPersons();
+    fetchPersons().finally(() => setPageLoading(false));
   }, []);
 
   // ── Alphabetical sort by lastName ─────────────────────────
@@ -1280,6 +1435,11 @@ const PersonTable = () => {
     if (hasError) {
       setErrors(newErrors);
       setStepErrors({ [activeStep]: true });
+      setCheckedSteps((prev) => {
+        const n = { ...prev };
+        delete n[activeStep];
+        return n;
+      });
       showSnackbar(
         'Please fill in all required fields before proceeding',
         'error',
@@ -1291,6 +1451,7 @@ const PersonTable = () => {
       delete n[activeStep];
       return n;
     });
+    setCheckedSteps((prev) => ({ ...prev, [activeStep]: true }));
     return true;
   };
 
@@ -1310,6 +1471,7 @@ const PersonTable = () => {
       setActiveStep(0);
       setErrors({});
       setStepErrors({});
+      setCheckedSteps({});
       setSelectedEmployee(null);
       setTimeout(() => {
         setLoading(false);
@@ -1414,23 +1576,7 @@ const PersonTable = () => {
     if (page > 0 && page * rowsPerPage >= filteredData.length) setPage(0);
   }, [filteredData.length, page, rowsPerPage]);
 
-  if (hasAccess === null) {
-    return (
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          py: 8,
-        }}
-      >
-        <CircularProgress sx={{ color: T.accent, mb: 2 }} />
-        <Typography sx={{ color: T.accent }}>
-          Loading access information…
-        </Typography>
-      </Box>
-    );
-  }
+  if (hasAccess === null) return <PersonTableWireframe />;
   if (hasAccess === false) {
     return (
       <AccessDenied
@@ -1441,6 +1587,8 @@ const PersonTable = () => {
       />
     );
   }
+
+  if (pageLoading) return <PersonTableWireframe />;
 
   const paginatedData = filteredData.slice(
     page * rowsPerPage,
@@ -1911,6 +2059,7 @@ const PersonTable = () => {
                     const isCompleted = index < activeStep;
                     const isActive = index === activeStep;
                     const hasError = stepErrors[index];
+                    const isChecked = checkedSteps[index] && !hasError;
                     return (
                       <React.Fragment key={step.label}>
                         <Box
@@ -1940,20 +2089,20 @@ const PersonTable = () => {
                               fontWeight: 700,
                               bgcolor: hasError
                                 ? '#c62828'
-                                : isCompleted
-                                  ? T.accent
+                                : isChecked
+                                  ? STEP_OK
                                   : isActive
                                     ? T.accent
                                     : alpha(T.accent, 0.15),
                               color:
-                                isCompleted || isActive || hasError
+                                isChecked || isActive || hasError
                                   ? '#fff'
                                   : T.muted,
                               mb: 0.4,
                               transition: 'all 0.15s',
                             }}
                           >
-                            {isCompleted && !hasError ? '✓' : index + 1}
+                            {isChecked ? '✓' : index + 1}
                           </Box>
                           <Typography
                             sx={{
@@ -1961,6 +2110,8 @@ const PersonTable = () => {
                               fontWeight: isActive ? 700 : 500,
                               color: hasError
                                 ? '#c62828'
+                                : isChecked
+                                  ? STEP_OK
                                 : isActive
                                   ? T.accent
                                   : isCompleted
@@ -1981,7 +2132,11 @@ const PersonTable = () => {
                               height: '1px',
                               minWidth: 4,
                               bgcolor:
-                                index < activeStep ? T.accent : T.accentBorder,
+                                checkedSteps[index]
+                                  ? STEP_OK
+                                  : index < activeStep
+                                    ? T.accent
+                                    : T.accentBorder,
                               opacity: 0.5,
                               mb: 1.5,
                             }}
