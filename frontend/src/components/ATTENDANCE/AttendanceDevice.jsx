@@ -34,6 +34,11 @@ import {
   TableHead,
   TableRow,
   Tooltip,
+  TextField,
+  Paper,
+  List,
+  ListItemButton,
+  InputAdornment,
 } from '@mui/material';
 import {
   Search,
@@ -57,6 +62,9 @@ import {
   ArrowBack,
   ArrowForward,
   SearchOutlined,
+  ExpandMore,
+  ExpandLess,
+  Close,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
@@ -335,6 +343,214 @@ const highlightMatch = (text, q) => {
       </span>
       {s.slice(idx + query.length)}
     </span>
+  );
+};
+
+// ─── Employee search field (debounced, users-backed) ───────────────────────
+const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }) => {
+  const [query, setQuery] = useState(value || '');
+  const [debouncedQuery, setDebouncedQuery] = useState(value || '');
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const debounceRef = useRef(null);
+  const containerRef = useRef(null);
+  const abortRef = useRef(null);
+
+  useEffect(() => {
+    setQuery(value || '');
+    setDebouncedQuery(value || '');
+  }, [value]);
+
+  useEffect(() => {
+    const handleOutside = (event) => {
+      if (!containerRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    if (abortRef.current) abortRef.current.abort();
+
+    const q = debouncedQuery.trim();
+    if (q.length < 2) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    axios
+      .get(`${API_BASE_URL}/users/search`, {
+        params: { q },
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+      })
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : [];
+        setResults(list.slice(0, 20));
+      })
+      .catch((err) => {
+        if (err?.code === 'ERR_CANCELED') return;
+        console.error('Error searching registered users:', err);
+        setResults([]);
+      })
+      .finally(() => setLoading(false));
+
+    return () => controller.abort();
+  }, [debouncedQuery, open]);
+
+  const queueSearch = (nextValue) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedQuery(nextValue);
+      setOpen(true);
+    }, 220);
+  };
+
+  const handleInputChange = (event) => {
+    const next = event.target.value;
+    onSelectEmployeeNumber(next);
+    setQuery(next);
+    queueSearch(next);
+  };
+
+  const handleSelect = (employee) => {
+    const employeeNumber = employee?.employeeNumber ? String(employee.employeeNumber) : '';
+    onSelectEmployeeNumber(employeeNumber);
+    setQuery(employeeNumber);
+    setDebouncedQuery(employeeNumber);
+    setOpen(false);
+  };
+
+  const handleClear = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
+    setQuery('');
+    setDebouncedQuery('');
+    setResults([]);
+    setOpen(false);
+    onSelectEmployeeNumber('');
+  };
+
+  return (
+    <Box sx={{ position: 'relative', width: '100%' }} ref={containerRef}>
+      <TextField
+        fullWidth
+        size="small"
+        value={query}
+        onChange={handleInputChange}
+        onFocus={() => setOpen(true)}
+        placeholder="Type name or employee number..."
+        disabled={disabled}
+        autoComplete="off"
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <Person sx={{ color: T.accentMid, fontSize: 16 }} />
+            </InputAdornment>
+          ),
+          endAdornment: (
+            <InputAdornment position="end">
+              {loading ? (
+                <CircularProgress size={14} sx={{ color: T.accent }} />
+              ) : query ? (
+                <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}>
+                  <Close sx={{ fontSize: 14, color: T.faint }} />
+                </IconButton>
+              ) : (
+                <IconButton size="small" onClick={() => setOpen((p) => !p)} sx={{ p: 0.25 }}>
+                  {open ? (
+                    <ExpandLess sx={{ fontSize: 16, color: T.faint }} />
+                  ) : (
+                    <ExpandMore sx={{ fontSize: 16, color: T.faint }} />
+                  )}
+                </IconButton>
+              )}
+            </InputAdornment>
+          ),
+        }}
+        sx={{
+          '& .MuiOutlinedInput-root': {
+            borderRadius: '8px',
+            '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+            '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
+            '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
+          },
+        }}
+      />
+
+      {open && (
+        <Paper
+          elevation={6}
+          sx={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            zIndex: 1300,
+            mt: 0.5,
+            maxHeight: 280,
+            overflow: 'auto',
+            borderRadius: '10px',
+            border: `1px solid ${T.accentBorder}`,
+          }}
+        >
+          {loading ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, py: 2.5 }}>
+              <CircularProgress size={16} sx={{ color: T.accent }} />
+              <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>Searching...</Typography>
+            </Box>
+          ) : results.length > 0 ? (
+            <List dense disablePadding>
+              {results.map((emp) => (
+                <ListItemButton
+                  key={emp.employeeNumber}
+                  onClick={() => handleSelect(emp)}
+                  sx={{
+                    py: 1,
+                    px: 1.5,
+                    borderBottom: `1px solid ${T.divider}`,
+                    '&:hover': { bgcolor: T.accentFaint },
+                    '&:last-child': { borderBottom: 'none' },
+                  }}
+                >
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                    <Typography sx={{ fontSize: '0.83rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }}>
+                      {formatFullName(emp.fullName)}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                      #{emp.employeeNumber}
+                    </Typography>
+                  </Box>
+                </ListItemButton>
+              ))}
+            </List>
+          ) : (
+            <Box sx={{ py: 2.5, textAlign: 'center' }}>
+              <Typography sx={{ fontSize: '0.78rem', color: T.faint, fontStyle: 'italic' }}>
+                {query.trim().length >= 2 ? `No registered user found for "${query.trim()}"` : 'Type at least 2 characters to search users'}
+              </Typography>
+            </Box>
+          )}
+        </Paper>
+      )}
+    </Box>
   );
 };
 
@@ -784,12 +1000,7 @@ const ViewAttendanceRecord = () => {
                   <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                     Employee Number
                   </Typography>
-                  <NativeInput
-                    value={personID}
-                    onChange={(e) => setPersonID(e.target.value)}
-                    placeholder="Employee number"
-                    icon={<Person sx={{ fontSize: 16 }} />}
-                  />
+                  <EmployeeSearchField value={personID} onSelectEmployeeNumber={setPersonID} />
                 </Box>
               )}
               <Box sx={{ flex: 1, minWidth: 160 }}>
