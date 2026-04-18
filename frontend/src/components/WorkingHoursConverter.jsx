@@ -1236,7 +1236,7 @@ function LeaveCreditsTab({ isTech }) {
                       fontFamily: T.poppins,
                     }}
                   >
-                    Earned
+                    LWP Earned
                   </Typography>
                   <Typography
                     sx={{
@@ -1282,7 +1282,7 @@ function LeaveCreditsTab({ isTech }) {
                       fontFamily: T.poppins,
                     }}
                   >
-                    After Abs
+                    Abs w/o Pay Earned
                   </Typography>
                   <Typography
                     sx={{
