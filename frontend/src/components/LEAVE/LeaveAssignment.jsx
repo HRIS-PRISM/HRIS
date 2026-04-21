@@ -143,11 +143,11 @@ const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 const semOrder = (s) => { if (!s) return 0; const l = String(s).toLowerCase(); if (l.includes("2nd")) return 2; if (l.includes("1st")) return 1; return 0; };
 
 const periodLabel = (year, sem) => {
-  if (!year) return "Unknown period";
-  if (!sem) return `${year}`;
+  const fallbackYear = parseInt(year, 10) || new Date().getFullYear();
+  if (!sem) return `${fallbackYear}`;
   const monthName = MONTH_NAMES[String(sem)] || MONTH_NAMES[String(sem).padStart(2, "0")];
-  if (monthName) return `${year} ${monthName}`;
-  return `${year} ${sem}`;
+  if (monthName) return `${fallbackYear} ${monthName}`;
+  return `${fallbackYear} ${sem}`;
 };
 
 const getStatusColor = (remaining, total) => { if (!total || total === 0) return "#9e9e9e"; const pct = (remaining / total) * 100; if (pct > 50) return "#2e7d32"; if (pct > 20) return "#ed6c02"; return "#d32f2f"; };
@@ -2235,7 +2235,11 @@ const LeaveAssignment = () => {
                                     const totalHrs   = toNum(period.total_hours);
                                     const usedHrs    = toNum(period.used_hours);
                                     const carriedHrs = toNum(period.carried_forward_hours);
-                                    const allocHrs   = toNum(period.allocated_hours);
+                                    const allocRawHrs = toNum(period.allocated_hours);
+                                    // Legacy rows may have allocated_hours unset even when credits were granted.
+                                    const allocHrs   = allocRawHrs > 0
+                                      ? allocRawHrs
+                                      : Math.max(0, totalHrs - carriedHrs);
                                     const pctUsed    = isLocked ? 0 : (totalHrs > 0 ? Math.min((usedHrs / totalHrs) * 100, 100) : 0);
                                     const fmt = (h) => unit === "hours" ? `${toNum(h).toFixed(3)} h` : `${(toNum(h) / 8).toFixed(3)} d`;
                                     return (

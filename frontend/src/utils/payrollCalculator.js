@@ -129,11 +129,10 @@ export function calculateAllFields(item, formulas) {
 
   // Define calculation order based on dependencies
   // This ensures formulas are calculated in the correct order
-  const calculationOrder = [
+const calculationOrder = [
     'grossSalary',
+    'lwopRatePerDay', // <-- comma was missing here
     'abs',
-    // TEVL/DVLT/VLB are salary components and must be calculated early
-    // so they appear in the computed rows on the frontend.
     'tevl',
     'dvlt',
     'vlb',
@@ -149,7 +148,7 @@ export function calculateAllFields(item, formulas) {
     'pay1st',
     'pay2nd',
     'rtIns',
-  ];
+  ];  
 
   // Create a result object starting with the original item data
   // Ensure all numeric fields are properly parsed
@@ -158,6 +157,7 @@ export function calculateAllFields(item, formulas) {
     // Ensure numeric fields are numbers
     h: parseInt(item.h) || 0,
     m: parseInt(item.m) || 0,
+    lwopRatePerDay: parseFloat(item.lwopRatePerDay) || 0,
     s: parseInt(item.s) || 0,
     rateNbc594: parseFloat(item.rateNbc594) || 0,
     nbcDiffl597: parseFloat(item.nbcDiffl597) || 0,

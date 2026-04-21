@@ -915,23 +915,65 @@ router.post('/payroll-processed', authenticateToken, async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    // ── Build INSERT values for payroll_processed ──────────────────────────
-    const values = payrollData.map((entry) => {
-      const originalSeconds = toSeconds(entry.h, entry.m, entry.s);
+    const VL_MONTHLY_CREDIT_HOURS = 10;
 
-      // The frontend already sent tevl with +10 included.
-      // We store tevl as-is; we record the +10 credit separately in the audit.
-      const tevlSeconds = toInt(entry.tevl) * 3600;
+    // Load current VL balances once so payroll math uses pre-existing balance only.
+    const employeeNumbers = [
+      ...new Set(
+        payrollData
+          .map((entry) => String(entry.employeeNumber ?? '').trim())
+          .filter(Boolean),
+      ),
+    ];
 
-      // Compute how many seconds of tardiness are absorbed by VL (DVLT)
-      const dvltSeconds = Math.min(tevlSeconds, originalSeconds);
-      const vlbSeconds = Math.max(0, tevlSeconds - dvltSeconds);
+    const vlBalanceMap = {};
+    if (employeeNumbers.length > 0) {
+      const [vlRows] = await connection.query(
+        `
+          SELECT employeeNumber, COALESCE(SUM(remaining_hours), 0) AS remaining_hours
+          FROM leave_assignment
+          WHERE leave_code = 'VL' AND employeeNumber IN (?)
+          GROUP BY employeeNumber
+        `,
+        [employeeNumbers],
+      );
 
-      const dvlt = formatHMS(...Object.values(secondsToHMS(dvltSeconds)));
-      const vlb = formatHMS(...Object.values(secondsToHMS(vlbSeconds)));
+      for (const row of vlRows) {
+        const empNum = String(row.employeeNumber ?? '');
+        vlBalanceMap[empNum] = parseFloat(row.remaining_hours) || 0;
+      }
+    }
 
-      // Remaining tardiness after VL absorption (used for ABS computation)
-      const remainingSeconds = Math.max(0, originalSeconds - tevlSeconds);
+    const rowKey = (entry) =>
+      `${entry.employeeNumber}|${entry.startDate}|${entry.endDate}`;
+
+    const rowComputationMap = new Map();
+
+    const inferPeriodFromEntry = (entry) => {
+      const tryDate = (raw) => {
+        if (!raw) return null;
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? null : d;
+      };
+
+      const dt = tryDate(entry?.startDate) || tryDate(entry?.endDate) || new Date();
+      const periodYear = dt.getFullYear();
+      const periodSemester = String(dt.getMonth() + 1).padStart(2, '0');
+
+      return { periodYear, periodSemester };
+    };
+
+    const computeVlAndAbs = (entry) => {
+      const empNum = String(entry.employeeNumber ?? '');
+      // TEVL deduction should only use tardiness hours and minutes (ignore seconds).
+      const originalSeconds = toSeconds(entry.h, entry.m, 0);
+
+      // Only pre-existing VL can offset tardiness.
+      const priorVlHours = Math.max(0, parseFloat(vlBalanceMap[empNum]) || 0);
+      const priorVlSeconds = Math.round(priorVlHours * 3600);
+      const dvltSeconds = Math.min(priorVlSeconds, originalSeconds);
+      const remainingSeconds = Math.max(0, originalSeconds - dvltSeconds);
+
       const adjusted = secondsToHMS(remainingSeconds);
 
       const absHours =
@@ -939,6 +981,30 @@ router.post('/payroll-processed', authenticateToken, async (req, res) => {
       const absMinutes =
         parseFloat(entry.grossSalary) * 0.0000925948584897 * adjusted.m;
       const calculatedABS = absHours - absMinutes;
+
+      const finalLeaveHours =
+        Math.max(0, priorVlHours - dvltSeconds / 3600) +
+        VL_MONTHLY_CREDIT_HOURS;
+      const vlbSeconds = Math.round(finalLeaveHours * 3600);
+
+      return {
+        priorVlHours,
+        originalSeconds,
+        dvltSeconds,
+        remainingSeconds,
+        adjusted,
+        calculatedABS,
+        finalLeaveHours,
+        tevlAfterCredit: finalLeaveHours,
+        dvlt: formatHMS(...Object.values(secondsToHMS(dvltSeconds))),
+        vlb: formatHMS(...Object.values(secondsToHMS(vlbSeconds))),
+      };
+    };
+
+    // ── Build INSERT values for payroll_processed ──────────────────────────
+    const values = payrollData.map((entry) => {
+      const computed = computeVlAndAbs(entry);
+      rowComputationMap.set(rowKey(entry), computed);
 
       return [
         entry.employeeNumber,
@@ -950,13 +1016,13 @@ router.post('/payroll-processed', authenticateToken, async (req, res) => {
         entry.rateNbc594,
         entry.nbcDiffl597,
         entry.grossSalary,
-        entry.tevl ?? 0, // stored WITH the +10 already included
-        dvlt,
-        vlb,
-        calculatedABS,
-        adjusted.h,
-        adjusted.m,
-        adjusted.s,
+        computed.tevlAfterCredit,
+        computed.dvlt,
+        computed.vlb,
+        computed.calculatedABS,
+        computed.adjusted.h,
+        computed.adjusted.m,
+        computed.adjusted.s,
         entry.rh ?? 0,
         entry.netSalary,
         entry.withholdingTax,
@@ -1019,17 +1085,8 @@ router.post('/payroll-processed', authenticateToken, async (req, res) => {
     const _actorDisplay = _actorEmpNum ? `${_actorName} (${_actorEmpNum})` : _actorName;
 
     for (const entry of payrollData) {
-      const tardySeconds = toSeconds(entry.h, entry.m, entry.s);
-      const tevlAfterCredit = parseFloat(entry.tevl) || 0;
-      const tevlSeconds = tevlAfterCredit * 3600;
-      const dvltSeconds = Math.min(tevlSeconds, tardySeconds);
-      const vlbSeconds = Math.max(0, tevlSeconds - dvltSeconds);
-      const vlbHours = vlbSeconds / 3600;
-
-      const finalLeaveHours =
-        tardySeconds === 0
-          ? tevlAfterCredit
-          : vlbHours;
+      const computed =
+        rowComputationMap.get(rowKey(entry)) || computeVlAndAbs(entry);
 
       // ── 3. Update payroll_processing status ─────────────────────────────
       await connection.query(
@@ -1040,45 +1097,75 @@ router.post('/payroll-processed', authenticateToken, async (req, res) => {
       );
 
       // ── 4. Update leave_assignment ───────────────────────────────────────
-      await connection.query(
+      const [leaveUpdateResult] = await connection.query(
         `UPDATE leave_assignment
-         SET remaining_hours = ?
+         SET remaining_hours = ?,
+             allocated_hours = COALESCE(allocated_hours, 0) + ?,
+             total_hours = COALESCE(total_hours, 0) + ?
          WHERE employeeNumber = ? AND leave_code = 'VL'`,
-        [finalLeaveHours, entry.employeeNumber],
+        [
+          computed.finalLeaveHours,
+          VL_MONTHLY_CREDIT_HOURS,
+          VL_MONTHLY_CREDIT_HOURS,
+          entry.employeeNumber,
+        ],
       );
 
+      // If VL row does not exist yet, create one so payroll +10 credit is persisted.
+      if ((leaveUpdateResult?.affectedRows || 0) === 0) {
+        const { periodYear, periodSemester } = inferPeriodFromEntry(entry);
+        await connection.query(
+          `
+            INSERT INTO leave_assignment
+              (leave_code, employeeNumber, total_hours, remaining_hours, used_hours, approve_date, carried_forward_hours, allocated_hours, period_year, period_semester)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            'VL',
+            entry.employeeNumber,
+            computed.finalLeaveHours,
+            computed.finalLeaveHours,
+            0,
+            null,
+            0,
+            VL_MONTHLY_CREDIT_HOURS,
+            periodYear,
+            periodSemester,
+          ],
+        );
+      }
+
       // ── 5. Insert transaction_table records per employee ─────────────────
-      const VL_CREDIT = 10;
-      const tevlBefore = Math.max(0, tevlAfterCredit - VL_CREDIT);
-      const dvltHours = dvltSeconds / 3600;
+      const tevlBefore = computed.priorVlHours;
+      const dvltHours = computed.dvltSeconds / 3600;
 
       const _empDisplay = entry.name ? `${entry.name} (${entry.employeeNumber})` : String(entry.employeeNumber);
 
       // 5a. VL credit added
       await connection.query(
         `INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)`,
-        [entry.employeeNumber, `${_actorDisplay} added VL monthly credit of +${VL_CREDIT} hrs for ${_empDisplay}. TEVL updated from ${tevlBefore.toFixed(2)} hrs to ${tevlAfterCredit.toFixed(2)} hrs.`],
+        [entry.employeeNumber, `${_actorDisplay} added VL monthly credit of +${VL_MONTHLY_CREDIT_HOURS} hrs for ${_empDisplay}. TEVL updated from ${tevlBefore.toFixed(2)} hrs to ${computed.tevlAfterCredit.toFixed(2)} hrs.`],
       );
 
       // 5b. Tardiness absorbed by VL (only if there is tardiness)
-      if (tardySeconds > 0) {
+      if (computed.dvltSeconds > 0) {
         await connection.query(
           `INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)`,
-          [entry.employeeNumber, `${_actorDisplay} applied tardiness deduction of ${(tardySeconds / 3600).toFixed(2)} hrs from TEVL for ${_empDisplay} (used to cover ABS). DVLT applied: ${dvltHours.toFixed(2)} hrs.`],
+          [entry.employeeNumber, `${_actorDisplay} applied tardiness deduction of ${dvltHours.toFixed(2)} hrs from existing TEVL for ${_empDisplay} (used to cover ABS).`],
         );
       }
 
       // 5c. Remaining VL balance after deduction
       await connection.query(
         `INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)`,
-        [entry.employeeNumber, `${_actorDisplay} finalized VL balance for ${_empDisplay}: ${finalLeaveHours.toFixed(2)} hrs remaining after deduction.`],
+        [entry.employeeNumber, `${_actorDisplay} finalized VL balance for ${_empDisplay}: ${computed.finalLeaveHours.toFixed(2)} hrs remaining after deduction.`],
       );
 
       // ── 6. Audit log per employee ────────────────────────────────────────
       try {
         logAudit(req.user, 'ADD', 'payroll_processed', entry.employeeNumber, entry.employeeNumber);
         logAudit(req.user, 'TEVL +10', 'leave_assignment', entry.employeeNumber, entry.employeeNumber);
-        if (dvltSeconds > 0) {
+        if (computed.dvltSeconds > 0) {
           logAudit(req.user, 'DEDUCTED TEVL', 'leave_assignment', entry.employeeNumber, entry.employeeNumber);
         }
         logAudit(req.user, 'VL BALANCE', 'leave_assignment', entry.employeeNumber, entry.employeeNumber);
@@ -1118,7 +1205,7 @@ router.delete('/payroll-processed/:id', authenticateToken, async (req, res) => {
     await connection.beginTransaction();
 
     const [rows] = await connection.query(
-      'SELECT employeeNumber, startDate, endDate, tevl FROM payroll_processed WHERE id = ? LIMIT 1',
+      'SELECT employeeNumber, startDate, endDate, tevl, dvlt FROM payroll_processed WHERE id = ? LIMIT 1',
       [id],
     );
 
@@ -1127,14 +1214,16 @@ router.delete('/payroll-processed/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ message: 'Payroll record not found' });
     }
 
-    const { employeeNumber, startDate, endDate, tevl } = rows[0];
+    const { employeeNumber, startDate, endDate, tevl, dvlt } = rows[0];
 
-    // tevl in payroll_processed already has +10 included.
-    // To restore leave balance: subtract the +10 credit that was added during finalization.
+    // tevl in payroll_processed is post-finalization:
+    // prior TEVL - DVLT deduction + monthly credit.
+    // To restore pre-processing balance, reverse BOTH operations.
     const VL_MONTHLY_CREDIT_HOURS = 10;
+    const deductedDvltHours = hmsStringToHours(dvlt);
     const originalLeaveHours = Math.max(
       0,
-      (parseFloat(tevl) || 0) - VL_MONTHLY_CREDIT_HOURS,
+      (parseFloat(tevl) || 0) - VL_MONTHLY_CREDIT_HOURS + deductedDvltHours,
     );
 
     // ── Delete the record ────────────────────────────────────────────────
@@ -1169,7 +1258,7 @@ router.delete('/payroll-processed/:id', authenticateToken, async (req, res) => {
     // Entry 2: VL reversal detail
     await connection.query(
       'INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)',
-      [employeeNumber, `${_delActorDisplay} reversed VL credit of \u2212${VL_MONTHLY_CREDIT_HOURS} hrs. VL balance restored from ${(parseFloat(tevl) || 0).toFixed(2)} hrs to ${originalLeaveHours.toFixed(2)} hrs.`],
+      [employeeNumber, `${_delActorDisplay} reversed VL credit of \u2212${VL_MONTHLY_CREDIT_HOURS} hrs and restored DVLT of +${deductedDvltHours.toFixed(2)} hrs. VL balance restored from ${(parseFloat(tevl) || 0).toFixed(2)} hrs to ${originalLeaveHours.toFixed(2)} hrs.`],
     );
 
     await connection.commit();
@@ -1179,6 +1268,9 @@ router.delete('/payroll-processed/:id', authenticateToken, async (req, res) => {
     try {
       logAudit(req.user, 'DELETE', 'payroll_processed', id, employeeNumber);
       logAudit(req.user, `VL CREDIT REVERSED (-${VL_MONTHLY_CREDIT_HOURS} hrs)`, 'leave_assignment', employeeNumber, employeeNumber);
+      if (deductedDvltHours > 0) {
+        logAudit(req.user, `DVLT RESTORED (+${deductedDvltHours.toFixed(2)} hrs)`, 'leave_assignment', employeeNumber, employeeNumber);
+      }
       logAudit(req.user, `VL BALANCE RESTORED: ${originalLeaveHours.toFixed(2)} hrs (was ${(parseFloat(tevl) || 0).toFixed(2)} hrs)`, 'leave_assignment', employeeNumber, employeeNumber);
     } catch (e) { console.error('Audit log error:', e); }
 

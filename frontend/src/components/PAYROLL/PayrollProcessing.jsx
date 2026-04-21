@@ -78,6 +78,7 @@ import {
   ZoomOut,
   GridOn,
   FindInPage,
+  CalendarToday,
 } from '@mui/icons-material';
 import PeopleIcon from '@mui/icons-material/People';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -322,6 +323,14 @@ const PayrollProcess = () => {
   const [empCatMap, setEmpCatMap] = useState({});
   const [selectedEmpCat, setSelectedEmpCat] = useState('');
   const [activePayrollView, setActivePayrollView] = useState('FULL_VIEW');
+
+  // ─ SECTION A: Payroll Month Filter State ─
+  const currentYear = new Date().getFullYear();
+  const payrollYearOptions = Array.from({ length: 7 }, (_, i) => currentYear - 3 + i);
+  const payrollMonths = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const [selectedPayrollYear,  setSelectedPayrollYear]  = useState(currentYear);
+  const [selectedPayrollMonth, setSelectedPayrollMonth] = useState(null); // 0-based index or null
+  const [selectedMonthDays,    setSelectedMonthDays]    = useState(null); // calendar day count
 
   const employmentCategoryOptions = useMemo(() => {
     const unique = new Map();
@@ -783,6 +792,55 @@ const PayrollProcess = () => {
     setSelectedEmpCat('');
     applyFilters('', searchTerm, '', '', '', '');
   };
+
+  // ─ SECTION B: Payroll Month Filter Helpers ─
+  // Returns calendar days for a given year and 1-based month.
+  const getCalendarDays = (year, month1based) =>
+    new Date(year, month1based, 0).getDate();
+
+  const handlePayrollMonthClick = (monthIndex) => {
+    const year     = selectedPayrollYear;
+    const month    = monthIndex + 1; // 1-based
+    const days     = getCalendarDays(year, month);
+    const pad      = (n) => String(n).padStart(2, '0');
+    const rangeStart = `${year}-${pad(month)}-01`;
+    const rangeEnd   = `${year}-${pad(month)}-${pad(days)}`;
+
+    setSelectedPayrollMonth(monthIndex);
+    setSelectedMonthDays(days);
+
+    // Build base dataset respecting existing filters, then narrow by month
+    let base = getFilteredRows(data, selectedDepartment, selectedStatus, selectedMonth, selectedYear);
+    if (selectedEmpCat) {
+      base = base.filter(
+        (r) => empCatMap[r.employeeNumber?.toString()]?.label === selectedEmpCat,
+      );
+    }
+    const monthFiltered = base.filter((r) => {
+      if (!r.startDate) return false;
+      return r.startDate >= rangeStart && r.startDate <= rangeEnd;
+    });
+
+    // KEY CHANGE: Inject `payrollMonthDays` into every record so the formula uses the
+    // designated month's day count, regardless of what startDate/endDate are.
+    const withDays = monthFiltered.map((r) => ({
+      ...r,
+      payrollMonthDays: days,
+    }));
+
+    setFilteredData(withDays);
+    setSummaryData(computeSummaryForRows(withDays));
+    setIsPayrollProcessed(withDays.length === 0);
+    setPage(0);
+  };
+
+  const handleClearPayrollMonth = () => {
+    setSelectedPayrollMonth(null);
+    setSelectedMonthDays(null);
+    // Strip payrollMonthDays when clearing — back to formula-derived days
+    applyFilters(selectedDepartment, searchTerm, selectedStatus, selectedMonth, selectedYear);
+  };
+
   const hasActiveFilters =
     selectedDepartment ||
     selectedStatus ||
@@ -840,12 +898,54 @@ const PayrollProcess = () => {
           text: `${pad(hh)}:${pad(mm)}:${pad(ss)}`,
         };
       };
+      // Fetch current VL leave balances once to avoid per-row requests.
+      let vlBalanceMap = {};
+      try {
+        const vlRes = await axios.get(
+          `${API_BASE_URL}/leaveRoute/leave_assignment`,
+          getAuthHeaders(),
+        );
+        const vlRecords = Array.isArray(vlRes.data) ? vlRes.data : [];
+        // Aggregate remaining_hours from VL variants (VL, VL-SL, VL*).
+        vlRecords.forEach((record) => {
+          const code = String(record.leave_code ?? '').toUpperCase();
+          const isVL = code === 'VL' || code === 'VL-SL' || code.startsWith('VL');
+          if (!isVL) return;
+          const empNum = String(record.employeeNumber ?? '');
+          const remHours = parseFloat(record.remaining_hours) || 0;
+          if (!vlBalanceMap[empNum]) vlBalanceMap[empNum] = 0;
+          vlBalanceMap[empNum] += remHours;
+        });
+      } catch (vlErr) {
+        // Non-fatal fallback to legacy behavior if leave balances are unavailable.
+        console.warn(
+          'Could not fetch VL balances; falling back to legacy +10 logic.',
+          vlErr,
+        );
+      }
       const computeVLTimeOffset = (item) => {
-        const tevl = toFloat(item.tevl) + 10;
-        const tevlSeconds = tevl * 3600;
+        const empNum = String(item.employeeNumber ?? '');
+        const vlBalanceHours = vlBalanceMap[empNum] ?? 0;
+        const hasVLBalance = vlBalanceHours > 0;
+
+        const storedTevl = toFloat(item.tevl);
         const tardySeconds = toSecondsFromHMS(item.h, item.m, item.s);
-        const dvltSeconds = Math.min(tevlSeconds, tardySeconds);
-        const vlbSeconds = tevlSeconds - dvltSeconds;
+
+        let dvltSeconds;
+        let vlbSeconds;
+
+        if (hasVLBalance) {
+          // Existing VL balance absorbs tardiness first, then monthly +10 is credited.
+          const existingBalanceSeconds = vlBalanceHours * 3600;
+          dvltSeconds = Math.min(existingBalanceSeconds, tardySeconds);
+          const afterDeductionSeconds = existingBalanceSeconds - dvltSeconds;
+          vlbSeconds = afterDeductionSeconds + 10 * 3600;
+        } else {
+          // No VL balance: tardiness remains salary-side, employee still earns +10.
+          dvltSeconds = 0;
+          vlbSeconds = (storedTevl + 10) * 3600;
+        }
+
         return {
           dvlt: secondsToHMS(dvltSeconds).text,
           vlb: secondsToHMS(vlbSeconds).text,
@@ -1902,28 +2002,27 @@ const PayrollProcess = () => {
         </Box>
 
         <Box sx={{ px: 3.5, py: 2.5 }}>
-          <FieldInput
-            fullWidth
-            size="small"
-            placeholder="Search by employee name or number…"
-            value={searchTerm}
-            onChange={handleSearchChange}
-            disabled={isSearching}
-            sx={{ mb: 2 }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  {isSearching ? (
-                    <CircularProgress size={16} sx={{ color: T.accent }} />
-                  ) : (
-                    <SearchIcon sx={{ color: T.faint, fontSize: 18 }} />
-                  )}
-                </InputAdornment>
-              ),
-            }}
-          />
+          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <FieldInput
+              size="small"
+              placeholder="Search by employee name or number…"
+              value={searchTerm}
+              onChange={handleSearchChange}
+              disabled={isSearching}
+              sx={{ minWidth: 220, flex: 1 }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    {isSearching ? (
+                      <CircularProgress size={16} sx={{ color: T.accent }} />
+                    ) : (
+                      <SearchIcon sx={{ color: T.faint, fontSize: 18 }} />
+                    )}
+                  </InputAdornment>
+                ),
+              }}
+            />
 
-          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
             <FormControl size="small" sx={{ minWidth: 160, flex: 1 }}>
               <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
                 Department
@@ -2005,50 +2104,6 @@ const PayrollProcess = () => {
               </Select>
             </FormControl>
 
-            <FormControl size="small" sx={{ minWidth: 120, flex: '0 0 auto' }}>
-              <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
-                Month
-              </InputLabel>
-              <Select
-                value={selectedMonth}
-                onChange={handleMonthChange}
-                label="Month"
-                sx={filterSelectSx}
-              >
-                {monthOptions.map((o) => (
-                  <MenuItem
-                    key={o.value}
-                    value={o.value}
-                    sx={{ fontSize: '0.82rem', fontFamily: T.font }}
-                  >
-                    {o.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <FormControl size="small" sx={{ minWidth: 100, flex: '0 0 auto' }}>
-              <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
-                Year
-              </InputLabel>
-              <Select
-                value={selectedYear}
-                onChange={handleYearChange}
-                label="Year"
-                sx={filterSelectSx}
-              >
-                {yearOptions.map((o) => (
-                  <MenuItem
-                    key={o.value}
-                    value={o.value}
-                    sx={{ fontSize: '0.82rem', fontFamily: T.font }}
-                  >
-                    {o.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
             <FormControl size="small" sx={{ minWidth: 200, flex: 1.5 }}>
               <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
                 Category
@@ -2103,6 +2158,193 @@ const PayrollProcess = () => {
               </Select>
             </FormControl>
           </Box>
+
+          {/* ── Payroll Month Quick-Filter ── */}
+          <Box
+            sx={{
+              mt: 2,
+              pt: 2,
+              borderTop: `1px dashed ${alpha(T.accent, 0.15)}`,
+            }}
+          >
+            {/* Header row */}
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                mb: 1.5,
+                flexWrap: 'wrap',
+                gap: 1,
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CalendarToday sx={{ fontSize: 13, color: T.accent }} />
+                <Typography
+                  sx={{
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    color: T.accent,
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    fontFamily: T.font,
+                  }}
+                >
+                  Quick Month Filter
+                </Typography>
+                {selectedPayrollMonth !== null && (
+                  <Box
+                    sx={{
+                      px: 1,
+                      py: 0.2,
+                      borderRadius: '12px',
+                      bgcolor: T.accentFaint,
+                      border: `1px solid ${T.accentBorder}`,
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontSize: '0.62rem',
+                        fontWeight: 700,
+                        color: T.accent,
+                        fontFamily: T.font,
+                      }}
+                    >
+                      {payrollMonths[selectedPayrollMonth]} {selectedPayrollYear}
+                      {selectedMonthDays !== null && ` · ${selectedMonthDays} days`}
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {/* Year dropdown */}
+                <FormControl size="small" sx={{ minWidth: 90 }}>
+                  <Select
+                    value={selectedPayrollYear}
+                    onChange={(e) => {
+                      setSelectedPayrollYear(e.target.value);
+                      if (selectedPayrollMonth !== null) {
+                        setTimeout(() => handlePayrollMonthClick(selectedPayrollMonth), 0);
+                      }
+                    }}
+                    sx={{
+                      ...filterSelectSx,
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      fontFamily: T.font,
+                    }}
+                  >
+                    {payrollYearOptions.map((y) => (
+                      <MenuItem key={y} value={y} sx={{ fontSize: '0.8rem', fontFamily: T.font }}>
+                        {y}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                {selectedPayrollMonth !== null && (
+                  <AccentButton
+                    size="small"
+                    onClick={handleClearPayrollMonth}
+                    startIcon={<Close sx={{ fontSize: 12 }} />}
+                    sx={{
+                      fontSize: '0.7rem',
+                      color: '#d32f2f',
+                      border: '1px solid rgba(211,47,47,0.3)',
+                      px: 1,
+                      py: 0.25,
+                      height: 26,
+                      '&:hover': {
+                        bgcolor: alpha('#d32f2f', 0.06),
+                        transform: 'none',
+                      },
+                    }}
+                  >
+                    Clear month
+                  </AccentButton>
+                )}
+              </Box>
+            </Box>
+
+            {/* Month buttons */}
+            <Box
+              sx={{
+                p: 1.75,
+                borderRadius: 2,
+                border: `2px dashed ${T.accentBorder}`,
+                bgcolor: T.accentFaint,
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 0.75,
+                justifyContent: 'center',
+              }}
+            >
+              {payrollMonths.map((month, index) => {
+                const isSelected = selectedPayrollMonth === index;
+                const days = getCalendarDays(selectedPayrollYear, index + 1);
+                return (
+                  <Box
+                    key={month}
+                    onClick={() => handlePayrollMonthClick(index)}
+                    title={`${month} ${selectedPayrollYear} — ${days} calendar days`}
+                    sx={{
+                      px: 1.5,
+                      py: 0.85,
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      bgcolor: isSelected ? T.accent : '#fff',
+                      border: `1px solid ${isSelected ? T.accent : T.accentBorder}`,
+                      color: isSelected ? '#fff' : T.accent,
+                      fontWeight: 700,
+                      fontFamily: T.font,
+                      letterSpacing: '0.04em',
+                      transition: 'all 0.15s ease',
+                      boxShadow: isSelected
+                        ? `0 2px 8px ${alpha(T.accent, 0.28)}`
+                        : 'none',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 0.2,
+                      minWidth: 46,
+                      '&:hover': {
+                        bgcolor: isSelected ? T.accentDark : T.accentFaint,
+                        borderColor: T.accent,
+                        boxShadow: `0 2px 8px ${alpha(T.accent, 0.15)}`,
+                      },
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        fontFamily: T.font,
+                        lineHeight: 1,
+                        color: 'inherit',
+                      }}
+                    >
+                      {month}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: '0.58rem',
+                        fontWeight: 600,
+                        fontFamily: T.font,
+                        lineHeight: 1,
+                        color: 'inherit',
+                        opacity: isSelected ? 0.85 : 0.5,
+                      }}
+                    >
+                      {days}d
+                    </Typography>
+                  </Box>
+                );
+              })}
+            </Box>
+          </Box>
+          {/* ── END Payroll Month Quick-Filter ── */}
 
           {hasActiveFilters && (
             <Box
