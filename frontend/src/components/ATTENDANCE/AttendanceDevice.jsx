@@ -1,19 +1,70 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useSocket } from '../../contexts/SocketContext';
 import {
-  Box, Typography, Alert, Collapse, Chip, CircularProgress, Fade,
-  FormControl, InputLabel, Select, MenuItem, Snackbar, alpha, styled,
-  Card, Button, Fab, Zoom, Avatar, Checkbox, Dialog, LinearProgress,
-  IconButton, Table, TableBody, TableCell, TableContainer, TableHead,
-  TableRow, Tooltip, TextField, Paper, List, ListItemButton, InputAdornment,
+  Box,
+  Typography,
+  Alert,
+  Collapse,
+  Chip,
+  CircularProgress,
+  Fade,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Snackbar,
+  alpha,
+  styled,
+  Card,
+  Button,
+  Fab,
+  Zoom,
+  Avatar,
+  Checkbox,
+  Dialog,
+  LinearProgress,
+  Backdrop,
+  IconButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Tooltip,
+  TextField,
+  Paper,
+  List,
+  ListItemButton,
+  InputAdornment,
 } from '@mui/material';
 import {
-  Search, Person, CalendarToday, AccessTime, CheckCircle, Cancel, Info,
-  Refresh, Today, ArrowBackIos, Clear, KeyboardArrowUp, FilterList,
-  Send, People, Assignment, ArrowBack, ArrowForward, SearchOutlined,
-  ExpandMore, ExpandLess, Close,
+  Search,
+  Person,
+  CalendarToday,
+  AccessTime,
+  CheckCircle,
+  Cancel,
+  Info,
+  Refresh,
+  Today,
+  ArrowBackIos,
+  Clear,
+  KeyboardArrowUp,
+  KeyboardArrowDown,
+  FilterList,
+  NewReleases,
+  Send,
+  People,
+  Assignment,
+  ArrowBack,
+  ArrowForward,
+  SearchOutlined,
+  ExpandMore,
+  ExpandLess,
+  Close,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
@@ -21,12 +72,11 @@ import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────
-// ─── Theme tokens ──────────────────────────────────────────────────────────
 const T = {
-  accent: '#6d2323',
-  accentDark: '#5a1d1d',
-  accentMid: '#8B4545',
-  accentFaint: 'rgba(109,35,35,0.06)',
+  accent:       '#6d2323',
+  accentDark:   '#5a1d1d',
+  accentMid:    '#8B4545',
+  accentFaint:  'rgba(109,35,35,0.06)',
   accentBorder: 'rgba(109,35,35,0.14)',
   accentHover:  'rgba(109,35,35,0.10)',
   rowOdd:       'rgba(109,35,35,0.025)',
@@ -38,6 +88,7 @@ const T = {
   divider:      'rgba(0,0,0,0.08)',
 };
 
+// ─── Shimmer keyframes ─────────────────────────────────────────────────────
 const shimmerKf = `
 @keyframes shimmer {
   0%   { background-position: -800px 0; }
@@ -48,22 +99,18 @@ const shimmerKf = `
   50%       { opacity: 0.55; }
 }`;
 
+// ─── Shimmer bone ──────────────────────────────────────────────────────────
 const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
-  <Box
-    sx={{
-      width: w,
-      height: h,
-      borderRadius: r,
-      background:
-        'linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)',
-      backgroundSize: '800px 100%',
-      animation: 'shimmer 1.6s infinite linear',
-      flexShrink: 0,
-      ...sx,
-    }}
-  />
+  <Box sx={{
+    width: w, height: h, borderRadius: r,
+    background: 'linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)',
+    backgroundSize: '800px 100%',
+    animation: 'shimmer 1.6s infinite linear',
+    flexShrink: 0, ...sx,
+  }} />
 );
 
+// ─── Wireframe skeleton ────────────────────────────────────────────────────
 const ViewAttendanceWireframe = () => (
   <>
     <style>{shimmerKf}</style>
@@ -86,45 +133,11 @@ const ViewAttendanceWireframe = () => (
         </Box>
         <Box sx={{ px: 2.5, py: 2.5 }}>
           <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-            {[1, 2, 3].map((i) => (
-              <Box
-                key={i}
-                sx={{
-                  flex: 1,
-                  height: 40,
-                  borderRadius: '8px',
-                  bgcolor: T.accentFaint,
-                  border: `1px solid ${T.accentBorder}`,
-                }}
-              />
-            ))}
+            {[1,2,3].map(i => <Box key={i} sx={{ flex: 1, height: 40, borderRadius: '8px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }} />)}
           </Box>
-          <Box
-            sx={{
-              border: `2px dashed ${T.accentBorder}`,
-              borderRadius: '8px',
-              p: 3,
-            }}
-          >
-            <Box
-              sx={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 1,
-                justifyContent: 'center',
-              }}
-            >
-              {Array.from({ length: 12 }).map((_, i) => (
-                <Box
-                  key={i}
-                  sx={{
-                    width: 64,
-                    height: 36,
-                    borderRadius: '6px',
-                    bgcolor: T.accentFaint,
-                  }}
-                />
-              ))}
+          <Box sx={{ border: `2px dashed ${T.accentBorder}`, borderRadius: '8px', p: 3 }}>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
+              {Array.from({ length: 12 }).map((_, i) => <Box key={i} sx={{ width: 64, height: 36, borderRadius: '6px', bgcolor: T.accentFaint }} />)}
             </Box>
           </Box>
         </Box>
@@ -134,30 +147,8 @@ const ViewAttendanceWireframe = () => (
           {[100, 80, 80, 80].map((w, i) => <Box key={i} sx={{ height: 10, width: w, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.22)' }} />)}
         </Box>
         {[...Array(5)].map((_, i) => (
-          <Box
-            key={i}
-            sx={{
-              px: 2.5,
-              py: 2,
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr 1fr 1fr',
-              gap: 2,
-              alignItems: 'center',
-              borderBottom: '1px solid rgba(0,0,0,0.05)',
-              bgcolor: i % 2 === 0 ? '#fff' : T.rowOdd,
-            }}
-          >
-            <Bone w={120} h={12} />
-            <Bone w={80} h={12} />
-            <Bone w={80} h={12} />
-            <Box
-              sx={{
-                width: 90,
-                height: 24,
-                borderRadius: '12px',
-                bgcolor: T.accentFaint,
-              }}
-            />
+          <Box key={i} sx={{ px: 2.5, py: 2, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 2, alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.05)', bgcolor: i % 2 === 0 ? '#fff' : T.rowOdd }}>
+            <Bone w={120} h={12} /><Bone w={80} h={12} /><Bone w={80} h={12} /><Box sx={{ width: 90, height: 24, borderRadius: '12px', bgcolor: T.accentFaint }} />
           </Box>
         ))}
       </Box>
@@ -165,6 +156,7 @@ const ViewAttendanceWireframe = () => (
   </>
 );
 
+// ─── Styled primitives ─────────────────────────────────────────────────────
 const SectionCard = styled(Card)({
   borderRadius: 12,
   boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
@@ -180,13 +172,15 @@ const AccentButton = styled(Button)({
   fontSize: '0.8rem',
   letterSpacing: '0.01em',
   transition: 'all 0.18s ease',
-  '&:hover': { transform: 'translateY(-1px)' },
+  '&:hover':  { transform: 'translateY(-1px)' },
   '&:active': { transform: 'translateY(0)' },
 });
 
+// ─── Shared panel header bar ───────────────────────────────────────────────
 const PanelHeader = ({ icon: Icon, title, right }) => (
   <Box sx={{
-    px: 2.5, py: 1.25, borderBottom: `1px solid ${T.divider}`,
+    px: 2.5, py: 1.25,
+    borderBottom: `1px solid ${T.divider}`,
     display: 'flex', alignItems: 'center', gap: 1.25,
     bgcolor: T.accentFaint, minHeight: 42,
   }}>
@@ -196,20 +190,11 @@ const PanelHeader = ({ icon: Icon, title, right }) => (
   </Box>
 );
 
+// ─── Native input ──────────────────────────────────────────────────────────
 const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, icon }) => (
   <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
     {icon && (
-      <Box
-        sx={{
-          position: 'absolute',
-          left: 10,
-          color: T.accentMid,
-          display: 'flex',
-          alignItems: 'center',
-          zIndex: 1,
-          pointerEvents: 'none',
-        }}
-      >
+      <Box sx={{ position: 'absolute', left: 10, color: T.accentMid, display: 'flex', alignItems: 'center', zIndex: 1, pointerEvents: 'none' }}>
         {icon}
       </Box>
     )}
@@ -222,6 +207,7 @@ const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, ic
   </Box>
 );
 
+// ─── Row action button ─────────────────────────────────────────────────────
 const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
   <button
     onClick={onClick} disabled={disabled}
@@ -231,6 +217,7 @@ const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
   >{icon}{label}</button>
 );
 
+// ─── Quick filter button ───────────────────────────────────────────────────
 const QuickBtn = ({ label, icon, onClick, active }) => (
   <button
     onClick={onClick}
@@ -240,10 +227,12 @@ const QuickBtn = ({ label, icon, onClick, active }) => (
   >{icon}{label}</button>
 );
 
+// ─── Styled table primitives ───────────────────────────────────────────────
+const CompactTableContainer = styled(TableContainer)({ borderRadius: 0, overflowX: 'auto' });
+
 const CompactTableCell = styled(TableCell)(({ isHeader }) => ({
   fontWeight: isHeader ? 700 : 500,
   padding: '10px 14px',
-  borderBottom: `1px solid ${T.divider}`,
   borderBottom: `1px solid ${T.divider}`,
   fontSize: isHeader ? '0.65rem' : '0.8rem',
   letterSpacing: isHeader ? '0.08em' : '0.01em',
@@ -252,16 +241,17 @@ const CompactTableCell = styled(TableCell)(({ isHeader }) => ({
 }));
 
 // ─── Utility functions ─────────────────────────────────────────────────────
+// Returns formatted time string, or null if no value (callers decide rendering)
 const formatTime = (time) => {
   if (!time) return null;
   if (time.includes('AM') || time.includes('PM')) {
     const [hour, minute, second] = time.split(/[: ]/);
-    return `${hour.padStart(2, '0')}:${minute}:${second} ${time.slice(-2)}`;
+    return `${hour.padStart(2,'0')}:${minute}:${second} ${time.slice(-2)}`;
   }
   const [hour, minute, second] = time.split(':');
   const hour24 = parseInt(hour, 10);
   const hour12 = hour24 % 12 || 12;
-  return `${String(hour12).padStart(2, '0')}:${minute}:${second} ${hour24 < 12 ? 'AM' : 'PM'}`;
+  return `${String(hour12).padStart(2,'0')}:${minute}:${second} ${hour24 < 12 ? 'AM' : 'PM'}`;
 };
 
 const getDayOfWeek = (dateString) =>
@@ -271,20 +261,15 @@ const formatFullName = (fullName) => {
   if (!fullName) return '';
   const cleaned = String(fullName).trim().replace(/\s+/g, ' ');
   if (!cleaned) return '';
-  const parts = cleaned.split(' ');
-  const suffixes = new Set(['JR', 'JR.', 'SR', 'SR.', 'II', 'III', 'IV', 'V']);
+  const parts    = cleaned.split(' ');
+  const suffixes = new Set(['JR','JR.','SR','SR.','II','III','IV','V']);
   let suffix = '';
-  if (suffixes.has(parts[parts.length - 1]?.toUpperCase()))
-    suffix = parts.pop();
+  if (suffixes.has(parts[parts.length - 1]?.toUpperCase())) suffix = parts.pop();
   if (parts.length === 1) return suffix ? `${parts[0]} ${suffix}` : parts[0];
-  const firstName = parts[0];
-  const lastName = parts[parts.length - 1];
-  const middleFormatted = parts
-    .slice(1, parts.length - 1)
-    .map((m) => {
-      const mm = String(m).replace(/\./g, '');
-      return mm.length === 1 ? `${mm.toUpperCase()}.` : m;
-    })
+  const firstName       = parts[0];
+  const lastName        = parts[parts.length - 1];
+  const middleFormatted = parts.slice(1, parts.length - 1)
+    .map((m) => { const mm = String(m).replace(/\./g,''); return mm.length === 1 ? `${mm.toUpperCase()}.` : m; })
     .join(' ');
   const base = `${lastName}, ${firstName}${middleFormatted ? ` ${middleFormatted}` : ''}`;
   return suffix ? `${base} ${suffix}` : base;
@@ -293,20 +278,13 @@ const formatFullName = (fullName) => {
 const highlightMatch = (text, q) => {
   const query = (q || '').trim();
   if (!query || !text) return text;
-  const s = String(text);
+  const s   = String(text);
   const idx = s.toLowerCase().indexOf(query.toLowerCase());
   if (idx === -1) return text;
   return (
     <span>
       {s.slice(0, idx)}
-      <span
-        style={{
-          backgroundColor: '#ffeb3b',
-          color: '#000',
-          padding: '0 3px',
-          borderRadius: 2,
-        }}
-      >
+      <span style={{ backgroundColor: '#ffeb3b', color: '#000', padding: '0 3px', borderRadius: 2 }}>
         {s.slice(idx, idx + query.length)}
       </span>
       {s.slice(idx + query.length)}
@@ -314,13 +292,26 @@ const highlightMatch = (text, q) => {
   );
 };
 
+// ─── Uncategorized badge ───────────────────────────────────────────────────
+// Mirrors the AttendanceState = 0 chip from AllAttendanceRecord.
+// Shown in any time slot that is null but the preceding slot has a value —
+// meaning the employee's face was scanned but no button was pressed.
 const UncategorizedBadge = () => (
-  <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.25, py: 0.3, borderRadius: '12px', bgcolor: 'rgba(244,67,54,0.10)', border: '1px solid rgba(244,67,54,0.28)' }}>
+  <Box sx={{
+    display: 'inline-flex', alignItems: 'center', gap: 0.5,
+    px: 1.25, py: 0.3, borderRadius: '12px',
+    bgcolor: 'rgba(244,67,54,0.10)',
+    border: '1px solid rgba(244,67,54,0.28)',
+  }}>
     <Cancel sx={{ fontSize: 11, color: '#f44336' }} />
     <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: '#f44336' }}>Uncategorized</Typography>
   </Box>
 );
 
+// ─── Time cell renderer ────────────────────────────────────────────────────
+// time          — raw value from record (may be null)
+// isUncategorized — true when this slot is null AND the logically prior slot
+//                   has a value (face scan with no button press)
 const TimeCell = ({ time, isUncategorized }) => {
   const formatted = formatTime(time);
   if (formatted) return <Typography sx={{ fontSize: '0.78rem', color: '#1a1a1a' }}>{formatted}</Typography>;
@@ -328,7 +319,7 @@ const TimeCell = ({ time, isUncategorized }) => {
   return <Typography sx={{ fontSize: '0.75rem', color: '#a0a0a0' }}>—</Typography>;
 };
 
-// ─── Employee search field ─────────────────────────────────────────────────
+// ─── Employee search field (debounced, users-backed) ───────────────────────
 const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }) => {
   const [query, setQuery] = useState(value || '');
   const [debouncedQuery, setDebouncedQuery] = useState(value || '');
@@ -403,9 +394,7 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
           {loading ? (
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, py: 2.5 }}>
               <CircularProgress size={16} sx={{ color: T.accent }} />
-              <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>
-                Searching...
-              </Typography>
+              <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>Searching...</Typography>
             </Box>
           ) : results.length > 0 ? (
             <List dense disablePadding>
@@ -421,16 +410,8 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
             </List>
           ) : (
             <Box sx={{ py: 2.5, textAlign: 'center' }}>
-              <Typography
-                sx={{
-                  fontSize: '0.78rem',
-                  color: T.faint,
-                  fontStyle: 'italic',
-                }}
-              >
-                {query.trim().length >= 2
-                  ? `No user found for "${query.trim()}"`
-                  : 'Type at least 2 characters to search'}
+              <Typography sx={{ fontSize: '0.78rem', color: T.faint, fontStyle: 'italic' }}>
+                {query.trim().length >= 2 ? `No registered user found for "${query.trim()}"` : 'Type at least 2 characters to search users'}
               </Typography>
             </Box>
           )}
@@ -443,48 +424,43 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
 // ─── Main Component ────────────────────────────────────────────────────────
 const ViewAttendanceRecord = () => {
   const { socket, connected } = useSocket();
-  const { settings } = useSystemSettings();
-  const navigate = useNavigate();
+  const { settings }          = useSystemSettings();
+  const navigate              = useNavigate();
 
-  const [personID, setPersonID] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [records, setRecords] = useState([]);
+  const [personID, setPersonID]     = useState('');
+  const [startDate, setStartDate]   = useState('');
+  const [endDate, setEndDate]       = useState('');
+  const [records, setRecords]       = useState([]);
   const [personName, setPersonName] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState('');
 
-  const [snackbar, setSnackbar] = useState({
-    open: false,
-    message: '',
-    severity: 'success',
-  });
+  const [snackbar, setSnackbar]                   = useState({ open: false, message: '', severity: 'success' });
   const [snackbarCountdown, setSnackbarCountdown] = useState(6);
-  const [showSuccessModal, setShowSuccessModal]   = useState(false);
-  const [modalMessage, setModalMessage]           = useState('');
 
-  // ── All-users state ────────────────────────────────────────────────────
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [modalMessage, setModalMessage]         = useState('');
+
   const [allUsersDTR, setAllUsersDTR]         = useState([]);
   const [selectedUsers, setSelectedUsers]     = useState(new Set());
   const [loadingAllUsers, setLoadingAllUsers] = useState(false);
   const [viewMode, setViewMode]               = useState('single');
   const [selectedMonth, setSelectedMonth]     = useState(null);
-  const [loadingProgress, setLoadingProgress] = useState({ done: 0, total: 0, phase: '' });
-  const abortControllerRef                    = useRef(null);
 
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
-  const [departments, setDepartments] = useState([]);
+  const [departments, setDepartments]                           = useState([]);
   const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
-  const [departmentCodeFilter, setDepartmentCodeFilter] = useState('');
-  const [loadingDepartments, setLoadingDepartments] = useState(false);
+  const [departmentCodeFilter, setDepartmentCodeFilter]         = useState('');
+  const [loadingDepartments, setLoadingDepartments]             = useState(false);
 
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage]   = useState(10);
+  const [currentPage, setCurrentPage]   = useState(1);
   const [recordFilter, setRecordFilter] = useState('all');
   const [searchQuery, setSearchQuery]   = useState('');
+
   const [debouncedSearch, setDebouncedSearch] = useState('');
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchQuery), 200);
@@ -492,29 +468,28 @@ const ViewAttendanceRecord = () => {
   }, [searchQuery]);
   const trimmedSearch = debouncedSearch.trim();
 
+  const [progressOpen, setProgressOpen]   = useState(false);
+  const [progressTotal, setProgressTotal] = useState(0);
+  const [progressDone, setProgressDone]   = useState(0);
+
   const [showScrollTop, setShowScrollTop] = useState(false);
-  const [pageLoading, setPageLoading] = useState(true);
+  const [pageLoading, setPageLoading]     = useState(true);
 
-  const fetchRecordsRef = useRef(null);
+  const fetchRecordsRef     = useRef(null);
   const fetchAllUsersDTRRef = useRef(null);
-  const resultsRef = useRef(null);
+  const resultsRef          = useRef(null);
 
-  const { hasAccess, loading: accessLoading } =
-    usePageAccess('view-attendance');
+  const { hasAccess, loading: accessLoading } = usePageAccess('view-attendance');
 
-  const today = new Date();
-  const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const today          = new Date();
+  const formattedToday = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
 
-  const getAuthHeaders = useCallback(() => {
-  const getAuthHeaders = useCallback(() => {
+  const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
     return { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } };
-  }, []);
+  };
 
-  const showSnackbar = useCallback((message, severity = 'success') => {
-    setSnackbar({ open: true, message, severity }); setSnackbarCountdown(6);
-  }, []);
-
+  const showSnackbar = (message, severity = 'success') => { setSnackbar({ open: true, message, severity }); setSnackbarCountdown(6); };
   const handleCloseSnackbar = () => setSnackbar((p) => ({ ...p, open: false }));
 
   useEffect(() => {
@@ -524,9 +499,7 @@ const ViewAttendanceRecord = () => {
     return () => clearInterval(timer);
   }, [snackbar.open, snackbarCountdown]);
 
-  useEffect(() => {
-    if (!accessLoading) setPageLoading(false);
-  }, [accessLoading]);
+  useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
 
   useEffect(() => {
     if (records.length > 0 && viewMode === 'single' && resultsRef.current)
@@ -539,21 +512,15 @@ const ViewAttendanceRecord = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // ── Fetch departments & assignments in parallel ─────────────────────────
-  const fetchDepartmentsAndAssignments = useCallback(async () => {
+  const fetchDepartmentsAndAssignments = async () => {
     setLoadingDepartments(true);
     try {
       const [deptRes, assignRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/api/department-table`, getAuthHeaders()),
-        axios.get(
-          `${API_BASE_URL}/api/department-assignment`,
-          getAuthHeaders(),
-        ),
+        axios.get(`${API_BASE_URL}/api/department-assignment`, getAuthHeaders()),
       ]);
       const deptList = Array.isArray(deptRes.data) ? deptRes.data : [];
-      deptList.sort((a, b) =>
-        String(a?.code || '').localeCompare(String(b?.code || '')),
-      );
+      deptList.sort((a, b) => String(a?.code||'').localeCompare(String(b?.code||'')));
       setDepartments(deptList);
       const map = {};
       (Array.isArray(assignRes.data) ? assignRes.data : []).forEach((a) => {
@@ -561,28 +528,23 @@ const ViewAttendanceRecord = () => {
         map[String(a.employeeNumber)] = a.code || '';
       });
       setDepartmentAssignmentsMap(map);
-      return map;
     } catch (err) {
       console.error('Error fetching departments/assignments:', err);
-      setDepartments([]);
-      setDepartmentAssignmentsMap({});
+      setDepartments([]); setDepartmentAssignmentsMap({});
       showSnackbar('Failed to load departments for filtering', 'warning');
-      return {};
     } finally { setLoadingDepartments(false); }
-  }, [getAuthHeaders, showSnackbar]);
+  };
 
   useEffect(() => {
     if (viewMode !== 'multiple') return;
     fetchDepartmentsAndAssignments();
-  }, [viewMode, fetchDepartmentsAndAssignments]);
-  }, [viewMode, fetchDepartmentsAndAssignments]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode]);
 
-  // ── Filtered + paginated users ─────────────────────────────────────────
   const filteredUsers = useMemo(() => {
     let f = allUsersDTR.slice();
     if (recordFilter === 'has') f = f.filter((u) => (u.recordsCount || 0) > 0);
-    else if (recordFilter === 'no')
-      f = f.filter((u) => (u.recordsCount || 0) === 0);
+    else if (recordFilter === 'no') f = f.filter((u) => (u.recordsCount || 0) === 0);
     if (departmentCodeFilter) {
       f = f.filter((u) => {
         const dc = departmentAssignmentsMap?.[u.employeeNumber] || '';
@@ -592,38 +554,23 @@ const ViewAttendanceRecord = () => {
     }
     if (!trimmedSearch) return f;
     const q = trimmedSearch.toLowerCase();
-    return f.filter(
-      (u) =>
-        (u.fullName || '').toLowerCase().includes(q) ||
-        (u.lastName || '').toLowerCase().includes(q) ||
-        (u.employeeNumber || '').toLowerCase().includes(q),
+    return f.filter((u) =>
+      (u.fullName||'').toLowerCase().includes(q) ||
+      (u.lastName||'').toLowerCase().includes(q) ||
+      (u.employeeNumber||'').toLowerCase().includes(q),
     );
-  }, [
-    allUsersDTR,
-    recordFilter,
-    departmentCodeFilter,
-    departmentAssignmentsMap,
-    trimmedSearch,
-  ]);
+  }, [allUsersDTR, recordFilter, departmentCodeFilter, departmentAssignmentsMap, trimmedSearch]);
 
   const selectedCountInFiltered = useMemo(() => {
-    let c = 0;
-    for (const u of filteredUsers) if (selectedUsers.has(u.employeeNumber)) c++;
+    let c = 0; for (const u of filteredUsers) if (selectedUsers.has(u.employeeNumber)) c++;
     return c;
   }, [filteredUsers, selectedUsers]);
 
-  const totalPages = useMemo(
-    () => Math.max(1, Math.ceil(filteredUsers.length / rowsPerPage)),
-    [filteredUsers.length, rowsPerPage],
-  );
-  const paginatedUsers = useMemo(() => {
-    const s = (currentPage - 1) * rowsPerPage;
-    return filteredUsers.slice(s, s + rowsPerPage);
-  }, [filteredUsers, currentPage, rowsPerPage]);
-  const goToPage = (p) => setCurrentPage(Math.min(Math.max(1, p), totalPages));
+  const totalPages     = useMemo(() => Math.max(1, Math.ceil(filteredUsers.length / rowsPerPage)), [filteredUsers.length, rowsPerPage]);
+  const paginatedUsers = useMemo(() => { const s = (currentPage-1)*rowsPerPage; return filteredUsers.slice(s, s+rowsPerPage); }, [filteredUsers, currentPage, rowsPerPage]);
+  const goToPage       = (p) => setCurrentPage(Math.min(Math.max(1,p), totalPages));
 
-  // ── Single user fetch ──────────────────────────────────────────────────
-  const fetchRecords = useCallback(async (showLoading = true) => {
+  const fetchRecords = async (showLoading = true) => {
     if (!personID || !startDate || !endDate) return;
     if (showLoading) setLoading(true);
     setError('');
@@ -631,193 +578,65 @@ const ViewAttendanceRecord = () => {
       const res  = await axios.post(`${API_BASE_URL}/attendance/api/all-attendance`, { personID, startDate, endDate }, getAuthHeaders());
       const recs = Array.isArray(res.data) ? res.data : [];
       setRecords(recs);
-      if (recs.length > 0) { setPersonName(recs[0].PersonName); showSnackbar(`Loaded ${recs.length} records`, 'success'); }
+      if (recs.length > 0) { setPersonName(recs[0].PersonName); showSnackbar(`Loaded ${recs.length} records and auto-saved to database`, 'success'); }
       else { setPersonName(''); showSnackbar('No records found for this period', 'info'); }
     } catch (err) {
       console.error('Error fetching attendance records:', err);
       setError('Failed to fetch attendance records. Please try again.');
       showSnackbar('Failed to fetch attendance records', 'error');
     } finally { if (showLoading) setLoading(false); }
-  }, [personID, startDate, endDate, getAuthHeaders, showSnackbar]);
+  };
 
-  // ── KEY OPTIMIZATION: Batch fetch all users using a single bulk endpoint ─
-  // Instead of N individual API calls, we fetch all attendance in one shot,
-  // then stream results into the table immediately as they're processed.
-  const fetchAllUsersDTR = useCallback(async () => {
+  const fetchAllUsersDTR = async () => {
     if (!startDate || !endDate) { showSnackbar('Please select start date and end date first', 'warning'); return; }
-
-    // Cancel any in-flight request
-    if (abortControllerRef.current) abortControllerRef.current.abort();
-    abortControllerRef.current = new AbortController();
-    const signal = abortControllerRef.current.signal;
-
-    setLoadingAllUsers(true);
-    setAllUsersDTR([]);
-    setLoadingProgress({ done: 0, total: 0, phase: 'Fetching all attendance records…' });
-
+    setLoadingAllUsers(true); setProgressOpen(true); setProgressDone(0); setProgressTotal(0);
     try {
-      // ── STEP 1: Fire all 3 data requests IN PARALLEL (not sequential) ──
-      setLoadingProgress(p => ({ ...p, phase: 'Loading data in parallel…' }));
-
-      const [attendanceRes, usersRes, deptAssignResult] = await Promise.all([
-        // Bulk attendance endpoint — returns ALL users' records at once
-        axios.post(
-          `${API_BASE_URL}/attendance/api/view-attendance-all-users`,
-          { startDate, endDate },
-          { ...getAuthHeaders(), signal }
-        ).catch(() => ({ data: [] })),
-
-        // Device users list
-        axios.get(
-          `${API_BASE_URL}/attendance/api/all-device-users`,
-          { ...getAuthHeaders(), signal }
-        ).catch(() => ({ data: [] })),
-
-        // Department assignments
-        fetchDepartmentsAndAssignments().catch(() => ({})),
-      ]);
-
-      if (signal.aborted) return;
-
-      const allAttendanceRecords = Array.isArray(attendanceRes.data) ? attendanceRes.data : [];
-      const deviceUsers          = Array.isArray(usersRes.data) ? usersRes.data : [];
-      const deptMap              = deptAssignResult || {};
-
-      setLoadingProgress(p => ({ ...p, phase: 'Processing records…', total: deviceUsers.length }));
-
-      // ── STEP 2: Group attendance records by personID (O(n) pass) ────────
-      const attendanceByPerson = new Map();
-      allAttendanceRecords.forEach((rec) => {
-        const id = rec.PersonID || rec.personID;
-        if (!id) return;
-        if (!attendanceByPerson.has(String(id))) attendanceByPerson.set(String(id), []);
-        attendanceByPerson.get(String(id)).push(rec);
-      });
-
-      // ── STEP 3: Build user rows from device list — show immediately ──────
-      const CHUNK = 50; // Process in chunks so UI stays responsive
-      const processed = [];
-
-      for (let i = 0; i < deviceUsers.length; i += CHUNK) {
-        if (signal.aborted) return;
-        const chunk = deviceUsers.slice(i, i + CHUNK);
-
-        chunk.forEach((user) => {
-          const empNo = String(user?.PersonID || '');
-          const dn    = user?.PersonName || empNo || 'Unknown';
-          const recs  = attendanceByPerson.get(empNo) || [];
-          processed.push({
-            employeeNumber: empNo,
-            firstName:      dn.split(' ')[0],
-            lastName:       dn.split(' ').slice(1).join(' '),
-            fullName:       dn,
-            recordsCount:   recs.length,
-            hasRecords:     recs.length > 0,
-          });
+      const usersRes = await axios.get(`${API_BASE_URL}/attendance/api/all-device-users`, getAuthHeaders());
+      let users = usersRes.data || [];
+      if (departmentCodeFilter && Object.keys(departmentAssignmentsMap||{}).length === 0 && !loadingDepartments)
+        await fetchDepartmentsAndAssignments();
+      if (departmentCodeFilter) {
+        const dm = departmentAssignmentsMap || {};
+        users = users.filter((u) => {
+          const dc = dm[String(u?.PersonID??'')] || '';
+          if (departmentCodeFilter === '__UNASSIGNED__') return !dc;
+          return dc === departmentCodeFilter;
         });
-
-        // Stream partial results into the table immediately
-        const sorted = [...processed].sort((a, b) =>
-          (a.lastName||'').toUpperCase().localeCompare((b.lastName||'').toUpperCase())
-        );
-        setAllUsersDTR(sorted);
-        setLoadingProgress(p => ({ ...p, done: processed.length }));
-
-        // Yield to browser paint so table appears incrementally
-        await new Promise(r => setTimeout(r, 0));
       }
-
-      if (signal.aborted) return;
-
-      const withRecs  = processed.filter(u => u.hasRecords).length;
-      const totalRecs = allAttendanceRecords.length;
-
-      showSnackbar(`Loaded ${processed.length} employees (${withRecs} with records)`, 'success');
-
+      showSnackbar(`Found ${users.length} users in device records`, 'info');
+      setProgressTotal(users.length); setProgressDone(0);
+      const dtrPromises = users.map(async (user) => {
+        const empNo = user?.PersonID; const dn = user?.PersonName || empNo || 'Unknown';
+        try {
+          const dr = await axios.post(`${API_BASE_URL}/attendance/api/all-attendance`, { personID: empNo, startDate, endDate }, getAuthHeaders());
+          const dd = Array.isArray(dr.data) ? dr.data : [];
+          return { employeeNumber: empNo, firstName: dn.split(' ')[0], lastName: dn.split(' ').slice(1).join(' '), fullName: dn, recordsCount: dd.length, hasRecords: dd.length > 0 };
+        } catch { return { employeeNumber: empNo, firstName: dn.split(' ')[0], lastName: dn.split(' ').slice(1).join(' '), fullName: dn, recordsCount: 0, hasRecords: false }; }
+        finally { setProgressDone((p) => p + 1); }
+      });
+      const all = await Promise.all(dtrPromises);
+      all.sort((a, b) => (a.lastName||'').toUpperCase().localeCompare((b.lastName||'').toUpperCase()));
+      setAllUsersDTR(all);
+      const totalRecs = all.reduce((s,u) => s+(u.recordsCount||0), 0);
+      const withRecs  = all.filter((u) => u.hasRecords).length;
+      showSnackbar(`Loaded ${all.length} employees (${withRecs} with records, ${totalRecs} total records auto-saved)`, 'success');
       if (totalRecs > 0) {
-        setModalMessage(`Loaded ${totalRecs} attendance records for ${withRecs} employees. You can now view or print their DTR.`);
+        setModalMessage(`Successfully auto-saved ${totalRecs} attendance records for ${withRecs} employees to the database. You can now view or print their DTR.`);
         setShowSuccessModal(true);
       }
-
     } catch (err) {
-      if (err?.code === 'ERR_CANCELED' || signal?.aborted) return;
       console.error('Error fetching all users DTR:', err);
-
-      // ── FALLBACK: If bulk endpoint fails, use parallel individual calls ──
-      showSnackbar('Bulk load failed, falling back to parallel fetch…', 'warning');
-      try {
-        const usersRes = await axios.get(`${API_BASE_URL}/attendance/api/all-device-users`, getAuthHeaders());
-        const users    = usersRes.data || [];
-        setLoadingProgress({ done: 0, total: users.length, phase: 'Fetching records in parallel…' });
-
-        // Fire up to 10 concurrent requests at a time (controlled concurrency)
-        const CONCURRENCY = 10;
-        const results     = new Array(users.length);
-        let   completed   = 0;
-
-        for (let i = 0; i < users.length; i += CONCURRENCY) {
-          if (signal?.aborted) return;
-          const batch = users.slice(i, i + CONCURRENCY);
-          await Promise.all(
-            batch.map(async (user, batchIdx) => {
-              const idx   = i + batchIdx;
-              const empNo = user?.PersonID;
-              const dn    = user?.PersonName || empNo || 'Unknown';
-              try {
-                const dr  = await axios.post(`${API_BASE_URL}/attendance/api/all-attendance`, { personID: empNo, startDate, endDate }, { ...getAuthHeaders(), signal });
-                const dd  = Array.isArray(dr.data) ? dr.data : [];
-                results[idx] = { employeeNumber: empNo, firstName: dn.split(' ')[0], lastName: dn.split(' ').slice(1).join(' '), fullName: dn, recordsCount: dd.length, hasRecords: dd.length > 0 };
-              } catch {
-                results[idx] = { employeeNumber: empNo, firstName: dn.split(' ')[0], lastName: dn.split(' ').slice(1).join(' '), fullName: dn, recordsCount: 0, hasRecords: false };
-              }
-              completed++;
-              setLoadingProgress(p => ({ ...p, done: completed }));
-            })
-          );
-          // Show partial results after each batch
-          const partial = results.filter(Boolean).sort((a, b) =>
-            (a?.lastName||'').toUpperCase().localeCompare((b?.lastName||'').toUpperCase())
-          );
-          setAllUsersDTR(partial);
-          await new Promise(r => setTimeout(r, 0));
-        }
-
-        const final = results.filter(Boolean).sort((a, b) =>
-          (a?.lastName||'').toUpperCase().localeCompare((b?.lastName||'').toUpperCase())
-        );
-        setAllUsersDTR(final);
-        showSnackbar(`Loaded ${final.length} employees`, 'success');
-      } catch (fallbackErr) {
-        if (fallbackErr?.code !== 'ERR_CANCELED') {
-          showSnackbar('Error fetching data: ' + (fallbackErr.response?.data?.error || fallbackErr.message), 'error');
-        }
-      }
-    } finally {
-      setLoadingAllUsers(false);
-      setLoadingProgress({ done: 0, total: 0, phase: '' });
-    }
-  }, [startDate, endDate, getAuthHeaders, showSnackbar, fetchDepartmentsAndAssignments]);
+      showSnackbar('Error fetching users DTR data: ' + (err.response?.data?.error || err.message), 'error');
+    } finally { setLoadingAllUsers(false); setTimeout(() => setProgressOpen(false), 250); }
+  };
 
   useEffect(() => { fetchRecordsRef.current = fetchRecords; fetchAllUsersDTRRef.current = fetchAllUsersDTR; });
 
-  // ── Auto-load when month selected in multiple mode ─────────────────────
-  useEffect(() => {
-    if (viewMode === 'multiple' && startDate && endDate) {
-      fetchAllUsersDTR();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate, viewMode]);
-
-  // ── Socket realtime ────────────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !connected) return;
     let debounceTimer = null;
     const handleAttendanceChanged = (payload) => {
-      const ids = Array.isArray(payload?.personIDs)
-        ? payload.personIDs
-        : payload?.personID
-          ? [payload.personID]
-          : [];
+      const ids = Array.isArray(payload?.personIDs) ? payload.personIDs : payload?.personID ? [payload.personID] : [];
       if (viewMode === 'single') {
         if (personID && ids.length > 0 && !ids.includes(personID)) return;
         if (personID && startDate && endDate) fetchRecordsRef.current?.(false);
@@ -831,121 +650,64 @@ const ViewAttendanceRecord = () => {
     return () => { if (debounceTimer) clearTimeout(debounceTimer); socket.off('attendanceChanged', handleAttendanceChanged); };
   }, [socket, connected, viewMode, personID, startDate, endDate, allUsersDTR.length]);
 
-  // ── Single user fetch on date change ──────────────────────────────────
+  const handleSendToDTR = async () => {
+    if (!personID || !startDate || !endDate) { showSnackbar('Please fill in all fields first', 'warning'); return; }
+    try {
+      const res = await axios.post(`${API_BASE_URL}/attendance/api/send-to-dtr`, { personID, startDate, endDate }, getAuthHeaders());
+      if (res.data.success) { showSnackbar(res.data.message, 'success'); navigate('/daily_time_record_faculty', { state: { employeeNumber: personID, fullName: personName, startDate, endDate } }); }
+    } catch (err) { showSnackbar(err.response?.data?.message || 'Failed to view to DTR', 'error'); }
+  };
+
+  const handleBulkSendToDTR = async () => {
+    const sel = filteredUsers.filter((u) => selectedUsers.has(u.employeeNumber));
+    if (sel.length === 0) { showSnackbar('Please select at least one user', 'warning'); return; }
+    try {
+      const res = await axios.post(`${API_BASE_URL}/attendance/api/bulk-send-to-dtr`, { userIDs: sel.map((u) => u.employeeNumber), startDate, endDate }, getAuthHeaders());
+      if (res.data.success) { showSnackbar(res.data.message, 'success'); navigate('/daily_time_record_faculty', { state: { users: sel, startDate, endDate, isBulk: true } }); }
+    } catch (err) { showSnackbar(err.response?.data?.message || 'Failed to view DTR', 'error'); }
+  };
+
+  const handleUserSelect = (empNo) => setSelectedUsers((p) => { const n = new Set(p); n.has(empNo) ? n.delete(empNo) : n.add(empNo); return n; });
+  const handleSelectAll  = (checked) => checked ? setSelectedUsers(new Set(filteredUsers.map((u) => u.employeeNumber))) : setSelectedUsers(new Set());
+  const handleSubmit     = (e) => { e.preventDefault(); fetchRecords(true); };
+
   useEffect(() => {
     if (personID && startDate && endDate) fetchRecords(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate]);
 
-  const handleSendToDTR = async () => {
-    if (!personID || !startDate || !endDate) {
-      showSnackbar('Please fill in all fields first', 'warning');
-      return;
-    }
-    try {
-      const res = await axios.post(
-        `${API_BASE_URL}/attendance/api/send-to-dtr`,
-        { personID, startDate, endDate },
-        getAuthHeaders(),
-      );
-      if (res.data.success) {
-        showSnackbar(res.data.message, 'success');
-        navigate('/daily_time_record_faculty', {
-          state: {
-            employeeNumber: personID,
-            fullName: personName,
-            startDate,
-            endDate,
-          },
-        });
-      }
-    } catch (err) {
-      showSnackbar(
-        err.response?.data?.message || 'Failed to view to DTR',
-        'error',
-      );
-    }
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+  const handleMonthClick = (monthIndex) => {
+    const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
+    const end   = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
+    setStartDate(start.toISOString().substring(0, 10));
+    setEndDate(end.toISOString().substring(0, 10));
+    setSelectedMonth(monthIndex);
   };
 
-  const handleBulkSendToDTR = async () => {
-    const sel = filteredUsers.filter((u) =>
-      selectedUsers.has(u.employeeNumber),
-    );
-    if (sel.length === 0) {
-      showSnackbar('Please select at least one user', 'warning');
-      return;
-    }
-    try {
-      const res = await axios.post(
-        `${API_BASE_URL}/attendance/api/bulk-send-to-dtr`,
-        { userIDs: sel.map((u) => u.employeeNumber), startDate, endDate },
-        getAuthHeaders(),
-      );
-      if (res.data.success) {
-        showSnackbar(res.data.message, 'success');
-        navigate('/daily_time_record_faculty', {
-          state: { users: sel, startDate, endDate, isBulk: true },
-        });
-      }
-    } catch (err) {
-      showSnackbar(
-        err.response?.data?.message || 'Failed to view DTR',
-        'error',
-      );
-    }
-  };
-
-  const handleUserSelect  = (empNo) => setSelectedUsers((p) => { const n = new Set(p); n.has(empNo) ? n.delete(empNo) : n.add(empNo); return n; });
-  const handleSelectAll   = (checked) => checked ? setSelectedUsers(new Set(filteredUsers.map((u) => u.employeeNumber))) : setSelectedUsers(new Set());
   const handleClearFilters = () => {
     setPersonID(''); setStartDate(''); setEndDate(''); setRecords([]);
     setPersonName(''); setError(''); setAllUsersDTR([]); setSelectedUsers(new Set());
     setDepartmentCodeFilter(''); setSelectedMonth(null); setSearchQuery(''); setCurrentPage(1);
-    if (abortControllerRef.current) abortControllerRef.current.abort();
-  };
-
-  const months = [
-    'JAN',
-    'FEB',
-    'MAR',
-    'APR',
-    'MAY',
-    'JUN',
-    'JUL',
-    'AUG',
-    'SEP',
-    'OCT',
-    'NOV',
-    'DEC',
-  ];
-
-  const handleMonthClick = (monthIndex) => {
-    const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
-    const end = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
-    setStartDate(start.toISOString().substring(0, 10));
-    setEndDate(end.toISOString().substring(0, 10));
-    setSelectedMonth(monthIndex);
-    // Auto-load for single mode
-    if (viewMode === 'single' && personID) {
-      // fetchRecords will fire via the useEffect on startDate/endDate change
-    }
   };
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
+  // ── Count days that have at least one Uncategorized slot ──────────────────
   const uncategorizedRowCount = useMemo(() => records.filter((r) => {
     const t1 = !!r.Time1, t3 = !!r.Time3, t2 = !!r.Time2, t4 = !!r.Time4;
+    // Any null slot that follows a filled preceding slot is "uncategorized"
     return (t1 && !t3) || (t3 && !t2) || ((t1 || t3 || t2) && !t4);
   }).length, [records]);
 
-  const pct = loadingProgress.total > 0
-    ? Math.min(100, Math.round((loadingProgress.done / loadingProgress.total) * 100))
-    : (loadingAllUsers ? null : 0); // null = indeterminate
-
+  // ── Guards ──
   if (pageLoading || accessLoading) return <ViewAttendanceWireframe />;
   if (hasAccess === false) return (
     <AccessDenied title="Access Denied" message="You do not have permission to access Device Attendance Records." returnPath="/admin-home" returnButtonText="Return to Home" />
   );
+
+  const pct = progressTotal > 0 ? Math.min(100, Math.round((progressDone / progressTotal) * 100)) : 0;
 
   return (
     <Fade in timeout={400}>
@@ -953,27 +715,9 @@ const ViewAttendanceRecord = () => {
         <style>{shimmerKf}</style>
 
         {/* ── Snackbar ── */}
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={6000}
-          onClose={handleCloseSnackbar}
-          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-        >
-          <Alert
-            onClose={handleCloseSnackbar}
-            severity={snackbar.severity}
-            variant="filled"
-            sx={{
-              width: '100%',
-              fontWeight: 600,
-              backgroundColor:
-                snackbar.severity === 'success' ? '#4caf50' : undefined,
-              color: snackbar.severity === 'success' ? '#ffffff' : undefined,
-              '& .MuiAlert-icon': {
-                color: snackbar.severity === 'success' ? '#ffffff' : undefined,
-              },
-            }}
-          >
+        <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
+          <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled"
+            sx={{ width: '100%', fontWeight: 600, backgroundColor: snackbar.severity === 'success' ? '#4caf50' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, '& .MuiAlert-icon': { color: snackbar.severity === 'success' ? '#ffffff' : undefined } }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <span>{snackbar.message}</span>
               {snackbar.open && snackbarCountdown > 0 && (
@@ -983,14 +727,28 @@ const ViewAttendanceRecord = () => {
           </Alert>
         </Snackbar>
 
+        {/* ── Progress Dialog ── */}
+        <Dialog open={progressOpen} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
+          <Box sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2 }}>
+            <Typography sx={{ fontWeight: 800, fontSize: '1.1rem', color: T.text }}>Loading All Users</Typography>
+            <CircularProgress size={72} thickness={4} sx={{ color: '#2e7d32', my: 0.5 }} />
+            <Typography sx={{ fontWeight: 900, fontSize: '1.4rem', color: '#2e7d32' }}>{pct}%</Typography>
+            <Box sx={{ width: '100%' }}>
+              <LinearProgress variant="determinate" value={pct} sx={{ height: 10, borderRadius: 99, bgcolor: T.divider, '& .MuiLinearProgress-bar': { borderRadius: 99, bgcolor: '#2e7d32' } }} />
+            </Box>
+            <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 600 }}>{progressDone} / {progressTotal} processed</Typography>
+            <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>Please wait while records are being fetched and auto-saved…</Typography>
+          </Box>
+        </Dialog>
+
         {/* ── Success Modal ── */}
         <Dialog open={showSuccessModal} onClose={() => setShowSuccessModal(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
           <Box sx={{ p: 4, textAlign: 'center', background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)' }}>
             <Avatar sx={{ width: 64, height: 64, mx: 'auto', mb: 2, bgcolor: '#4caf50' }}><CheckCircle sx={{ fontSize: 36, color: '#fff' }} /></Avatar>
-            <Typography sx={{ fontWeight: 800, fontSize: '1.1rem', color: T.accent, mb: 1.5 }}>Records Loaded Successfully!</Typography>
+            <Typography sx={{ fontWeight: 800, fontSize: '1.1rem', color: T.accent, mb: 1.5 }}>Records Auto-Saved Successfully!</Typography>
             <Typography sx={{ fontSize: '0.85rem', color: T.muted, mb: 3, lineHeight: 1.6 }}>{modalMessage}</Typography>
             <button onClick={() => setShowSuccessModal(false)}
-              style={{ background: T.accent, color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 32px', fontWeight: 700, fontSize: '0.875rem', fontFamily: 'inherit', cursor: 'pointer' }}
+              style={{ background: T.accent, color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 32px', fontWeight: 700, fontSize: '0.875rem', fontFamily: 'inherit', cursor: 'pointer', transition: 'background 0.15s' }}
               onMouseEnter={e => { e.currentTarget.style.background = T.accentDark; }}
               onMouseLeave={e => { e.currentTarget.style.background = T.accent; }}
             >OK</button>
@@ -1059,15 +817,7 @@ const ViewAttendanceRecord = () => {
             </Box>
 
             {viewMode === 'multiple' && (
-              <Box
-                sx={{
-                  mb: 2.5,
-                  display: 'flex',
-                  gap: 1.5,
-                  flexWrap: 'wrap',
-                  alignItems: 'flex-end',
-                }}
-              >
+              <Box sx={{ mb: 2.5, display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <Box sx={{ flex: 1, minWidth: 220 }}>
                   <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Department</Typography>
                   <FormControl fullWidth size="small" disabled={loadingDepartments}>
@@ -1102,9 +852,7 @@ const ViewAttendanceRecord = () => {
               <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2, mb: 2 }}>
                 <Box>
                   <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.accent, mb: 0.3 }}>Select Entire Month</Typography>
-                  <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
-                    {viewMode === 'multiple' ? 'Click a month — data loads automatically' : 'Choose a year, then click any month'}
-                  </Typography>
+                  <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>Choose a year, then click any month to set the date range</Typography>
                 </Box>
                 <FormControl sx={{ minWidth: 130 }} size="small">
                   <InputLabel sx={{ fontWeight: 600, fontSize: '0.8rem' }}>Year</InputLabel>
@@ -1134,35 +882,15 @@ const ViewAttendanceRecord = () => {
               {viewMode === 'single' && (
                 <RowBtn icon={<Search sx={{ fontSize: 13 }} />} label="Fetch Records" color={T.accent} hoverBg={T.accentFaint} onClick={() => fetchRecords(true)} />
               )}
-              {viewMode === 'multiple' && startDate && endDate && (
-                <RowBtn icon={loadingAllUsers ? <CircularProgress size={12} /> : <People sx={{ fontSize: 13 }} />} label={loadingAllUsers ? 'Loading…' : 'Reload All Users'} color={T.accent} hoverBg={T.accentFaint} onClick={fetchAllUsersDTR} disabled={loadingAllUsers} />
-              )}
             </Box>
           </Box>
         </SectionCard>
 
-        {/* ── Inline loading bar (non-blocking — shows while table fills) ── */}
-        {loadingAllUsers && (
-          <Box sx={{ mb: 1.5 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.75 }}>
-              <CircularProgress size={14} sx={{ color: T.accent }} />
-              <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 600 }}>
-                {loadingProgress.phase || 'Loading…'}
-                {loadingProgress.total > 0 && ` (${loadingProgress.done}/${loadingProgress.total})`}
-              </Typography>
-            </Box>
-            <LinearProgress
-              variant={pct !== null ? 'determinate' : 'indeterminate'}
-              value={pct ?? 0}
-              sx={{ height: 3, borderRadius: 2, bgcolor: alpha(T.accent, 0.1), '& .MuiLinearProgress-bar': { bgcolor: T.accent } }}
-            />
-          </Box>
-        )}
-
-        {loading && (
+        {/* ── Loading indicator ── */}
+        {(loading || loadingAllUsers) && (
           <Box sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <CircularProgress size={16} sx={{ color: T.accent }} />
-            <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>Fetching attendance records…</Typography>
+            <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>{loadingAllUsers ? 'Fetching all users…' : 'Fetching attendance records…'}</Typography>
           </Box>
         )}
 
@@ -1170,10 +898,10 @@ const ViewAttendanceRecord = () => {
         {viewMode === 'multiple' && (
           <Fade in timeout={400}>
             <SectionCard sx={{ mb: 2 }}>
-              <PanelHeader icon={People}
-                title={allUsersDTR.length > 0 ? `All Users DTR — ${allUsersDTR.length} employees${loadingAllUsers ? ' (loading…)' : ''}` : 'All Users DTR List'}
+              <PanelHeader icon={People} title="All Users DTR List (Auto-Saved)"
                 right={
                   <Box sx={{ display: 'flex', gap: 1 }}>
+                    <RowBtn icon={loadingAllUsers ? <CircularProgress size={12} /> : <People sx={{ fontSize: 13 }} />} label={loadingAllUsers ? 'Loading…' : 'Load All Users'} color={T.accent} hoverBg={T.accentFaint} onClick={fetchAllUsersDTR} disabled={loadingAllUsers || !startDate || !endDate} />
                     {allUsersDTR.length > 0 && <RowBtn icon={<Send sx={{ fontSize: 13 }} />} label={`View DTR (${selectedCountInFiltered})`} color="#2e7d32" hoverBg="rgba(46,125,50,0.08)" onClick={handleBulkSendToDTR} disabled={selectedCountInFiltered === 0} />}
                   </Box>
                 }
@@ -1204,21 +932,8 @@ const ViewAttendanceRecord = () => {
                                 <Checkbox size="small" checked={selectedCountInFiltered === filteredUsers.length && filteredUsers.length > 0} indeterminate={selectedCountInFiltered > 0 && selectedCountInFiltered < filteredUsers.length} onChange={(e) => handleSelectAll(e.target.checked)}
                                   sx={{ color: 'rgba(255,255,255,0.6)', '&.Mui-checked': { color: '#fff' }, '&.MuiCheckbox-indeterminate': { color: '#fff' }, p: 0 }} />
                               </CompactTableCell>
-                              {[
-                                'Employee #',
-                                'Department',
-                                'Full Name',
-                                'Records',
-                                'Status',
-                                'Action',
-                              ].map((h) => (
-                                <CompactTableCell
-                                  key={h}
-                                  isHeader
-                                  sx={{ bgcolor: T.accent }}
-                                >
-                                  {h}
-                                </CompactTableCell>
+                              {['Employee #', 'Department', 'Full Name', 'Records', 'Status', 'Action'].map((h) => (
+                                <CompactTableCell key={h} isHeader sx={{ bgcolor: T.accent }}>{h}</CompactTableCell>
                               ))}
                             </TableRow>
                           </TableHead>
@@ -1232,60 +947,20 @@ const ViewAttendanceRecord = () => {
                                 <CompactTableCell sx={{ color: T.text, fontSize: '0.8rem', fontWeight: 600 }}>{user.employeeNumber}</CompactTableCell>
                                 <CompactTableCell>
                                   {(() => {
-                                    const d =
-                                      departmentAssignmentsMap?.[
-                                        user.employeeNumber
-                                      ] || '';
-                                    return d ? (
-                                      <Box
-                                        sx={{
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          px: 1.25,
-                                          py: 0.3,
-                                          borderRadius: '12px',
-                                          bgcolor: alpha(T.accent, 0.1),
-                                          border: `1px solid ${alpha(T.accent, 0.2)}`,
-                                        }}
-                                      >
-                                        <Typography
-                                          sx={{
-                                            fontSize: '0.7rem',
-                                            fontWeight: 700,
-                                            color: T.accent,
-                                          }}
-                                        >
-                                          {d}
-                                        </Typography>
-                                      </Box>
-                                    ) : (
-                                      <Typography
-                                        sx={{
-                                          fontSize: '0.72rem',
-                                          color: T.faint,
-                                          fontStyle: 'italic',
-                                        }}
-                                      >
-                                        Unassigned
-                                      </Typography>
-                                    );
+                                    const d = departmentAssignmentsMap?.[user.employeeNumber] || '';
+                                    return d
+                                      ? <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1.25, py: 0.3, borderRadius: '12px', bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}><Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent }}>{d}</Typography></Box>
+                                      : <Typography sx={{ fontSize: '0.72rem', color: T.faint, fontStyle: 'italic' }}>Unassigned</Typography>;
                                   })()}
                                 </CompactTableCell>
-                                <CompactTableCell
-                                  sx={{ color: T.text, fontSize: '0.8rem' }}
-                                >
-                                  {trimmedSearch
-                                    ? highlightMatch(
-                                        formatFullName(user.fullName),
-                                        trimmedSearch,
-                                      )
-                                    : formatFullName(user.fullName)}
+                                <CompactTableCell sx={{ color: T.text, fontSize: '0.8rem' }}>
+                                  {trimmedSearch ? highlightMatch(formatFullName(user.fullName), trimmedSearch) : formatFullName(user.fullName)}
                                 </CompactTableCell>
                                 <CompactTableCell sx={{ color: T.muted, fontSize: '0.8rem', fontWeight: 600 }}>{user.recordsCount || 0}</CompactTableCell>
                                 <CompactTableCell>
                                   <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.25, py: 0.3, borderRadius: '12px', bgcolor: user.hasRecords ? 'rgba(76,175,80,0.1)' : T.accentFaint, border: `1px solid ${user.hasRecords ? 'rgba(76,175,80,0.25)' : T.accentBorder}` }}>
                                     {user.hasRecords ? <CheckCircle sx={{ fontSize: 11, color: '#4caf50' }} /> : <Cancel sx={{ fontSize: 11, color: T.faint }} />}
-                                    <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: user.hasRecords ? '#2e7d32' : T.faint }}>{user.hasRecords ? 'Has Records' : 'No Records'}</Typography>
+                                    <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: user.hasRecords ? '#2e7d32' : T.faint }}>{user.hasRecords ? 'Auto-Saved' : 'No Records'}</Typography>
                                   </Box>
                                 </CompactTableCell>
                                 <CompactTableCell>
@@ -1300,47 +975,18 @@ const ViewAttendanceRecord = () => {
                     </Box>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 1.5 }}>
                       <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>
-                        Showing{' '}
-                        {filteredUsers.length === 0
-                          ? 0
-                          : Math.min(
-                              filteredUsers.length,
-                              (currentPage - 1) * rowsPerPage + 1,
-                            )}
-                        –
-                        {Math.min(
-                          filteredUsers.length,
-                          currentPage * rowsPerPage,
-                        )}{' '}
-                        of {filteredUsers.length} users
+                        Showing {filteredUsers.length === 0 ? 0 : Math.min(filteredUsers.length,(currentPage-1)*rowsPerPage+1)}–{Math.min(filteredUsers.length,currentPage*rowsPerPage)} of {filteredUsers.length} users
                       </Typography>
-                      <Box
-                        sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}
-                      >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                         <FormControl size="small" sx={{ minWidth: 110 }}>
                           <Select value={rowsPerPage} onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }} displayEmpty
                             sx={{ borderRadius: '8px', fontSize: '0.82rem', bgcolor: '#fff', '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder } }}>
                             {[10,20,50,100].map((n) => <MenuItem key={n} value={n} sx={{ fontSize: '0.82rem' }}>{n} rows</MenuItem>)}
                           </Select>
                         </FormControl>
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 0.75,
-                          }}
-                        >
-                          <IconButton
-                            size="small"
-                            onClick={() => goToPage(currentPage - 1)}
-                            disabled={currentPage === 1}
-                            sx={{
-                              border: `1px solid ${T.accentBorder}`,
-                              width: 30,
-                              height: 30,
-                              '&:hover': { bgcolor: T.accentFaint },
-                            }}
-                          >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                          <IconButton size="small" onClick={() => goToPage(currentPage-1)} disabled={currentPage === 1}
+                            sx={{ border: `1px solid ${T.accentBorder}`, width: 30, height: 30, '&:hover': { bgcolor: T.accentFaint } }}>
                             <ArrowBack sx={{ fontSize: 14, color: T.accent }} />
                           </IconButton>
                           <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: T.accent, minWidth: 50, textAlign: 'center' }}>{currentPage} / {totalPages}</Typography>
@@ -1355,16 +1001,10 @@ const ViewAttendanceRecord = () => {
                 ) : (
                   <Box sx={{ py: 6, textAlign: 'center' }}>
                     <Box sx={{ width: 52, height: 52, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 1.5 }}>
-                      {loadingAllUsers
-                        ? <CircularProgress size={24} sx={{ color: T.accent }} />
-                        : <People sx={{ fontSize: 24, color: alpha(T.accent, 0.3) }} />}
+                      <People sx={{ fontSize: 24, color: alpha(T.accent, 0.3) }} />
                     </Box>
-                    <Typography sx={{ fontSize: '0.88rem', fontWeight: 600, color: T.muted, mb: 0.4 }}>
-                      {loadingAllUsers ? 'Loading records…' : (!startDate || !endDate ? 'Select a month to load records' : 'No records found')}
-                    </Typography>
-                    <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>
-                      {loadingAllUsers ? loadingProgress.phase : (!startDate || !endDate ? 'Click any month button above to auto-load all users.' : 'Try selecting a different date range.')}
-                    </Typography>
+                    <Typography sx={{ fontSize: '0.88rem', fontWeight: 600, color: T.muted, mb: 0.4 }}>No data loaded</Typography>
+                    <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>Click "Load All Users" to fetch and auto-save all users' DTR data.</Typography>
                   </Box>
                 )}
               </Box>
@@ -1385,6 +1025,7 @@ const ViewAttendanceRecord = () => {
                     <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
                       <Typography sx={{ fontSize: '0.72rem', color: T.accent, fontWeight: 700 }}>{records.length} {records.length === 1 ? 'record' : 'records'}</Typography>
                     </Box>
+                    {/* Uncategorized summary pill */}
                     {uncategorizedRowCount > 0 && (
                       <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: 'rgba(244,67,54,0.10)', border: '1px solid rgba(244,67,54,0.28)', display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         <Cancel sx={{ fontSize: 11, color: '#f44336' }} />
@@ -1400,6 +1041,8 @@ const ViewAttendanceRecord = () => {
                   </Box>
                 }
               />
+
+              {/* ── Column headers ── */}
               <Box sx={{ overflowX: 'auto' }}>
                 <Box sx={{ minWidth: 900 }}>
                   <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr', px: 2.5, py: 1.25, bgcolor: T.accent, gap: 1.5, position: 'sticky', top: 0, zIndex: 2 }}>
@@ -1407,51 +1050,36 @@ const ViewAttendanceRecord = () => {
                       <Typography key={h} sx={{ color: '#fff', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.07em' }}>{h}</Typography>
                     ))}
                   </Box>
+
                   <Box sx={{ maxHeight: 440, overflowY: 'auto' }}>
                     {records.length === 0 ? (
                       <Box sx={{ py: 8, textAlign: 'center' }}>
-                        <Box
-                          sx={{
-                            width: 60,
-                            height: 60,
-                            borderRadius: '50%',
-                            bgcolor: T.accentFaint,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            mx: 'auto',
-                            mb: 2,
-                          }}
-                        >
-                          <Info
-                            sx={{ fontSize: 28, color: alpha(T.accent, 0.3) }}
-                          />
+                        <Box sx={{ width: 60, height: 60, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                          <Info sx={{ fontSize: 28, color: alpha(T.accent, 0.3) }} />
                         </Box>
-                        <Typography
-                          sx={{
-                            fontSize: '0.88rem',
-                            fontWeight: 600,
-                            color: T.muted,
-                            mb: 0.4,
-                          }}
-                        >
-                          No records found
-                        </Typography>
-                        <Typography
-                          sx={{ fontSize: '0.75rem', color: T.faint }}
-                        >
-                          Try adjusting your date range or employee number.
-                        </Typography>
+                        <Typography sx={{ fontSize: '0.88rem', fontWeight: 600, color: T.muted, mb: 0.4 }}>No records found</Typography>
+                        <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>Try adjusting your date range or employee number.</Typography>
                       </Box>
                     ) : records.map((record, index) => {
-                      const hasTimeIn   = !!record.Time1;
-                      const hasBreakIn  = !!record.Time3;
-                      const hasBreakOut = !!record.Time2;
-                      const hasTimeOut  = !!record.Time4;
+                      // ── Which slots are filled? ─────────────────────────────
+                      const hasTimeIn   = !!record.Time1; // TIME IN
+                      const hasBreakIn  = !!record.Time3; // BREAK IN
+                      const hasBreakOut = !!record.Time2; // BREAK OUT
+                      const hasTimeOut  = !!record.Time4; // TIME OUT
+
+                      // ── Slot-level uncategorized flags ──────────────────────
+                      // A slot is "Uncategorized" when it is null but the
+                      // logically prior slot has a value — meaning the employee
+                      // scanned the device but pressed no state button.
+                      //
+                      // Sequence: Time In → Break In → Break Out → Time Out
                       const breakInUncategorized  = hasTimeIn  && !hasBreakIn;
                       const breakOutUncategorized = hasBreakIn && !hasBreakOut;
                       const timeOutUncategorized  = (hasTimeIn || hasBreakIn || hasBreakOut) && !hasTimeOut;
-                      const hasAnyUncategorized   = breakInUncategorized || breakOutUncategorized || timeOutUncategorized;
+
+                      const hasAnyUncategorized = breakInUncategorized || breakOutUncategorized || timeOutUncategorized;
+
+                      // ── Special type badge (Time5 / Time6) ──────────────────
                       let specialTypeBadge = null;
                       if (record.Time5 || record.Time6) {
                         const type       = record.specialType || 'UNCATEGORIZED';
@@ -1464,17 +1092,55 @@ const ViewAttendanceRecord = () => {
                           </Box>
                         );
                       }
+
                       return (
-                        <Box key={index} sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr', px: 2.5, py: 1.5, gap: 1.5, alignItems: 'center', bgcolor: hasAnyUncategorized ? 'rgba(244,67,54,0.03)' : index % 2 === 0 ? '#fff' : T.rowOdd, borderBottom: hasAnyUncategorized ? '1px solid rgba(244,67,54,0.12)' : `1px solid ${T.divider}`, transition: 'background 0.12s', '&:hover': { bgcolor: hasAnyUncategorized ? 'rgba(244,67,54,0.07)' : T.rowHover }, '&:last-child': { borderBottom: 'none' } }}>
+                        <Box
+                          key={index}
+                          sx={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr',
+                            px: 2.5, py: 1.5, gap: 1.5,
+                            alignItems: 'center',
+                            // Rows with any uncategorized slot get a subtle red tint
+                            bgcolor: hasAnyUncategorized
+                              ? 'rgba(244,67,54,0.03)'
+                              : index % 2 === 0 ? '#fff' : T.rowOdd,
+                            borderBottom: hasAnyUncategorized
+                              ? '1px solid rgba(244,67,54,0.12)'
+                              : `1px solid ${T.divider}`,
+                            transition: 'background 0.12s',
+                            '&:hover': { bgcolor: hasAnyUncategorized ? 'rgba(244,67,54,0.07)' : T.rowHover },
+                            '&:last-child': { borderBottom: 'none' },
+                          }}
+                        >
+                          {/* EMP ID */}
                           <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 500 }}>{record.PersonID}</Typography>
+
+                          {/* DATE */}
                           <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>{record.Date}</Typography>
+
+                          {/* DAY */}
                           <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>{getDayOfWeek(record.Date)}</Typography>
+
+                          {/* TIME IN — always show value or plain dash (nothing precedes it) */}
                           <TimeCell time={record.Time1} isUncategorized={false} />
+
+                          {/* BREAK IN — Uncategorized if Time In exists but Break In is null */}
                           <TimeCell time={record.Time3} isUncategorized={breakInUncategorized} />
+
+                          {/* BREAK OUT — Uncategorized if Break In exists but Break Out is null */}
                           <TimeCell time={record.Time2} isUncategorized={breakOutUncategorized} />
+
+                          {/* TIME OUT — Uncategorized if any prior slot exists but Time Out is null */}
                           <TimeCell time={record.Time4} isUncategorized={timeOutUncategorized} />
+
+                          {/* SPECIAL TYPE */}
                           <Box>{specialTypeBadge || <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>—</Typography>}</Box>
+
+                          {/* SP. TIME IN */}
                           <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{record.Time5 ? formatTime(record.Time5) : '—'}</Typography>
+
+                          {/* SP. TIME OUT */}
                           <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{record.Time6 ? formatTime(record.Time6) : '—'}</Typography>
                         </Box>
                       );
@@ -1482,32 +1148,18 @@ const ViewAttendanceRecord = () => {
                   </Box>
                 </Box>
               </Box>
+
+              {/* Footer legend */}
               {records.length > 0 && (
-                <Box
-                  sx={{
-                    px: 2.5,
-                    py: 1.75,
-                    borderTop: `1px solid ${T.divider}`,
-                    bgcolor: T.accentFaint,
-                    display: 'flex',
-                    gap: 2.5,
-                    flexWrap: 'wrap',
-                    alignItems: 'center',
-                  }}
-                >
+                <Box sx={{ px: 2.5, py: 1.75, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', gap: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
                   {[
                     { icon: <CheckCircle sx={{ fontSize: 13, color: '#4caf50' }} />, label: 'Auto-saved records from biometric device' },
                     { icon: <Info        sx={{ fontSize: 13, color: T.accent }} />,  label: 'Times displayed in 12-hour format' },
-                    { icon: <Cancel      sx={{ fontSize: 13, color: '#f44336' }} />, label: 'Uncategorized — face scanned, no button pressed' },
+                    { icon: <Cancel      sx={{ fontSize: 13, color: '#f44336' }} />, label: 'Uncategorized — face scanned, no button pressed (same as Attendance State view)' },
                   ].map((item, i) => (
-                    <Box
-                      key={i}
-                      sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}
-                    >
+                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
                       {item.icon}
-                      <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>
-                        {item.label}
-                      </Typography>
+                      <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{item.label}</Typography>
                     </Box>
                   ))}
                 </Box>
@@ -1522,6 +1174,7 @@ const ViewAttendanceRecord = () => {
             <KeyboardArrowUp />
           </Fab>
         </Zoom>
+
       </Box>
     </Fade>
   );
