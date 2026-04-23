@@ -854,6 +854,28 @@ const EmployeeAutocomplete = ({
   onEmployeeSelect,
   dropdownDisabled = false,
 }) => {
+  const formatEmployeeName = (emp) => {
+    if (!emp) return '';
+    if (emp.name) return emp.name;
+
+    const lastName = String(emp.lastName || '').trim();
+    const firstName = String(emp.firstName || '').trim();
+    const middleName = String(emp.middleName || '').trim();
+    const nameExtension = String(emp.nameExtension || '').trim();
+    const middleInitial = middleName ? `${middleName.charAt(0).toUpperCase()}.` : '';
+
+    return [lastName, firstName, middleInitial, nameExtension]
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const normalizeEmployee = (emp) => ({
+    ...emp,
+    name: formatEmployeeName(emp),
+  });
+
   const [query, setQuery] = useState('');
   const [employees, setEmployees] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -866,7 +888,7 @@ const EmployeeAutocomplete = ({
   }, [value]); // eslint-disable-line
 
   useEffect(() => {
-    if (selectedEmployee) setQuery(selectedEmployee.name || '');
+    if (selectedEmployee) setQuery(formatEmployeeName(selectedEmployee) || '');
     else if (!value) setQuery('');
   }, [selectedEmployee, value]);
 
@@ -886,7 +908,7 @@ const EmployeeAutocomplete = ({
         `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(q)}`,
         getAuthHeaders(),
       );
-      setEmployees(r.data);
+        setEmployees((Array.isArray(r.data) ? r.data : []).map(normalizeEmployee));
     } catch {
       setEmployees([]);
     } finally {
@@ -901,7 +923,7 @@ const EmployeeAutocomplete = ({
         `${API_BASE_URL}/Remittance/employees/search`,
         getAuthHeaders(),
       );
-      setEmployees(r.data);
+        setEmployees((Array.isArray(r.data) ? r.data : []).map(normalizeEmployee));
     } catch {
       setEmployees([]);
     } finally {
@@ -915,8 +937,9 @@ const EmployeeAutocomplete = ({
         `${API_BASE_URL}/Remittance/employees/${empNum}`,
         getAuthHeaders(),
       );
-      onEmployeeSelect(r.data);
-      setQuery(r.data.name || '');
+        const employee = normalizeEmployee(r.data);
+        onEmployeeSelect(employee);
+        setQuery(employee.name || '');
     } catch (err) {
       if (err.response?.status !== 404) console.error(err);
     }
@@ -926,7 +949,7 @@ const EmployeeAutocomplete = ({
     const v = e.target.value;
     setQuery(v);
     setShowDropdown(true);
-    if (selectedEmployee && v !== selectedEmployee.name) {
+    if (selectedEmployee && v !== formatEmployeeName(selectedEmployee)) {
       onEmployeeSelect(null);
       onChange('');
     }
@@ -1027,7 +1050,7 @@ const EmployeeAutocomplete = ({
                   button
                   onClick={() => {
                     onEmployeeSelect(emp);
-                    setQuery(emp.name);
+                    setQuery(formatEmployeeName(emp));
                     setShowDropdown(false);
                     onChange(emp.employeeNumber);
                   }}
@@ -1059,7 +1082,7 @@ const EmployeeAutocomplete = ({
                           color: T.text,
                         }}
                       >
-                        {emp.name}
+                          {formatEmployeeName(emp) || 'Unknown'}
                       </Typography>
                       <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
                         #{emp.employeeNumber}

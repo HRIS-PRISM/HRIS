@@ -220,7 +220,7 @@ const AttendanceFieldCell = ({ f, valueHrs, onChange }) => {
         <span style={{ position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)", fontSize: "0.55rem", color: T.faint, pointerEvents: "none" }}>d</span>
       </Box>
       <Typography sx={{ fontSize: "0.58rem", color: valueHrs > 0 ? "#4caf50" : T.faint, fontFamily: T.poppins, textAlign: "right", lineHeight: 1.2 }}>
-        {valueHrs > 0 ? `${valueHrs.toFixed(1)}h` : "—"}
+        {valueHrs > 0 ? `${valueHrs.toFixed(3)}h` : "—"}
       </Typography>
     </Box>
   );
@@ -307,13 +307,13 @@ const AttendanceEditPanel = ({ employee, year, month, attendanceData, onRefresh 
             <Typography sx={{ fontSize: "0.52rem", color: "#1565c0", fontFamily: T.poppins }}>cal d</Typography>
           </Box>
           <Box sx={{ px: 0.6, py: 0.15, borderRadius: 0.75, bgcolor: "rgba(46,125,50,0.1)", border: "1px solid rgba(46,125,50,0.28)", display: "flex", alignItems: "baseline", gap: 0.25 }}>
-            <Typography sx={{ fontSize: "0.7rem", fontWeight: 900, color: "#2e7d32", fontFamily: T.poppins, lineHeight: 1 }}>{overallDays.toFixed(2)}</Typography>
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 900, color: "#2e7d32", fontFamily: T.poppins, lineHeight: 1 }}>{overallDays.toFixed(3)}</Typography>
             <Typography sx={{ fontSize: "0.52rem", color: "#2e7d32", fontFamily: T.poppins }}>d</Typography>
-            <Typography sx={{ fontSize: "0.5rem", color: "#66bb6a", fontFamily: T.poppins }}>/ {overallHrs.toFixed(1)}h</Typography>
+            <Typography sx={{ fontSize: "0.5rem", color: "#66bb6a", fontFamily: T.poppins }}>/ {overallHrs.toFixed(3)}h</Typography>
           </Box>
           {tardHrs > 0 && (
             <Box sx={{ px: 0.6, py: 0.15, borderRadius: 0.75, bgcolor: "rgba(211,47,47,0.08)", border: "1px solid rgba(211,47,47,0.28)", display: "flex", alignItems: "baseline", gap: 0.25 }}>
-              <Typography sx={{ fontSize: "0.7rem", fontWeight: 900, color: "#c62828", fontFamily: T.poppins, lineHeight: 1 }}>{tardDays.toFixed(2)}</Typography>
+              <Typography sx={{ fontSize: "0.7rem", fontWeight: 900, color: "#c62828", fontFamily: T.poppins, lineHeight: 1 }}>{tardDays.toFixed(3)}</Typography>
               <Typography sx={{ fontSize: "0.52rem", color: "#c62828", fontFamily: T.poppins }}>d late</Typography>
             </Box>
           )}
@@ -452,12 +452,12 @@ const AttendanceContextBanner = ({ attendanceData, loading, year, month, employe
             </Typography>
             <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.3 }}>
               <Typography sx={{ fontSize: "1.05rem", fontWeight: 900, color: "#2e7d32", fontFamily: T.poppins, lineHeight: 1 }}>
-                {(overallHrs / 8).toFixed(2)}
+                {(overallHrs / 8).toFixed(3)}
               </Typography>
               <Typography sx={{ fontSize: "0.6rem", fontWeight: 600, color: "#66bb6a", fontFamily: T.poppins }}>d</Typography>
             </Box>
             <Typography sx={{ fontSize: "0.58rem", color: T.faint, fontFamily: T.poppins, lineHeight: 1 }}>
-              {overallHrs.toFixed(1)} hrs
+              {overallHrs.toFixed(3)} hrs
             </Typography>
           </Box>
 
@@ -472,7 +472,7 @@ const AttendanceContextBanner = ({ attendanceData, loading, year, month, employe
               {hrs > 0 ? (
                 <>
                   <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color, fontFamily: T.poppins, lineHeight: 1 }}>
-                    {(hrs / 8).toFixed(2)}
+                    {(hrs / 8).toFixed(3)}
                   </Typography>
                   <Typography sx={{ fontSize: "0.54rem", color: alpha(color, 0.55), fontFamily: T.poppins }}>d</Typography>
                 </>
