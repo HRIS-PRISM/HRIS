@@ -41,6 +41,7 @@ import {
   Pages,
   Announcement as AnnouncementIcon,
   History,
+  FolderSpecial,
 } from '@mui/icons-material';
 
 export const componentMapping = {
@@ -499,6 +500,13 @@ export const componentMapping = {
     componentName: 'EarningsManagement',
     description: 'Earnings Management',
     icon: FileCopy,
+  },
+    file201: {
+    componentPath: 'components/FILE201/File201Admin.jsx',
+    routePath: '/file201',
+    componentName: 'File201',
+    description: 'FILE 201 Documents',
+    icon: FolderSpecial,
   },
 };
 

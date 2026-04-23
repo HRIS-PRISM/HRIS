@@ -21,11 +21,12 @@ import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────
+// ─── Theme tokens ──────────────────────────────────────────────────────────
 const T = {
-  accent:       '#6d2323',
-  accentDark:   '#5a1d1d',
-  accentMid:    '#8B4545',
-  accentFaint:  'rgba(109,35,35,0.06)',
+  accent: '#6d2323',
+  accentDark: '#5a1d1d',
+  accentMid: '#8B4545',
+  accentFaint: 'rgba(109,35,35,0.06)',
   accentBorder: 'rgba(109,35,35,0.14)',
   accentHover:  'rgba(109,35,35,0.10)',
   rowOdd:       'rgba(109,35,35,0.025)',
@@ -48,13 +49,19 @@ const shimmerKf = `
 }`;
 
 const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
-  <Box sx={{
-    width: w, height: h, borderRadius: r,
-    background: 'linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)',
-    backgroundSize: '800px 100%',
-    animation: 'shimmer 1.6s infinite linear',
-    flexShrink: 0, ...sx,
-  }} />
+  <Box
+    sx={{
+      width: w,
+      height: h,
+      borderRadius: r,
+      background:
+        'linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)',
+      backgroundSize: '800px 100%',
+      animation: 'shimmer 1.6s infinite linear',
+      flexShrink: 0,
+      ...sx,
+    }}
+  />
 );
 
 const ViewAttendanceWireframe = () => (
@@ -79,11 +86,45 @@ const ViewAttendanceWireframe = () => (
         </Box>
         <Box sx={{ px: 2.5, py: 2.5 }}>
           <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-            {[1,2,3].map(i => <Box key={i} sx={{ flex: 1, height: 40, borderRadius: '8px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }} />)}
+            {[1, 2, 3].map((i) => (
+              <Box
+                key={i}
+                sx={{
+                  flex: 1,
+                  height: 40,
+                  borderRadius: '8px',
+                  bgcolor: T.accentFaint,
+                  border: `1px solid ${T.accentBorder}`,
+                }}
+              />
+            ))}
           </Box>
-          <Box sx={{ border: `2px dashed ${T.accentBorder}`, borderRadius: '8px', p: 3 }}>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
-              {Array.from({ length: 12 }).map((_, i) => <Box key={i} sx={{ width: 64, height: 36, borderRadius: '6px', bgcolor: T.accentFaint }} />)}
+          <Box
+            sx={{
+              border: `2px dashed ${T.accentBorder}`,
+              borderRadius: '8px',
+              p: 3,
+            }}
+          >
+            <Box
+              sx={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 1,
+                justifyContent: 'center',
+              }}
+            >
+              {Array.from({ length: 12 }).map((_, i) => (
+                <Box
+                  key={i}
+                  sx={{
+                    width: 64,
+                    height: 36,
+                    borderRadius: '6px',
+                    bgcolor: T.accentFaint,
+                  }}
+                />
+              ))}
             </Box>
           </Box>
         </Box>
@@ -93,8 +134,30 @@ const ViewAttendanceWireframe = () => (
           {[100, 80, 80, 80].map((w, i) => <Box key={i} sx={{ height: 10, width: w, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.22)' }} />)}
         </Box>
         {[...Array(5)].map((_, i) => (
-          <Box key={i} sx={{ px: 2.5, py: 2, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 2, alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.05)', bgcolor: i % 2 === 0 ? '#fff' : T.rowOdd }}>
-            <Bone w={120} h={12} /><Bone w={80} h={12} /><Bone w={80} h={12} /><Box sx={{ width: 90, height: 24, borderRadius: '12px', bgcolor: T.accentFaint }} />
+          <Box
+            key={i}
+            sx={{
+              px: 2.5,
+              py: 2,
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr 1fr 1fr',
+              gap: 2,
+              alignItems: 'center',
+              borderBottom: '1px solid rgba(0,0,0,0.05)',
+              bgcolor: i % 2 === 0 ? '#fff' : T.rowOdd,
+            }}
+          >
+            <Bone w={120} h={12} />
+            <Bone w={80} h={12} />
+            <Bone w={80} h={12} />
+            <Box
+              sx={{
+                width: 90,
+                height: 24,
+                borderRadius: '12px',
+                bgcolor: T.accentFaint,
+              }}
+            />
           </Box>
         ))}
       </Box>
@@ -117,7 +180,7 @@ const AccentButton = styled(Button)({
   fontSize: '0.8rem',
   letterSpacing: '0.01em',
   transition: 'all 0.18s ease',
-  '&:hover':  { transform: 'translateY(-1px)' },
+  '&:hover': { transform: 'translateY(-1px)' },
   '&:active': { transform: 'translateY(0)' },
 });
 
@@ -136,7 +199,17 @@ const PanelHeader = ({ icon: Icon, title, right }) => (
 const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, icon }) => (
   <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
     {icon && (
-      <Box sx={{ position: 'absolute', left: 10, color: T.accentMid, display: 'flex', alignItems: 'center', zIndex: 1, pointerEvents: 'none' }}>
+      <Box
+        sx={{
+          position: 'absolute',
+          left: 10,
+          color: T.accentMid,
+          display: 'flex',
+          alignItems: 'center',
+          zIndex: 1,
+          pointerEvents: 'none',
+        }}
+      >
         {icon}
       </Box>
     )}
@@ -171,6 +244,7 @@ const CompactTableCell = styled(TableCell)(({ isHeader }) => ({
   fontWeight: isHeader ? 700 : 500,
   padding: '10px 14px',
   borderBottom: `1px solid ${T.divider}`,
+  borderBottom: `1px solid ${T.divider}`,
   fontSize: isHeader ? '0.65rem' : '0.8rem',
   letterSpacing: isHeader ? '0.08em' : '0.01em',
   color: isHeader ? '#fff' : T.text,
@@ -182,12 +256,12 @@ const formatTime = (time) => {
   if (!time) return null;
   if (time.includes('AM') || time.includes('PM')) {
     const [hour, minute, second] = time.split(/[: ]/);
-    return `${hour.padStart(2,'0')}:${minute}:${second} ${time.slice(-2)}`;
+    return `${hour.padStart(2, '0')}:${minute}:${second} ${time.slice(-2)}`;
   }
   const [hour, minute, second] = time.split(':');
   const hour24 = parseInt(hour, 10);
   const hour12 = hour24 % 12 || 12;
-  return `${String(hour12).padStart(2,'0')}:${minute}:${second} ${hour24 < 12 ? 'AM' : 'PM'}`;
+  return `${String(hour12).padStart(2, '0')}:${minute}:${second} ${hour24 < 12 ? 'AM' : 'PM'}`;
 };
 
 const getDayOfWeek = (dateString) =>
@@ -197,15 +271,20 @@ const formatFullName = (fullName) => {
   if (!fullName) return '';
   const cleaned = String(fullName).trim().replace(/\s+/g, ' ');
   if (!cleaned) return '';
-  const parts    = cleaned.split(' ');
-  const suffixes = new Set(['JR','JR.','SR','SR.','II','III','IV','V']);
+  const parts = cleaned.split(' ');
+  const suffixes = new Set(['JR', 'JR.', 'SR', 'SR.', 'II', 'III', 'IV', 'V']);
   let suffix = '';
-  if (suffixes.has(parts[parts.length - 1]?.toUpperCase())) suffix = parts.pop();
+  if (suffixes.has(parts[parts.length - 1]?.toUpperCase()))
+    suffix = parts.pop();
   if (parts.length === 1) return suffix ? `${parts[0]} ${suffix}` : parts[0];
-  const firstName       = parts[0];
-  const lastName        = parts[parts.length - 1];
-  const middleFormatted = parts.slice(1, parts.length - 1)
-    .map((m) => { const mm = String(m).replace(/\./g,''); return mm.length === 1 ? `${mm.toUpperCase()}.` : m; })
+  const firstName = parts[0];
+  const lastName = parts[parts.length - 1];
+  const middleFormatted = parts
+    .slice(1, parts.length - 1)
+    .map((m) => {
+      const mm = String(m).replace(/\./g, '');
+      return mm.length === 1 ? `${mm.toUpperCase()}.` : m;
+    })
     .join(' ');
   const base = `${lastName}, ${firstName}${middleFormatted ? ` ${middleFormatted}` : ''}`;
   return suffix ? `${base} ${suffix}` : base;
@@ -214,13 +293,20 @@ const formatFullName = (fullName) => {
 const highlightMatch = (text, q) => {
   const query = (q || '').trim();
   if (!query || !text) return text;
-  const s   = String(text);
+  const s = String(text);
   const idx = s.toLowerCase().indexOf(query.toLowerCase());
   if (idx === -1) return text;
   return (
     <span>
       {s.slice(0, idx)}
-      <span style={{ backgroundColor: '#ffeb3b', color: '#000', padding: '0 3px', borderRadius: 2 }}>
+      <span
+        style={{
+          backgroundColor: '#ffeb3b',
+          color: '#000',
+          padding: '0 3px',
+          borderRadius: 2,
+        }}
+      >
         {s.slice(idx, idx + query.length)}
       </span>
       {s.slice(idx + query.length)}
@@ -317,7 +403,9 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
           {loading ? (
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, py: 2.5 }}>
               <CircularProgress size={16} sx={{ color: T.accent }} />
-              <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>Searching...</Typography>
+              <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>
+                Searching...
+              </Typography>
             </Box>
           ) : results.length > 0 ? (
             <List dense disablePadding>
@@ -333,8 +421,16 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
             </List>
           ) : (
             <Box sx={{ py: 2.5, textAlign: 'center' }}>
-              <Typography sx={{ fontSize: '0.78rem', color: T.faint, fontStyle: 'italic' }}>
-                {query.trim().length >= 2 ? `No registered user found for "${query.trim()}"` : 'Type at least 2 characters to search users'}
+              <Typography
+                sx={{
+                  fontSize: '0.78rem',
+                  color: T.faint,
+                  fontStyle: 'italic',
+                }}
+              >
+                {query.trim().length >= 2
+                  ? `No user found for "${query.trim()}"`
+                  : 'Type at least 2 characters to search'}
               </Typography>
             </Box>
           )}
@@ -347,18 +443,22 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
 // ─── Main Component ────────────────────────────────────────────────────────
 const ViewAttendanceRecord = () => {
   const { socket, connected } = useSocket();
-  const { settings }          = useSystemSettings();
-  const navigate              = useNavigate();
+  const { settings } = useSystemSettings();
+  const navigate = useNavigate();
 
-  const [personID, setPersonID]     = useState('');
-  const [startDate, setStartDate]   = useState('');
-  const [endDate, setEndDate]       = useState('');
-  const [records, setRecords]       = useState([]);
+  const [personID, setPersonID] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [records, setRecords] = useState([]);
   const [personName, setPersonName] = useState('');
-  const [loading, setLoading]       = useState(false);
-  const [error, setError]           = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const [snackbar, setSnackbar]                   = useState({ open: false, message: '', severity: 'success' });
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'success',
+  });
   const [snackbarCountdown, setSnackbarCountdown] = useState(6);
   const [showSuccessModal, setShowSuccessModal]   = useState(false);
   const [modalMessage, setModalMessage]           = useState('');
@@ -376,13 +476,13 @@ const ViewAttendanceRecord = () => {
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
-  const [departments, setDepartments]                           = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
-  const [departmentCodeFilter, setDepartmentCodeFilter]         = useState('');
-  const [loadingDepartments, setLoadingDepartments]             = useState(false);
+  const [departmentCodeFilter, setDepartmentCodeFilter] = useState('');
+  const [loadingDepartments, setLoadingDepartments] = useState(false);
 
-  const [rowsPerPage, setRowsPerPage]   = useState(10);
-  const [currentPage, setCurrentPage]   = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
   const [recordFilter, setRecordFilter] = useState('all');
   const [searchQuery, setSearchQuery]   = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -393,17 +493,19 @@ const ViewAttendanceRecord = () => {
   const trimmedSearch = debouncedSearch.trim();
 
   const [showScrollTop, setShowScrollTop] = useState(false);
-  const [pageLoading, setPageLoading]     = useState(true);
+  const [pageLoading, setPageLoading] = useState(true);
 
-  const fetchRecordsRef     = useRef(null);
+  const fetchRecordsRef = useRef(null);
   const fetchAllUsersDTRRef = useRef(null);
-  const resultsRef          = useRef(null);
+  const resultsRef = useRef(null);
 
-  const { hasAccess, loading: accessLoading } = usePageAccess('view-attendance');
+  const { hasAccess, loading: accessLoading } =
+    usePageAccess('view-attendance');
 
-  const today          = new Date();
-  const formattedToday = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const today = new Date();
+  const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
+  const getAuthHeaders = useCallback(() => {
   const getAuthHeaders = useCallback(() => {
     const token = localStorage.getItem('token');
     return { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } };
@@ -422,7 +524,9 @@ const ViewAttendanceRecord = () => {
     return () => clearInterval(timer);
   }, [snackbar.open, snackbarCountdown]);
 
-  useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
+  useEffect(() => {
+    if (!accessLoading) setPageLoading(false);
+  }, [accessLoading]);
 
   useEffect(() => {
     if (records.length > 0 && viewMode === 'single' && resultsRef.current)
@@ -441,10 +545,15 @@ const ViewAttendanceRecord = () => {
     try {
       const [deptRes, assignRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/api/department-table`, getAuthHeaders()),
-        axios.get(`${API_BASE_URL}/api/department-assignment`, getAuthHeaders()),
+        axios.get(
+          `${API_BASE_URL}/api/department-assignment`,
+          getAuthHeaders(),
+        ),
       ]);
       const deptList = Array.isArray(deptRes.data) ? deptRes.data : [];
-      deptList.sort((a, b) => String(a?.code||'').localeCompare(String(b?.code||'')));
+      deptList.sort((a, b) =>
+        String(a?.code || '').localeCompare(String(b?.code || '')),
+      );
       setDepartments(deptList);
       const map = {};
       (Array.isArray(assignRes.data) ? assignRes.data : []).forEach((a) => {
@@ -455,7 +564,8 @@ const ViewAttendanceRecord = () => {
       return map;
     } catch (err) {
       console.error('Error fetching departments/assignments:', err);
-      setDepartments([]); setDepartmentAssignmentsMap({});
+      setDepartments([]);
+      setDepartmentAssignmentsMap({});
       showSnackbar('Failed to load departments for filtering', 'warning');
       return {};
     } finally { setLoadingDepartments(false); }
@@ -465,12 +575,14 @@ const ViewAttendanceRecord = () => {
     if (viewMode !== 'multiple') return;
     fetchDepartmentsAndAssignments();
   }, [viewMode, fetchDepartmentsAndAssignments]);
+  }, [viewMode, fetchDepartmentsAndAssignments]);
 
   // ── Filtered + paginated users ─────────────────────────────────────────
   const filteredUsers = useMemo(() => {
     let f = allUsersDTR.slice();
     if (recordFilter === 'has') f = f.filter((u) => (u.recordsCount || 0) > 0);
-    else if (recordFilter === 'no') f = f.filter((u) => (u.recordsCount || 0) === 0);
+    else if (recordFilter === 'no')
+      f = f.filter((u) => (u.recordsCount || 0) === 0);
     if (departmentCodeFilter) {
       f = f.filter((u) => {
         const dc = departmentAssignmentsMap?.[u.employeeNumber] || '';
@@ -480,21 +592,35 @@ const ViewAttendanceRecord = () => {
     }
     if (!trimmedSearch) return f;
     const q = trimmedSearch.toLowerCase();
-    return f.filter((u) =>
-      (u.fullName||'').toLowerCase().includes(q) ||
-      (u.lastName||'').toLowerCase().includes(q) ||
-      (u.employeeNumber||'').toLowerCase().includes(q),
+    return f.filter(
+      (u) =>
+        (u.fullName || '').toLowerCase().includes(q) ||
+        (u.lastName || '').toLowerCase().includes(q) ||
+        (u.employeeNumber || '').toLowerCase().includes(q),
     );
-  }, [allUsersDTR, recordFilter, departmentCodeFilter, departmentAssignmentsMap, trimmedSearch]);
+  }, [
+    allUsersDTR,
+    recordFilter,
+    departmentCodeFilter,
+    departmentAssignmentsMap,
+    trimmedSearch,
+  ]);
 
   const selectedCountInFiltered = useMemo(() => {
-    let c = 0; for (const u of filteredUsers) if (selectedUsers.has(u.employeeNumber)) c++;
+    let c = 0;
+    for (const u of filteredUsers) if (selectedUsers.has(u.employeeNumber)) c++;
     return c;
   }, [filteredUsers, selectedUsers]);
 
-  const totalPages     = useMemo(() => Math.max(1, Math.ceil(filteredUsers.length / rowsPerPage)), [filteredUsers.length, rowsPerPage]);
-  const paginatedUsers = useMemo(() => { const s = (currentPage-1)*rowsPerPage; return filteredUsers.slice(s, s+rowsPerPage); }, [filteredUsers, currentPage, rowsPerPage]);
-  const goToPage       = (p) => setCurrentPage(Math.min(Math.max(1,p), totalPages));
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredUsers.length / rowsPerPage)),
+    [filteredUsers.length, rowsPerPage],
+  );
+  const paginatedUsers = useMemo(() => {
+    const s = (currentPage - 1) * rowsPerPage;
+    return filteredUsers.slice(s, s + rowsPerPage);
+  }, [filteredUsers, currentPage, rowsPerPage]);
+  const goToPage = (p) => setCurrentPage(Math.min(Math.max(1, p), totalPages));
 
   // ── Single user fetch ──────────────────────────────────────────────────
   const fetchRecords = useCallback(async (showLoading = true) => {
@@ -687,7 +813,11 @@ const ViewAttendanceRecord = () => {
     if (!socket || !connected) return;
     let debounceTimer = null;
     const handleAttendanceChanged = (payload) => {
-      const ids = Array.isArray(payload?.personIDs) ? payload.personIDs : payload?.personID ? [payload.personID] : [];
+      const ids = Array.isArray(payload?.personIDs)
+        ? payload.personIDs
+        : payload?.personID
+          ? [payload.personID]
+          : [];
       if (viewMode === 'single') {
         if (personID && ids.length > 0 && !ids.includes(personID)) return;
         if (personID && startDate && endDate) fetchRecordsRef.current?.(false);
@@ -708,20 +838,61 @@ const ViewAttendanceRecord = () => {
   }, [startDate, endDate]);
 
   const handleSendToDTR = async () => {
-    if (!personID || !startDate || !endDate) { showSnackbar('Please fill in all fields first', 'warning'); return; }
+    if (!personID || !startDate || !endDate) {
+      showSnackbar('Please fill in all fields first', 'warning');
+      return;
+    }
     try {
-      const res = await axios.post(`${API_BASE_URL}/attendance/api/send-to-dtr`, { personID, startDate, endDate }, getAuthHeaders());
-      if (res.data.success) { showSnackbar(res.data.message, 'success'); navigate('/daily_time_record_faculty', { state: { employeeNumber: personID, fullName: personName, startDate, endDate } }); }
-    } catch (err) { showSnackbar(err.response?.data?.message || 'Failed to view to DTR', 'error'); }
+      const res = await axios.post(
+        `${API_BASE_URL}/attendance/api/send-to-dtr`,
+        { personID, startDate, endDate },
+        getAuthHeaders(),
+      );
+      if (res.data.success) {
+        showSnackbar(res.data.message, 'success');
+        navigate('/daily_time_record_faculty', {
+          state: {
+            employeeNumber: personID,
+            fullName: personName,
+            startDate,
+            endDate,
+          },
+        });
+      }
+    } catch (err) {
+      showSnackbar(
+        err.response?.data?.message || 'Failed to view to DTR',
+        'error',
+      );
+    }
   };
 
   const handleBulkSendToDTR = async () => {
-    const sel = filteredUsers.filter((u) => selectedUsers.has(u.employeeNumber));
-    if (sel.length === 0) { showSnackbar('Please select at least one user', 'warning'); return; }
+    const sel = filteredUsers.filter((u) =>
+      selectedUsers.has(u.employeeNumber),
+    );
+    if (sel.length === 0) {
+      showSnackbar('Please select at least one user', 'warning');
+      return;
+    }
     try {
-      const res = await axios.post(`${API_BASE_URL}/attendance/api/bulk-send-to-dtr`, { userIDs: sel.map((u) => u.employeeNumber), startDate, endDate }, getAuthHeaders());
-      if (res.data.success) { showSnackbar(res.data.message, 'success'); navigate('/daily_time_record_faculty', { state: { users: sel, startDate, endDate, isBulk: true } }); }
-    } catch (err) { showSnackbar(err.response?.data?.message || 'Failed to view DTR', 'error'); }
+      const res = await axios.post(
+        `${API_BASE_URL}/attendance/api/bulk-send-to-dtr`,
+        { userIDs: sel.map((u) => u.employeeNumber), startDate, endDate },
+        getAuthHeaders(),
+      );
+      if (res.data.success) {
+        showSnackbar(res.data.message, 'success');
+        navigate('/daily_time_record_faculty', {
+          state: { users: sel, startDate, endDate, isBulk: true },
+        });
+      }
+    } catch (err) {
+      showSnackbar(
+        err.response?.data?.message || 'Failed to view DTR',
+        'error',
+      );
+    }
   };
 
   const handleUserSelect  = (empNo) => setSelectedUsers((p) => { const n = new Set(p); n.has(empNo) ? n.delete(empNo) : n.add(empNo); return n; });
@@ -733,11 +904,24 @@ const ViewAttendanceRecord = () => {
     if (abortControllerRef.current) abortControllerRef.current.abort();
   };
 
-  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const months = [
+    'JAN',
+    'FEB',
+    'MAR',
+    'APR',
+    'MAY',
+    'JUN',
+    'JUL',
+    'AUG',
+    'SEP',
+    'OCT',
+    'NOV',
+    'DEC',
+  ];
 
   const handleMonthClick = (monthIndex) => {
     const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
-    const end   = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
+    const end = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
     setStartDate(start.toISOString().substring(0, 10));
     setEndDate(end.toISOString().substring(0, 10));
     setSelectedMonth(monthIndex);
@@ -769,9 +953,27 @@ const ViewAttendanceRecord = () => {
         <style>{shimmerKf}</style>
 
         {/* ── Snackbar ── */}
-        <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
-          <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled"
-            sx={{ width: '100%', fontWeight: 600, backgroundColor: snackbar.severity === 'success' ? '#4caf50' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, '& .MuiAlert-icon': { color: snackbar.severity === 'success' ? '#ffffff' : undefined } }}>
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={6000}
+          onClose={handleCloseSnackbar}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        >
+          <Alert
+            onClose={handleCloseSnackbar}
+            severity={snackbar.severity}
+            variant="filled"
+            sx={{
+              width: '100%',
+              fontWeight: 600,
+              backgroundColor:
+                snackbar.severity === 'success' ? '#4caf50' : undefined,
+              color: snackbar.severity === 'success' ? '#ffffff' : undefined,
+              '& .MuiAlert-icon': {
+                color: snackbar.severity === 'success' ? '#ffffff' : undefined,
+              },
+            }}
+          >
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <span>{snackbar.message}</span>
               {snackbar.open && snackbarCountdown > 0 && (
@@ -857,7 +1059,15 @@ const ViewAttendanceRecord = () => {
             </Box>
 
             {viewMode === 'multiple' && (
-              <Box sx={{ mb: 2.5, display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <Box
+                sx={{
+                  mb: 2.5,
+                  display: 'flex',
+                  gap: 1.5,
+                  flexWrap: 'wrap',
+                  alignItems: 'flex-end',
+                }}
+              >
                 <Box sx={{ flex: 1, minWidth: 220 }}>
                   <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Department</Typography>
                   <FormControl fullWidth size="small" disabled={loadingDepartments}>
@@ -994,8 +1204,21 @@ const ViewAttendanceRecord = () => {
                                 <Checkbox size="small" checked={selectedCountInFiltered === filteredUsers.length && filteredUsers.length > 0} indeterminate={selectedCountInFiltered > 0 && selectedCountInFiltered < filteredUsers.length} onChange={(e) => handleSelectAll(e.target.checked)}
                                   sx={{ color: 'rgba(255,255,255,0.6)', '&.Mui-checked': { color: '#fff' }, '&.MuiCheckbox-indeterminate': { color: '#fff' }, p: 0 }} />
                               </CompactTableCell>
-                              {['Employee #', 'Department', 'Full Name', 'Records', 'Status', 'Action'].map((h) => (
-                                <CompactTableCell key={h} isHeader sx={{ bgcolor: T.accent }}>{h}</CompactTableCell>
+                              {[
+                                'Employee #',
+                                'Department',
+                                'Full Name',
+                                'Records',
+                                'Status',
+                                'Action',
+                              ].map((h) => (
+                                <CompactTableCell
+                                  key={h}
+                                  isHeader
+                                  sx={{ bgcolor: T.accent }}
+                                >
+                                  {h}
+                                </CompactTableCell>
                               ))}
                             </TableRow>
                           </TableHead>
@@ -1009,14 +1232,54 @@ const ViewAttendanceRecord = () => {
                                 <CompactTableCell sx={{ color: T.text, fontSize: '0.8rem', fontWeight: 600 }}>{user.employeeNumber}</CompactTableCell>
                                 <CompactTableCell>
                                   {(() => {
-                                    const d = departmentAssignmentsMap?.[user.employeeNumber] || '';
-                                    return d
-                                      ? <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1.25, py: 0.3, borderRadius: '12px', bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}><Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent }}>{d}</Typography></Box>
-                                      : <Typography sx={{ fontSize: '0.72rem', color: T.faint, fontStyle: 'italic' }}>Unassigned</Typography>;
+                                    const d =
+                                      departmentAssignmentsMap?.[
+                                        user.employeeNumber
+                                      ] || '';
+                                    return d ? (
+                                      <Box
+                                        sx={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          px: 1.25,
+                                          py: 0.3,
+                                          borderRadius: '12px',
+                                          bgcolor: alpha(T.accent, 0.1),
+                                          border: `1px solid ${alpha(T.accent, 0.2)}`,
+                                        }}
+                                      >
+                                        <Typography
+                                          sx={{
+                                            fontSize: '0.7rem',
+                                            fontWeight: 700,
+                                            color: T.accent,
+                                          }}
+                                        >
+                                          {d}
+                                        </Typography>
+                                      </Box>
+                                    ) : (
+                                      <Typography
+                                        sx={{
+                                          fontSize: '0.72rem',
+                                          color: T.faint,
+                                          fontStyle: 'italic',
+                                        }}
+                                      >
+                                        Unassigned
+                                      </Typography>
+                                    );
                                   })()}
                                 </CompactTableCell>
-                                <CompactTableCell sx={{ color: T.text, fontSize: '0.8rem' }}>
-                                  {trimmedSearch ? highlightMatch(formatFullName(user.fullName), trimmedSearch) : formatFullName(user.fullName)}
+                                <CompactTableCell
+                                  sx={{ color: T.text, fontSize: '0.8rem' }}
+                                >
+                                  {trimmedSearch
+                                    ? highlightMatch(
+                                        formatFullName(user.fullName),
+                                        trimmedSearch,
+                                      )
+                                    : formatFullName(user.fullName)}
                                 </CompactTableCell>
                                 <CompactTableCell sx={{ color: T.muted, fontSize: '0.8rem', fontWeight: 600 }}>{user.recordsCount || 0}</CompactTableCell>
                                 <CompactTableCell>
@@ -1037,18 +1300,47 @@ const ViewAttendanceRecord = () => {
                     </Box>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 1.5 }}>
                       <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>
-                        Showing {filteredUsers.length === 0 ? 0 : Math.min(filteredUsers.length,(currentPage-1)*rowsPerPage+1)}–{Math.min(filteredUsers.length,currentPage*rowsPerPage)} of {filteredUsers.length} users
+                        Showing{' '}
+                        {filteredUsers.length === 0
+                          ? 0
+                          : Math.min(
+                              filteredUsers.length,
+                              (currentPage - 1) * rowsPerPage + 1,
+                            )}
+                        –
+                        {Math.min(
+                          filteredUsers.length,
+                          currentPage * rowsPerPage,
+                        )}{' '}
+                        of {filteredUsers.length} users
                       </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <Box
+                        sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}
+                      >
                         <FormControl size="small" sx={{ minWidth: 110 }}>
                           <Select value={rowsPerPage} onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }} displayEmpty
                             sx={{ borderRadius: '8px', fontSize: '0.82rem', bgcolor: '#fff', '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder } }}>
                             {[10,20,50,100].map((n) => <MenuItem key={n} value={n} sx={{ fontSize: '0.82rem' }}>{n} rows</MenuItem>)}
                           </Select>
                         </FormControl>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                          <IconButton size="small" onClick={() => goToPage(currentPage-1)} disabled={currentPage === 1}
-                            sx={{ border: `1px solid ${T.accentBorder}`, width: 30, height: 30, '&:hover': { bgcolor: T.accentFaint } }}>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.75,
+                          }}
+                        >
+                          <IconButton
+                            size="small"
+                            onClick={() => goToPage(currentPage - 1)}
+                            disabled={currentPage === 1}
+                            sx={{
+                              border: `1px solid ${T.accentBorder}`,
+                              width: 30,
+                              height: 30,
+                              '&:hover': { bgcolor: T.accentFaint },
+                            }}
+                          >
                             <ArrowBack sx={{ fontSize: 14, color: T.accent }} />
                           </IconButton>
                           <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: T.accent, minWidth: 50, textAlign: 'center' }}>{currentPage} / {totalPages}</Typography>
@@ -1118,11 +1410,38 @@ const ViewAttendanceRecord = () => {
                   <Box sx={{ maxHeight: 440, overflowY: 'auto' }}>
                     {records.length === 0 ? (
                       <Box sx={{ py: 8, textAlign: 'center' }}>
-                        <Box sx={{ width: 60, height: 60, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
-                          <Info sx={{ fontSize: 28, color: alpha(T.accent, 0.3) }} />
+                        <Box
+                          sx={{
+                            width: 60,
+                            height: 60,
+                            borderRadius: '50%',
+                            bgcolor: T.accentFaint,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            mx: 'auto',
+                            mb: 2,
+                          }}
+                        >
+                          <Info
+                            sx={{ fontSize: 28, color: alpha(T.accent, 0.3) }}
+                          />
                         </Box>
-                        <Typography sx={{ fontSize: '0.88rem', fontWeight: 600, color: T.muted, mb: 0.4 }}>No records found</Typography>
-                        <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>Try adjusting your date range or employee number.</Typography>
+                        <Typography
+                          sx={{
+                            fontSize: '0.88rem',
+                            fontWeight: 600,
+                            color: T.muted,
+                            mb: 0.4,
+                          }}
+                        >
+                          No records found
+                        </Typography>
+                        <Typography
+                          sx={{ fontSize: '0.75rem', color: T.faint }}
+                        >
+                          Try adjusting your date range or employee number.
+                        </Typography>
                       </Box>
                     ) : records.map((record, index) => {
                       const hasTimeIn   = !!record.Time1;
@@ -1164,15 +1483,31 @@ const ViewAttendanceRecord = () => {
                 </Box>
               </Box>
               {records.length > 0 && (
-                <Box sx={{ px: 2.5, py: 1.75, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', gap: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                <Box
+                  sx={{
+                    px: 2.5,
+                    py: 1.75,
+                    borderTop: `1px solid ${T.divider}`,
+                    bgcolor: T.accentFaint,
+                    display: 'flex',
+                    gap: 2.5,
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                  }}
+                >
                   {[
                     { icon: <CheckCircle sx={{ fontSize: 13, color: '#4caf50' }} />, label: 'Auto-saved records from biometric device' },
                     { icon: <Info        sx={{ fontSize: 13, color: T.accent }} />,  label: 'Times displayed in 12-hour format' },
                     { icon: <Cancel      sx={{ fontSize: 13, color: '#f44336' }} />, label: 'Uncategorized — face scanned, no button pressed' },
                   ].map((item, i) => (
-                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+                    <Box
+                      key={i}
+                      sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}
+                    >
                       {item.icon}
-                      <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{item.label}</Typography>
+                      <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>
+                        {item.label}
+                      </Typography>
                     </Box>
                   ))}
                 </Box>

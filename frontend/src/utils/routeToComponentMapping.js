@@ -82,6 +82,7 @@ export const routeToComponentMap = {
   '/leave-commutation': 'leave-commutation',
   '/system-settings': 'system-settings',
   '/pds-templates': 'pds-templates',
+  '/file201': 'file201',
   '/leave-commutation': 'leave-commutation',
   '/service-credits': 'service-credits',
   '/compensatory-time-off': 'compensatory-time-off',

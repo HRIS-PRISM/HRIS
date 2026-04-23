@@ -118,6 +118,7 @@ import PDS1 from "./components/PDS/PDS1";
 import PDS2 from "./components/PDS/PDS2";
 import PDS3 from "./components/PDS/PDS3";
 import PDS4 from "./components/PDS/PDS4";
+import File201Admin from "./components/FILE201/File201Admin";
 
 import Payslip from "./components/PAYROLL/Payslip";
 import PayslipOverall from "./components/PAYROLL/RETIRED-PayslipOverall";
@@ -1147,6 +1148,21 @@ function App() {
                   ]}
                 >
                   <PDSTemplates />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/file201"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "staff",
+                    "administrator",
+                    "superadmin",
+                    "technical",
+                  ]}
+                >
+                  <File201Admin />
                 </ProtectedRoute>
               }
             />

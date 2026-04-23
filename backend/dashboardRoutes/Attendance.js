@@ -486,15 +486,21 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
       ot.officialOverTimeIN,
       ot.officialOverTimeOUT,
       CASE
-        WHEN NOT EXISTS (
-          SELECT 1 FROM AttendanceRecordInfo ari
-          WHERE ari.PersonID = ar.personID
-            AND DATE(FROM_UNIXTIME(ari.AttendanceDateTime/1000)) = ar.date
-        ) THEN 1
+        WHEN ari_daily.PersonID IS NULL THEN 1
         ELSE 0
       END AS manualEntry
     FROM attendancerecord ar
     INNER JOIN person_table p ON ar.personID = p.agencyEmployeeNum
+    LEFT JOIN (
+      SELECT
+        PersonID,
+        DATE(FROM_UNIXTIME(AttendanceDateTime / 1000)) AS attDate
+      FROM AttendanceRecordInfo
+      WHERE PersonID = ?
+        AND AttendanceDateTime >= UNIX_TIMESTAMP(?) * 1000
+        AND AttendanceDateTime < UNIX_TIMESTAMP(DATE_ADD(?, INTERVAL 1 DAY)) * 1000
+      GROUP BY PersonID, DATE(FROM_UNIXTIME(AttendanceDateTime / 1000))
+    ) ari_daily ON ari_daily.PersonID = ar.personID AND ari_daily.attDate = ar.date
     LEFT JOIN officialtime ot ON DAYNAME(ar.date) = ot.day
       AND ar.personID = ot.employeeID
       AND ar.date BETWEEN ot.startDate AND ot.endDate
@@ -502,7 +508,7 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
     ORDER BY ar.date ASC;
   `;
 
-  db.query(query, [personID, startDate, endDate], (err, results) => {
+  db.query(query, [personID, startDate, endDate, personID, startDate, endDate], (err, results) => {
     if (err) return res.status(500).send(err);
     logAudit(
       req.user,
