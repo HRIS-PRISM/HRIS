@@ -58,6 +58,7 @@ const settingsExtendedRoutes = require('./routes/settings-extended');
 const confidentialPasswordRoutes = require('./routes/confidential-password');
 const commutationRoute = require('./routes/commutation');
 const pdsTemplatesRoutes = require('./routes/pds-templates');
+const file201Routes = require('./routes/file201');
 const workingHoursRoutes = require('./routes/workingHoursRoutes');
 
 
@@ -395,6 +396,7 @@ app.use('/', confidentialPasswordRoutes);
 app.use('/', PayrollFormulas);
 app.use('/commutationRoute', commutationRoute);
 app.use('/pds-templates', pdsTemplatesRoutes);
+app.use('/file201', file201Routes);
 app.use('/auto-attendance', AutoAttendance);
 app.use('/api/working-hours', workingHoursRoutes);
 

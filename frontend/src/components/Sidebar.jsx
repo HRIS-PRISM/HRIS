@@ -327,7 +327,7 @@ const Sidebar = ({
     "subject",
   ];
 
-  const pdsItems = ["pds1", "pds2", "pds3", "pds4"];
+  const pdsItems = ["pds1", "pds2", "pds3", "pds4", "file201"];
 
   const systemAdministrationItems = [
     "reports",
@@ -534,6 +534,8 @@ const Sidebar = ({
       setSelectedItem("payslip");
     } else if (currentPath === "/pds-templates") {
       setSelectedItem("pds-templates");
+    } else if (currentPath === "/file201") {
+      setSelectedItem("file201");
     } else if (currentPath === "/pds1") {
       setSelectedItem("pds1");
     } else if (currentPath === "/pds2") {
@@ -1601,6 +1603,62 @@ const Sidebar = ({
 
                 <Collapse in={open5} timeout="auto" unmountOnExit>
                   <List component="div" disablePadding sx={{ pl: 5.4 }}>
+                    {(() => {
+                      const file201Route = "/file201";
+                      return shouldShowMenuItem(file201Route) ? (
+                        <ListItem
+                          button
+                          component={Link}
+                          to={file201Route}
+                          onClick={() => handleItemClick("file201")}
+                          sx={{
+                            bgcolor:
+                              selectedItem === "file201"
+                                ? settings.accentColor || "#FEF9E1"
+                                : "inherit",
+                            color:
+                              selectedItem === "file201"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color:
+                                selectedItem === "file201"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color:
+                                selectedItem === "file201"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "&:hover": {
+                              bgcolor: settings.hoverColor || "#6D2323",
+                              color: settings.textSecondaryColor,
+                              "& .MuiListItemIcon-root": {
+                                color: settings.textSecondaryColor,
+                              },
+                              "& .MuiListItemText-primary": {
+                                color: settings.textSecondaryColor,
+                              },
+                            },
+                            borderTopRightRadius:
+                              selectedItem === "file201" ? "15px" : 0,
+                            borderBottomRightRadius:
+                              selectedItem === "file201" ? "15px" : 0,
+                          }}
+                        >
+                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                            <FolderSpecial />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="FILE 201"
+                            sx={{ marginLeft: "-10px" }}
+                          />
+                        </ListItem>
+                      ) : null;
+                    })()}
+
                     {/* PDS1 */}
                     {shouldShowMenuItem("/pds1") && (
                       <ListItem
