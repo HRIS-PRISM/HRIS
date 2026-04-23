@@ -32,6 +32,8 @@ import {
   History as HistoryIcon,
   Refresh as RefreshIcon,
   Delete as DeleteIcon,
+  CheckCircleOutline as ApproveIcon,
+  CancelOutlined as RejectIcon,
   AccessTimeFilled as LateIcon,
   NavigateBefore as PrevIcon,
   NavigateNext as NextIcon,
@@ -43,7 +45,6 @@ import {
   AccessTime as ClockIcon,
   TrendingDown as TardyIcon,
   EventAvailable as PresentIcon,
-  ErrorOutline as WarningIcon,
 } from "@mui/icons-material";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
@@ -140,199 +141,6 @@ const AccentButton = styled(Button)({
   "&:hover":  { transform: "translateY(-1px)" },
   "&:active": { transform: "translateY(0)" },
 });
-
-// ─── Confirm Submit Modal ──────────────────────────────────────────────────────
-const ConfirmSubmitDialog = ({ open, onClose, onConfirm, loading, title, description, confirmLabel, isDelete }) => {
-  const lines = description ? description.split("\n").filter(Boolean) : [];
-  const isDel = isDelete || (confirmLabel || "").toLowerCase().includes("delete");
-  const accentColor = isDel ? "#b91c1c" : T.accent;
-  const accentDark  = isDel ? "#991b1b" : T.accentDark;
-  const accentFaint = isDel ? "rgba(185,28,28,0.07)" : T.accentFaint;
-  const accentBorder= isDel ? "rgba(185,28,28,0.2)" : T.accentBorder;
-  const iconBg      = isDel ? "rgba(185,28,28,0.1)" : alpha(T.accent, 0.1);
-
-  return (
-    <Dialog
-      open={open}
-      onClose={loading ? undefined : onClose}
-      maxWidth="xs"
-      fullWidth
-      PaperProps={{
-        elevation: 0,
-        sx: {
-          borderRadius: "16px",
-          overflow: "hidden",
-          border: `1px solid ${accentBorder}`,
-          boxShadow: `0 20px 60px rgba(0,0,0,0.18), 0 4px 16px rgba(0,0,0,0.08)`,
-        },
-      }}
-      BackdropProps={{
-        sx: { backdropFilter: "blur(4px)", bgcolor: "rgba(0,0,0,0.35)" },
-      }}
-    >
-      {/* Hero header */}
-      <Box sx={{
-        px: 3, pt: 3, pb: 2.25,
-        background: `linear-gradient(145deg, ${alpha(accentColor, 0.06)} 0%, rgba(255,255,255,0) 60%)`,
-        borderBottom: `1px solid ${accentBorder}`,
-      }}>
-        {/* Icon + close row */}
-        <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: 1.75 }}>
-          <Box sx={{
-            width: 44, height: 44, borderRadius: "12px",
-            bgcolor: iconBg,
-            border: `1.5px solid ${alpha(accentColor, 0.2)}`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            {isDel
-              ? <DeleteIcon sx={{ fontSize: 20, color: accentColor }} />
-              : <AddIcon sx={{ fontSize: 20, color: accentColor }} />
-            }
-          </Box>
-          <IconButton
-            size="small"
-            onClick={onClose}
-            disabled={loading}
-            sx={{ color: T.faint, mt: -0.5, mr: -0.75, "&:hover": { color: T.muted, bgcolor: "rgba(0,0,0,0.05)" } }}
-          >
-            <Close sx={{ fontSize: 16 }} />
-          </IconButton>
-        </Box>
-
-        {/* Title */}
-        <Typography sx={{
-          fontFamily: T.poppins, fontWeight: 800, fontSize: "1rem",
-          color: accentColor, lineHeight: 1.25, mb: 0.5,
-        }}>
-          {title || "Confirm Submission"}
-        </Typography>
-        <Typography sx={{
-          fontFamily: T.poppins, fontSize: "0.72rem",
-          color: T.faint, fontWeight: 500, lineHeight: 1.4,
-        }}>
-          Review the details below before confirming.
-        </Typography>
-      </Box>
-
-      {/* Body */}
-      <Box sx={{ px: 3, py: 2.25, bgcolor: "#fff" }}>
-        {/* Description lines — bullet entries get special treatment */}
-        <Box sx={{
-          borderRadius: "10px",
-          border: `1px solid ${accentBorder}`,
-          bgcolor: accentFaint,
-          overflow: "hidden",
-          mb: 2,
-        }}>
-          {lines.map((line, i) => {
-            const isBullet = line.startsWith("•");
-            const isFirst  = i === 0 && !isBullet;
-            return (
-              <Box
-                key={i}
-                sx={{
-                  px: 1.75, py: isBullet ? 0.7 : 1.1,
-                  display: "flex", alignItems: "center", gap: 1.25,
-                  borderBottom: i < lines.length - 1 ? `1px solid ${alpha(accentColor, 0.1)}` : "none",
-                  bgcolor: isBullet ? "rgba(255,255,255,0.6)" : "transparent",
-                }}
-              >
-                {isBullet && (
-                  <Box sx={{
-                    width: 6, height: 6, borderRadius: "50%",
-                    bgcolor: accentColor, opacity: 0.5, flexShrink: 0,
-                  }} />
-                )}
-                <Typography sx={{
-                  fontFamily: T.poppins,
-                  fontSize: isBullet ? "0.8rem" : "0.79rem",
-                  fontWeight: isBullet ? 700 : isFirst ? 600 : 400,
-                  color: isBullet ? accentColor : T.text,
-                  lineHeight: 1.5,
-                }}>
-                  {isBullet ? line.replace("•", "").trim() : line}
-                </Typography>
-              </Box>
-            );
-          })}
-        </Box>
-
-        {/* Cannot be undone strip */}
-        <Box sx={{
-          display: "flex", alignItems: "center", gap: 1,
-          px: 1.5, py: 1,
-          borderRadius: "8px",
-          bgcolor: "rgba(185,28,28,0.05)",
-          border: "1px solid rgba(185,28,28,0.15)",
-        }}>
-          <Box sx={{
-            width: 20, height: 20, borderRadius: "50%",
-            bgcolor: "rgba(185,28,28,0.12)",
-            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-          }}>
-            <WarnIcon sx={{ fontSize: 12, color: "#b91c1c" }} />
-          </Box>
-          <Typography sx={{
-            fontFamily: T.poppins, fontSize: "0.72rem",
-            color: "#b91c1c", fontWeight: 600, lineHeight: 1.3,
-          }}>
-            This action cannot be undone.
-          </Typography>
-        </Box>
-      </Box>
-
-      {/* Footer actions */}
-      <Box sx={{
-        px: 3, py: 2,
-        display: "flex", gap: 1, justifyContent: "flex-end",
-        bgcolor: "#fafafa",
-        borderTop: "1px solid rgba(0,0,0,0.07)",
-      }}>
-        <Button
-          onClick={onClose}
-          disabled={loading}
-          sx={{
-            textTransform: "none", fontFamily: T.poppins, fontWeight: 600,
-            fontSize: "0.8rem", color: T.muted, borderRadius: "8px",
-            px: 2.25, py: 0.9, border: "1px solid rgba(0,0,0,0.12)",
-            bgcolor: "#fff",
-            "&:hover": { bgcolor: "rgba(0,0,0,0.04)", borderColor: "rgba(0,0,0,0.2)" },
-          }}
-        >
-          Cancel
-        </Button>
-        <Button
-          variant="contained"
-          onClick={onConfirm}
-          disabled={loading}
-          disableElevation
-          startIcon={loading
-            ? <CircularProgress size={13} sx={{ color: "rgba(255,255,255,0.8)" }} />
-            : isDel
-              ? <DeleteIcon sx={{ fontSize: "15px !important" }} />
-              : <CheckIcon sx={{ fontSize: "15px !important" }} />
-          }
-          sx={{
-            textTransform: "none", fontFamily: T.poppins, fontWeight: 700,
-            fontSize: "0.8rem", borderRadius: "8px", px: 2.5, py: 0.9,
-            bgcolor: accentColor, color: "#fff",
-            boxShadow: `0 2px 8px ${alpha(accentColor, 0.35)}`,
-            transition: "all 0.15s ease",
-            "&:hover": {
-              bgcolor: accentDark,
-              boxShadow: `0 4px 14px ${alpha(accentColor, 0.45)}`,
-              transform: "translateY(-1px)",
-            },
-            "&:active": { transform: "translateY(0)", boxShadow: `0 1px 4px ${alpha(accentColor, 0.3)}` },
-            "&:disabled": { bgcolor: "#d1d5db", color: "#9ca3af", boxShadow: "none" },
-          }}
-        >
-          {loading ? "Processing…" : (confirmLabel || "Yes, Confirm")}
-        </Button>
-      </Box>
-    </Dialog>
-  );
-};
 
 // ─── Month/Year Navigator ─────────────────────────────────────────────────────
 const MonthYearNavigator = ({ year, month, onChange }) => {
@@ -558,7 +366,7 @@ const AttendanceEditPanel = ({ employee, year, month, attendanceData, onRefresh 
   );
 };
 
-// ─── Attendance Context Banner ─────────────────────────────────────────────────
+// ─── Attendance Context Banner — redesigned ────────────────────────────────────
 const AttendanceContextBanner = ({ attendanceData, loading, year, month, employee, onRefresh }) => {
   const calDays = getCalendarDays(year, month);
 
@@ -597,7 +405,10 @@ const AttendanceContextBanner = ({ attendanceData, loading, year, month, employe
 
   return (
     <Box sx={{ mb: 1 }}>
+      {/* ── Attendance Edit Panel (collapsible edit) ── */}
       <AttendanceEditPanel employee={employee} year={year} month={month} attendanceData={attendanceData} onRefresh={onRefresh} />
+
+      {/* ── Main attendance summary card ── */}
       <Box sx={{
         borderRadius: 2,
         border: `1px solid ${hasWarning ? "rgba(230,81,0,0.25)" : "rgba(46,125,50,0.2)"}`,
@@ -606,6 +417,7 @@ const AttendanceContextBanner = ({ attendanceData, loading, year, month, employe
         boxShadow: "0 1px 6px rgba(0,0,0,0.04)",
         mb: 0.5,
       }}>
+        {/* Top row: month label + key metrics */}
         <Box sx={{
           display: "flex", alignItems: "stretch",
           background: hasWarning
@@ -613,6 +425,7 @@ const AttendanceContextBanner = ({ attendanceData, loading, year, month, employe
             : "linear-gradient(90deg, rgba(46,125,50,0.06) 0%, rgba(255,255,255,0) 40%)",
           borderBottom: `1px solid ${hasWarning ? "rgba(230,81,0,0.1)" : "rgba(46,125,50,0.1)"}`,
         }}>
+          {/* Month pill */}
           <Box sx={{
             px: 1.25, py: 0.75,
             bgcolor: hasWarning ? "rgba(230,81,0,0.08)" : "rgba(46,125,50,0.08)",
@@ -631,6 +444,8 @@ const AttendanceContextBanner = ({ attendanceData, loading, year, month, employe
               : <CheckIcon sx={{ fontSize: 11, color: "#43a047", mt: 0.25 }} />
             }
           </Box>
+
+          {/* Rendered days — main hero metric */}
           <Box sx={{ px: 1.5, py: 0.75, borderRight: `1px solid rgba(0,0,0,0.07)`, display: "flex", flexDirection: "column", justifyContent: "center", minWidth: 80 }}>
             <Typography sx={{ fontSize: "0.56rem", fontWeight: 600, color: T.faint, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1, mb: 0.2 }}>
               Rendered
@@ -645,6 +460,8 @@ const AttendanceContextBanner = ({ attendanceData, loading, year, month, employe
               {overallHrs.toFixed(1)} hrs
             </Typography>
           </Box>
+
+          {/* Session breakdown: AM / PM / OT */}
           {[
             { label: "AM",  hrs: morningHrs, color: "#1565c0" },
             { label: "PM",  hrs: pmHrs,      color: "#6a1b9a" },
@@ -664,6 +481,8 @@ const AttendanceContextBanner = ({ attendanceData, loading, year, month, employe
               )}
             </Box>
           ))}
+
+          {/* Day stats: present / absent / late */}
           <Box sx={{ flex: 1, px: 1, py: 0.75, display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", justifyContent: "flex-end" }}>
             {presentDays > 0 && (
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, px: 0.75, py: 0.3, borderRadius: 1, bgcolor: "rgba(46,125,50,0.08)", border: "1px solid rgba(46,125,50,0.2)" }}>
@@ -688,6 +507,8 @@ const AttendanceContextBanner = ({ attendanceData, loading, year, month, employe
             )}
           </Box>
         </Box>
+
+        {/* Bottom row: tardiness only — shown when present */}
         {tardHrs > 0 && (
           <Box sx={{ px: 1.25, py: 0.5, display: "flex", alignItems: "center", gap: 0.75, borderTop: "1px solid rgba(198,40,40,0.1)", bgcolor: "rgba(198,40,40,0.02)" }}>
             <TardyIcon sx={{ fontSize: 12, color: "#c62828" }} />
@@ -737,8 +558,29 @@ const EmpCatBadge = ({ label, colorHex }) => {
   );
 };
 
-// ─── Earning History Row (read-only, no approve/reject) ────────────────────────
-const EarningRow = ({ record, unit, type, onDelete }) => {
+// ─── Reject Dialog ─────────────────────────────────────────────────────────────
+const RejectDialog = ({ open, onClose, onConfirm, loading }) => {
+  const [reason, setReason] = useState("");
+  useEffect(() => { if (open) setReason(""); }, [open]);
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+      <DialogTitle sx={{ fontFamily: T.poppins, fontWeight: 700, fontSize: "0.95rem", color: T.accent }}>Reject Earning Entry</DialogTitle>
+      <DialogContent>
+        <FieldInput fullWidth multiline rows={3} size="small" label="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Insufficient OT documentation…" />
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} sx={{ textTransform: "none", color: T.muted, fontFamily: T.poppins }}>Cancel</Button>
+        <AccentButton variant="contained" onClick={() => onConfirm(reason)} disabled={loading}
+          sx={{ bgcolor: "#d32f2f", "&:hover": { bgcolor: "#b71c1c" } }}>
+          {loading ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : "Reject"}
+        </AccentButton>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+// ─── Earning Record Row ────────────────────────────────────────────────────────
+const EarningRow = ({ record, unit, type, onApprove, onReject, onDelete }) => {
   const earnH  = toNum(record.earned_hours ?? record.total_hours);
   const status = record.earn_status || "pending";
   const typeColor = type === "leave" ? "#1976d2" : type === "sc" ? "#2e7d32" : T.accent;
@@ -768,8 +610,22 @@ const EarningRow = ({ record, unit, type, onDelete }) => {
           )}
         </Box>
         <Box sx={{ display: "flex", gap: 0.5, flexShrink: 0 }}>
-          <Tooltip title="Delete record">
-            <IconButton size="small" onClick={() => onDelete(record)} sx={{ width: 26, height: 26, color: T.faint, border: `1px solid ${T.accentBorder}`, "&:hover": { color: "#d32f2f", borderColor: "rgba(211,47,47,0.4)", bgcolor: "rgba(211,47,47,0.05)" } }}>
+          {status === "pending" && (
+            <>
+              <Tooltip title="Approve">
+                <IconButton size="small" onClick={() => onApprove(record)} sx={{ width: 26, height: 26, bgcolor: "rgba(46,125,50,0.08)", color: "#2e7d32", border: "1px solid rgba(46,125,50,0.25)" }}>
+                  <ApproveIcon sx={{ fontSize: 14 }} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Reject">
+                <IconButton size="small" onClick={() => onReject(record)} sx={{ width: 26, height: 26, bgcolor: "rgba(211,47,47,0.06)", color: "#d32f2f", border: "1px solid rgba(211,47,47,0.2)" }}>
+                  <RejectIcon sx={{ fontSize: 14 }} />
+                </IconButton>
+              </Tooltip>
+            </>
+          )}
+          <Tooltip title="Delete">
+            <IconButton size="small" onClick={() => onDelete(record)} sx={{ width: 26, height: 26, color: T.faint, border: `1px solid ${T.accentBorder}`, "&:hover": { color: "#d32f2f" } }}>
               <DeleteIcon sx={{ fontSize: 13 }} />
             </IconButton>
           </Tooltip>
@@ -780,12 +636,12 @@ const EarningRow = ({ record, unit, type, onDelete }) => {
 };
 
 // ─── Records List ──────────────────────────────────────────────────────────────
-const RecordsList = ({ employeeNumber, type, unit, refreshKey, year, month }) => {
+const RecordsList = ({ employeeNumber, type, unit, refreshKey, year, month, onApproved }) => {
   const [data,          setData]          = useState({ earnings: [], balances: [] });
   const [loading,       setLoading]       = useState(false);
   const [showAll,       setShowAll]       = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, record: null });
-  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [rejectDialog,  setRejectDialog]  = useState({ open: false, record: null });
+  const [actionLoading, setActionLoading] = useState(false);
 
   const fetchEarnings = useCallback(async () => {
     if (!employeeNumber) return;
@@ -800,20 +656,37 @@ const RecordsList = ({ employeeNumber, type, unit, refreshKey, year, month }) =>
 
   useEffect(() => { fetchEarnings(); }, [fetchEarnings, refreshKey]);
 
-  const handleDeleteConfirm = async () => {
-    if (!deleteConfirm.record) return;
-    setDeleteLoading(true);
+  const handleApprove = async (record) => {
+    setActionLoading(true);
     try {
       const token = localStorage.getItem("token");
-      await axios.delete(`${API_BASE_URL}/api/earnings/${type}/${deleteConfirm.record.id}`, { headers: { Authorization: `Bearer ${token}` } });
-      setDeleteConfirm({ open: false, record: null });
-      fetchEarnings();
+      await axios.patch(`${API_BASE_URL}/api/earnings/${type}/${record.id}/approve`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      fetchEarnings(); if (onApproved) onApproved();
     } catch {}
-    setDeleteLoading(false);
+    setActionLoading(false);
+  };
+
+  const handleReject = async (reason) => {
+    setActionLoading(true);
+    try {
+      const token = localStorage.getItem("token");
+      await axios.patch(`${API_BASE_URL}/api/earnings/${type}/${rejectDialog.record.id}/reject`, { reason }, { headers: { Authorization: `Bearer ${token}` } });
+      setRejectDialog({ open: false, record: null }); fetchEarnings();
+    } catch {}
+    setActionLoading(false);
+  };
+
+  const handleDelete = async (record) => {
+    if (!window.confirm("Delete this earning record? This cannot be undone.")) return;
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`${API_BASE_URL}/api/earnings/${type}/${record.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      fetchEarnings(); if (onApproved) onApproved();
+    } catch {}
   };
 
   if (!employeeNumber) return null;
-  const displayed = showAll ? data.earnings : data.earnings.slice(0, 5);
+  const displayed    = showAll ? data.earnings : data.earnings.slice(0, 5);
   const pendingCount = data.earnings.filter((e) => e.earn_status === "pending").length;
 
   return (
@@ -822,7 +695,7 @@ const RecordsList = ({ employeeNumber, type, unit, refreshKey, year, month }) =>
         <Box sx={{ flex: 1, height: 1, bgcolor: T.divider }} />
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
           <HistoryIcon sx={{ fontSize: 13, color: T.accent }} />
-          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins }}>{monthName(month)} {year} — History</Typography>
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins }}>{monthName(month)} {year} — Records</Typography>
           {pendingCount > 0 && (
             <Chip size="small" label={`${pendingCount} pending`} sx={{ height: 16, fontSize: "0.58rem", fontWeight: 700, bgcolor: T.statusPending.bg, color: T.statusPending.color, border: `1px solid ${T.statusPending.border}` }} />
           )}
@@ -832,7 +705,6 @@ const RecordsList = ({ employeeNumber, type, unit, refreshKey, year, month }) =>
         </IconButton>
         <Box sx={{ flex: 1, height: 1, bgcolor: T.divider }} />
       </Box>
-
       {loading ? (
         <Box sx={{ py: 2, textAlign: "center" }}><CircularProgress size={18} sx={{ color: T.accent }} /></Box>
       ) : data.earnings.length === 0 ? (
@@ -842,12 +714,10 @@ const RecordsList = ({ employeeNumber, type, unit, refreshKey, year, month }) =>
       ) : (
         <>
           {displayed.map((record) => (
-            <EarningRow
-              key={record.id}
-              record={record}
-              unit={unit}
-              type={type}
-              onDelete={(r) => setDeleteConfirm({ open: true, record: r })}
+            <EarningRow key={record.id} record={record} unit={unit} type={type}
+              onApprove={handleApprove}
+              onReject={(r) => setRejectDialog({ open: true, record: r })}
+              onDelete={handleDelete}
             />
           ))}
           {data.earnings.length > 5 && (
@@ -860,28 +730,15 @@ const RecordsList = ({ employeeNumber, type, unit, refreshKey, year, month }) =>
           )}
         </>
       )}
-
-      {/* Delete confirmation modal */}
-      <ConfirmSubmitDialog
-        open={deleteConfirm.open}
-        onClose={() => setDeleteConfirm({ open: false, record: null })}
-        onConfirm={handleDeleteConfirm}
-        loading={deleteLoading}
-        title="Delete Earning Record"
-        description={
-          deleteConfirm.record
-            ? `You are about to permanently delete the ${deleteConfirm.record.leave_code || deleteConfirm.record.sc_type || "CTO"} earning record for ${monthName(deleteConfirm.record.period_month)} ${deleteConfirm.record.period_year} (${fmtHrs(toNum(deleteConfirm.record.earned_hours ?? deleteConfirm.record.total_hours), "hours")}).`
-            : "Are you sure you want to delete this earning record?"
-        }
-        confirmLabel="Yes, Delete"
-      />
+      <RejectDialog open={rejectDialog.open} onClose={() => setRejectDialog({ open: false, record: null })} onConfirm={handleReject} loading={actionLoading} />
     </Box>
   );
 };
 
 // ─── Compact Input Grid ────────────────────────────────────────────────────────
+// AUTO_DEFAULTS: leave codes that get a default of 1.25 days (= 10 hours) on employee load
 const SL_VL_AUTO_CODES = ["SL", "VL"];
-const SL_VL_DEFAULT_HOURS = 1.25 * 8;
+const SL_VL_DEFAULT_HOURS = 1.25 * 8; // 10 hours
 
 const CompactInputGrid = ({ fields, unit, values, drafts, onDraftChange, onCommit, autoDefaultCodes = [] }) => {
   const rows = [];
@@ -907,9 +764,14 @@ const CompactInputGrid = ({ fields, unit, values, drafts, onDraftChange, onCommi
                 transition: "border-color 0.15s, background 0.15s",
                 position: "relative",
               }}>
+                {/* Auto-default indicator badge */}
                 {isAutoDefault && !isActive && (
                   <Tooltip title="Auto-filled with 1.25 days default. You can change this value.">
-                    <Box sx={{ position: "absolute", top: 3, right: 3, zIndex: 1, width: 6, height: 6, borderRadius: "50%", bgcolor: "#1565c0", opacity: 0.6 }} />
+                    <Box sx={{
+                      position: "absolute", top: 3, right: 3, zIndex: 1,
+                      width: 6, height: 6, borderRadius: "50%",
+                      bgcolor: "#1565c0", opacity: 0.6,
+                    }} />
                   </Tooltip>
                 )}
                 <Box sx={{ px: 1, py: 0.4, bgcolor: isActive ? "rgba(46,125,50,0.07)" : isAutoDefault ? "rgba(25,118,210,0.07)" : T.accentFaint, borderBottom: `1px solid ${isActive ? "rgba(46,125,50,0.15)" : isAutoDefault ? "rgba(25,118,210,0.15)" : T.accentBorder}` }}>
@@ -997,7 +859,6 @@ const LeaveEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month, o
   const [refreshKey,        setRefreshKey]       = useState(0);
   const [attendanceData,    setAttendanceData]   = useState(null);
   const [attendanceLoading, setAttLoading]       = useState(false);
-  const [confirmOpen,       setConfirmOpen]      = useState(false);
 
   const calDays = getCalendarDays(year, month);
 
@@ -1022,25 +883,36 @@ const LeaveEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month, o
     } catch { setAssignmentMap({}); }
   }, [employee]);
 
+  // Auto-populate SL and VL with 1.25 days default when employee or period changes
   useEffect(() => {
     if (!employee) { setAttendanceData(null); setAssignmentMap({}); setEarnedHours({}); return; }
     fetchAttendance(); fetchBalances();
   }, [employee, year, month, fetchAttendance, fetchBalances]);
 
+  // Set SL/VL defaults when leaveTypes load or employee/period changes
   useEffect(() => {
     if (!employee || leaveTypes.length === 0) { setEarnedHours({}); setEarnedDraft({}); setRemarks(""); setError(""); return; }
     const defaults = {};
-    leaveTypes.forEach((lt) => { if (SL_VL_AUTO_CODES.includes(lt.leave_code)) defaults[lt.leave_code] = SL_VL_DEFAULT_HOURS; });
+    leaveTypes.forEach((lt) => {
+      if (SL_VL_AUTO_CODES.includes(lt.leave_code)) {
+        defaults[lt.leave_code] = SL_VL_DEFAULT_HOURS;
+      }
+    });
     setEarnedHours(defaults);
     setEarnedDraft({});
     setRemarks("");
     setError("");
   }, [employee, year, month, leaveTypes]);
 
+  // Determine which leave codes are active (SL/VL only count if > 0 but we already prefilled them)
   const activeLeaves = useMemo(() => leaveTypes.filter((lt) => toNum(earnedHours[lt.leave_code]) > 0), [leaveTypes, earnedHours]);
+
+  // Leave codes that get auto-defaults (only ones that actually exist in the leave types list)
   const autoDefaultCodes = useMemo(() => leaveTypes.filter(lt => SL_VL_AUTO_CODES.includes(lt.leave_code)).map(lt => lt.leave_code), [leaveTypes]);
 
-  const doSave = async () => {
+  const handleSave = async () => {
+    if (!employee) { setError("Select an employee first"); return; }
+    if (!activeLeaves.length) { setError("Enter earned hours for at least one leave type"); return; }
     setLoading(true); setError("");
     const token = localStorage.getItem("token");
     let created = 0;
@@ -1057,7 +929,8 @@ const LeaveEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month, o
     }
     setLoading(false);
     if (created > 0) {
-      setSuccess(`${created} leave earning(s) submitted for ${monthName(month)} ${year}.`);
+      setSuccess(`${created} leave earning(s) submitted (${monthName(month)} ${year}).`);
+      // Reset to defaults after save
       const defaults = {};
       leaveTypes.forEach((lt) => { if (SL_VL_AUTO_CODES.includes(lt.leave_code)) defaults[lt.leave_code] = SL_VL_DEFAULT_HOURS; });
       setEarnedHours(defaults);
@@ -1065,24 +938,9 @@ const LeaveEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month, o
       setRefreshKey((k) => k + 1);
       setTimeout(() => setSuccess(""), 3500);
     }
-    setConfirmOpen(false);
-  };
-
-  const handleSaveClick = () => {
-    if (!employee) { setError("Select an employee first"); return; }
-    if (!activeLeaves.length) { setError("Enter earned hours for at least one leave type"); return; }
-    setConfirmOpen(true);
   };
 
   const handleApproved = useCallback(() => { fetchBalances(); if (onBalanceChanged) onBalanceChanged(); }, [fetchBalances, onBalanceChanged]);
-
-  // Build confirm description
-  const confirmDescription = useMemo(() => {
-    if (!employee || !activeLeaves.length) return "";
-    const empName = `${(employee.lastName || "").toUpperCase()}, ${employee.firstName || ""}`.trim();
-    const lines = activeLeaves.map(lt => `• ${lt.leave_code}: ${fmtHrs(toNum(earnedHours[lt.leave_code]), unit)}`).join("\n");
-    return `You are about to add the following leave earnings for ${empName} (${monthName(month)} ${year}):\n\n${lines}`;
-  }, [employee, activeLeaves, earnedHours, unit, month, year]);
 
   if (!employee) return (
     <Box sx={{ py: 6, textAlign: "center" }}>
@@ -1113,8 +971,11 @@ const LeaveEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month, o
                   </Typography>
                   {autoDefaultCodes.length > 0 && (
                     <Tooltip title={`${autoDefaultCodes.join(" & ")} are pre-filled with 1.25 days default. You can modify these before submitting.`}>
-                      <Chip size="small" label={`${autoDefaultCodes.join("+")} auto 1.25d`}
-                        sx={{ height: 16, fontSize: "0.56rem", fontWeight: 700, bgcolor: "rgba(25,118,210,0.12)", color: "#1565c0", border: "1px solid rgba(25,118,210,0.25)", cursor: "help", ml: "auto" }} />
+                      <Chip
+                        size="small"
+                        label={`${autoDefaultCodes.join("+")} auto 1.25d`}
+                        sx={{ height: 16, fontSize: "0.56rem", fontWeight: 700, bgcolor: "rgba(25,118,210,0.12)", color: "#1565c0", border: "1px solid rgba(25,118,210,0.25)", cursor: "help", ml: "auto" }}
+                      />
                     </Tooltip>
                   )}
                 </Box>
@@ -1128,16 +989,16 @@ const LeaveEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month, o
                   onDraftChange={(key, val) => setEarnedDraft(p => val === undefined ? (({ [key]: _, ...rest }) => rest)(p) : { ...p, [key]: val })}
                   onCommit={(key, val) => setEarnedHours(p => ({ ...p, [key]: val }))}
                 />
-                <RecordsList employeeNumber={employee?.employeeNumber} type="leave" unit={unit} refreshKey={refreshKey} year={year} month={month} />
+                <RecordsList employeeNumber={employee?.employeeNumber} type="leave" unit={unit} refreshKey={refreshKey} year={year} month={month} onApproved={handleApproved} />
               </Box>
             )}
           </Box>
           <Box sx={{ flexShrink: 0 }}>
             <FieldInput size="small" fullWidth multiline rows={1} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Remarks for all entries (optional)" sx={{ mb: 0.75 }} />
-            <AccentButton variant="contained" fullWidth onClick={handleSaveClick} disabled={loading || activeLeaves.length === 0}
-              startIcon={<AddIcon sx={{ fontSize: "16px !important" }} />}
+            <AccentButton variant="contained" fullWidth onClick={handleSave} disabled={loading || activeLeaves.length === 0}
+              startIcon={loading ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AddIcon sx={{ fontSize: "16px !important" }} />}
               sx={{ height: 40, bgcolor: activeLeaves.length > 0 ? T.accent : "#d0d0d0", color: "#fff", fontFamily: T.poppins, "&:hover": { bgcolor: activeLeaves.length > 0 ? T.accentDark : "#d0d0d0" }, "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important" } }}>
-              {activeLeaves.length > 0 ? `Submit ${activeLeaves.length} Earning(s) for ${monthName(month)} ${year}` : "Enter hours above to submit"}
+              {loading ? "Saving…" : activeLeaves.length > 0 ? `Submit ${activeLeaves.length} Earning(s) for ${monthName(month)} ${year}` : "Enter hours above to submit"}
             </AccentButton>
           </Box>
         </Box>
@@ -1177,17 +1038,6 @@ const LeaveEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month, o
           })}
         </Box>
       </Box>
-
-      {/* Confirm submit modal */}
-      <ConfirmSubmitDialog
-        open={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
-        onConfirm={doSave}
-        loading={loading}
-        title={`Submit Leave Earnings — ${monthName(month)} ${year}`}
-        description={confirmDescription}
-        confirmLabel={`Yes, Submit ${activeLeaves.length} Earning(s)`}
-      />
     </Box>
   );
 };
@@ -1205,7 +1055,6 @@ const SCEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month }) =>
   const [refreshKey, setRefreshKey] = useState(0);
   const [attendanceData,    setAttendanceData]   = useState(null);
   const [attendanceLoading, setAttLoading]       = useState(false);
-  const [confirmOpen,       setConfirmOpen]      = useState(false);
 
   const calDays = getCalendarDays(year, month);
   const empCat = employee ? empCatMap[String(employee.employeeNumber)] : null;
@@ -1255,7 +1104,9 @@ const SCEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month }) =>
 
   const effectiveSCType = scType === "auto" ? derivedSCType : scType;
 
-  const doSave = async () => {
+  const handleSave = async () => {
+    if (!employee) { setError("Select an employee first"); return; }
+    if (computedSC.total <= 0) { setError("OT hours must be > 0"); return; }
     setLoading(true); setError("");
     const token = localStorage.getItem("token");
     try {
@@ -1273,17 +1124,8 @@ const SCEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month }) =>
       setRefreshKey(k => k + 1);
       setTimeout(() => setSuccess(""), 3500);
     } catch (err) { setError("Failed to save SC: " + (err.response?.data?.error || err.message)); }
-    finally { setLoading(false); setConfirmOpen(false); }
+    finally { setLoading(false); }
   };
-
-  const handleSaveClick = () => {
-    if (!employee) { setError("Select an employee first"); return; }
-    if (computedSC.total <= 0) { setError("OT hours must be > 0"); return; }
-    setConfirmOpen(true);
-  };
-
-  const empName = employee ? `${(employee.lastName || "").toUpperCase()}, ${employee.firstName || ""}`.trim() : "";
-  const confirmDescription = `You are about to add ${fmtHrs(computedSC.total, unit)} of Service Credit (${SC_TYPES[effectiveSCType]?.label}) for ${empName} covering ${monthName(month)} ${year}.\n\nTotal OT input: ${computedSC.totalOT.toFixed(3)} hrs`;
 
   if (!employee) return (
     <Box sx={{ py: 6, textAlign: "center" }}>
@@ -1336,22 +1178,12 @@ const SCEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month }) =>
       </Box>
       <Box sx={{ flexShrink: 0, pt: 1, borderTop: `1px solid ${T.divider}`, mt: 1 }}>
         <FieldInput size="small" fullWidth multiline rows={1} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Remarks (optional)" sx={{ mb: 0.75 }} />
-        <AccentButton variant="contained" fullWidth onClick={handleSaveClick} disabled={loading || computedSC.total <= 0}
-          startIcon={<AddIcon sx={{ fontSize: "16px !important" }} />}
+        <AccentButton variant="contained" fullWidth onClick={handleSave} disabled={loading || computedSC.total <= 0}
+          startIcon={loading ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AddIcon sx={{ fontSize: "16px !important" }} />}
           sx={{ height: 40, bgcolor: computedSC.total > 0 ? T.accent : "#d0d0d0", color: "#fff", fontFamily: T.poppins, "&:hover": { bgcolor: computedSC.total > 0 ? T.accentDark : "#d0d0d0" }, "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important" } }}>
-          {computedSC.total > 0 ? `Submit ${fmtHrs(computedSC.total, unit)} SC for ${monthName(month)} ${year}` : "Enter OT hours above to submit"}
+          {loading ? "Saving…" : computedSC.total > 0 ? `Submit ${fmtHrs(computedSC.total, unit)} SC for ${monthName(month)} ${year}` : "Enter OT hours above to submit"}
         </AccentButton>
       </Box>
-
-      <ConfirmSubmitDialog
-        open={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
-        onConfirm={doSave}
-        loading={loading}
-        title={`Submit Service Credit — ${monthName(month)} ${year}`}
-        description={confirmDescription}
-        confirmLabel="Yes, Submit SC"
-      />
     </Box>
   );
 };
@@ -1368,7 +1200,6 @@ const CTOEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month }) =
   const [refreshKey, setRefreshKey] = useState(0);
   const [attendanceData,    setAttendanceData]   = useState(null);
   const [attendanceLoading, setAttLoading]       = useState(false);
-  const [confirmOpen,       setConfirmOpen]      = useState(false);
 
   const calDays = getCalendarDays(year, month);
   const empCat = employee ? empCatMap[String(employee.employeeNumber)] : null;
@@ -1393,7 +1224,9 @@ const CTOEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month }) =
   const earned = toNum(otHours);
   const otDisplay = otDraft !== null ? otDraft : (earned === 0 ? "" : (unit === "days" ? String(parseFloat((earned / 8).toFixed(3))) : String(earned)));
 
-  const doSave = async () => {
+  const handleSave = async () => {
+    if (!employee) { setError("Select an employee first"); return; }
+    if (earned <= 0) { setError("OT hours must be > 0"); return; }
     setLoading(true); setError("");
     const token = localStorage.getItem("token");
     try {
@@ -1408,17 +1241,8 @@ const CTOEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month }) =
       setRefreshKey(k => k + 1);
       setTimeout(() => setSuccess(""), 3500);
     } catch (err) { setError("Failed to save CTO: " + (err.response?.data?.error || err.message)); }
-    finally { setLoading(false); setConfirmOpen(false); }
+    finally { setLoading(false); }
   };
-
-  const handleSaveClick = () => {
-    if (!employee) { setError("Select an employee first"); return; }
-    if (earned <= 0) { setError("OT hours must be > 0"); return; }
-    setConfirmOpen(true);
-  };
-
-  const empName = employee ? `${(employee.lastName || "").toUpperCase()}, ${employee.firstName || ""}`.trim() : "";
-  const confirmDescription = `You are about to add ${fmtHrs(earned, unit)} of Compensatory Time Off for ${empName} covering ${monthName(month)} ${year}.${expiryDate ? `\n\nExpiry date: ${expiryDate}` : ""}`;
 
   if (!employee) return (
     <Box sx={{ py: 6, textAlign: "center" }}>
@@ -1488,22 +1312,12 @@ const CTOEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month }) =
       </Box>
       <Box sx={{ flexShrink: 0, pt: 1, borderTop: `1px solid ${T.divider}`, mt: 1 }}>
         <FieldInput size="small" fullWidth multiline rows={1} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Remarks (optional)" sx={{ mb: 0.75 }} />
-        <AccentButton variant="contained" fullWidth onClick={handleSaveClick} disabled={loading || earned <= 0}
-          startIcon={<AddIcon sx={{ fontSize: "16px !important" }} />}
+        <AccentButton variant="contained" fullWidth onClick={handleSave} disabled={loading || earned <= 0}
+          startIcon={loading ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AddIcon sx={{ fontSize: "16px !important" }} />}
           sx={{ height: 40, bgcolor: earned > 0 ? T.accent : "#d0d0d0", color: "#fff", fontFamily: T.poppins, "&:hover": { bgcolor: earned > 0 ? T.accentDark : "#d0d0d0" }, "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important" } }}>
-          {earned > 0 ? `Submit ${fmtHrs(earned, unit)} CTO for ${monthName(month)} ${year}` : "Enter OT hours above to submit"}
+          {loading ? "Saving…" : earned > 0 ? `Submit ${fmtHrs(earned, unit)} CTO for ${monthName(month)} ${year}` : "Enter OT hours above to submit"}
         </AccentButton>
       </Box>
-
-      <ConfirmSubmitDialog
-        open={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
-        onConfirm={doSave}
-        loading={loading}
-        title={`Submit CTO — ${monthName(month)} ${year}`}
-        description={confirmDescription}
-        confirmLabel="Yes, Submit CTO"
-      />
     </Box>
   );
 };
@@ -1531,7 +1345,7 @@ const EarningsManagement = () => {
   const [periodMonth,      setPeriodMonth]      = useState(now.getMonth() + 1);
   const [balanceKey,       setBalanceKey]       = useState(0);
 
-  const handleMonthChange    = useCallback((y, m) => { setPeriodYear(y); setPeriodMonth(m); }, []);
+  const handleMonthChange   = useCallback((y, m) => { setPeriodYear(y); setPeriodMonth(m); }, []);
   const handleBalanceChanged = useCallback(() => setBalanceKey(k => k + 1), []);
 
   useEffect(() => {
