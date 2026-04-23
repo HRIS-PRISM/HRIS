@@ -201,13 +201,13 @@ const LeaveGroupCard = ({ group, accentColor }) => {
                 fontSize: '1.15rem',
               }}
             >
-              {group.currRemaining.toFixed(1)}
+              {group.currRemaining.toFixed(3)}
             </Typography>
             <Typography
               variant="caption"
               sx={{ color: '#aaa', fontSize: '0.68rem' }}
             >
-              / {group.currTotal.toFixed(1)} days current
+              / {group.currTotal.toFixed(3)} days current
             </Typography>
           </Box>
         </Box>
@@ -250,7 +250,7 @@ const LeaveGroupCard = ({ group, accentColor }) => {
                     lineHeight: 1,
                   }}
                 >
-                  {group.prevRemainingDays.toFixed(1)}
+                  {group.prevRemainingDays.toFixed(3)}
                 </Typography>
                 <Typography
                   variant="caption"
@@ -323,13 +323,13 @@ const LeaveGroupCard = ({ group, accentColor }) => {
                 lineHeight: 1,
               }}
             >
-              {group.currRemaining.toFixed(1)}
+              {group.currRemaining.toFixed(3)}
             </Typography>
             <Typography
               variant="caption"
               sx={{ color: '#bbb', fontSize: '0.63rem' }}
             >
-              of {group.currAllocated.toFixed(1)} allocated
+              of {group.currAllocated.toFixed(3)} allocated
             </Typography>
           </Box>
         </Box>
@@ -353,7 +353,7 @@ const LeaveGroupCard = ({ group, accentColor }) => {
               variant="caption"
               sx={{ color: '#bbb', fontSize: '0.68rem' }}
             >
-              Used: {group.currUsed.toFixed(1)} d
+              Used: {group.currUsed.toFixed(3)} d
             </Typography>
             {hasPrevious && (
               <Box
@@ -452,20 +452,20 @@ const LeaveGroupCard = ({ group, accentColor }) => {
                       <Typography
                         sx={{ fontWeight: 800, color: c, fontSize: '0.88rem' }}
                       >
-                        {entry.remaining.toFixed(1)}
+                        {entry.remaining.toFixed(3)}
                       </Typography>
                       <Typography
                         variant="caption"
                         sx={{ color: '#ccc', fontSize: '0.63rem' }}
                       >
-                        /{entry.total.toFixed(1)}d
+                        /{entry.total.toFixed(3)}d
                       </Typography>
                     </Box>
                     <Typography
                       variant="caption"
                       sx={{ color: '#bbb', fontSize: '0.6rem' }}
                     >
-                      used {entry.used.toFixed(1)}d
+                      used {entry.used.toFixed(3)}d
                     </Typography>
                   </Box>
                 );
@@ -509,7 +509,7 @@ const CompactView = ({ rawCredits, loading, accentColor }) => {
         return (
           <Chip
             key={i}
-            label={`${g.code}: ${g.grandRemaining.toFixed(1)} days`}
+            label={`${g.code}: ${g.grandRemaining.toFixed(3)} days`}
             size="small"
             sx={{
               height: 24,
@@ -607,7 +607,7 @@ const FullView = ({
               variant="h3"
               sx={{ fontWeight: 700, color: accentColor, lineHeight: 1 }}
             >
-              {totalRemaining.toFixed(1)}
+              {totalRemaining.toFixed(3)}
             </Typography>
             <Typography variant="caption" sx={{ color: '#888' }}>
               days remaining (all types &amp; periods)

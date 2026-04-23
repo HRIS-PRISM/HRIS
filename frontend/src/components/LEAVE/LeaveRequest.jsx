@@ -71,6 +71,12 @@ import {
   HelpOutline as HelpOutlineIcon,
   Lock as LockIcon,
   Work as WorkIcon,
+  FilterAlt as FilterAltIcon,
+  ManageSearch as ManageSearchIcon,
+  OpenInFull as OpenInFullIcon,
+  FullscreenExit as FullscreenExitIcon,
+  NavigateBefore,
+  NavigateNext,
 } from '@mui/icons-material';
 
 import SuccessfulOverlay from '../SuccessfulOverlay';
@@ -98,6 +104,8 @@ const T = {
   surface: '#ffffff',
   divider: 'rgba(0,0,0,0.08)',
 };
+
+const TX_LOGS_PER_PAGE = 5;
 
 // ─── Styled primitives ─────────────────────────────────────────────────────────
 const SectionCard = styled(Card)({
@@ -146,7 +154,6 @@ const shimmerKf = `
 const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
   <Box
     sx={{
-      width: w,
       height: h,
       borderRadius: r,
       background: `linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)`,
@@ -457,6 +464,355 @@ const FormSectionLabel = ({ icon: Icon, children }) => (
   </Box>
 );
 
+const getLogTimeLabel = (log) => {
+  const loggedAt = log.created_at || log.createdAt || log.timestamp;
+  if (!loggedAt) return null;
+  const d = new Date(loggedAt);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+};
+
+const normalizeLeaveCategory = (leaveType = {}) => {
+  const text = `${leaveType.leave_description || leaveType.leave_code || ''}`.toLowerCase();
+  if (text.includes('sick')) return 'Sick Leave';
+  if (text.includes('vacation') || text.includes('annual')) return 'Vacation Leave';
+  if (text.includes('emergency')) return 'Emergency Leave';
+  if (text.includes('maternity')) return 'Maternity Leave';
+  if (text.includes('paternity')) return 'Paternity Leave';
+  if (text.includes('bereavement')) return 'Bereavement Leave';
+  return leaveType.leave_description || leaveType.leave_code || 'Other Leave Types';
+};
+
+const getLogLeaveType = (log, leaveTypes = []) => {
+  const message = `${log?.message || ''}`.toLowerCase();
+  if (!message) return null;
+  const sorted = [...leaveTypes].sort((a, b) => {
+    const aLen = `${a.leave_description || a.leave_code || ''}`.length;
+    const bLen = `${b.leave_description || b.leave_code || ''}`.length;
+    return bLen - aLen;
+  });
+  return sorted.find((leaveType) => {
+    const description = `${leaveType.leave_description || ''}`.toLowerCase();
+    const code = `${leaveType.leave_code || ''}`.toLowerCase();
+    return (description && message.includes(description)) || (code && message.includes(code));
+  }) || null;
+};
+
+const getLogLeaveCategory = (log, leaveTypes = []) => normalizeLeaveCategory(getLogLeaveType(log, leaveTypes) || {});
+
+const TransactionLogsSurface = ({
+  variant,
+  logs,
+  totalCount,
+  filteredTotal,
+  loading,
+  error,
+  employeeNames,
+  leaveTypes,
+  auditPage,
+  setAuditPage,
+  searchTerm,
+  setSearchTerm,
+  actionFilter,
+  setActionFilter,
+  leaveFilter,
+  setLeaveFilter,
+  kindMap,
+  getTxKind,
+  renderTxSentence,
+  onClose,
+  onOpenModal,
+  onExpandPanel,
+}) => {
+  const isPanel = variant === 'panel';
+  const totalPages = Math.max(1, Math.ceil(Math.max(filteredTotal, 0) / TX_LOGS_PER_PAGE));
+  const paginated = logs.slice((auditPage - 1) * TX_LOGS_PER_PAGE, auditPage * TX_LOGS_PER_PAGE);
+  const leaveFilterOptions = ['all', ...new Map(leaveTypes.map((leaveType) => [normalizeLeaveCategory(leaveType), normalizeLeaveCategory(leaveType)])).keys()];
+
+  return (
+    <SectionCard
+      sx={
+        isPanel
+          ? { height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }
+          : { width: '100%', maxWidth: 620, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }
+      }
+    >
+      <Box
+        sx={{
+          px: 3.5,
+          py: 2.5,
+          background: T.headerGrad,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          position: 'relative',
+          overflow: 'hidden',
+          flexShrink: 0,
+          gap: 2,
+        }}
+      >
+        <Box sx={{ position: 'absolute', top: -50, right: -30, width: 180, height: 180, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.04)' }} />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1, minWidth: 0 }}>
+          <Box sx={{ width: 38, height: 38, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <HistoryToggleOff sx={{ fontSize: 18, color: '#fff' }} />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontWeight: 700, color: '#fff', fontSize: '0.95rem', lineHeight: 1.2, mb: 0.3 }} noWrap>
+              Transaction Logs
+            </Typography>
+            <Typography sx={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.68)' }}>
+              {filteredTotal > 0 ? `${filteredTotal} of ${totalCount} recorded action(s)` : 'All activity on leave requests'}
+            </Typography>
+          </Box>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', position: 'relative', zIndex: 1, justifyContent: 'flex-end' }}>
+          {isPanel ? (
+            <AccentButton
+              onClick={onOpenModal}
+              variant="outlined"
+              startIcon={<OpenInFullIcon sx={{ fontSize: '14px !important' }} />}
+              sx={{ fontSize: '0.76rem', color: '#fff', borderColor: 'rgba(255,255,255,0.24)', bgcolor: 'rgba(255,255,255,0.08)', '&:hover': { bgcolor: 'rgba(255,255,255,0.14)', borderColor: 'rgba(255,255,255,0.35)', transform: 'none' } }}
+            >
+              Compact modal
+            </AccentButton>
+          ) : (
+            <AccentButton
+              onClick={onExpandPanel}
+              variant="outlined"
+              startIcon={<OpenInFullIcon sx={{ fontSize: '14px !important' }} />}
+              sx={{ fontSize: '0.76rem', color: '#fff', borderColor: 'rgba(255,255,255,0.24)', bgcolor: 'rgba(255,255,255,0.08)', '&:hover': { bgcolor: 'rgba(255,255,255,0.14)', borderColor: 'rgba(255,255,255,0.35)', transform: 'none' } }}
+            >
+              Full panel
+            </AccentButton>
+          )}
+          <IconButton onClick={onClose} size="small" sx={{ color: 'rgba(255,255,255,0.75)', position: 'relative', zIndex: 1, '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' } }}>
+            {isPanel ? <FullscreenExitIcon sx={{ fontSize: 17 }} /> : <Close sx={{ fontSize: 17 }} />}
+          </IconButton>
+        </Box>
+      </Box>
+
+      {isPanel && (
+        <Box sx={{ px: 3, py: 2, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Box sx={{ position: 'relative', flex: 1, minWidth: 220 }}>
+              <ManageSearchIcon sx={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: T.faint, pointerEvents: 'none' }} />
+              <FieldInput
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search employee, action, or leave type…"
+                size="small"
+                fullWidth
+                sx={{ '& .MuiOutlinedInput-root': { pl: 1.5 } }}
+              />
+            </Box>
+            <AccentButton
+              onClick={() => setSearchTerm('')}
+              variant="outlined"
+              startIcon={<FilterAltIcon sx={{ fontSize: '14px !important' }} />}
+              sx={{ fontSize: '0.74rem', color: T.accent, borderColor: T.accentBorder, bgcolor: '#fff', '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, transform: 'none' } }}
+            >
+              Clear
+            </AccentButton>
+          </Box>
+
+          <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+            {[
+              { label: 'All actions', value: 'all' },
+              { label: 'Submitted', value: 'submitted' },
+              { label: 'Supervisor', value: 'supervisor_approved' },
+              { label: 'HR approved', value: 'hr_approved' },
+              { label: 'Denied', value: 'denied' },
+              { label: 'Cancelled', value: 'cancelled' },
+              { label: 'Deleted', value: 'deleted' },
+            ].map((opt) => (
+              <Box
+                key={opt.value}
+                onClick={() => setActionFilter(opt.value)}
+                sx={{
+                  px: 1.35,
+                  py: 0.45,
+                  borderRadius: 999,
+                  cursor: 'pointer',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  border: `1px solid ${actionFilter === opt.value ? T.accent : T.accentBorder}`,
+                  color: actionFilter === opt.value ? '#fff' : T.accent,
+                  bgcolor: actionFilter === opt.value ? T.accent : '#fff',
+                  transition: 'all 0.15s ease',
+                  '&:hover': { bgcolor: actionFilter === opt.value ? T.accentDark : T.accentFaint },
+                }}
+              >
+                {opt.label}
+              </Box>
+            ))}
+          </Box>
+
+          <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+            {leaveFilterOptions.map((category, index) => {
+              const label = category === 'all' ? 'All leave types' : category;
+              return (
+                <Box
+                  key={`${category}-${index}`}
+                  onClick={() => setLeaveFilter(category)}
+                  sx={{
+                    px: 1.35,
+                    py: 0.45,
+                    borderRadius: 999,
+                    cursor: 'pointer',
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    border: `1px solid ${leaveFilter === category ? T.accent : T.accentBorder}`,
+                    color: leaveFilter === category ? '#fff' : T.accent,
+                    bgcolor: leaveFilter === category ? T.accent : '#fff',
+                    transition: 'all 0.15s ease',
+                    '&:hover': { bgcolor: leaveFilter === category ? T.accentDark : T.accentFaint },
+                  }}
+                >
+                  {label}
+                </Box>
+              );
+            })}
+          </Box>
+        </Box>
+      )}
+
+      <Box
+        sx={{
+          px: 3,
+          py: 2.5,
+          overflowY: 'auto',
+          flexGrow: 1,
+          bgcolor: T.accentFaint,
+          '&::-webkit-scrollbar': { width: 4 },
+          '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
+        }}
+      >
+        {loading ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {[...Array(TX_LOGS_PER_PAGE)].map((_, i) => (
+              <Box key={i} sx={{ p: 2.5, borderRadius: 2, bgcolor: '#fff', border: `1px solid ${T.accentBorder}`, animation: 'blink 1.6s ease-in-out infinite', animationDelay: `${i * 0.1}s` }}>
+                <Bone w={90} h={16} sx={{ mb: 1 }} />
+                <Bone w="80%" h={12} sx={{ mb: 0.75 }} />
+                <Bone w="55%" h={12} />
+              </Box>
+            ))}
+          </Box>
+        ) : error ? (
+          <Alert severity="error" sx={{ borderRadius: 2 }}>{error}</Alert>
+        ) : filteredTotal === 0 ? (
+          <Box sx={{ py: 10, textAlign: 'center' }}>
+            <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+              <HistoryToggleOff sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+            </Box>
+            <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted }}>
+              {totalCount === 0 ? 'No activity yet.' : 'No logs match your filters.'}
+            </Typography>
+            <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+              {totalCount === 0 ? 'Actions on leave requests will appear here.' : 'Try a different search or leave-type filter.'}
+            </Typography>
+          </Box>
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {paginated.map((log) => {
+              const kind = getTxKind(log);
+              const { label, color, bg, Icon } = kindMap[kind] || kindMap.activity;
+              const timeLabel = getLogTimeLabel(log);
+              const leaveType = getLogLeaveType(log, leaveTypes);
+              const leaveCategory = getLogLeaveCategory(log, leaveTypes);
+              const logEmpNum = log.employee_id || log.employeeNumber;
+              const logEmpName = logEmpNum ? employeeNames[logEmpNum] : null;
+
+              return (
+                <Box
+                  key={`log-${log.id}`}
+                  sx={{
+                    bgcolor: '#fff',
+                    borderRadius: 2,
+                    p: 2.5,
+                    border: `1px solid ${T.accentBorder}`,
+                    borderLeft: `4px solid ${color}`,
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                    '&:hover': { boxShadow: `0 4px 12px ${alpha(color, 0.12)}` },
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.25, flexWrap: 'wrap', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, px: 1.25, py: 0.35, borderRadius: '6px', bgcolor: bg, border: `1px solid ${alpha(color, 0.2)}` }}>
+                        <Icon sx={{ fontSize: 12, color }} />
+                        <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color, lineHeight: 1 }}>{label}</Typography>
+                      </Box>
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.1, py: 0.32, borderRadius: '6px', bgcolor: alpha(T.accent, 0.05), border: `1px solid ${T.accentBorder}` }}>
+                        <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: T.accent, lineHeight: 1 }}>
+                          {leaveCategory}
+                        </Typography>
+                      </Box>
+                    </Box>
+                    {timeLabel && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <ScheduleIcon sx={{ fontSize: 11, color: T.faint }} />
+                        <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{timeLabel}</Typography>
+                      </Box>
+                    )}
+                  </Box>
+
+                  {logEmpNum && (
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, px: 1.5, py: 0.5, bgcolor: alpha('#1565C0', 0.05), borderRadius: 1.5, border: '1px solid rgba(21,101,192,0.15)' }}>
+                        <PersonIcon sx={{ fontSize: 14, color: '#1565C0', flexShrink: 0 }} />
+                        <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: '#1565C0', lineHeight: 1 }}>
+                          {logEmpNum} {logEmpName && logEmpName !== 'Unknown' && '| '}{logEmpName && logEmpName !== 'Unknown' && logEmpName.toUpperCase()}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  )}
+
+                  {leaveType?.leave_description && (
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                      <Chip
+                        size="small"
+                        label={`${leaveType.leave_code} — ${leaveType.leave_description}`}
+                        sx={{ height: 22, fontSize: '0.68rem', fontWeight: 700, bgcolor: T.accentFaint, color: T.accent, border: `1px solid ${T.accentBorder}` }}
+                      />
+                    </Box>
+                  )}
+
+                  {renderTxSentence(log)}
+                </Box>
+              );
+            })}
+
+            {totalPages > 1 && (
+              <Box sx={{ mt: 1, pt: 2, borderTop: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, flexWrap: 'wrap' }}>
+                <IconButton
+                  size="small"
+                  disabled={auditPage === 1}
+                  onClick={() => setAuditPage((p) => p - 1)}
+                  sx={{ width: 32, height: 32, borderRadius: 1.5, border: `1px solid ${auditPage === 1 ? T.divider : T.accentBorder}`, color: auditPage === 1 ? T.faint : T.accent }}
+                  title="Previous logs"
+                >
+                  <NavigateBefore sx={{ fontSize: 16 }} />
+                </IconButton>
+                <Box sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.accent, px: 1.25, py: 0.45, borderRadius: 1.5, bgcolor: '#fff', border: `1px solid ${T.accentBorder}` }}>
+                  Page {auditPage} of {totalPages}
+                </Box>
+                <IconButton
+                  size="small"
+                  disabled={auditPage === totalPages}
+                  onClick={() => setAuditPage((p) => p + 1)}
+                  sx={{ width: 32, height: 32, borderRadius: 1.5, border: `1px solid ${auditPage === totalPages ? T.divider : T.accentBorder}`, color: auditPage === totalPages ? T.faint : T.accent }}
+                  title="Next logs"
+                >
+                  <NavigateNext sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Box>
+            )}
+          </Box>
+        )}
+      </Box>
+    </SectionCard>
+  );
+};
+
 // ─── Main component ────────────────────────────────────────────────────────────
 const LeaveRequest = () => {
   const { hasAccess, loading: accessLoading } = usePageAccess('leave-request');
@@ -490,11 +846,15 @@ const LeaveRequest = () => {
   const [selectedRequests, setSelectedRequests] = useState([]);
   const [bulkLoading, setBulkLoading]       = useState(false);
   const [txModalOpen, setTxModalOpen]       = useState(false);
+  const [txPanelOpen, setTxPanelOpen]       = useState(false);
   const [txLogs, setTxLogs]                 = useState([]);
   const [txLoading, setTxLoading]           = useState(false);
   const [txError, setTxError]               = useState('');
   const [auditPage, setAuditPage]           = useState(1);
-  const AUDIT_PER_PAGE = 5;
+  const [txSearchTerm, setTxSearchTerm]     = useState('');
+  const [txActionFilter, setTxActionFilter] = useState('all');
+  const [txLeaveFilter, setTxLeaveFilter]   = useState('all');
+  const AUDIT_PER_PAGE = TX_LOGS_PER_PAGE;
 
   const [errorModal, setErrorModal]     = useState({ open: false, title: '', message: '', iconColor: '#C62828', iconBg: '#FFEBEE', icon: ErrorOutlineIcon });
   const [confirmModal, setConfirmModal] = useState({ open: false, title: '', message: '', confirmLabel: 'Confirm', confirmColor: T.accent, confirmHoverColor: T.accentDark, icon: HelpOutlineIcon, iconColor: T.accent, iconBg: T.accentFaint, loading: false, onConfirm: () => {} });
@@ -613,7 +973,7 @@ const LeaveRequest = () => {
         const available = (parseFloat(la.allocated_hours) || 0) - (parseFloat(la.used_hours) || 0);
         if (available < hoursRequested) {
           creditsOk = false;
-          creditMsg = `Insufficient leave balance for this request.\n\nRequested: ${(hoursRequested / 8).toFixed(1)} day(s) (${hoursRequested} hrs)\nAvailable: ${(available / 8).toFixed(1)} day(s) (${available.toFixed(1)} hrs)\n\nPlease select fewer dates or choose a different leave type.`;
+          creditMsg = `Insufficient leave balance for this request.\n\nRequested: ${(hoursRequested / 8).toFixed(3)} day(s) (${hoursRequested} hrs)\nAvailable: ${(available / 8).toFixed(3)} day(s) (${available.toFixed(3)} hrs)\n\nPlease select fewer dates or choose a different leave type.`;
         }
       }
     } catch (e) { console.error(e); }
@@ -756,9 +1116,34 @@ const LeaveRequest = () => {
     try {
       const res = await axios.get(`${API_BASE_URL}/leaveRoute/leave_request/transactions`, getAuthHeaders());
       const sorted = (Array.isArray(res.data) ? res.data : []).sort(
-        (a, b) => new Date(a.created_at || a.createdAt || a.timestamp) - new Date(b.created_at || b.createdAt || b.timestamp),
+        (a, b) => new Date(b.created_at || b.createdAt || b.timestamp) - new Date(a.created_at || a.createdAt || a.timestamp),
       );
+      
+      // Fetch employee names for any employees in the transaction logs that we don't have yet
+      const empNums = [...new Set(sorted.map((log) => log.employee_id || log.employeeNumber).filter(Boolean))];
+      const newNames = { ...employeeNames };
+      
+      await Promise.all(empNums.map(async (emp) => {
+        if (!newNames[emp]) {
+          try {
+            const nameRes = await axios.get(`${API_BASE_URL}/personalinfo/person_table/${emp}`, getAuthHeaders());
+            const firstName = nameRes.data.firstName || '';
+            const middleName = nameRes.data.middleName || '';
+            const lastName = nameRes.data.lastName || '';
+            
+            // Format: LASTNAME, FIRSTNAME MIDDLEINITIAL
+            const middleInitial = middleName ? middleName.charAt(0) + '.' : '';
+            const formatted = `${lastName}, ${firstName} ${middleInitial}`.replace(/\s+/g, ' ').trim();
+            newNames[emp] = formatted || 'Unknown';
+          } catch {
+            newNames[emp] = 'Unknown';
+          }
+        }
+      }));
+      
+      setEmployeeNames(newNames);
       setTxLogs(sorted);
+      setAuditPage(1);
     } catch (e) {
       console.error(e);
       setTxError('Failed to load transaction logs.');
@@ -766,7 +1151,11 @@ const LeaveRequest = () => {
     } finally { setTxLoading(false); }
   };
 
-  useEffect(() => { if (txModalOpen) fetchTxLogs(); }, [txModalOpen]); // eslint-disable-line
+  useEffect(() => { if (txModalOpen || txPanelOpen) fetchTxLogs(); }, [txModalOpen, txPanelOpen]); // eslint-disable-line
+
+  useEffect(() => {
+    setAuditPage(1);
+  }, [txSearchTerm, txActionFilter, txLeaveFilter]);
 
   // ── Filtering ──────────────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -929,6 +1318,33 @@ const LeaveRequest = () => {
     reversal:            { label: 'VL Reversal',          color: '#B71C1C', bg: '#FFEBEE',     Icon: Block           },
     activity:            { label: 'Activity',             color: '#546E7A', bg: '#ECEFF1',     Icon: ScheduleIcon    },
   };
+
+  const filteredTxLogs = useMemo(() => {
+    const search = txSearchTerm.toLowerCase().trim();
+    return txLogs.filter((log) => {
+      const kind = getTxKind(log);
+      if (txActionFilter !== 'all' && kind !== txActionFilter) return false;
+
+      const leaveCategory = getLogLeaveCategory(log, leaveTypes);
+      if (txLeaveFilter !== 'all' && leaveCategory !== txLeaveFilter) return false;
+
+      if (!search) return true;
+
+      const logEmpNum = String(log.employee_id || log.employeeNumber || '').toLowerCase();
+      const employeeLabel = logEmpNum ? String(employeeNames[logEmpNum] || employeeNames[String(log.employee_id || log.employeeNumber || '')] || '').toLowerCase() : '';
+      const message = String(log.message || '').toLowerCase();
+      const leaveType = getLogLeaveType(log, leaveTypes);
+      const leaveText = `${leaveType?.leave_code || ''} ${leaveType?.leave_description || ''}`.toLowerCase();
+      const actionLabel = String(kindMap[kind]?.label || '').toLowerCase();
+
+      return [logEmpNum, employeeLabel, message, leaveText, leaveCategory.toLowerCase(), actionLabel].some((value) => value.includes(search));
+    });
+  }, [txLogs, txSearchTerm, txActionFilter, txLeaveFilter, leaveTypes, employeeNames, kindMap]);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(Math.max(filteredTxLogs.length, 0) / AUDIT_PER_PAGE));
+    if (auditPage > maxPage) setAuditPage(maxPage);
+  }, [auditPage, filteredTxLogs.length]);
 
   if (accessLoading) return <Wireframe />;
   if (!hasAccess) return <AccessDenied />;
@@ -1285,6 +1701,32 @@ const LeaveRequest = () => {
 
           {/* ── RIGHT: Records ── */}
           <Grid item xs={12} lg={8}>
+            {txPanelOpen ? (
+              <TransactionLogsSurface
+                variant="panel"
+                logs={filteredTxLogs}
+                totalCount={txLogs.length}
+                filteredTotal={filteredTxLogs.length}
+                loading={txLoading}
+                error={txError}
+                employeeNames={employeeNames}
+                leaveTypes={leaveTypes}
+                auditPage={auditPage}
+                setAuditPage={setAuditPage}
+                searchTerm={txSearchTerm}
+                setSearchTerm={setTxSearchTerm}
+                actionFilter={txActionFilter}
+                setActionFilter={setTxActionFilter}
+                leaveFilter={txLeaveFilter}
+                setLeaveFilter={setTxLeaveFilter}
+                kindMap={kindMap}
+                getTxKind={getTxKind}
+                renderTxSentence={renderTxSentence}
+                onClose={() => setTxPanelOpen(false)}
+                onOpenModal={() => { setTxPanelOpen(false); setTxModalOpen(true); setAuditPage(1); }}
+                onExpandPanel={() => {}}
+              />
+            ) : (
             <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
               {/* Records header / toolbar */}
               <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
@@ -1327,6 +1769,20 @@ const LeaveRequest = () => {
                       <ToggleButton value="list"><ViewListIcon sx={{ fontSize: 14 }} /></ToggleButton>
                     </ToggleButtonGroup>
                   </Box>
+                </Box>
+
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
+                  <AccentButton
+                    onClick={() => { setTxPanelOpen(true); setTxModalOpen(false); setAuditPage(1); }}
+                    variant="outlined"
+                    startIcon={<OpenInFullIcon sx={{ fontSize: '14px !important' }} />}
+                    sx={{ fontSize: '0.74rem', px: 1.25, py: 0.35, height: 28, color: T.accent, borderColor: T.accentBorder, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, transform: 'none' } }}
+                  >
+                    Open audit module
+                  </AccentButton>
+                  <Typography sx={{ fontSize: '0.74rem', color: T.muted }}>
+                    Search and filter logs without leaving this page.
+                  </Typography>
                 </Box>
 
                 {/* Date range + Leave type + Date filed */}
@@ -1638,184 +2094,38 @@ const LeaveRequest = () => {
                 </Box>
               )}
             </SectionCard>
+            )}
           </Grid>
         </Grid>
 
         {/* ── Transaction Logs Modal ── */}
         <Modal open={txModalOpen} onClose={() => setTxModalOpen(false)} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>
           <Fade in={txModalOpen}>
-            <Box
-              sx={{
-                width: '100%', maxWidth: 620, maxHeight: '90vh',
-                borderRadius: 3, overflow: 'hidden',
-                boxShadow: '0 24px 64px rgba(0,0,0,0.22)',
-                bgcolor: T.surface, display: 'flex', flexDirection: 'column',
-              }}
-            >
-              <Box
-                sx={{
-                  px: 3.5, py: 2.5, background: T.headerGrad,
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  position: 'relative', overflow: 'hidden', flexShrink: 0,
-                }}
-              >
-                <Box sx={{ position: 'absolute', top: -50, right: -30, width: 180, height: 180, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.04)' }} />
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
-                  <Box sx={{ width: 38, height: 38, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <HistoryToggleOff sx={{ fontSize: 18, color: '#fff' }} />
-                  </Box>
-                  <Box>
-                    <Typography sx={{ fontWeight: 700, color: '#fff', fontSize: '0.95rem', lineHeight: 1.2, mb: 0.3 }}>Transaction Logs</Typography>
-                    <Typography sx={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.68)' }}>
-                      {txLogs.length > 0 ? `${txLogs.length} recorded action(s)` : 'All activity on leave requests'}
-                    </Typography>
-                  </Box>
-                </Box>
-                <IconButton onClick={() => setTxModalOpen(false)} size="small" sx={{ color: 'rgba(255,255,255,0.75)', position: 'relative', zIndex: 1, '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' } }}>
-                  <Close sx={{ fontSize: 17 }} />
-                </IconButton>
-              </Box>
-
-              <Box
-                sx={{
-                  px: 3, py: 2.5, overflowY: 'auto', flexGrow: 1,
-                  bgcolor: T.accentFaint,
-                  '&::-webkit-scrollbar': { width: 4 },
-                  '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
-                }}
-              >
-                {txLoading ? (
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                    {[...Array(AUDIT_PER_PAGE)].map((_, i) => (
-                      <Box key={i} sx={{ p: 2.5, borderRadius: 2, bgcolor: '#fff', border: `1px solid ${T.accentBorder}`, animation: 'blink 1.6s ease-in-out infinite', animationDelay: `${i * 0.1}s` }}>
-                        <Bone w={90} h={16} sx={{ mb: 1 }} />
-                        <Bone w="80%" h={12} sx={{ mb: 0.75 }} />
-                        <Bone w="55%" h={12} />
-                      </Box>
-                    ))}
-                  </Box>
-                ) : txError ? (
-                  <Alert severity="error" sx={{ borderRadius: 2 }}>{txError}</Alert>
-                ) : txLogs.length === 0 ? (
-                  <Box sx={{ py: 10, textAlign: 'center' }}>
-                    <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
-                      <HistoryToggleOff sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
-                    </Box>
-                    <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted }}>No activity yet.</Typography>
-                    <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>Actions on leave requests will appear here.</Typography>
-                  </Box>
-                ) : (() => {
-                  const totalPages = Math.ceil(txLogs.length / AUDIT_PER_PAGE);
-                  const paginated = txLogs.slice((auditPage - 1) * AUDIT_PER_PAGE, auditPage * AUDIT_PER_PAGE);
-                  return (
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                      {paginated.map((log) => {
-                        const kind = getTxKind(log);
-                        const { label, color, bg, Icon } = kindMap[kind] || kindMap.activity;
-                        const loggedAt = log.created_at || log.createdAt || log.timestamp;
-                        const timeLabel = loggedAt
-                          ? (() => {
-                              const d = new Date(loggedAt);
-                              return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
-                            })()
-                          : null;
-
-                        // ── Resolve employee number + name for this log entry ──
-                        const logEmpNum = log.employee_id || log.employeeNumber;
-                        const logEmpName = logEmpNum ? employeeNames[logEmpNum] : null;
-
-                        return (
-                          <Box
-                            key={`log-${log.id}`}
-                            sx={{
-                              bgcolor: '#fff', borderRadius: 2, p: 2.5,
-                              border: `1px solid ${T.accentBorder}`,
-                              borderLeft: `4px solid ${color}`,
-                              boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-                              '&:hover': { boxShadow: `0 4px 12px ${alpha(color, 0.12)}` },
-                            }}
-                          >
-                            {/* ── Top row: kind badge (left) + timestamp (right) ── */}
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.25, flexWrap: 'wrap', gap: 1 }}>
-                              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, px: 1.25, py: 0.35, borderRadius: '6px', bgcolor: bg, border: `1px solid ${alpha(color, 0.2)}` }}>
-                                <Icon sx={{ fontSize: 12, color }} />
-                                <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color, lineHeight: 1 }}>{label}</Typography>
-                              </Box>
-                              {timeLabel && (
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                  <ScheduleIcon sx={{ fontSize: 11, color: T.faint }} />
-                                  <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{timeLabel}</Typography>
-                                </Box>
-                              )}
-                            </Box>
-
-                            {/* ── Employee pill — right-aligned, shows #number + name ── */}
-                            {logEmpNum && (
-                              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-                                <Box
-                                  sx={{
-                                    display: 'inline-flex', alignItems: 'center', gap: 0.75,
-                                    px: 1.25, py: 0.5,
-                                    bgcolor: alpha('#1565C0', 0.05),
-                                    borderRadius: 1.5,
-                                    border: '1px solid rgba(21,101,192,0.15)',
-                                  }}
-                                >
-                                  <PersonIcon sx={{ fontSize: 13, color: '#1565C0' }} />
-                                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: '#1565C0', lineHeight: 1 }}>
-                                    #{logEmpNum}
-                                  </Typography>
-                                  {logEmpName && logEmpName !== 'Unknown' && (
-                                    <>
-                                      <Box sx={{ width: '1px', height: 12, bgcolor: 'rgba(21,101,192,0.3)', flexShrink: 0 }} />
-                                      <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#1565C0', lineHeight: 1 }}>
-                                        {logEmpName}
-                                      </Typography>
-                                    </>
-                                  )}
-                                </Box>
-                              </Box>
-                            )}
-
-                            {/* ── Log message ── */}
-                            {renderTxSentence(log)}
-                          </Box>
-                        );
-                      })}
-
-                      {totalPages > 1 && (
-                        <Box sx={{ mt: 1, pt: 2, borderTop: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>
-                            Showing {(auditPage - 1) * AUDIT_PER_PAGE + 1}–{Math.min(auditPage * AUDIT_PER_PAGE, txLogs.length)} of {txLogs.length}
-                          </Typography>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <IconButton
-                              size="small" disabled={auditPage === 1} onClick={() => setAuditPage((p) => p - 1)}
-                              sx={{ width: 28, height: 28, borderRadius: 1.5, border: `1px solid ${auditPage === 1 ? T.divider : T.accentBorder}`, color: auditPage === 1 ? T.faint : T.accent }}
-                            >
-                              <Box component="span" sx={{ fontSize: '0.95rem', fontWeight: 600, lineHeight: 1 }}>‹</Box>
-                            </IconButton>
-                            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                              <IconButton
-                                key={p} size="small" onClick={() => setAuditPage(p)}
-                                sx={{ width: 28, height: 28, borderRadius: 1.5, fontSize: '0.72rem', fontWeight: p === auditPage ? 700 : 400, bgcolor: p === auditPage ? T.accent : 'transparent', color: p === auditPage ? '#fff' : T.muted, border: `1px solid ${p === auditPage ? T.accent : T.accentBorder}`, '&:hover': { bgcolor: p === auditPage ? T.accent : T.accentFaint } }}
-                              >
-                                {p}
-                              </IconButton>
-                            ))}
-                            <IconButton
-                              size="small" disabled={auditPage === totalPages} onClick={() => setAuditPage((p) => p + 1)}
-                              sx={{ width: 28, height: 28, borderRadius: 1.5, border: `1px solid ${auditPage === totalPages ? T.divider : T.accentBorder}`, color: auditPage === totalPages ? T.faint : T.accent }}
-                            >
-                              <Box component="span" sx={{ fontSize: '0.95rem', fontWeight: 600, lineHeight: 1 }}>›</Box>
-                            </IconButton>
-                          </Box>
-                        </Box>
-                      )}
-                    </Box>
-                  );
-                })()}
-              </Box>
+            <Box sx={{ width: '100%', maxWidth: 620 }}>
+              <TransactionLogsSurface
+                variant="modal"
+                logs={filteredTxLogs}
+                totalCount={txLogs.length}
+                filteredTotal={filteredTxLogs.length}
+                loading={txLoading}
+                error={txError}
+                employeeNames={employeeNames}
+                leaveTypes={leaveTypes}
+                auditPage={auditPage}
+                setAuditPage={setAuditPage}
+                searchTerm={txSearchTerm}
+                setSearchTerm={setTxSearchTerm}
+                actionFilter={txActionFilter}
+                setActionFilter={setTxActionFilter}
+                leaveFilter={txLeaveFilter}
+                setLeaveFilter={setTxLeaveFilter}
+                kindMap={kindMap}
+                getTxKind={getTxKind}
+                renderTxSentence={renderTxSentence}
+                onClose={() => setTxModalOpen(false)}
+                onOpenModal={() => { setTxPanelOpen(false); setTxModalOpen(true); setAuditPage(1); }}
+                onExpandPanel={() => { setTxPanelOpen(true); setTxModalOpen(false); setAuditPage(1); }}
+              />
             </Box>
           </Fade>
         </Modal>

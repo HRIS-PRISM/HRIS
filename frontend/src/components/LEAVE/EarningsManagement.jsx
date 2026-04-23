@@ -220,7 +220,7 @@ const AttendanceFieldCell = ({ f, valueHrs, onChange }) => {
         <span style={{ position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)", fontSize: "0.55rem", color: T.faint, pointerEvents: "none" }}>d</span>
       </Box>
       <Typography sx={{ fontSize: "0.58rem", color: valueHrs > 0 ? "#4caf50" : T.faint, fontFamily: T.poppins, textAlign: "right", lineHeight: 1.2 }}>
-        {valueHrs > 0 ? `${valueHrs.toFixed(1)}h` : "—"}
+        {valueHrs > 0 ? `${valueHrs.toFixed(3)}h` : "—"}
       </Typography>
     </Box>
   );
@@ -307,13 +307,13 @@ const AttendanceEditPanel = ({ employee, year, month, attendanceData, onRefresh 
             <Typography sx={{ fontSize: "0.52rem", color: "#1565c0", fontFamily: T.poppins }}>cal d</Typography>
           </Box>
           <Box sx={{ px: 0.6, py: 0.15, borderRadius: 0.75, bgcolor: "rgba(46,125,50,0.1)", border: "1px solid rgba(46,125,50,0.28)", display: "flex", alignItems: "baseline", gap: 0.25 }}>
-            <Typography sx={{ fontSize: "0.7rem", fontWeight: 900, color: "#2e7d32", fontFamily: T.poppins, lineHeight: 1 }}>{overallDays.toFixed(2)}</Typography>
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 900, color: "#2e7d32", fontFamily: T.poppins, lineHeight: 1 }}>{overallDays.toFixed(3)}</Typography>
             <Typography sx={{ fontSize: "0.52rem", color: "#2e7d32", fontFamily: T.poppins }}>d</Typography>
-            <Typography sx={{ fontSize: "0.5rem", color: "#66bb6a", fontFamily: T.poppins }}>/ {overallHrs.toFixed(1)}h</Typography>
+            <Typography sx={{ fontSize: "0.5rem", color: "#66bb6a", fontFamily: T.poppins }}>/ {overallHrs.toFixed(3)}h</Typography>
           </Box>
           {tardHrs > 0 && (
             <Box sx={{ px: 0.6, py: 0.15, borderRadius: 0.75, bgcolor: "rgba(211,47,47,0.08)", border: "1px solid rgba(211,47,47,0.28)", display: "flex", alignItems: "baseline", gap: 0.25 }}>
-              <Typography sx={{ fontSize: "0.7rem", fontWeight: 900, color: "#c62828", fontFamily: T.poppins, lineHeight: 1 }}>{tardDays.toFixed(2)}</Typography>
+              <Typography sx={{ fontSize: "0.7rem", fontWeight: 900, color: "#c62828", fontFamily: T.poppins, lineHeight: 1 }}>{tardDays.toFixed(3)}</Typography>
               <Typography sx={{ fontSize: "0.52rem", color: "#c62828", fontFamily: T.poppins }}>d late</Typography>
             </Box>
           )}
@@ -452,12 +452,12 @@ const AttendanceContextBanner = ({ attendanceData, loading, year, month, employe
             </Typography>
             <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.3 }}>
               <Typography sx={{ fontSize: "1.05rem", fontWeight: 900, color: "#2e7d32", fontFamily: T.poppins, lineHeight: 1 }}>
-                {(overallHrs / 8).toFixed(2)}
+                {(overallHrs / 8).toFixed(3)}
               </Typography>
               <Typography sx={{ fontSize: "0.6rem", fontWeight: 600, color: "#66bb6a", fontFamily: T.poppins }}>d</Typography>
             </Box>
             <Typography sx={{ fontSize: "0.58rem", color: T.faint, fontFamily: T.poppins, lineHeight: 1 }}>
-              {overallHrs.toFixed(1)} hrs
+              {overallHrs.toFixed(3)} hrs
             </Typography>
           </Box>
 
@@ -472,7 +472,7 @@ const AttendanceContextBanner = ({ attendanceData, loading, year, month, employe
               {hrs > 0 ? (
                 <>
                   <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color, fontFamily: T.poppins, lineHeight: 1 }}>
-                    {(hrs / 8).toFixed(2)}
+                    {(hrs / 8).toFixed(3)}
                   </Typography>
                   <Typography sx={{ fontSize: "0.54rem", color: alpha(color, 0.55), fontFamily: T.poppins }}>d</Typography>
                 </>
@@ -656,6 +656,15 @@ const RecordsList = ({ employeeNumber, type, unit, refreshKey, year, month, onAp
 
   useEffect(() => { fetchEarnings(); }, [fetchEarnings, refreshKey]);
 
+  const orderedEarnings = useMemo(() => {
+    return [...data.earnings].sort((left, right) => {
+      const rightDate = new Date(right.created_at || right.approved_at || 0).getTime();
+      const leftDate  = new Date(left.created_at || left.approved_at || 0).getTime();
+      if (rightDate !== leftDate) return rightDate - leftDate;
+      return toNum(right.id) - toNum(left.id);
+    });
+  }, [data.earnings]);
+
   const handleApprove = async (record) => {
     setActionLoading(true);
     try {
@@ -686,8 +695,8 @@ const RecordsList = ({ employeeNumber, type, unit, refreshKey, year, month, onAp
   };
 
   if (!employeeNumber) return null;
-  const displayed    = showAll ? data.earnings : data.earnings.slice(0, 5);
-  const pendingCount = data.earnings.filter((e) => e.earn_status === "pending").length;
+  const displayed    = showAll ? orderedEarnings : orderedEarnings.slice(0, 5);
+  const pendingCount = orderedEarnings.filter((e) => e.earn_status === "pending").length;
 
   return (
     <Box sx={{ mt: 2 }}>
@@ -980,7 +989,7 @@ const LeaveEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month, o
                   )}
                 </Box>
                 <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.75 }}>
-                  Earned This Month
+                  Earned for {monthName(month)}
                 </Typography>
                 <CompactInputGrid
                   fields={leaveTypes.map(lt => ({ key: lt.leave_code, label: lt.leave_code, subtitle: lt.leave_description?.substring(0, 20) }))}
@@ -1007,7 +1016,23 @@ const LeaveEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month, o
           <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.06em", mb: 1, position: "sticky", top: 0, bgcolor: "#fff", py: 0.5 }}>
             Leave Balances
           </Typography>
-          {leaveTypes.map((lt) => {
+          {[...leaveTypes]
+            .sort((left, right) => {
+              const leftBalance = assignmentMap[left.leave_code];
+              const rightBalance = assignmentMap[right.leave_code];
+              const leftTotal = toNum(leftBalance?.total_hours);
+              const rightTotal = toNum(rightBalance?.total_hours);
+              const leftRemaining = toNum(leftBalance?.remaining_hours);
+              const rightRemaining = toNum(rightBalance?.remaining_hours);
+              const leftYear = toNum(leftBalance?.period_year);
+              const rightYear = toNum(rightBalance?.period_year);
+
+              if (rightYear !== leftYear) return rightYear - leftYear;
+              if (rightTotal !== leftTotal) return rightTotal - leftTotal;
+              if (rightRemaining !== leftRemaining) return rightRemaining - leftRemaining;
+              return left.leave_code.localeCompare(right.leave_code);
+            })
+            .map((lt) => {
             const balance   = assignmentMap[lt.leave_code];
             const remaining = toNum(balance?.remaining_hours);
             const used      = toNum(balance?.used_hours);
@@ -1021,12 +1046,12 @@ const LeaveEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month, o
                 {hasBalance ? (
                   <>
                     <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: remaining > 0 ? "#2e7d32" : "#d32f2f", fontFamily: T.poppins }}>
-                      {unit === "days" ? `${(remaining / 8).toFixed(2)}d` : `${remaining.toFixed(2)}h`}
+                      {unit === "days" ? `${(remaining / 8).toFixed(3)}d` : `${remaining.toFixed(3)}h`}
                       <Typography component="span" sx={{ fontSize: "0.58rem", color: T.faint, fontWeight: 400, ml: 0.4 }}>left</Typography>
                     </Typography>
                     {total > 0 && (
                       <Typography sx={{ fontSize: "0.58rem", color: T.faint, fontFamily: T.poppins }}>
-                        {unit === "days" ? `${(used / 8).toFixed(2)}d / ${(total / 8).toFixed(2)}d` : `${used.toFixed(2)}h / ${total.toFixed(2)}h`}
+                        {unit === "days" ? `${(used / 8).toFixed(3)}d / ${(total / 8).toFixed(3)}d` : `${used.toFixed(3)}h / ${total.toFixed(3)}h`}
                       </Typography>
                     )}
                   </>
