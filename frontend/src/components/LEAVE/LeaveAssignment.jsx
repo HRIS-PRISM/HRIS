@@ -24,6 +24,8 @@ import {
   Domain as DomainIcon, Work as WorkIcon,
   Calculate as CalculateIcon, OpenInNew as OpenInNewIcon,
   SwapHoriz as ConvertIcon,
+  TrendingUp as EarnIcon,
+  Pending as PendingIcon,
 } from "@mui/icons-material";
 import LoadingOverlay from "../LoadingOverlay";
 import SuccessfulOverlay from "../SuccessfulOverlay";
@@ -48,6 +50,9 @@ const T = {
   surface:      "#ffffff",
   divider:      "rgba(0,0,0,0.08)",
   poppins:      "'Poppins', sans-serif",
+  // Earnings colours
+  earnPending:  { bg: "rgba(237,108,2,0.10)", color: "#bf360c", border: "rgba(237,108,2,0.30)" },
+  earnApproved: { bg: "rgba(46,125,50,0.10)", color: "#1b5e20", border: "rgba(46,125,50,0.30)" },
 };
 
 const shimmerKeyframes = `
@@ -219,7 +224,6 @@ const DeptBadge = ({ code, light = false }) => {
   );
 };
 
-// ─── Employment Category badge ─────────────────────────────────────────────────
 const EmpCatBadge = ({ label, colorHex, light = false }) => {
   if (!label) return null;
   const color = colorHex || "#757575";
@@ -233,7 +237,6 @@ const EmpCatBadge = ({ label, colorHex, light = false }) => {
   );
 };
 
-// ─── Gender badge ──────────────────────────────────────────────────────────────
 const GenderBadge = ({ gender, light = false }) => {
   if (!gender) return null;
   const isMale = gender.toLowerCase() === "male";
@@ -251,9 +254,184 @@ const GenderBadge = ({ gender, light = false }) => {
   );
 };
 
+// ─── NEW: Earnings Banner shown in period modal cards ─────────────────────────
+// Shows pending + approved (non-commuted) earnings beside the assignment row.
+// "approved" ones are already baked into total_hours — we show them with a note.
+// "pending" ones are NOT yet in total_hours — we show how much extra is incoming.
+const EarningsBanner = ({ employeeNumber, leaveCode, periodYear, periodSemester, unit }) => {
+  const [earnings, setEarnings] = useState([]);
+  const [loading,  setLoading]  = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!employeeNumber || !leaveCode) return;
+    let cancelled = false;
+    setLoading(true);
+    const token = localStorage.getItem("token");
+    // Fetch all earnings for this employee + leave code (no month filter — show all)
+    axios
+      .get(`${API_BASE_URL}/api/earnings/leave/${employeeNumber}?all=true`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      .then((r) => {
+        if (cancelled) return;
+        const all = Array.isArray(r.data?.earnings) ? r.data.earnings : [];
+        // Filter to this leave code only, and not rejected
+        const relevant = all.filter(
+          (e) =>
+            e.leave_code === leaveCode &&
+            e.earn_status !== "rejected" &&
+            (
+              // Match by period_year
+              !periodYear ||
+              String(e.period_year) === String(periodYear) ||
+              // If no match on year, still show so user knows earnings exist
+              true
+            )
+        );
+        // Only keep entries whose period_year matches the assignment period
+        const filtered = relevant.filter(
+          (e) => !periodYear || String(e.period_year) === String(periodYear)
+        );
+        setEarnings(filtered.length > 0 ? filtered : relevant.slice(0, 5));
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [employeeNumber, leaveCode, periodYear]);
+
+  if (loading) return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1.5, py: 0.75, mt: 0.75, borderRadius: 1.5, bgcolor: "rgba(25,118,210,0.04)", border: "1px dashed rgba(25,118,210,0.2)" }}>
+      <CircularProgress size={10} sx={{ color: "#1565c0" }} />
+      <Typography sx={{ fontSize: "0.62rem", color: "#1565c0", fontFamily: T.poppins }}>Checking earnings…</Typography>
+    </Box>
+  );
+
+  if (earnings.length === 0) return null;
+
+  const pendingEarnings  = earnings.filter((e) => e.earn_status === "pending");
+  const approvedEarnings = earnings.filter((e) => e.earn_status === "approved");
+
+  const pendingHrs  = pendingEarnings.reduce((s, e) => s + toNum(e.earned_hours), 0);
+  const approvedHrs = approvedEarnings.reduce((s, e) => s + toNum(e.earned_hours), 0);
+
+  const fmt = (h) => unit === "hours"
+    ? `${h.toFixed(3)} hrs`
+    : `${(h / 8).toFixed(3)} days`;
+
+  return (
+    <Box sx={{ mt: 0.75 }}>
+      {/* Summary row */}
+      <Box
+        onClick={() => setExpanded((v) => !v)}
+        sx={{
+          display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap",
+          px: 1.25, py: 0.65, borderRadius: "8px",
+          bgcolor: pendingHrs > 0 ? T.earnPending.bg : "rgba(46,125,50,0.06)",
+          border: `1px solid ${pendingHrs > 0 ? T.earnPending.border : "rgba(46,125,50,0.22)"}`,
+          cursor: "pointer",
+          "&:hover": { filter: "brightness(0.97)" },
+        }}
+      >
+        <EarnIcon sx={{ fontSize: 12, color: pendingHrs > 0 ? T.earnPending.color : "#2e7d32", flexShrink: 0 }} />
+        <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: pendingHrs > 0 ? T.earnPending.color : "#2e7d32", fontFamily: T.poppins }}>
+          Earnings for this leave type
+        </Typography>
+
+        {approvedHrs > 0 && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, px: 0.75, py: 0.2, borderRadius: "5px", bgcolor: T.earnApproved.bg, border: `1px solid ${T.earnApproved.border}` }}>
+            <CheckIcon sx={{ fontSize: 10, color: T.earnApproved.color }} />
+            <Typography sx={{ fontSize: "0.6rem", fontWeight: 800, color: T.earnApproved.color, fontFamily: T.poppins }}>{fmt(approvedHrs)} approved</Typography>
+          </Box>
+        )}
+        {pendingHrs > 0 && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, px: 0.75, py: 0.2, borderRadius: "5px", bgcolor: T.earnPending.bg, border: `1px solid ${T.earnPending.border}` }}>
+            <PendingIcon sx={{ fontSize: 10, color: T.earnPending.color }} />
+            <Typography sx={{ fontSize: "0.6rem", fontWeight: 800, color: T.earnPending.color, fontFamily: T.poppins }}>{fmt(pendingHrs)} pending</Typography>
+          </Box>
+        )}
+
+        {approvedHrs > 0 && (
+          <Tooltip title="Approved earnings are already included in the Total shown above.">
+            <Typography sx={{ fontSize: "0.58rem", color: "#2e7d32", fontFamily: T.poppins, ml: "auto", fontStyle: "italic" }}>
+              ✓ included in total
+            </Typography>
+          </Tooltip>
+        )}
+        {pendingHrs > 0 && approvedHrs === 0 && (
+          <Tooltip title="These pending earnings are NOT yet added to the assignment total. They will be added once approved.">
+            <Typography sx={{ fontSize: "0.58rem", color: T.earnPending.color, fontFamily: T.poppins, ml: "auto", fontStyle: "italic" }}>
+              ⏳ not yet in total
+            </Typography>
+          </Tooltip>
+        )}
+
+        <Typography sx={{ fontSize: "0.58rem", color: T.faint, fontFamily: T.poppins, ml: approvedHrs > 0 || pendingHrs > 0 ? 0 : "auto" }}>
+          {expanded ? "▲ hide" : "▼ details"}
+        </Typography>
+      </Box>
+
+      {/* Expanded detail rows */}
+      {expanded && (
+        <Box sx={{ mt: 0.5, display: "flex", flexDirection: "column", gap: 0.4, px: 0.5 }}>
+          {earnings.map((e) => {
+            const isPending  = e.earn_status === "pending";
+            const isApproved = e.earn_status === "approved";
+            const meta = isPending ? T.earnPending : T.earnApproved;
+            return (
+              <Box key={e.id} sx={{
+                display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap",
+                px: 1.25, py: 0.5, borderRadius: "7px",
+                bgcolor: meta.bg, border: `1px solid ${meta.border}`,
+              }}>
+                {isPending  && <PendingIcon sx={{ fontSize: 11, color: meta.color, flexShrink: 0 }} />}
+                {isApproved && <CheckIcon   sx={{ fontSize: 11, color: meta.color, flexShrink: 0 }} />}
+                <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: meta.color, fontFamily: T.poppins }}>
+                  {fmt(toNum(e.earned_hours))}
+                </Typography>
+                <Typography sx={{ fontSize: "0.62rem", color: T.muted, fontFamily: T.poppins }}>
+                  {e.period_year}{e.period_month ? ` · Month ${e.period_month}` : ""}
+                </Typography>
+                <Chip
+                  label={isPending ? "Pending" : "Approved"}
+                  size="small"
+                  sx={{ height: 14, fontSize: "0.55rem", fontWeight: 700, bgcolor: meta.bg, color: meta.color, border: `1px solid ${meta.border}` }}
+                />
+                {isApproved && (
+                  <Typography sx={{ fontSize: "0.58rem", color: "#4caf50", fontFamily: T.poppins, fontStyle: "italic" }}>
+                    already in assignment total
+                  </Typography>
+                )}
+                {isPending && (
+                  <Typography sx={{ fontSize: "0.58rem", color: T.earnPending.color, fontFamily: T.poppins, fontStyle: "italic" }}>
+                    will be added on approval
+                  </Typography>
+                )}
+                {e.remarks && (
+                  <Typography sx={{ fontSize: "0.58rem", color: T.faint, fontFamily: T.poppins, ml: "auto", fontStyle: "italic" }}>
+                    {e.remarks}
+                  </Typography>
+                )}
+              </Box>
+            );
+          })}
+
+          {/* Grand total row if mixed */}
+          {pendingHrs > 0 && approvedHrs > 0 && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.25, py: 0.5, borderRadius: "7px", bgcolor: "rgba(25,118,210,0.07)", border: "1px solid rgba(25,118,210,0.2)", mt: 0.25 }}>
+              <InfoIcon sx={{ fontSize: 11, color: "#1565c0" }} />
+              <Typography sx={{ fontSize: "0.63rem", fontWeight: 700, color: "#1565c0", fontFamily: T.poppins }}>
+                If all approved: total would be {fmt(approvedHrs + pendingHrs)}
+              </Typography>
+            </Box>
+          )}
+        </Box>
+      )}
+    </Box>
+  );
+};
+
 // ─── CreditInput ───────────────────────────────────────────────────────────────
-// FIX: Uses isFocused ref so external prop changes never overwrite what the user
-// is currently typing. Draft is the single source of truth while focused.
 const CreditInput = ({
   label, valueHours, onChangeHours, unit,
   required = false, disabled = false, color = T.accent, autoFilled = false,
@@ -261,25 +439,21 @@ const CreditInput = ({
   const [inputVal, setInputVal] = useState("");
   const isFocused = useRef(false);
 
-  // Convert hours → display string for the current unit
   const toDisplayStr = useCallback((hrs) => {
     if (hrs === "" || hrs == null || hrs === 0) return "";
     const n = parseFloat(hrs);
     if (isNaN(n) || n === 0) return "";
     if (unit === "hours") return String(n);
-    // days: avoid rounding artifacts
     const days = n / 8;
     return String(parseFloat(days.toFixed(10))).replace(/\.?0+$/, "") || "";
   }, [unit]);
 
-  // Sync external value → local string only when NOT focused
   useEffect(() => {
     if (!isFocused.current) {
       setInputVal(toDisplayStr(valueHours));
     }
   }, [valueHours, toDisplayStr]);
 
-  // When unit changes, re-derive display from current hours value (only if not focused)
   useEffect(() => {
     if (!isFocused.current) {
       setInputVal(toDisplayStr(valueHours));
@@ -289,13 +463,11 @@ const CreditInput = ({
 
   const handleFocus = (e) => {
     isFocused.current = true;
-    // Show empty string if effectively zero so user can type fresh
     if (!inputVal || parseFloat(inputVal) === 0) setInputVal("");
     e.target.select();
   };
 
   const handleChange = (e) => {
-    // Allow anything while typing — never mutate what the user typed
     setInputVal(e.target.value);
   };
 
@@ -308,7 +480,6 @@ const CreditInput = ({
         ? num
         : parseFloat((num * 8).toFixed(6));
     onChangeHours(hrs);
-    // After commit, show the canonical display string
     setInputVal(hrs === 0 ? "" : toDisplayStr(hrs));
   };
 
@@ -316,7 +487,6 @@ const CreditInput = ({
     if (e.key === "Enter") e.currentTarget.blur();
   };
 
-  // Adornment shows conversion of whatever is currently in the box
   const rawNum = parseFloat(inputVal) || 0;
   const equivalentLabel = unit === "hours"
     ? `= ${(rawNum / 8).toFixed(3)} days`
@@ -938,13 +1108,10 @@ const BulkAutoAssignDialog = ({
 };
 
 // ─── BulkLeaveRow ──────────────────────────────────────────────────────────────
-// FIX: Uses isFocused ref so external state changes (parent re-renders, React
-// reconciliation) never clobber what the user is actively typing.
 const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHours, isDuplicate }) => {
   const [inputVal, setInputVal] = useState("");
   const isFocused = useRef(false);
 
-  // Convert hours → display string for the current unit
   const toDisplayStr = useCallback((hrs) => {
     if (!hrs || hrs === 0) return "";
     if (unit === "hours") return String(hrs);
@@ -952,14 +1119,12 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
     return String(parseFloat(days.toFixed(10))).replace(/\.?0+$/, "") || "";
   }, [unit]);
 
-  // Sync external → local only when NOT focused
   useEffect(() => {
     if (!isFocused.current) {
       setInputVal(toDisplayStr(allocatedHours));
     }
   }, [allocatedHours, toDisplayStr]);
 
-  // Unit change: re-derive display from current hours (only when not focused)
   useEffect(() => {
     if (!isFocused.current) {
       setInputVal(toDisplayStr(allocatedHours));
@@ -974,7 +1139,6 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
   };
 
   const handleChange = (e) => {
-    // Never transform what the user types — just store it as-is
     setInputVal(e.target.value);
   };
 
@@ -995,7 +1159,6 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
     if (e.key === "Enter") e.currentTarget.blur();
   };
 
-  // Adornment: show conversion of whatever is in the box right now
   const numericVal = parseFloat(inputVal) || 0;
   const equivalentAdornment = inputVal === ""
     ? (unit === "hours" ? "hrs" : "days")
@@ -1064,8 +1227,7 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
   );
 };
 
-// ─── Place ALL of these OUTSIDE and BEFORE FloatingConversionWidget ───────────
-
+// ─── ResultPill ───────────────────────────────────────────────────────────────
 const ResultPill = ({ label, value, primary = false }) => (
   <Box sx={{
     flex: 1, py: 1, px: 0.75, borderRadius: "8px", textAlign: "center",
@@ -1149,10 +1311,7 @@ const ClearableDecimalField = ({ value, onChange, placeholder, min = 0, max, ste
   );
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// ─── FLOATING CONVERSION WIDGET ───────────────────────────────────────────────
-// ═══════════════════════════════════════════════════════════════════════════════
-
+// ─── Floating Conversion Widget ───────────────────────────────────────────────
 function FloatingConversionWidget({ onNavigateToModule }) {
   const [open, setOpen]           = useState(false);
   const [activeTab, setActiveTab] = useState(0);
@@ -1230,12 +1389,7 @@ function FloatingConversionWidget({ onNavigateToModule }) {
     const mEntry = minutesTable.find((m) => m.rate_value === whMinutes);
     const hDec   = whHours   === 0 ? 0 : Number((hEntry?.decimal_equivalent ?? whHours * hourlyRate).toFixed(3));
     const mDec   = whMinutes === 0 ? 0 : (mEntry?.decimal_equivalent ?? 0);
-    return {
-      hDec,
-      mDec,
-      total:    Number((hDec + mDec).toFixed(3)),
-      totalMin: whHours * 60 + whMinutes,
-    };
+    return { hDec, mDec, total: Number((hDec + mDec).toFixed(3)) };
   }, [whHours, whMinutes, whDayType, activeHoursTable, minutesTable]);
 
   const lcResult = useMemo(() => {
@@ -1259,7 +1413,7 @@ function FloatingConversionWidget({ onNavigateToModule }) {
             cursor: "pointer",
             boxShadow: `0 4px 16px ${alpha(T.accent, 0.45)}`,
             transition: "all 0.2s ease",
-            "&:hover": { bgcolor: T.accentDark, transform: "scale(1.08)", boxShadow: `0 6px 22px ${alpha(T.accent, 0.55)}` },
+            "&:hover": { bgcolor: T.accentDark, transform: "scale(1.08)" },
           }}
         >
           {open ? <Close sx={{ fontSize: 20 }} /> : <CalculateIcon sx={{ fontSize: 22 }} />}
@@ -1267,15 +1421,12 @@ function FloatingConversionWidget({ onNavigateToModule }) {
       </Tooltip>
 
       <Collapse in={open} timeout={200}>
-        <Paper
-          elevation={0}
-          sx={{
-            position: "fixed", bottom: 186, right: 32, zIndex: 1199, width: 310,
-            borderRadius: "12px", border: `1px solid ${T.accentBorder}`,
-            boxShadow: `0 8px 32px ${alpha(T.accent, 0.18)}, 0 2px 8px rgba(0,0,0,0.08)`,
-            overflow: "hidden", fontFamily: T.poppins,
-          }}
-        >
+        <Paper elevation={0} sx={{
+          position: "fixed", bottom: 186, right: 32, zIndex: 1199, width: 310,
+          borderRadius: "12px", border: `1px solid ${T.accentBorder}`,
+          boxShadow: `0 8px 32px ${alpha(T.accent, 0.18)}, 0 2px 8px rgba(0,0,0,0.08)`,
+          overflow: "hidden", fontFamily: T.poppins,
+        }}>
           <Box sx={{ px: 2, py: 1.25, background: T.headerGrad, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <ConvertIcon sx={{ fontSize: 15, color: "rgba(255,255,255,0.85)" }} />
@@ -1285,27 +1436,15 @@ function FloatingConversionWidget({ onNavigateToModule }) {
             <Button
               onClick={onNavigateToModule} size="small"
               endIcon={<OpenInNewIcon sx={{ fontSize: "12px !important" }} />}
-              sx={{
-                fontSize: "0.62rem", fontWeight: 700, color: "rgba(255,255,255,0.75)",
-                textTransform: "none", fontFamily: T.poppins,
-                px: 1, py: 0.25, borderRadius: "5px", minWidth: 0,
-                border: "1px solid rgba(255,255,255,0.25)",
-                "&:hover": { bgcolor: "rgba(255,255,255,0.12)", color: "#fff" },
-              }}
+              sx={{ fontSize: "0.62rem", fontWeight: 700, color: "rgba(255,255,255,0.75)", textTransform: "none", fontFamily: T.poppins, px: 1, py: 0.25, borderRadius: "5px", minWidth: 0, border: "1px solid rgba(255,255,255,0.25)", "&:hover": { bgcolor: "rgba(255,255,255,0.12)", color: "#fff" } }}
             >
               View Tables
             </Button>
           </Box>
 
           <Box sx={{ borderBottom: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint }}>
-            <Tabs
-              value={activeTab} onChange={(_, v) => setActiveTab(v)} variant="fullWidth"
-              sx={{
-                minHeight: 36,
-                "& .MuiTab-root": { minHeight: 36, fontSize: "0.7rem", fontWeight: 700, textTransform: "none", fontFamily: T.poppins, color: T.muted, py: 0, "&.Mui-selected": { color: T.accent } },
-                "& .MuiTabs-indicator": { bgcolor: T.accent, height: 2 },
-              }}
-            >
+            <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} variant="fullWidth"
+              sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, fontSize: "0.7rem", fontWeight: 700, textTransform: "none", fontFamily: T.poppins, color: T.muted, py: 0, "&.Mui-selected": { color: T.accent } }, "& .MuiTabs-indicator": { bgcolor: T.accent, height: 2 } }}>
               <Tab label="Working Hours" />
               <Tab label="Leave Credits" />
             </Tabs>
@@ -1320,23 +1459,18 @@ function FloatingConversionWidget({ onNavigateToModule }) {
                 <ToggleButton value="6hr">6-hr</ToggleButton>
               </ToggleButtonGroup>
             </Box>
-
             <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
               <ClearableIntField label="Hours" value={whHours} onChange={setWhHours} placeholder="0" min={0} widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx} />
               <ClearableIntField label="Minutes (0–59)" value={whMinutes} onChange={setWhMinutes} placeholder="0" min={0} max={59} widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx} />
             </Box>
-
             <Box sx={{ display: "flex", gap: 0.75 }}>
               <ResultPill label="Hours" value={Number(whResult.hDec).toFixed(3)} />
               <ResultPill label="Total" value={whResult.total.toFixed(3)} primary />
               <ResultPill label="Mins." value={Number(whResult.mDec).toFixed(3)} />
             </Box>
-
             <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.75, p: "6px 10px", borderRadius: "7px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
               <Typography sx={{ fontSize: "0.68rem", color: T.muted, fontWeight: 600, fontFamily: T.poppins }}>Equivalent:</Typography>
-              <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>
-                {whHours}h {whMinutes}m = {whResult.total.toFixed(3)}
-              </Typography>
+              <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>{whHours}h {whMinutes}m = {whResult.total.toFixed(3)}</Typography>
               <Chip label={whDayType} size="small" sx={{ height: 16, fontSize: "0.58rem", fontWeight: 700, bgcolor: T.accent, color: "#fff", fontFamily: T.poppins }} />
             </Box>
           </Box>
@@ -1346,18 +1480,15 @@ function FloatingConversionWidget({ onNavigateToModule }) {
               <ClearableIntField label="LWP Days (1–30)" value={lcDays} onChange={(v) => setLcDays(Math.min(30, Math.max(1, v || 1)))} placeholder="1" min={1} max={30} widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx} />
               <ClearableDecimalField label="Abs w/o Pay (0–29.5)" value={lcAbs} onChange={setLcAbs} placeholder="0" min={0} max={29.5} step={0.5} snapToStep widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx} />
             </Box>
-
             <Box sx={{ display: "flex", gap: 0.75 }}>
-              <ResultPill label="LWP Earned"         value={lcResult.earned.toFixed(3)}    primary />
+              <ResultPill label="LWP Earned" value={lcResult.earned.toFixed(3)} primary />
               <ResultPill label="Abs w/o Pay Earned" value={lcResult.absEarned.toFixed(3)} />
             </Box>
-
             <Box sx={{ p: "6px 10px", borderRadius: "7px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
               <Typography sx={{ fontSize: "0.68rem", color: T.muted, fontWeight: 600, fontFamily: T.poppins, textAlign: "center" }}>
                 Earned at <strong style={{ color: T.accent }}>1.250/mo</strong> · Absents w/o pay reduce credits
               </Typography>
             </Box>
-
             <Typography sx={{ fontSize: "0.62rem", color: T.faint, textAlign: "center", fontFamily: T.poppins }}>
               For the full absence deduction table, click <strong style={{ color: T.accent }}>View Tables</strong> above.
             </Typography>
@@ -2309,8 +2440,16 @@ const LeaveAssignment = () => {
                                             {!isLocked && <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins, whiteSpace: "nowrap" }}>{pctUsed.toFixed(0)}% used</Typography>}
                                           </Box>
                                         </Box>
+
+                                        {/* ─── Stats grid ─── */}
                                         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
-                                          {[["Carried Over", carriedHrs, carriedHrs > 0 ? "#2e7d32" : T.faint], ["Balance Given", allocHrs, "#1565c0"], ["Used", usedHrs, "#e65100"], ["Remaining", remHrs, sc], ["Total", totalHrs, "#2e7d32"]].map(([label, val, color], i) => (
+                                          {[
+                                            ["Carried Over",   carriedHrs, carriedHrs > 0 ? "#2e7d32" : T.faint],
+                                            ["Balance Given",  allocHrs,   "#1565c0"],
+                                            ["Used",           usedHrs,    "#e65100"],
+                                            ["Remaining",      remHrs,     sc],
+                                            ["Total",          totalHrs,   "#2e7d32"],
+                                          ].map(([label, val, color], i) => (
                                             <Box key={label} sx={{ px: 1.75, py: 1.5, borderRight: i < 4 ? `1px solid ${T.divider}` : "none", borderBottom: `1px solid ${T.divider}`, textAlign: "center" }}>
                                               <Typography sx={{ fontSize: "0.59rem", fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: T.poppins, mb: 0.5 }}>{label}</Typography>
                                               <Typography sx={{ fontWeight: 800, color, fontSize: "0.9rem", lineHeight: 1, fontFamily: T.poppins }}>{fmt(val)}</Typography>
@@ -2320,6 +2459,20 @@ const LeaveAssignment = () => {
                                             </Box>
                                           ))}
                                         </Box>
+
+                                        {/* ─── NEW: Earnings Banner ─── */}
+                                        {!isLocked && (
+                                          <Box sx={{ px: 2.5, py: 1, borderBottom: `1px solid ${T.divider}` }}>
+                                            <EarningsBanner
+                                              employeeNumber={selectedEmployeeLeaves.employeeNumber}
+                                              leaveCode={selectedLeaveTypeInModal.leave_code}
+                                              periodYear={period.period_year}
+                                              periodSemester={period.period_semester}
+                                              unit={unit}
+                                            />
+                                          </Box>
+                                        )}
+
                                         <Box sx={{ px: 2.5, py: 1.25, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
                                           <Typography sx={{ fontSize: "0.72rem", color: isLocked ? T.faint : remHrs > 0 ? "#2e7d32" : T.faint, fontFamily: T.poppins }}>
                                             {isLocked ? "Transferred to Commutation." : remHrs > 0 ? `${fmt(remHrs)} remaining · Can be transferred to Commutation.` : "All leave credits for this period have been used."}
@@ -2428,6 +2581,18 @@ const LeaveAssignment = () => {
                             </Box>
                           ))}
                         </Box>
+                        {/* Earnings banner in edit modal too */}
+                        {!isEditLocked && (
+                          <Box sx={{ mb: 2 }}>
+                            <EarningsBanner
+                              employeeNumber={editAssignment.employeeNumber}
+                              leaveCode={editAssignment.leave_code}
+                              periodYear={editAssignment.period_year}
+                              periodSemester={editAssignment.period_semester}
+                              unit={unit}
+                            />
+                          </Box>
+                        )}
                         <Divider sx={{ mb: 2.5, borderColor: T.divider }}>
                           <Chip label="Edit Fields" size="small" sx={{ height: 18, fontSize: "0.68rem", bgcolor: T.accentFaint, color: T.accent, fontWeight: 700, border: `1px solid ${T.accentBorder}`, fontFamily: T.poppins }} />
                         </Divider>
@@ -2478,7 +2643,7 @@ const LeaveAssignment = () => {
         </Box>
       </Fade>
 
-      {/* ── Floating Reset to Default button ── */}
+      {/* Floating Reset to Default button */}
       <Tooltip title={`Auto-assign leave types to all ${[...new Set(assignments.map((a) => a.employeeNumber))].length} employees with existing records`} placement="left">
         <Button
           onClick={() => setBulkAssignOpen(true)}
@@ -2489,7 +2654,7 @@ const LeaveAssignment = () => {
         </Button>
       </Tooltip>
 
-      {/* ── Floating Conversion Widget ── */}
+      {/* Floating Conversion Widget */}
       <FloatingConversionWidget onNavigateToModule={handleNavigateToConversionModule} />
     </>
   );
