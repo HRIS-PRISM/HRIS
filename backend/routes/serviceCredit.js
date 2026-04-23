@@ -44,52 +44,63 @@ router.get('/service_credit', (req, res) => {
 // ─── POST /service_credit ─────────────────────────────────────────────────────
 router.post('/service_credit', (req, res) => {
   const {
-    employeeNumber, sc_type,
-    ot_hours_regular, ot_hours_holiday, ot_hours_night_diff,
-    total_ot_hours, earned_hours, remaining_hours, used_hours,
-    period_year, period_month, remarks,
+    employeeNumber,
+    sc_type,
+    ot_hours_regular,
+    ot_hours_holiday,
+    ot_hours_night_diff,
+    total_ot_hours,
+    earned_hours,
+    remaining_hours,
+    used_hours,
+    period_year,
+    period_month,
+    remarks,
     emp_category_snapshot,
-    // Accept any extra ot_* dynamic columns from the frontend
-    ...rest
   } = req.body;
- 
-  // Collect dynamic OT breakdown keys (ot_<typeId>)
-  const dynamicOTKeys = Object.keys(rest).filter((k) => k.startsWith('ot_'));
-  const dynamicCols   = dynamicOTKeys.length ? `, ${dynamicOTKeys.join(', ')}` : '';
-  const dynamicPlaceholders = dynamicOTKeys.length ? `, ${dynamicOTKeys.map(() => '?').join(', ')}` : '';
-  const dynamicVals   = dynamicOTKeys.map((k) => parseFloat(rest[k]) || 0);
- 
+
   const q = `
     INSERT INTO service_credit
-    (employeeNumber, sc_type,
-     ot_hours_regular, ot_hours_holiday, ot_hours_night_diff,
-     total_ot_hours, earned_hours, remaining_hours, used_hours,
-     period_year, period_month, remarks, emp_category_snapshot
-     ${dynamicCols})
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?${dynamicPlaceholders})
+    (
+      employeeNumber,
+      sc_type,
+      ot_hours_regular,
+      ot_hours_holiday,
+      ot_hours_night_diff,
+      total_ot_hours,
+      earned_hours,
+      remaining_hours,
+      used_hours,
+      period_year,
+      period_month,
+      remarks,
+      emp_category_snapshot
+    )
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
   `;
- 
+
   const values = [
-    employeeNumber, sc_type || 'non_commutative',
-    parseFloat(ot_hours_regular)  || 0,
-    parseFloat(ot_hours_holiday)  || 0,
+    employeeNumber,
+    sc_type || 'non_commutative',
+    parseFloat(ot_hours_regular) || 0,
+    parseFloat(ot_hours_holiday) || 0,
     parseFloat(ot_hours_night_diff) || 0,
-    parseFloat(total_ot_hours)    || 0,
-    parseFloat(earned_hours)      || 0,
+    parseFloat(total_ot_hours) || 0,
+    parseFloat(earned_hours) || 0,
     parseFloat(remaining_hours ?? earned_hours) || 0,
-    parseFloat(used_hours)        || 0,
-    parseInt(period_year, 10)     || null,
-    period_month                  || null,
-    remarks                       || null,
-    emp_category_snapshot         || null,
-    ...dynamicVals,
+    parseFloat(used_hours) || 0,
+    parseInt(period_year, 10) || null,
+    period_month || null,
+    remarks || null,
+    emp_category_snapshot || null,
   ];
- 
+
   db.query(q, values, (err, result) => {
     if (err) {
       console.error('service_credit POST error:', err);
       return res.status(500).json({ error: err.message });
     }
+
     res.json({ id: result.insertId, ...req.body });
   });
 });

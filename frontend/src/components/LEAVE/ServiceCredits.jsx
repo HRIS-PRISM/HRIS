@@ -719,8 +719,6 @@ const ServiceCredit = () => {
     setLoading(true); setError("");
     try {
       const token = localStorage.getItem("token");
-      const otBreakdown = {};
-      otTypes.forEach((t) => { otBreakdown[`ot_${t.id}`] = toNum(otValues[t.id]); });
 
       await axios.post(
         `${API_BASE_URL}/api/service-credits/service_credit`,
@@ -744,7 +742,6 @@ const ServiceCredit = () => {
             isTempo:      selectedEmpCatData?.isTempo || false,
             isDesignated: selectedEmpCatData?.isDesignated || false,
           }),
-          ...otBreakdown,
         },
         { headers: { Authorization: `Bearer ${token}` } },
       );
