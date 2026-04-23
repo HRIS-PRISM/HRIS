@@ -656,6 +656,15 @@ const RecordsList = ({ employeeNumber, type, unit, refreshKey, year, month, onAp
 
   useEffect(() => { fetchEarnings(); }, [fetchEarnings, refreshKey]);
 
+  const orderedEarnings = useMemo(() => {
+    return [...data.earnings].sort((left, right) => {
+      const rightDate = new Date(right.created_at || right.approved_at || 0).getTime();
+      const leftDate  = new Date(left.created_at || left.approved_at || 0).getTime();
+      if (rightDate !== leftDate) return rightDate - leftDate;
+      return toNum(right.id) - toNum(left.id);
+    });
+  }, [data.earnings]);
+
   const handleApprove = async (record) => {
     setActionLoading(true);
     try {
@@ -686,8 +695,8 @@ const RecordsList = ({ employeeNumber, type, unit, refreshKey, year, month, onAp
   };
 
   if (!employeeNumber) return null;
-  const displayed    = showAll ? data.earnings : data.earnings.slice(0, 5);
-  const pendingCount = data.earnings.filter((e) => e.earn_status === "pending").length;
+  const displayed    = showAll ? orderedEarnings : orderedEarnings.slice(0, 5);
+  const pendingCount = orderedEarnings.filter((e) => e.earn_status === "pending").length;
 
   return (
     <Box sx={{ mt: 2 }}>
@@ -980,7 +989,7 @@ const LeaveEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month, o
                   )}
                 </Box>
                 <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.75 }}>
-                  Earned This Month
+                  Earned for {monthName(month)}
                 </Typography>
                 <CompactInputGrid
                   fields={leaveTypes.map(lt => ({ key: lt.leave_code, label: lt.leave_code, subtitle: lt.leave_description?.substring(0, 20) }))}
@@ -1007,7 +1016,23 @@ const LeaveEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month, o
           <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.06em", mb: 1, position: "sticky", top: 0, bgcolor: "#fff", py: 0.5 }}>
             Leave Balances
           </Typography>
-          {leaveTypes.map((lt) => {
+          {[...leaveTypes]
+            .sort((left, right) => {
+              const leftBalance = assignmentMap[left.leave_code];
+              const rightBalance = assignmentMap[right.leave_code];
+              const leftTotal = toNum(leftBalance?.total_hours);
+              const rightTotal = toNum(rightBalance?.total_hours);
+              const leftRemaining = toNum(leftBalance?.remaining_hours);
+              const rightRemaining = toNum(rightBalance?.remaining_hours);
+              const leftYear = toNum(leftBalance?.period_year);
+              const rightYear = toNum(rightBalance?.period_year);
+
+              if (rightYear !== leftYear) return rightYear - leftYear;
+              if (rightTotal !== leftTotal) return rightTotal - leftTotal;
+              if (rightRemaining !== leftRemaining) return rightRemaining - leftRemaining;
+              return left.leave_code.localeCompare(right.leave_code);
+            })
+            .map((lt) => {
             const balance   = assignmentMap[lt.leave_code];
             const remaining = toNum(balance?.remaining_hours);
             const used      = toNum(balance?.used_hours);
@@ -1021,12 +1046,12 @@ const LeaveEarningsPanel = ({ employee, deptMap, empCatMap, unit, year, month, o
                 {hasBalance ? (
                   <>
                     <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: remaining > 0 ? "#2e7d32" : "#d32f2f", fontFamily: T.poppins }}>
-                      {unit === "days" ? `${(remaining / 8).toFixed(2)}d` : `${remaining.toFixed(2)}h`}
+                      {unit === "days" ? `${(remaining / 8).toFixed(3)}d` : `${remaining.toFixed(3)}h`}
                       <Typography component="span" sx={{ fontSize: "0.58rem", color: T.faint, fontWeight: 400, ml: 0.4 }}>left</Typography>
                     </Typography>
                     {total > 0 && (
                       <Typography sx={{ fontSize: "0.58rem", color: T.faint, fontFamily: T.poppins }}>
-                        {unit === "days" ? `${(used / 8).toFixed(2)}d / ${(total / 8).toFixed(2)}d` : `${used.toFixed(2)}h / ${total.toFixed(2)}h`}
+                        {unit === "days" ? `${(used / 8).toFixed(3)}d / ${(total / 8).toFixed(3)}d` : `${used.toFixed(3)}h / ${total.toFixed(3)}h`}
                       </Typography>
                     )}
                   </>
