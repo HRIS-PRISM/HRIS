@@ -484,9 +484,9 @@ const ServiceCredit = () => {
   const fetchSCRecords = async () => {
     try {
       const token = localStorage.getItem("token");
-      const r = await axios.get(`${API_BASE_URL}/api/service-credits/service_credit`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const r = await axios.get(`${API_BASE_URL}/api/service-credits/ot-types`, {
+  headers: { Authorization: `Bearer ${token}` },
+});
       setSCRecords(Array.isArray(r.data) ? r.data : []);
     } catch { setSCRecords([]); }
   };
@@ -566,22 +566,24 @@ const ServiceCredit = () => {
     } catch {}
   };
 
-  const fetchOtTypes = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const r = await axios.get(`${API_BASE_URL}/api/ot-types`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const types = Array.isArray(r.data) ? r.data : [];
-      if (types.length > 0) { setOtTypes(types); return; }
-    } catch {}
-    setOtTypes([
-      { id: "regular",    name: "Regular OT",            description: "Standard overtime hours",       multiplier: 1 },
-      { id: "holiday",    name: "Holiday OT",             description: "Overtime on holidays",          multiplier: 1 },
-      { id: "night_diff", name: "Night Differential OT",  description: "Night differential overtime",   multiplier: 1 },
-    ]);
-  };
-
+const fetchOtTypes = async () => {
+  try {
+    const token = localStorage.getItem("token");
+    const r = await axios.get(`${API_BASE_URL}/api/service-credits/ot-types`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const types = Array.isArray(r.data) ? r.data : [];
+    if (types.length > 0) {
+      setOtTypes(types);
+      return;
+    }
+  } catch {}
+  setOtTypes([
+    { id: "regular", name: "Regular OT", description: "Standard overtime hours", multiplier: 1 },
+    { id: "holiday", name: "Holiday OT", description: "Overtime on holidays", multiplier: 1 },
+    { id: "night_diff", name: "Night Differential OT", description: "Night differential overtime", multiplier: 1 },
+  ]);
+};
   // ── Name formatter — LASTNAME, Firstname Middlename Ext ──────────────────
   const buildDisplayName = useCallback((e) => {
     const last  = (e?.lastName      || "").trim();
