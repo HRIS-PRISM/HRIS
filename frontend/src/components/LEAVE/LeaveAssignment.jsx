@@ -252,39 +252,72 @@ const GenderBadge = ({ gender, light = false }) => {
 };
 
 // ─── CreditInput ───────────────────────────────────────────────────────────────
+// FIX: Uses isFocused ref so external prop changes never overwrite what the user
+// is currently typing. Draft is the single source of truth while focused.
 const CreditInput = ({
   label, valueHours, onChangeHours, unit,
   required = false, disabled = false, color = T.accent, autoFilled = false,
 }) => {
-  const toDisplay = useCallback(
-    (hrs) => {
-      if (hrs === "" || hrs == null) return "";
-      const n = parseFloat(hrs);
-      if (isNaN(n)) return "0";
-      if (unit === "hours") return String(n);
-      return String(parseFloat((n / 8).toFixed(10))).replace(/\.?0+$/, "") || "0";
-    },
-    [unit],
-  );
+  const [inputVal, setInputVal] = useState("");
+  const isFocused = useRef(false);
 
-  const [draft, setDraft] = useState(null);
+  // Convert hours → display string for the current unit
+  const toDisplayStr = useCallback((hrs) => {
+    if (hrs === "" || hrs == null || hrs === 0) return "";
+    const n = parseFloat(hrs);
+    if (isNaN(n) || n === 0) return "";
+    if (unit === "hours") return String(n);
+    // days: avoid rounding artifacts
+    const days = n / 8;
+    return String(parseFloat(days.toFixed(10))).replace(/\.?0+$/, "") || "";
+  }, [unit]);
 
-  const committedDisplay = toDisplay(valueHours);
-  const displayValue     = draft !== null ? draft : committedDisplay;
+  // Sync external value → local string only when NOT focused
+  useEffect(() => {
+    if (!isFocused.current) {
+      setInputVal(toDisplayStr(valueHours));
+    }
+  }, [valueHours, toDisplayStr]);
 
-  const handleFocus  = () => setDraft(committedDisplay);
-  const handleChange = (e) => setDraft(e.target.value);
-  const handleBlur   = () => {
-    const num = parseFloat(draft);
-    const hrs = unit === "hours"
-      ? (isNaN(num) ? 0 : num)
-      : (isNaN(num) ? 0 : parseFloat((num * 8).toFixed(6)));
-    onChangeHours(hrs);
-    setDraft(null);
+  // When unit changes, re-derive display from current hours value (only if not focused)
+  useEffect(() => {
+    if (!isFocused.current) {
+      setInputVal(toDisplayStr(valueHours));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unit]);
+
+  const handleFocus = (e) => {
+    isFocused.current = true;
+    // Show empty string if effectively zero so user can type fresh
+    if (!inputVal || parseFloat(inputVal) === 0) setInputVal("");
+    e.target.select();
   };
-  const handleKeyDown = (e) => { if (e.key === "Enter") e.currentTarget.blur(); };
 
-  const rawNum = parseFloat(displayValue) || 0;
+  const handleChange = (e) => {
+    // Allow anything while typing — never mutate what the user typed
+    setInputVal(e.target.value);
+  };
+
+  const handleBlur = () => {
+    isFocused.current = false;
+    const num = parseFloat(inputVal);
+    const hrs = isNaN(num) || inputVal.trim() === ""
+      ? 0
+      : unit === "hours"
+        ? num
+        : parseFloat((num * 8).toFixed(6));
+    onChangeHours(hrs);
+    // After commit, show the canonical display string
+    setInputVal(hrs === 0 ? "" : toDisplayStr(hrs));
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") e.currentTarget.blur();
+  };
+
+  // Adornment shows conversion of whatever is currently in the box
+  const rawNum = parseFloat(inputVal) || 0;
   const equivalentLabel = unit === "hours"
     ? `= ${(rawNum / 8).toFixed(3)} days`
     : `= ${(rawNum * 8).toFixed(3)} hrs`;
@@ -301,7 +334,7 @@ const CreditInput = ({
         size="small"
         fullWidth
         disabled={disabled}
-        value={displayValue}
+        value={inputVal}
         onChange={handleChange}
         onFocus={handleFocus}
         onBlur={handleBlur}
@@ -905,43 +938,66 @@ const BulkAutoAssignDialog = ({
 };
 
 // ─── BulkLeaveRow ──────────────────────────────────────────────────────────────
+// FIX: Uses isFocused ref so external state changes (parent re-renders, React
+// reconciliation) never clobber what the user is actively typing.
 const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHours, isDuplicate }) => {
-  const toDisplay = useCallback(
-    (hrs) => {
-      if (hrs === 0 || hrs == null) return "";
-      if (unit === "hours") return String(hrs);
-      return String(parseFloat((hrs / 8).toFixed(10))).replace(/\.?0+$/, "") || "";
-    },
-    [unit],
-  );
+  const [inputVal, setInputVal] = useState("");
+  const isFocused = useRef(false);
 
-  const [draft, setDraft] = useState(null);
+  // Convert hours → display string for the current unit
+  const toDisplayStr = useCallback((hrs) => {
+    if (!hrs || hrs === 0) return "";
+    if (unit === "hours") return String(hrs);
+    const days = hrs / 8;
+    return String(parseFloat(days.toFixed(10))).replace(/\.?0+$/, "") || "";
+  }, [unit]);
 
+  // Sync external → local only when NOT focused
   useEffect(() => {
-    if (allocatedHours === 0) setDraft(null);
-  }, [allocatedHours]);
-
-  const committedDisplay = toDisplay(allocatedHours);
-  const displayValue     = draft !== null ? draft : committedDisplay;
-
-  const handleFocus  = () => setDraft(committedDisplay);
-  const handleChange = (e) => setDraft(e.target.value);
-  const handleBlur   = () => {
-    if (draft === null) return;
-    const num = parseFloat(draft);
-    if (isNaN(num) || draft.trim() === "") {
-      onChangeAllocated(0);
-    } else {
-      onChangeAllocated(
-        unit === "hours" ? num : parseFloat((num * 8).toFixed(6)),
-      );
+    if (!isFocused.current) {
+      setInputVal(toDisplayStr(allocatedHours));
     }
-    setDraft(null);
-  };
-  const handleKeyDown = (e) => { if (e.key === "Enter") e.currentTarget.blur(); };
+  }, [allocatedHours, toDisplayStr]);
 
-  const numericVal = parseFloat(displayValue) || 0;
-  const equivalentAdornment = displayValue === ""
+  // Unit change: re-derive display from current hours (only when not focused)
+  useEffect(() => {
+    if (!isFocused.current) {
+      setInputVal(toDisplayStr(allocatedHours));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unit]);
+
+  const handleFocus = (e) => {
+    isFocused.current = true;
+    if (!inputVal || parseFloat(inputVal) === 0) setInputVal("");
+    e.target.select();
+  };
+
+  const handleChange = (e) => {
+    // Never transform what the user types — just store it as-is
+    setInputVal(e.target.value);
+  };
+
+  const handleBlur = () => {
+    isFocused.current = false;
+    const num = parseFloat(inputVal);
+    if (isNaN(num) || inputVal.trim() === "") {
+      onChangeAllocated(0);
+      setInputVal("");
+    } else {
+      const hrs = unit === "hours" ? num : parseFloat((num * 8).toFixed(6));
+      onChangeAllocated(hrs);
+      setInputVal(toDisplayStr(hrs));
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") e.currentTarget.blur();
+  };
+
+  // Adornment: show conversion of whatever is in the box right now
+  const numericVal = parseFloat(inputVal) || 0;
+  const equivalentAdornment = inputVal === ""
     ? (unit === "hours" ? "hrs" : "days")
     : unit === "hours"
       ? `= ${(numericVal / 8).toFixed(3)} days`
@@ -980,8 +1036,8 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
           size="small"
           fullWidth
           disabled={isDuplicate}
-          value={displayValue}
-          placeholder={isDuplicate ? "skip" : unit === "hours" ? "0.000 hrs" : "0.000 days"}
+          value={inputVal}
+          placeholder={isDuplicate ? "skip" : unit === "hours" ? "0 hrs" : "0 days"}
           onChange={handleChange}
           onFocus={handleFocus}
           onBlur={handleBlur}
@@ -1007,6 +1063,7 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
     </Box>
   );
 };
+
 // ─── Place ALL of these OUTSIDE and BEFORE FloatingConversionWidget ───────────
 
 const ResultPill = ({ label, value, primary = false }) => (
@@ -1033,7 +1090,6 @@ const ClearableIntField = ({ value, onChange, placeholder, min = 0, max, label, 
         onChange={(e) => {
           const raw = e.target.value;
           setDraft(raw);
-          // immediately push valid numbers upstream so result updates live
           const num = parseInt(raw, 10);
           if (!isNaN(num)) {
             let clamped = Math.max(num, min);
@@ -1070,7 +1126,6 @@ const ClearableDecimalField = ({ value, onChange, placeholder, min = 0, max, ste
         onChange={(e) => {
           const raw = e.target.value;
           setDraft(raw);
-          // immediately push valid numbers upstream so result updates live
           const num = parseFloat(raw);
           if (!isNaN(num)) {
             let clamped = Math.max(num, min);
@@ -1193,7 +1248,6 @@ function FloatingConversionWidget({ onNavigateToModule }) {
 
   return (
     <>
-      {/* FAB trigger */}
       <Tooltip title="Quick Conversion Tool" placement="left">
         <Box
           onClick={() => setOpen((v) => !v)}
@@ -1212,7 +1266,6 @@ function FloatingConversionWidget({ onNavigateToModule }) {
         </Box>
       </Tooltip>
 
-      {/* Panel */}
       <Collapse in={open} timeout={200}>
         <Paper
           elevation={0}
@@ -1223,7 +1276,6 @@ function FloatingConversionWidget({ onNavigateToModule }) {
             overflow: "hidden", fontFamily: T.poppins,
           }}
         >
-          {/* Header */}
           <Box sx={{ px: 2, py: 1.25, background: T.headerGrad, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <ConvertIcon sx={{ fontSize: 15, color: "rgba(255,255,255,0.85)" }} />
@@ -1245,7 +1297,6 @@ function FloatingConversionWidget({ onNavigateToModule }) {
             </Button>
           </Box>
 
-          {/* Tabs */}
           <Box sx={{ borderBottom: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint }}>
             <Tabs
               value={activeTab} onChange={(_, v) => setActiveTab(v)} variant="fullWidth"
@@ -1260,7 +1311,6 @@ function FloatingConversionWidget({ onNavigateToModule }) {
             </Tabs>
           </Box>
 
-          {/* ─── Tab 0: Working Hours — always mounted, toggled via display ─── */}
           <Box sx={{ display: activeTab === 0 ? "flex" : "none", p: 1.75, flexDirection: "column", gap: 1.25 }}>
             <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <Typography sx={inputLabelSx}>Day type</Typography>
@@ -1272,16 +1322,8 @@ function FloatingConversionWidget({ onNavigateToModule }) {
             </Box>
 
             <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
-              <ClearableIntField
-                label="Hours" value={whHours} onChange={setWhHours}
-                placeholder="0" min={0}
-                widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx}
-              />
-              <ClearableIntField
-                label="Minutes (0–59)" value={whMinutes} onChange={setWhMinutes}
-                placeholder="0" min={0} max={59}
-                widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx}
-              />
+              <ClearableIntField label="Hours" value={whHours} onChange={setWhHours} placeholder="0" min={0} widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx} />
+              <ClearableIntField label="Minutes (0–59)" value={whMinutes} onChange={setWhMinutes} placeholder="0" min={0} max={59} widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx} />
             </Box>
 
             <Box sx={{ display: "flex", gap: 0.75 }}>
@@ -1299,20 +1341,10 @@ function FloatingConversionWidget({ onNavigateToModule }) {
             </Box>
           </Box>
 
-          {/* ─── Tab 1: Leave Credits — always mounted, toggled via display ─── */}
           <Box sx={{ display: activeTab === 1 ? "flex" : "none", p: 1.75, flexDirection: "column", gap: 1.25 }}>
             <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
-              <ClearableIntField
-                label="LWP Days (1–30)" value={lcDays}
-                onChange={(v) => setLcDays(Math.min(30, Math.max(1, v || 1)))}
-                placeholder="1" min={1} max={30}
-                widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx}
-              />
-              <ClearableDecimalField
-                label="Abs w/o Pay (0–29.5)" value={lcAbs} onChange={setLcAbs}
-                placeholder="0" min={0} max={29.5} step={0.5} snapToStep
-                widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx}
-              />
+              <ClearableIntField label="LWP Days (1–30)" value={lcDays} onChange={(v) => setLcDays(Math.min(30, Math.max(1, v || 1)))} placeholder="1" min={1} max={30} widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx} />
+              <ClearableDecimalField label="Abs w/o Pay (0–29.5)" value={lcAbs} onChange={setLcAbs} placeholder="0" min={0} max={29.5} step={0.5} snapToStep widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx} />
             </Box>
 
             <Box sx={{ display: "flex", gap: 0.75 }}>
@@ -1330,7 +1362,6 @@ function FloatingConversionWidget({ onNavigateToModule }) {
               For the full absence deduction table, click <strong style={{ color: T.accent }}>View Tables</strong> above.
             </Typography>
           </Box>
-
         </Paper>
       </Collapse>
     </>
@@ -1434,14 +1465,27 @@ const LeaveAssignment = () => {
     return codes;
   }, [deptMap]);
 
+  const buildDisplayName = useCallback((e) => {
+    const last = (e?.lastName       || "").trim();
+    const first = (e?.firstName      || "").trim();
+    const mid   = (e?.middleName     || "").trim();
+    const ext   = (e?.nameExtension  || e?.suffix || "").trim();
+    if (!last && !first) return (e?.fullName || "").trim() || `#${e?.employeeNumber}`;
+    const givenParts = [first, mid].filter(Boolean).join(" ");
+    const extSuffix  = ext ? ` ${ext}` : "";
+    return last ? `${last.toUpperCase()}, ${givenParts}${extSuffix}` : `${givenParts}${extSuffix}`;
+  }, []);
+
   const employeeOptions = useMemo(() => {
     const list = Array.isArray(employees) ? employees : [];
-    return list.map((e) => {
-      const name  = (e?.fullName || `${e?.firstName || ""} ${e?.lastName || ""}`.trim()).trim();
-      const empNo = (e?.employeeNumber || "").toString().trim();
-      return { ...e, _searchKey: `${name} ${empNo}`.toLowerCase() };
+    const withMeta = list.map((e) => {
+      const displayName = buildDisplayName(e);
+      const empNo       = (e?.employeeNumber || "").toString().trim();
+      const sortLast    = (e?.lastName || "").trim().toLowerCase();
+      return { ...e, _displayName: displayName, _searchKey: `${displayName} ${empNo}`.toLowerCase(), _sortLast: sortLast };
     });
-  }, [employees]);
+    return withMeta.sort((a, b) => a._sortLast.localeCompare(b._sortLast));
+  }, [employees, buildDisplayName]);
 
   const selectedEmployeeGender = useMemo(() => selectedEmployee?.sex || selectedEmployee?.gender || null, [selectedEmployee]);
   const filteredLeaveTypesForNew = useMemo(
@@ -1669,7 +1713,7 @@ const LeaveAssignment = () => {
 
   const groupedByEmployee = filteredAssignments.reduce((acc, a) => {
     const num = a.employeeNumber?.toString() || "Unknown";
-    if (!acc[num]) { const info = getEmployeeInfo(num); acc[num] = { employeeNumber: num, fullName: info.fullName || num, firstName: info.firstName, lastName: info.lastName, leaveTypes: {} }; }
+    if (!acc[num]) { const info = getEmployeeInfo(num); acc[num] = { employeeNumber: num, fullName: buildDisplayName(info) || num, firstName: info.firstName, lastName: info.lastName, leaveTypes: {} }; }
     const lc = a.leave_code;
     if (!acc[num].leaveTypes[lc]) acc[num].leaveTypes[lc] = { leave_code: lc, periods: [] };
     acc[num].leaveTypes[lc].periods.push(a);
@@ -1780,30 +1824,35 @@ const LeaveAssignment = () => {
 
                   <Box sx={{ mb: 2 }}>
                     <Box sx={{ mb: 1.5 }}>
-                      <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>Select Employee <span style={{ color: "#c62828" }}>*</span></Typography>
+                      <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>
+                        Select Employee <span style={{ color: "#c62828" }}>*</span>
+                        <Box component="span" sx={{ ml: 1, fontSize: "0.65rem", fontWeight: 400, color: T.faint }}>
+                          — sorted by last name A → Z
+                        </Box>
+                      </Typography>
                       <Autocomplete
                         value={selectedEmployee}
                         onChange={(e, v) => { setSelectedEmployee(v); setError(""); setBulkCredits({}); setBulkResults(null); }}
                         options={employeeOptions}
                         autoHighlight
-                        getOptionLabel={(o) => `${o.fullName || `${o.firstName || ""} ${o.lastName || ""}`.trim()} (${o.employeeNumber})`}
+                        getOptionLabel={(o) => `${o._displayName || o.fullName || `${o.firstName || ""} ${o.lastName || ""}`.trim()} (${o.employeeNumber})`}
                         filterOptions={(opts, { inputValue: iv }) => opts.filter((o) => (o._searchKey || "").includes(iv.toLowerCase().trim())).slice(0, 80)}
                         isOptionEqualToValue={(o, v) => o.employeeNumber === v.employeeNumber}
                         noOptionsText="No employees found"
                         renderOption={(props, option) => {
                           const { key, ...rest } = props;
-                          const name     = option.fullName || `${option.firstName || ""} ${option.lastName || ""}`.trim();
-                          const initials = `${option.firstName?.[0] || ""}${option.lastName?.[0] || ""}`.toUpperCase() || "?";
+                          const name     = option._displayName || option.fullName || `${option.firstName || ""} ${option.lastName || ""}`.trim();
+                          const initials = `${option.lastName?.[0] || ""}${option.firstName?.[0] || ""}`.toUpperCase() || "?";
                           const deptCode = deptMap[option.employeeNumber?.toString()];
                           const empCat   = empCatMap[option.employeeNumber?.toString()];
                           return (
                             <li key={key} {...rest}>
                               <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                                <Avatar sx={{ width: 30, height: 30, bgcolor: T.accent, fontSize: "0.75rem", fontWeight: 700 }}>{initials}</Avatar>
+                                <Avatar sx={{ width: 30, height: 30, bgcolor: T.accent, fontSize: "0.75rem", fontWeight: 700, borderRadius: "6px" }}>{initials}</Avatar>
                                 <Box>
-                                  <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: T.poppins }}>{name}</Typography>
+                                  <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: T.poppins, fontSize: "0.82rem" }}>{name}</Typography>
                                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
-                                    <Typography variant="caption" sx={{ color: "#888", fontFamily: T.poppins }}>{option.employeeNumber}</Typography>
+                                    <Typography variant="caption" sx={{ color: "#888", fontFamily: T.poppins }}>#{option.employeeNumber}</Typography>
                                     {(option.sex || option.gender) && <GenderBadge gender={option.sex || option.gender} />}
                                     {deptCode && <DeptBadge code={deptCode} />}
                                     {empCat && <EmpCatBadge label={empCat.label} colorHex={empCat.colorHex} />}
@@ -1814,8 +1863,13 @@ const LeaveAssignment = () => {
                           );
                         }}
                         renderInput={(params) => (
-                          <FieldInput {...params} size="small" placeholder="Type employee name or number…" />
+                          <FieldInput {...params} size="small" placeholder="Type last name, first name, or employee number…"
+                            InputProps={{ ...params.InputProps, startAdornment: <><SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} />{params.InputProps.startAdornment}</> }}
+                          />
                         )}
+                        slotProps={{
+                          paper: { sx: { borderRadius: 2, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", border: `1px solid ${T.accentBorder}` } },
+                        }}
                         sx={{ width: "100%" }}
                       />
                       {selectedEmployee && (
@@ -2007,7 +2061,7 @@ const LeaveAssignment = () => {
                         const remH         = allActive.reduce((s, p) => s + toNum(p.remaining_hours), 0);
                         const totalH       = allActive.reduce((s, p) => s + toNum(p.total_hours), 0);
                         const overallColor = getStatusColor(remH, totalH);
-                        const initials     = `${grp.firstName?.[0] || ""}${grp.lastName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
+                        const initials     = `${grp.lastName?.[0] || ""}${grp.firstName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
                         const info         = getEmployeeInfo(grp.employeeNumber);
                         const empGender    = info?.sex || info?.gender;
                         const deptCode     = deptMap[grp.employeeNumber] || null;
@@ -2072,7 +2126,7 @@ const LeaveAssignment = () => {
                         const remH         = allActive.reduce((s, p) => s + toNum(p.remaining_hours), 0);
                         const totalH       = allActive.reduce((s, p) => s + toNum(p.total_hours), 0);
                         const overallColor = getStatusColor(remH, totalH);
-                        const initials     = `${grp.firstName?.[0] || ""}${grp.lastName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
+                        const initials     = `${grp.lastName?.[0] || ""}${grp.firstName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
                         const info         = getEmployeeInfo(grp.employeeNumber);
                         const empGender    = info?.sex || info?.gender;
                         const deptCode     = deptMap[grp.employeeNumber] || null;
@@ -2146,7 +2200,7 @@ const LeaveAssignment = () => {
                     <>
                       <Box sx={{ px: 3.5, py: 2, background: T.headerGrad, display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
                         <Avatar sx={{ width: 36, height: 36, bgcolor: "rgba(255,255,255,0.18)", color: "#fff", fontSize: "0.85rem", fontWeight: 800, borderRadius: "8px", border: "1px solid rgba(255,255,255,0.25)" }}>
-                          {`${selectedEmployeeLeaves.firstName?.[0] || ""}${selectedEmployeeLeaves.lastName?.[0] || ""}`.toUpperCase() || selectedEmployeeLeaves.fullName?.[0] || "?"}
+                          {`${selectedEmployeeLeaves.lastName?.[0] || ""}${selectedEmployeeLeaves.firstName?.[0] || ""}`.toUpperCase() || selectedEmployeeLeaves.fullName?.[0] || "?"}
                         </Avatar>
                         <Box sx={{ flex: 1, minWidth: 0 }}>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
@@ -2236,7 +2290,6 @@ const LeaveAssignment = () => {
                                     const usedHrs    = toNum(period.used_hours);
                                     const carriedHrs = toNum(period.carried_forward_hours);
                                     const allocRawHrs = toNum(period.allocated_hours);
-                                    // Legacy rows may have allocated_hours unset even when credits were granted.
                                     const allocHrs   = allocRawHrs > 0
                                       ? allocRawHrs
                                       : Math.max(0, totalHrs - carriedHrs);

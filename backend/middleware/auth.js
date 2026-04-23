@@ -101,10 +101,20 @@ function insertAuditLog(employeeNumber, action) {
   });
 }
 
+function requireAdmin(req, res, next) {
+  const allowedRoles = ['admin', 'administrator', 'superadmin', 'technical'];
+  if (req.user && allowedRoles.includes(req.user.role)) {
+    next();
+  } else {
+    res.status(403).json({ error: 'Insufficient permissions' });
+  }
+}
+
 module.exports = {
   authenticateToken,
   logAudit,
   insertAuditLog,
+  requireAdmin,
 };
 
 

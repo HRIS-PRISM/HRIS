@@ -59,6 +59,9 @@ const confidentialPasswordRoutes = require('./routes/confidential-password');
 const commutationRoute = require('./routes/commutation');
 const pdsTemplatesRoutes = require('./routes/pds-templates');
 const workingHoursRoutes = require('./routes/workingHoursRoutes');
+const serviceCreditRoutes = require('./routes/serviceCredit');
+const ctoRoutes = require('./routes/ctoRoutes');
+const earningsRoutes = require('./routes/earningsRoutes');
 
 
 
@@ -397,6 +400,9 @@ app.use('/commutationRoute', commutationRoute);
 app.use('/pds-templates', pdsTemplatesRoutes);
 app.use('/auto-attendance', AutoAttendance);
 app.use('/api/working-hours', workingHoursRoutes);
+app.use('/api/service-credits', serviceCreditRoutes);
+app.use('/api/cto', ctoRoutes);
+app.use('/api/earnings', earningsRoutes);
 
 // Server startup with Socket.IO
 const PORT = process.env.WEB_PORT || 5000;

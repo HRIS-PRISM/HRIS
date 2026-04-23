@@ -472,6 +472,34 @@ export const componentMapping = {
     description: 'PDS Version Templates',
     icon: FileCopy,
   },
+    'service-credits': {
+    componentPath: 'components/LEAVE/ServiceCredits.jsx',
+    routePath: '/service-credits',
+    componentName: 'ServiceCredits',
+    description: 'Service Credits Management',
+    icon: FileCopy,
+  },
+  'compensatory-time-off': {
+    componentPath: 'components/LEAVE/CompensatoryTimeOff.jsx',
+    routePath: '/compensatory-time-off',
+    componentName: 'CompensatoryTimeOff',
+    description: 'Compensatory Time Off Management',
+    icon: FileCopy,
+  },
+    'assignment-management': {
+    componentPath: 'components/LEAVE/AssignmentManagement.jsx',
+    routePath: '/assignment-management',
+    componentName: 'AssignmentManagement',
+    description: 'Assignment Management',
+    icon: FileCopy,
+  },
+    'earnings-management': {
+    componentPath: 'components/LEAVE/EarningsManagement.jsx',
+    routePath: '/earnings-management',
+    componentName: 'EarningsManagement',
+    description: 'Earnings Management',
+    icon: FileCopy,
+  },
 };
 
 /**

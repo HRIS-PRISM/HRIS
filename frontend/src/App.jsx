@@ -131,6 +131,7 @@ import LeaveAssignment from "./components/LEAVE/LeaveAssignment";
 import LeaveCredits from "./components/LEAVE/LeaveCredits";
 import Leave from "./components/FORMS/Leave";
 import LeaveCommutation from "./components/LEAVE/LeaveCommutation";
+import ServiceCredits from "./components/LEAVE/ServiceCredits";
 
 import UsersList from "./components/UsersList";
 import PagesList from "./components/PagesList";
@@ -141,6 +142,12 @@ import PayrollJO from "./components/PAYROLL/PayrollJO";
 import UnderConstruction from "./components/UnderConstruction";
 import DailyTimeRecordFaculty from "./components/ATTENDANCE/DailyTimeRecordOverall";
 import WorkingHoursConverter from "./components/WorkingHoursConverter";
+import CompensatoryTimeOff from "./components/LEAVE/CompensatoryTimeOff";
+import AssignmentManagement from "./components/LEAVE/AssignmentManagement";
+import EarningsManagement from "./components/LEAVE/EarningsManagement";
+
+import RecordsPanel from "./components/LEAVE/RecordsPanel";
+
 
 function applySystemCSSVariables(s) {
   const root = document.documentElement;
@@ -1691,6 +1698,46 @@ function App() {
                   allowedRoles={["administrator", "superadmin", "technical"]}
                 >
                   <LeaveCommutation />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/service-credits"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <ServiceCredits />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cto"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <CompensatoryTimeOff />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/assignment-management"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <AssignmentManagement />
+                </ProtectedRoute>
+              }
+            />
+             <Route
+              path="/earnings-management"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <EarningsManagement />
                 </ProtectedRoute>
               }
             />

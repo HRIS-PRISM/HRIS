@@ -446,27 +446,86 @@ const Settings = () => {
       setEnableMFA(v); notify(`Two-factor authentication ${v ? "enabled" : "disabled"}.`);
     } catch { setErrMsg("Failed to update preference."); setEnableMFA(!v); } finally { setLoading(false); }
   };
+const handleRequestCode = async (e) => {
+  e.preventDefault();
 
-  const handleRequestCode = async (e) => {
-    e.preventDefault();
-    if (!formData.currentPassword) { setErrMsg("Enter your current password."); return; }
-    setLoading(true); setErrMsg("");
-    try {
-      const vr = await fetch(`${API_BASE_URL}/verify-current-password`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok()}` }, body: JSON.stringify({ email: userEmail, currentPassword: formData.currentPassword }) });
-      const vd = await vr.json();
-      if (!vr.ok) { setErrMsg(vd.error || "Incorrect password."); return; }
-      const r = await fetch(`${API_BASE_URL}/send-password-change-code`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok()}` }, body: JSON.stringify({ email: userEmail }) });
-      const d = await r.json();
-      if (r.ok) { setCurrentStep(1); setShowVerifyModal(true); } else setErrMsg(d.error || "Failed to send code.");
-    } catch { setErrMsg("Connection error."); } finally { setLoading(false); }
-  };
+  if (!formData.currentPassword) {
+    setErrMsg("Enter your current password.");
+    return;
+  }
+
+  if (!userEmail || !userEmail.trim()) {
+    setErrMsg("No email found in your session. Please log in again.");
+    return;
+  }
+
+  if (!employeeNumber || !String(employeeNumber).trim()) {
+    setErrMsg("No employee number found in your session. Please log in again.");
+    return;
+  }
+
+  setLoading(true);
+  setErrMsg("");
+
+  try {
+    const safeEmail = userEmail.trim();
+    const safeEmployeeNumber = String(employeeNumber).trim();
+
+    const vr = await fetch(`${API_BASE_URL}/verify-current-password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${tok()}`
+      },
+      body: JSON.stringify({
+        email: safeEmail,
+        employeeNumber: safeEmployeeNumber,
+        currentPassword: formData.currentPassword
+      })
+    });
+
+    const vd = await vr.json();
+
+    if (!vr.ok) {
+      setErrMsg(vd.error || "Incorrect password.");
+      return;
+    }
+
+    const r = await fetch(`${API_BASE_URL}/send-password-change-code`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${tok()}`
+      },
+      body: JSON.stringify({
+        email: safeEmail,
+        employeeNumber: safeEmployeeNumber
+      })
+    });
+
+    const d = await r.json();
+
+    if (r.ok) {
+      setCurrentStep(1);
+      setShowVerifyModal(true);
+    } else {
+      setErrMsg(d.error || "Failed to send code.");
+    }
+  } catch {
+    setErrMsg("Connection error.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleVerifyCode = async (e) => {
     e.preventDefault();
     if (!formData.verificationCode) { setErrMsg("Enter the verification code."); return; }
+    if (!userEmail || !userEmail.trim()) { setErrMsg("No email found in your session. Please log in again."); return; }
+    if (!employeeNumber || !String(employeeNumber).trim()) { setErrMsg("No employee number found in your session. Please log in again."); return; }
     setLoading(true); setErrMsg("");
     try {
-      const r = await fetch(`${API_BASE_URL}/verify-password-change-code`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: userEmail, code: formData.verificationCode }) });
+      const r = await fetch(`${API_BASE_URL}/verify-password-change-code`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: userEmail.trim(), employeeNumber: String(employeeNumber).trim(), code: formData.verificationCode }) });
       const d = await r.json();
       if (r.ok) setCurrentStep(2); else setErrMsg(d.error || "Invalid or expired code.");
     } catch { setErrMsg("Connection error."); } finally { setLoading(false); }
@@ -477,9 +536,11 @@ const Settings = () => {
     if (formData.newPassword !== formData.confirmPassword) { setErrMsg("Passwords do not match."); return; }
     if (formData.newPassword.length < 6) { setErrMsg("Password must be at least 6 characters."); return; }
     if (!passwordConfirmed) { setErrMsg("Tick the confirmation checkbox."); return; }
+    if (!userEmail || !userEmail.trim()) { setErrMsg("No email found in your session. Please log in again."); return; }
+    if (!employeeNumber || !String(employeeNumber).trim()) { setErrMsg("No employee number found in your session. Please log in again."); return; }
     setLoading(true); setErrMsg("");
     try {
-      const r = await fetch(`${API_BASE_URL}/complete-password-change`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: userEmail, newPassword: formData.newPassword, confirmPassword: formData.confirmPassword }) });
+      const r = await fetch(`${API_BASE_URL}/complete-password-change`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: userEmail.trim(), employeeNumber: String(employeeNumber).trim(), newPassword: formData.newPassword, confirmPassword: formData.confirmPassword }) });
       const d = await r.json();
       if (r.ok) setShowSuccessModal(true); else setErrMsg(d.error || "Failed to change password.");
     } catch { setErrMsg("Connection error."); } finally { setLoading(false); }

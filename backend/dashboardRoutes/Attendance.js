@@ -95,7 +95,6 @@ const timeIsInRange = (attendanceTime, startTime, endTime) => {
     return false;
   }
 
-  // Handle overnight ranges (e.g., 11:00 PM to 2:00 AM)
   if (endMinutes < startMinutes) {
     return attMinutes >= startMinutes || attMinutes <= endMinutes;
   }
@@ -109,7 +108,6 @@ const determineSpecialType = (attendanceTime, officialTimeData) => {
     return { type: 'UNCATEGORIZED', isSpecial: true };
   }
 
-  // Check Honorarium range
   if (
     officialTimeData.officialHonorariumTimeIN &&
     officialTimeData.officialHonorariumTimeOUT &&
@@ -122,7 +120,6 @@ const determineSpecialType = (attendanceTime, officialTimeData) => {
     return { type: 'HONORARIUM', isSpecial: true };
   }
 
-  // Check Service Credits range
   if (
     officialTimeData.officialServiceCreditTimeIN &&
     officialTimeData.officialServiceCreditTimeOUT &&
@@ -135,7 +132,6 @@ const determineSpecialType = (attendanceTime, officialTimeData) => {
     return { type: 'SERVICE', isSpecial: true };
   }
 
-  // Check Overtime range
   if (
     officialTimeData.officialOverTimeIN &&
     officialTimeData.officialOverTimeOUT &&
@@ -148,7 +144,6 @@ const determineSpecialType = (attendanceTime, officialTimeData) => {
     return { type: 'OVERTIME', isSpecial: true };
   }
 
-  // If AttendanceState is 5 or 6 but doesn't match any range
   return { type: 'UNCATEGORIZED', isSpecial: true };
 };
 
@@ -173,12 +168,12 @@ router.get('/api/attendance', authenticateToken, (req, res) => {
       return;
     }
     logAudit(
-  req.user,
-  `Viewed Attendance Records`,
-  'Attendance Module (Non-Teaching/30hrs/40hrs)',
-  `${startDate} to ${endDate}`,
-  personId,
-);
+      req.user,
+      `Viewed Attendance Records`,
+      'Attendance Module (Non-Teaching/30hrs/40hrs)',
+      `${startDate} to ${endDate}`,
+      personId,
+    );
     res.json(results);
   });
 });
@@ -264,12 +259,12 @@ router.post('/api/attendance', authenticateToken, (req, res) => {
     }
 
     logAudit(
-  req.user,
-  `Searched Attendance Record State`,
-  'Attendance State',
-  `${startDate} to ${endDate}`,
-  personID,
-);
+      req.user,
+      `Searched Attendance Record State`,
+      'Attendance State',
+      `${startDate} to ${endDate}`,
+      personID,
+    );
 
     const records = results.map((record) => {
       const date = new Date(record.AttendanceDateTime);
@@ -296,12 +291,11 @@ router.post('/api/attendance', authenticateToken, (req, res) => {
   });
 });
 
-// NEW: Send to DTR Module endpoint
+// Send to DTR Module endpoint
 router.post('/api/send-to-dtr', authenticateToken, async (req, res) => {
   const { personID, startDate, endDate } = req.body;
 
   try {
-    // Check if records exist in attendancerecord table
     const checkQuery = `
       SELECT COUNT(*) as count
       FROM attendancerecord
@@ -341,7 +335,7 @@ router.post('/api/send-to-dtr', authenticateToken, async (req, res) => {
   }
 });
 
-// NEW: Bulk send to DTR for multiple users
+// Bulk send to DTR for multiple users
 router.post('/api/bulk-send-to-dtr', authenticateToken, async (req, res) => {
   const { userIDs, startDate, endDate } = req.body;
 
@@ -399,7 +393,7 @@ router.post('/api/bulk-send-to-dtr', authenticateToken, async (req, res) => {
   }
 });
 
-// Endpoint to save attendance records (keep for manual saves if needed)
+// Endpoint to save attendance records
 router.post('/api/save-attendance', authenticateToken, (req, res) => {
   const { records } = req.body;
 
@@ -521,7 +515,177 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
   });
 });
 
-// New endpoint: Get all attendance records for date range (only users with records)
+// ─── OPTIMIZED: Lightweight employee list for instant table render ────────────
+// Returns only names/IDs — no time columns, no officialtime join.
+// Runs ~5-10x faster than the full query.
+router.get('/api/dtr-employee-list', authenticateToken, (req, res) => {
+  const { startDate, endDate } = req.query;
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: 'startDate and endDate are required' });
+  }
+
+  const query = `
+    SELECT DISTINCT
+      ar.personID,
+      p.firstName,
+      p.lastName,
+      p.middleName,
+      CASE
+        WHEN p.agencyEmployeeNum IS NOT NULL THEN 'Registered'
+        ELSE 'Not Registered'
+      END AS registrationStatus,
+      ari_names.PersonName AS devicePersonName
+    FROM attendancerecord ar
+    LEFT JOIN person_table p
+      ON ar.personID = p.agencyEmployeeNum
+    LEFT JOIN (
+      SELECT PersonID, MAX(PersonName) AS PersonName
+      FROM attendancerecordinfo
+      GROUP BY PersonID
+    ) ari_names ON ar.personID = ari_names.PersonID
+    WHERE ar.date BETWEEN ? AND ?
+    ORDER BY
+      CASE WHEN p.lastName IS NULL THEN 1 ELSE 0 END,
+      p.lastName  ASC,
+      p.firstName ASC,
+      ar.personID ASC
+  `;
+
+  db.query(query, [startDate, endDate], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    logAudit(
+      req.user,
+      'Viewed DTR Employee List',
+      'Daily Time Record Overall',
+      `${startDate} to ${endDate}`,
+      'all-users',
+    );
+
+    res.json(results);
+  });
+});
+
+// ─── OPTIMIZED: Paginated attendance — 30 employees at a time ────────────────
+// Returns attendance rows for one page of employees.
+// body: { startDate, endDate, page (1-based), pageSize (default 30) }
+router.post('/api/view-attendance-all-users-paged', authenticateToken, (req, res) => {
+  const { startDate, endDate, page = 1, pageSize = 30 } = req.body;
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: 'Start date and end date are required' });
+  }
+
+  const offset = (page - 1) * pageSize;
+
+  // Step 1: fast count of distinct employees
+  const countQuery = `
+    SELECT COUNT(DISTINCT ar.personID) AS total
+    FROM attendancerecord ar
+    WHERE ar.date BETWEEN ? AND ?
+  `;
+
+  db.query(countQuery, [startDate, endDate], (countErr, countResult) => {
+    if (countErr) {
+      console.error('Count query error:', countErr);
+      return res.status(500).json({ error: countErr.message });
+    }
+
+    const total      = countResult[0]?.total ?? 0;
+    const totalPages = Math.ceil(total / pageSize);
+
+    if (total === 0) {
+      return res.json({ data: [], total: 0, page, pageSize, totalPages: 0 });
+    }
+
+    // Step 2: get attendance rows for just this page's employees
+    const pageQuery = `
+      WITH ranked_employees AS (
+        SELECT DISTINCT
+          ar.personID,
+          p.lastName,
+          p.firstName
+        FROM attendancerecord ar
+        LEFT JOIN person_table p ON ar.personID = p.agencyEmployeeNum
+        WHERE ar.date BETWEEN ? AND ?
+        ORDER BY
+          CASE WHEN p.lastName IS NULL THEN 1 ELSE 0 END,
+          p.lastName  ASC,
+          p.firstName ASC,
+          ar.personID ASC
+        LIMIT ? OFFSET ?
+      )
+      SELECT
+        ar.personID,
+        ar.date,
+        DAYNAME(ar.date)                AS Day,
+        ar.timeIN, ar.breaktimeIN, ar.breaktimeOUT, ar.timeOUT,
+        ar.specialType, ar.specialTimeIN, ar.specialTimeOUT,
+        p.firstName, p.lastName, p.middleName,
+        p.agencyEmployeeNum,
+        ot.officialTimeIN,
+        ot.officialTimeOUT,
+        ot.officialBreaktimeIN,
+        ot.officialBreaktimeOUT,
+        ot.officialHonorariumTimeIN,
+        ot.officialHonorariumTimeOUT,
+        ot.officialServiceCreditTimeIN,
+        ot.officialServiceCreditTimeOUT,
+        ot.officialOverTimeIN,
+        ot.officialOverTimeOUT,
+        CASE
+          WHEN p.agencyEmployeeNum IS NOT NULL THEN 'Registered'
+          ELSE 'Not Registered'
+        END AS registrationStatus,
+        ari_names.PersonName AS devicePersonName
+      FROM ranked_employees re
+      JOIN attendancerecord ar
+        ON ar.personID = re.personID
+       AND ar.date BETWEEN ? AND ?
+      LEFT JOIN person_table p
+        ON ar.personID = p.agencyEmployeeNum
+      LEFT JOIN officialtime ot
+        ON DAYNAME(ar.date) = ot.day
+       AND ar.personID      = ot.employeeID
+       AND ar.date BETWEEN ot.startDate AND ot.endDate
+      LEFT JOIN (
+        SELECT PersonID, MAX(PersonName) AS PersonName
+        FROM attendancerecordinfo
+        GROUP BY PersonID
+      ) ari_names ON ar.personID = ari_names.PersonID
+      ORDER BY
+        CASE WHEN p.lastName IS NULL THEN 1 ELSE 0 END,
+        p.lastName  ASC,
+        p.firstName ASC,
+        ar.personID ASC,
+        ar.date     ASC
+    `;
+
+    db.query(
+      pageQuery,
+      [startDate, endDate, pageSize, offset, startDate, endDate],
+      (err, results) => {
+        if (err) {
+          console.error('Page query error:', err);
+          return res.status(500).json({ error: err.message });
+        }
+
+        logAudit(
+          req.user,
+          `Viewed DTR Records (paged ${page}/${totalPages})`,
+          'Daily Time Record Overall',
+          `${startDate} to ${endDate}`,
+          'all-users',
+        );
+
+        res.json({ data: results, total, page, pageSize, totalPages });
+      },
+    );
+  });
+});
+
+// Get all attendance records for date range (original — kept for compatibility)
 router.post('/api/view-attendance-all-users', authenticateToken, (req, res) => {
   const { startDate, endDate } = req.body;
 
@@ -609,7 +773,6 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
         const old = existing[0] || {};
         const normalize = (val) => (val == null ? '' : String(val).trim());
 
-        // Build a diff of only the fields that changed
         const fields = [
           { key: 'timeIN',       label: 'Time IN'       },
           { key: 'breaktimeIN',  label: 'Breaktime IN'  },
@@ -645,7 +808,6 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
           if (updateErr) return reject(updateErr);
 
           if (hasChanged) {
-            // action now carries the before/after diff inline
             logAudit(
               req.user,
               `Updated Attendance Record | ${record.date} | ${changes}`,
@@ -665,9 +827,6 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
     .then(() => res.send({ message: 'Records updated successfully.' }))
     .catch((err) => res.status(500).send(err));
 });
-
-
-
 
 // GET API for fetching attendance records
 router.get('/api/dtr', authenticateToken, (req, res) => {
@@ -764,12 +923,12 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
         return res.status(500).json({ message: 'Database error', error });
       }
       logAudit(
-      req.user,
-      `Saved Overall Attendance Record`,
-      'Attendance Module (Non-Teaching/30hrs/40hrs)',
-      `${startDate} to ${endDate}`,
-      personID,
-    );
+        req.user,
+        `Saved Overall Attendance Record`,
+        'Attendance Module (Non-Teaching/30hrs/40hrs)',
+        `${startDate} to ${endDate}`,
+        personID,
+      );
       notifyAttendanceChanged('overall-created', {
         scope: 'overall_attendance_record',
         personID,
@@ -809,7 +968,7 @@ router.get('/api/overall_attendance_record', authenticateToken, (req, res) => {
       console.error('Error Fetching data:', error);
       return res.status(500).json({ message: 'Database error', error });
     }
-   logAudit(
+    logAudit(
       req.user,
       `Search Overall Attendance Record`,
       'Attendance Summary',
@@ -909,12 +1068,12 @@ router.put(
               return res.status(500).json({ message: 'Database error', error });
             }
             logAudit(
-                req.user,
-                `Updated Overall Attendance Record`,
-                'AttendanceSummary',
-                `${startDate} to ${endDate}`,
-                personID,
-              );
+              req.user,
+              `Updated Overall Attendance Record`,
+              'AttendanceSummary',
+              `${startDate} to ${endDate}`,
+              personID,
+            );
             notifyAttendanceChanged('overall-updated', {
               scope: 'overall_attendance_record',
               id,
@@ -952,14 +1111,14 @@ router.delete(
           message: 'Attendance record not found or personID mismatch',
         });
       }
-        logAudit(
-          req.user,
-          `Deleted Overall Attendance Record`,
-          'AttendanceSummary',
-          id,
-          personID,
-        );      
-notifyAttendanceChanged('overall-deleted', {
+      logAudit(
+        req.user,
+        `Deleted Overall Attendance Record`,
+        'AttendanceSummary',
+        id,
+        personID,
+      );
+      notifyAttendanceChanged('overall-deleted', {
         scope: 'overall_attendance_record',
         id,
         personID,
@@ -1015,12 +1174,10 @@ router.post('/api/attendance-records', authenticateToken, (req, res) => {
 router.get('/attendance/monthly', authenticateToken, (req, res) => {
   const { month } = req.query;
 
-  // Default to September 2025 if no month provided
   let startDate = '2025-09-01';
   let endDate = '2025-09-30';
 
   if (month) {
-    // Parse month parameter (expected format: YYYY-MM)
     const [year, monthNum] = month.split('-');
     const lastDay = new Date(year, monthNum, 0).getDate();
     startDate = `${year}-${monthNum}-01`;
@@ -1045,7 +1202,7 @@ router.get('/attendance/monthly', authenticateToken, (req, res) => {
   });
 });
 
-// NEW: Get all unique PersonIDs from attendancerecordinfo (not just registered users)
+// Get all unique PersonIDs from attendancerecordinfo
 router.get('/api/all-device-users', authenticateToken, (req, res) => {
   const query = `
     SELECT DISTINCT
@@ -1069,11 +1226,10 @@ router.get('/api/all-device-users', authenticateToken, (req, res) => {
   });
 });
 
-// IMPROVED: Auto-save and fetch attendance records with better date handling
+// Auto-save and fetch attendance records
 router.post('/api/all-attendance', authenticateToken, async (req, res) => {
   const { personID, startDate, endDate } = req.body;
 
-  // Convert dates to timestamps (UTC)
   const startTimestamp = new Date(startDate + 'T00:00:00Z').getTime();
   const endTimestamp = new Date(endDate + 'T23:59:59Z').getTime();
 
@@ -1102,7 +1258,6 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
         return res.status(500).json({ error: err.message });
       }
 
-      // ✅ CHANGED: search audit log
       logAudit(
         req.user,
         `Searched Attendance Device Records`,
@@ -1135,13 +1290,11 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
         Time6: convertToManilaTime(record.Time6),
       }));
 
-      // AUTO-SAVE: Save records to attendancerecord table
       let savedCount = 0;
       let updatedCount = 0;
 
       try {
         for (const record of records) {
-          // Fetch officialtime data for this employee and date
           const officialTimeQuery = `
             SELECT 
               officialTimeIN, officialTimeOUT,
@@ -1166,7 +1319,6 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
             );
           });
 
-          // Get existing record with all fields to compare
           const checkSql = `SELECT id, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT, day FROM attendancerecord WHERE personID = ? AND date = ?`;
           const existingRecord = await new Promise((resolve, reject) => {
             db.query(
@@ -1179,31 +1331,25 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
             );
           });
 
-          // Format regular times
           const newTimeIN = formatTime(record.Time1);
           const newBreaktimeIN = formatTime(record.Time3);
           const newBreaktimeOUT = formatTime(record.Time2);
           const newTimeOUT = formatTime(record.Time4);
           const newDay = getDayOfWeek(record.Date);
 
-          // Handle special attendance (State 5 & 6)
           let specialType = null;
           let specialTimeIN = null;
           let specialTimeOUT = null;
 
           if (record.Time5 || record.Time6) {
             const specialTime = record.Time5 || record.Time6;
-            const specialResult = determineSpecialType(
-              specialTime,
-              officialTimeData,
-            );
+            const specialResult = determineSpecialType(specialTime, officialTimeData);
             specialType = specialResult.type;
             specialTimeIN = record.Time5 ? formatTime(record.Time5) : null;
             specialTimeOUT = record.Time6 ? formatTime(record.Time6) : null;
           }
 
           if (existingRecord.length === 0) {
-            // Insert new record if it doesn't exist
             const insertSql = `
               INSERT INTO attendancerecord 
               (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT)
@@ -1213,29 +1359,14 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
               db.query(
                 insertSql,
                 [
-                  record.PersonID,
-                  record.Date,
-                  newDay,
-                  newTimeIN,
-                  newBreaktimeIN,
-                  newBreaktimeOUT,
-                  newTimeOUT,
-                  specialType,
-                  specialTimeIN,
-                  specialTimeOUT,
+                  record.PersonID, record.Date, newDay,
+                  newTimeIN, newBreaktimeIN, newBreaktimeOUT, newTimeOUT,
+                  specialType, specialTimeIN, specialTimeOUT,
                 ],
                 (err) => {
-                  if (err) {
-                    console.error('Error auto-saving record:', err);
-                    reject(err);
-                  } else {
-                    logAudit(
-                      req.user,
-                      `Auto-Saved New Attendance Record`,
-                      'Attendance Device',
-                      record.Date,
-                      record.PersonID,
-                    );
+                  if (err) { console.error('Error auto-saving record:', err); reject(err); }
+                  else {
+                    logAudit(req.user, `Auto-Saved New Attendance Record`, 'Attendance Device', record.Date, record.PersonID);
                     savedCount++;
                     resolve();
                   }
@@ -1243,7 +1374,6 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
               );
             });
           } else {
-            // Only UPDATE if there are actual changes
             const existing = existingRecord[0];
             const hasChanges =
               (existing.timeIN || 'N/A') !== (newTimeIN || 'N/A') ||
@@ -1266,30 +1396,14 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
                 db.query(
                   updateSql,
                   [
-                    newTimeIN,
-                    newBreaktimeIN,
-                    newBreaktimeOUT,
-                    newTimeOUT,
-                    specialType,
-                    specialTimeIN,
-                    specialTimeOUT,
-                    newDay,
-                    record.PersonID,
-                    record.Date,
+                    newTimeIN, newBreaktimeIN, newBreaktimeOUT, newTimeOUT,
+                    specialType, specialTimeIN, specialTimeOUT, newDay,
+                    record.PersonID, record.Date,
                   ],
                   (err) => {
-                    if (err) {
-                      console.error('Error updating record:', err);
-                      reject(err);
-                    } else {
-                      // ✅ CHANGED: auto-update audit log
-                     logAudit(
-                        req.user,
-                        `Auto-Updated Existing Attendance Record`,
-                        'Attendance Device',
-                        record.Date,
-                        record.PersonID,
-                      );
+                    if (err) { console.error('Error updating record:', err); reject(err); }
+                    else {
+                      logAudit(req.user, `Auto-Updated Existing Attendance Record`, 'Attendance Device', record.Date, record.PersonID);
                       updatedCount++;
                       resolve();
                     }
@@ -1297,26 +1411,20 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
                 );
               });
             }
-            // If no changes, skip update (no duplicate, no unnecessary write)
           }
         }
 
         if (savedCount > 0 || updatedCount > 0) {
           notifyAttendanceChanged('auto-sync', {
             scope: 'device-auto-save',
-            personID,
-            startDate,
-            endDate,
-            saved: savedCount,
-            updated: updatedCount,
+            personID, startDate, endDate,
+            saved: savedCount, updated: updatedCount,
           });
         }
       } catch (saveError) {
         console.error('Error auto-saving records:', saveError);
-        // Continue even if save fails
       }
 
-      // Fetch specialType from attendancerecord for each record and merge
       const enrichedRecords = await Promise.all(
         records.map(async (record) => {
           const specialTypeQuery = `
@@ -1325,14 +1433,10 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
             WHERE personID = ? AND date = ?
           `;
           const specialData = await new Promise((resolve, reject) => {
-            db.query(
-              specialTypeQuery,
-              [record.PersonID, record.Date],
-              (err, result) => {
-                if (err) reject(err);
-                else resolve(result[0] || null);
-              },
-            );
+            db.query(specialTypeQuery, [record.PersonID, record.Date], (err, result) => {
+              if (err) reject(err);
+              else resolve(result[0] || null);
+            });
           });
 
           return {
@@ -1349,22 +1453,16 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
   );
 });
 
-// NEW: Bulk auto-save for all users in date range
+// Bulk auto-save for all users in date range
 router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
   const { startDate, endDate } = req.body;
 
   if (!startDate || !endDate) {
-    return res
-      .status(400)
-      .json({ error: 'Start date and end date are required' });
+    return res.status(400).json({ error: 'Start date and end date are required' });
   }
 
   try {
-    // Get all unique PersonIDs from device
-    const getAllUsersQuery = `
-      SELECT DISTINCT PersonID, PersonName
-      FROM AttendanceRecordInfo
-    `;
+    const getAllUsersQuery = `SELECT DISTINCT PersonID, PersonName FROM AttendanceRecordInfo`;
 
     const allUsers = await new Promise((resolve, reject) => {
       db.query(getAllUsersQuery, (err, result) => {
@@ -1377,7 +1475,6 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
     let updatedCount = 0;
     let errorCount = 0;
 
-    // Process each user
     for (const user of allUsers) {
       try {
         const startTimestamp = new Date(startDate + 'T00:00:00Z').getTime();
@@ -1399,14 +1496,10 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
         `;
 
         const records = await new Promise((resolve, reject) => {
-          db.query(
-            query,
-            [user.PersonID, startTimestamp, endTimestamp],
-            (err, result) => {
-              if (err) reject(err);
-              else resolve(result);
-            },
-          );
+          db.query(query, [user.PersonID, startTimestamp, endTimestamp], (err, result) => {
+            if (err) reject(err);
+            else resolve(result);
+          });
         });
 
         const convertToManilaTime = (timestamp) => {
@@ -1414,15 +1507,11 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
           const date = new Date(timestamp);
           return date.toLocaleString('en-PH', {
             timeZone: 'Asia/Manila',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: true,
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
           });
         };
 
         for (const record of records) {
-          // Fetch officialtime data for this employee and date
           const officialTimeQuery = `
             SELECT 
               officialTimeIN, officialTimeOUT,
@@ -1437,27 +1526,18 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
           `;
 
           const officialTimeData = await new Promise((resolve, reject) => {
-            db.query(
-              officialTimeQuery,
-              [record.PersonID, record.Date, record.Date],
-              (err, result) => {
-                if (err) reject(err);
-                else resolve(result[0] || null);
-              },
-            );
+            db.query(officialTimeQuery, [record.PersonID, record.Date, record.Date], (err, result) => {
+              if (err) reject(err);
+              else resolve(result[0] || null);
+            });
           });
 
-          // Get existing record with all fields to compare
           const checkSql = `SELECT id, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT, day FROM attendancerecord WHERE personID = ? AND date = ?`;
           const existingRecord = await new Promise((resolve, reject) => {
-            db.query(
-              checkSql,
-              [record.PersonID, record.Date],
-              (err, result) => {
-                if (err) reject(err);
-                else resolve(result);
-              },
-            );
+            db.query(checkSql, [record.PersonID, record.Date], (err, result) => {
+              if (err) reject(err);
+              else resolve(result);
+            });
           });
 
           const newTimeIN = formatTime(convertToManilaTime(record.Time1));
@@ -1466,30 +1546,19 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
           const newTimeOUT = formatTime(convertToManilaTime(record.Time4));
           const newDay = getDayOfWeek(record.Date);
 
-          // Handle special attendance (State 5 & 6)
           let specialType = null;
           let specialTimeIN = null;
           let specialTimeOUT = null;
 
           if (record.Time5 || record.Time6) {
-            const specialTime = convertToManilaTime(
-              record.Time5 || record.Time6,
-            );
-            const specialResult = determineSpecialType(
-              specialTime,
-              officialTimeData,
-            );
+            const specialTime = convertToManilaTime(record.Time5 || record.Time6);
+            const specialResult = determineSpecialType(specialTime, officialTimeData);
             specialType = specialResult.type;
-            specialTimeIN = record.Time5
-              ? formatTime(convertToManilaTime(record.Time5))
-              : null;
-            specialTimeOUT = record.Time6
-              ? formatTime(convertToManilaTime(record.Time6))
-              : null;
+            specialTimeIN = record.Time5 ? formatTime(convertToManilaTime(record.Time5)) : null;
+            specialTimeOUT = record.Time6 ? formatTime(convertToManilaTime(record.Time6)) : null;
           }
 
           if (existingRecord.length === 0) {
-            // Insert new record if it doesn't exist
             const insertSql = `
               INSERT INTO attendancerecord (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1497,29 +1566,11 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
             await new Promise((resolve, reject) => {
               db.query(
                 insertSql,
-                [
-                  record.PersonID,
-                  record.Date,
-                  newDay,
-                  newTimeIN,
-                  newBreaktimeIN,
-                  newBreaktimeOUT,
-                  newTimeOUT,
-                  specialType,
-                  specialTimeIN,
-                  specialTimeOUT,
-                ],
-                (err) => {
-                  if (err) reject(err);
-                  else {
-                    savedCount++;
-                    resolve();
-                  }
-                },
+                [record.PersonID, record.Date, newDay, newTimeIN, newBreaktimeIN, newBreaktimeOUT, newTimeOUT, specialType, specialTimeIN, specialTimeOUT],
+                (err) => { if (err) reject(err); else { savedCount++; resolve(); } },
               );
             });
           } else {
-            // Only UPDATE if there are actual changes
             const existing = existingRecord[0];
             const hasChanges =
               (existing.timeIN || 'N/A') !== (newTimeIN || 'N/A') ||
@@ -1541,29 +1592,11 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
               await new Promise((resolve, reject) => {
                 db.query(
                   updateSql,
-                  [
-                    newTimeIN,
-                    newBreaktimeIN,
-                    newBreaktimeOUT,
-                    newTimeOUT,
-                    specialType,
-                    specialTimeIN,
-                    specialTimeOUT,
-                    newDay,
-                    record.PersonID,
-                    record.Date,
-                  ],
-                  (err) => {
-                    if (err) reject(err);
-                    else {
-                      updatedCount++;
-                      resolve();
-                    }
-                  },
+                  [newTimeIN, newBreaktimeIN, newBreaktimeOUT, newTimeOUT, specialType, specialTimeIN, specialTimeOUT, newDay, record.PersonID, record.Date],
+                  (err) => { if (err) reject(err); else { updatedCount++; resolve(); } },
                 );
               });
             }
-            // If no changes, skip update (no duplicate, no unnecessary write)
           }
         }
       } catch (userError) {
@@ -1572,34 +1605,20 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
       }
     }
 
-    logAudit(
-      req.user,
-      'bulk-auto-save',
-      'Device Attendance Records',
-      `${startDate} && ${endDate}`,
-      null,
-    );
+    logAudit(req.user, 'bulk-auto-save', 'Device Attendance Records', `${startDate} && ${endDate}`, null);
 
     if (savedCount > 0 || updatedCount > 0) {
       notifyAttendanceChanged('bulk-auto-sync', {
         scope: 'device-bulk-auto-save',
-        startDate,
-        endDate,
-        saved: savedCount,
-        updated: updatedCount,
-        errors: errorCount,
+        startDate, endDate,
+        saved: savedCount, updated: updatedCount, errors: errorCount,
       });
     }
 
     res.json({
       success: true,
       message: `Processed ${allUsers.length} users: ${savedCount} new records saved, ${updatedCount} records updated${errorCount > 0 ? `, ${errorCount} errors` : ''}`,
-      stats: {
-        totalUsers: allUsers.length,
-        saved: savedCount,
-        updated: updatedCount,
-        errors: errorCount,
-      },
+      stats: { totalUsers: allUsers.length, saved: savedCount, updated: updatedCount, errors: errorCount },
     });
   } catch (error) {
     console.error('Error in bulk auto-save:', error);
@@ -1607,17 +1626,11 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
   }
 });
 
-// DTR Print Status Tracking API Endpoints
-
-// Get print status for multiple employees
+// DTR Print Status — get print status for multiple employees
 router.post('/api/dtr-print-status', authenticateToken, async (req, res) => {
   const { employeeNumbers, year, month } = req.body;
 
-  if (
-    !employeeNumbers ||
-    !Array.isArray(employeeNumbers) ||
-    employeeNumbers.length === 0
-  ) {
+  if (!employeeNumbers || !Array.isArray(employeeNumbers) || employeeNumbers.length === 0) {
     return res.status(400).json({ error: 'employeeNumbers array is required' });
   }
 
@@ -1644,29 +1657,18 @@ router.post('/api/dtr-print-status', authenticateToken, async (req, res) => {
 router.post('/api/mark-dtr-printed', authenticateToken, async (req, res) => {
   const { employeeNumbers, year, month, startDate, endDate } = req.body;
 
-  if (
-    !employeeNumbers ||
-    !Array.isArray(employeeNumbers) ||
-    employeeNumbers.length === 0
-  ) {
+  if (!employeeNumbers || !Array.isArray(employeeNumbers) || employeeNumbers.length === 0) {
     return res.status(400).json({ error: 'employeeNumbers array is required' });
   }
 
   if (!year || !month || !startDate || !endDate) {
-    return res
-      .status(400)
-      .json({ error: 'year, month, startDate, and endDate are required' });
+    return res.status(400).json({ error: 'year, month, startDate, and endDate are required' });
   }
 
   const printedBy = req.user.employeeNumber || req.user.username;
 
   const values = employeeNumbers.map((empNum) => [
-    empNum,
-    year,
-    month,
-    startDate,
-    endDate,
-    printedBy,
+    empNum, year, month, startDate, endDate, printedBy,
   ]);
 
   const query = `
@@ -1696,12 +1698,7 @@ router.post('/api/mark-dtr-printed', authenticateToken, async (req, res) => {
 
     notifyAttendanceChanged('dtr-printed', {
       scope: 'dtr_print_history',
-      employeeNumbers,
-      year,
-      month,
-      startDate,
-      endDate,
-      printedBy,
+      employeeNumbers, year, month, startDate, endDate, printedBy,
     });
 
     res.json({
@@ -1712,14 +1709,12 @@ router.post('/api/mark-dtr-printed', authenticateToken, async (req, res) => {
   });
 });
 
-// Get suspensions within date range (for DTR labels: WORK SUSPENDED)
+// Get suspensions within date range
 router.get('/api/suspensions', authenticateToken, (req, res) => {
   const { startDate, endDate } = req.query;
 
   if (!startDate || !endDate) {
-    return res
-      .status(400)
-      .json({ error: 'startDate and endDate are required' });
+    return res.status(400).json({ error: 'startDate and endDate are required' });
   }
 
   const query = `
@@ -1731,7 +1726,6 @@ router.get('/api/suspensions', authenticateToken, (req, res) => {
       (date_start IS NOT NULL AND date_end IS NOT NULL AND date_start <= ? AND date_end >= ?)
   `;
 
-  // NOTE: order is important
   const params = [startDate, endDate, endDate, startDate];
 
   db.query(query, params, (err, rows) => {
@@ -1740,7 +1734,6 @@ router.get('/api/suspensions', authenticateToken, (req, res) => {
       return res.status(500).json({ error: err.message });
     }
 
-    // Build map: { "YYYY-MM-DD": { label, title, reason, id } }
     const byDate = {};
 
     const toISO = (d) => {
@@ -1763,70 +1756,35 @@ router.get('/api/suspensions', authenticateToken, (req, res) => {
       const single = toISO(r.date);
       const start = toISO(r.date_start);
       const end = toISO(r.date_end);
-
       const label = classify(r.title, r.reason);
 
-      // expand ranges: start_date..end_date
       if (start && end) {
         let cur = new Date(start);
         const last = new Date(end);
-
         while (cur <= last) {
           const key = cur.toISOString().slice(0, 10);
-
-          // If multiple records overlap, first one wins (or replace it—your choice)
-          if (!byDate[key]) {
-            byDate[key] = { label, title: r.title, reason: r.reason, id: r.id };
-          }
-
+          if (!byDate[key]) byDate[key] = { label, title: r.title, reason: r.reason, id: r.id };
           cur.setDate(cur.getDate() + 1);
         }
       } else if (single) {
-        if (!byDate[single]) {
-          byDate[single] = {
-            label,
-            title: r.title,
-            reason: r.reason,
-            id: r.id,
-          };
-        }
+        if (!byDate[single]) byDate[single] = { label, title: r.title, reason: r.reason, id: r.id };
       }
     });
 
-    // Log audit trail
-    const requestedBy =
-      req.user?.employeeNumber || req.user?.username || 'unknown';
-    logAudit(
-      req.user,
-      'view',
-      'SUSPENSIONS',
-      `range ${startDate} to ${endDate}`,
-      requestedBy,
-    );
+    const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';
+    logAudit(req.user, 'view', 'SUSPENSIONS', `range ${startDate} to ${endDate}`, requestedBy);
+    notifyAttendanceChanged('suspensions-fetched', { scope: 'suspensions', startDate, endDate, requestedBy });
 
-    notifyAttendanceChanged('suspensions-fetched', {
-      scope: 'suspensions',
-      startDate,
-      endDate,
-      requestedBy,
-    });
-
-    return res.json({
-      success: true,
-      count: Object.keys(byDate).length,
-      byDate,
-    });
+    return res.json({ success: true, count: Object.keys(byDate).length, byDate });
   });
 });
 
-// Get approved leaves within date range (for DTR labels: ON LEAVE)
+// Get approved leaves within date range
 router.get('/api/leaves', authenticateToken, (req, res) => {
   const { startDate, endDate } = req.query;
 
   if (!startDate || !endDate) {
-    return res
-      .status(400)
-      .json({ error: 'startDate and endDate are required' });
+    return res.status(400).json({ error: 'startDate and endDate are required' });
   }
 
   const leaveQuery = `
@@ -1846,58 +1804,30 @@ router.get('/api/leaves', authenticateToken, (req, res) => {
     const toISO = (d) => {
       if (!d) return null;
       const dt = new Date(d);
-      const yyyy = dt.getFullYear();
-      const mm = String(dt.getMonth() + 1).padStart(2, '0');
-      const dd = String(dt.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
     };
 
     const byDate = {};
     (rows || []).forEach((leave) => {
       const leaveDate = toISO(leave.leave_date);
       if (!leaveDate || byDate[leaveDate]) return;
-
-      byDate[leaveDate] = {
-        label: 'ON LEAVE',
-        title: leave.leave_description,
-        reason: 'Approved Leave',
-        id: leave.id,
-      };
+      byDate[leaveDate] = { label: 'ON LEAVE', title: leave.leave_description, reason: 'Approved Leave', id: leave.id };
     });
 
-    const requestedBy =
-      req.user?.employeeNumber || req.user?.username || 'unknown';
-    logAudit(
-      req.user,
-      'view',
-      'LEAVES',
-      `range ${startDate} to ${endDate}`,
-      requestedBy,
-    );
+    const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';
+    logAudit(req.user, 'view', 'LEAVES', `range ${startDate} to ${endDate}`, requestedBy);
+    notifyAttendanceChanged('leaves-fetched', { scope: 'leaves', startDate, endDate, requestedBy });
 
-    notifyAttendanceChanged('leaves-fetched', {
-      scope: 'leaves',
-      startDate,
-      endDate,
-      requestedBy,
-    });
-
-    return res.json({
-      success: true,
-      count: Object.keys(byDate).length,
-      byDate,
-    });
+    return res.json({ success: true, count: Object.keys(byDate).length, byDate });
   });
 });
 
-// Get holidays within date range (for DTR labels: HOLIDAY)
+// Get holidays within date range
 router.get('/api/holiday', authenticateToken, (req, res) => {
   const { startDate, endDate } = req.query;
 
   if (!startDate || !endDate) {
-    return res
-      .status(400)
-      .json({ error: 'startDate and endDate are required' });
+    return res.status(400).json({ error: 'startDate and endDate are required' });
   }
 
   const query = `
@@ -1909,7 +1839,6 @@ router.get('/api/holiday', authenticateToken, (req, res) => {
       (date_start IS NOT NULL AND date_end IS NOT NULL AND date_start <= ? AND date_end >= ?)
   `;
 
-  // NOTE: order is important
   const params = [startDate, endDate, endDate, startDate];
 
   db.query(query, params, (err, rows) => {
@@ -1918,77 +1847,43 @@ router.get('/api/holiday', authenticateToken, (req, res) => {
       return res.status(500).json({ error: err.message });
     }
 
-    // Build map: { "YYYY-MM-DD": { label, title, reason, id } }
     const byDate = {};
 
     const toISO = (d) => {
       if (!d) return null;
       const dt = new Date(d);
-      const yyyy = dt.getFullYear();
-      const mm = String(dt.getMonth() + 1).padStart(2, '0');
-      const dd = String(dt.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
     };
 
     (rows || []).forEach((r) => {
       const single = toISO(r.date);
       const start = toISO(r.date_start);
       const end = toISO(r.date_end);
-
       const label = 'HOLIDAY';
       const reason = r.about || r.description || 'Holiday';
 
-      // expand ranges: start_date..end_date
       if (start && end) {
         let cur = new Date(start);
         const last = new Date(end);
-
         while (cur <= last) {
           const key = cur.toISOString().slice(0, 10);
-
-          // If multiple records overlap, first one wins (or replace it—your choice)
-          if (!byDate[key]) {
-            byDate[key] = { label, title: r.title, reason, id: r.id };
-          }
-
+          if (!byDate[key]) byDate[key] = { label, title: r.title, reason, id: r.id };
           cur.setDate(cur.getDate() + 1);
         }
       } else if (single) {
-        if (!byDate[single]) {
-          byDate[single] = { label, title: r.title, reason, id: r.id };
-        }
+        if (!byDate[single]) byDate[single] = { label, title: r.title, reason, id: r.id };
       }
     });
 
-    // Log audit trail
-    const requestedBy =
-      req.user?.employeeNumber || req.user?.username || 'unknown';
-    logAudit(
-      req.user,
-      'view',
-      'HOLIDAYS',
-      `range ${startDate} to ${endDate}`,
-      requestedBy,
-    );
+    const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';
+    logAudit(req.user, 'view', 'HOLIDAYS', `range ${startDate} to ${endDate}`, requestedBy);
+    notifyAttendanceChanged('holidays-fetched', { scope: 'holiday', startDate, endDate, requestedBy });
 
-    notifyAttendanceChanged('holidays-fetched', {
-      scope: 'holiday',
-      startDate,
-      endDate,
-      requestedBy,
-    });
-
-    return res.json({
-      success: true,
-      count: Object.keys(byDate).length,
-      byDate,
-    });
+    return res.json({ success: true, count: Object.keys(byDate).length, byDate });
   });
 });
 
-// ── Fetch ALL days in range (including days with no record) ──────────────────
-// Uses a recursive CTE to generate every date, then LEFT JOINs attendance data.
-// Rows with no matching attendancerecord will have null time fields + isNew:true
+// Fetch ALL days in range (including days with no record)
 router.post('/api/view-attendance-full', authenticateToken, (req, res) => {
   const { personID, startDate, endDate } = req.body;
 
@@ -1996,8 +1891,6 @@ router.post('/api/view-attendance-full', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'personID, startDate, endDate are required.' });
   }
 
-  // Recursive CTE generates every calendar date in the range.
-  // LEFT JOIN pulls attendance & schedule data; missing rows stay null.
   const query = `
     WITH RECURSIVE date_series AS (
       SELECT CAST(? AS DATE) AS cal_date
@@ -2010,52 +1903,22 @@ router.post('/api/view-attendance-full', authenticateToken, (req, res) => {
       ? AS personID,
       DATE_FORMAT(ds.cal_date, '%Y-%m-%d')  AS date,
       DAYNAME(ds.cal_date)                   AS Day,
-
-      -- attendance fields (NULL when no record exists)
       ar.id          AS recordId,
-      ar.timeIN,
-      ar.breaktimeIN,
-      ar.breaktimeOUT,
-      ar.timeOUT,
-      ar.specialType,
-      ar.specialTimeIN,
-      ar.specialTimeOUT,
-
-      -- person info
-      p.firstName,
-      p.lastName,
-      p.middleName,
-      p.agencyEmployeeNum,
-
-      -- official schedule (NULL when no officialtime row covers this date)
-      ot.officialTimeIN,
-      ot.officialTimeOUT,
-      ot.officialBreaktimeIN,
-      ot.officialBreaktimeOUT,
-      ot.officialHonorariumTimeIN,
-      ot.officialHonorariumTimeOUT,
-      ot.officialServiceCreditTimeIN,
-      ot.officialServiceCreditTimeOUT,
-      ot.officialOverTimeIN,
-      ot.officialOverTimeOUT
-
+      ar.timeIN, ar.breaktimeIN, ar.breaktimeOUT, ar.timeOUT,
+      ar.specialType, ar.specialTimeIN, ar.specialTimeOUT,
+      p.firstName, p.lastName, p.middleName, p.agencyEmployeeNum,
+      ot.officialTimeIN, ot.officialTimeOUT,
+      ot.officialBreaktimeIN, ot.officialBreaktimeOUT,
+      ot.officialHonorariumTimeIN, ot.officialHonorariumTimeOUT,
+      ot.officialServiceCreditTimeIN, ot.officialServiceCreditTimeOUT,
+      ot.officialOverTimeIN, ot.officialOverTimeOUT
     FROM date_series ds
-
-    -- person (no filter needed; same person every row)
-    LEFT JOIN person_table p
-           ON p.agencyEmployeeNum = ?
-
-    -- attendance record for this person + date
-    LEFT JOIN attendancerecord ar
-           ON ar.personID = ?
-          AND ar.date     = DATE_FORMAT(ds.cal_date, '%Y-%m-%d')
-
-    -- official schedule covering this date + day-of-week
+    LEFT JOIN person_table p   ON p.agencyEmployeeNum = ?
+    LEFT JOIN attendancerecord ar ON ar.personID = ? AND ar.date = DATE_FORMAT(ds.cal_date, '%Y-%m-%d')
     LEFT JOIN officialtime ot
            ON ot.employeeID = ?
           AND ot.day        = DAYNAME(ds.cal_date)
           AND ds.cal_date   BETWEEN ot.startDate AND ot.endDate
-
     ORDER BY ds.cal_date ASC;
   `;
 
@@ -2076,11 +1939,9 @@ router.post('/api/view-attendance-full', authenticateToken, (req, res) => {
         personID,
       );
 
-      // Tag each row so the frontend knows whether it already exists in the DB
       const tagged = results.map((row) => ({
         ...row,
-        isNew: row.recordId == null,   // true  → INSERT needed on save
-        // normalise nulls to empty strings so inputs are controlled
+        isNew:       row.recordId == null,
         timeIN:       row.timeIN       ?? '',
         breaktimeIN:  row.breaktimeIN  ?? '',
         breaktimeOUT: row.breaktimeOUT ?? '',
@@ -2092,15 +1953,7 @@ router.post('/api/view-attendance-full', authenticateToken, (req, res) => {
   );
 });
 
-
-// ── Upsert full-month records (INSERT new rows / UPDATE existing ones) ────────
-// Payload: { records: [ { personID, date, Day, timeIN, breaktimeIN,
-//                          breaktimeOUT, timeOUT, isNew, recordId } ] }
-//
-// Rules:
-//   • isNew === true  AND all time fields empty  → skip (don't insert blank rows)
-//   • isNew === true  AND at least one time field → INSERT
-//   • isNew === false                             → UPDATE (even if clearing times)
+// Upsert full-month records
 router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
   const { records } = req.body;
 
@@ -2111,27 +1964,17 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
   const isEmpty = (v) => !v || String(v).trim() === '';
 
   try {
-    let inserted = 0;
-    let updated  = 0;
-    let skipped  = 0;
+    let inserted = 0, updated = 0, skipped = 0;
 
     for (const record of records) {
       const allEmpty =
-        isEmpty(record.timeIN) &&
-        isEmpty(record.breaktimeIN) &&
-        isEmpty(record.breaktimeOUT) &&
-        isEmpty(record.timeOUT);
+        isEmpty(record.timeIN) && isEmpty(record.breaktimeIN) &&
+        isEmpty(record.breaktimeOUT) && isEmpty(record.timeOUT);
 
-      // ── INSERT ──────────────────────────────────────────────────────────────
       if (record.isNew) {
         if (allEmpty) { skipped++; continue; }
 
-        // Guard against duplicate: someone may have saved in another tab
-        const checkSql = `
-          SELECT id FROM attendancerecord
-          WHERE personID = ? AND date = ?
-          LIMIT 1
-        `;
+        const checkSql = `SELECT id FROM attendancerecord WHERE personID = ? AND date = ? LIMIT 1`;
         const existing = await new Promise((resolve, reject) => {
           db.query(checkSql, [record.personID, record.date], (err, rows) => {
             if (err) reject(err); else resolve(rows[0] ?? null);
@@ -2139,62 +1982,22 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
         });
 
         if (existing) {
-          // Row was created after the page loaded — fall through to UPDATE
-          const updateSql = `
-            UPDATE attendancerecord
-            SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?
-            WHERE id = ?
-          `;
+          const updateSql = `UPDATE attendancerecord SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ? WHERE id = ?`;
           await new Promise((resolve, reject) => {
-            db.query(
-              updateSql,
-              [record.timeIN || null, record.breaktimeIN || null,
-               record.breaktimeOUT || null, record.timeOUT || null,
-               existing.id],
-              (err) => { if (err) reject(err); else resolve(); },
-            );
+            db.query(updateSql, [record.timeIN || null, record.breaktimeIN || null, record.breaktimeOUT || null, record.timeOUT || null, existing.id], (err) => { if (err) reject(err); else resolve(); });
           });
           updated++;
-          logAudit(
-            req.user,
-            `Updated Attendance Record (full-month, race-condition) | ${record.date} | timeIN: ${record.timeIN}, timeOUT: ${record.timeOUT}`,
-            'Attendance Modification – Full View',
-            record.date,
-            record.personID,
-          );
+          logAudit(req.user, `Updated Attendance Record (full-month, race-condition) | ${record.date}`, 'Attendance Modification – Full View', record.date, record.personID);
         } else {
-          const insertSql = `
-            INSERT INTO attendancerecord
-              (personID, date, Day, timeIN, breaktimeIN, breaktimeOUT, timeOUT)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `;
+          const insertSql = `INSERT INTO attendancerecord (personID, date, Day, timeIN, breaktimeIN, breaktimeOUT, timeOUT) VALUES (?, ?, ?, ?, ?, ?, ?)`;
           await new Promise((resolve, reject) => {
-            db.query(
-              insertSql,
-              [record.personID, record.date, record.Day,
-               record.timeIN || null, record.breaktimeIN || null,
-               record.breaktimeOUT || null, record.timeOUT || null],
-              (err) => { if (err) reject(err); else resolve(); },
-            );
+            db.query(insertSql, [record.personID, record.date, record.Day, record.timeIN || null, record.breaktimeIN || null, record.breaktimeOUT || null, record.timeOUT || null], (err) => { if (err) reject(err); else resolve(); });
           });
           inserted++;
-          logAudit(
-            req.user,
-            `Inserted New Attendance Record (full-month) | ${record.date} | timeIN: ${record.timeIN}, timeOUT: ${record.timeOUT}`,
-            'Attendance Modification – Full View',
-            record.date,
-            record.personID,
-          );
+          logAudit(req.user, `Inserted New Attendance Record (full-month) | ${record.date}`, 'Attendance Modification – Full View', record.date, record.personID);
         }
-
-      // ── UPDATE ──────────────────────────────────────────────────────────────
       } else {
-        // Fetch old values first to build a meaningful audit diff
-        const fetchSql = `
-          SELECT timeIN, breaktimeIN, breaktimeOUT, timeOUT
-          FROM attendancerecord
-          WHERE personID = ? AND date = ?
-        `;
+        const fetchSql = `SELECT timeIN, breaktimeIN, breaktimeOUT, timeOUT FROM attendancerecord WHERE personID = ? AND date = ?`;
         const oldRow = await new Promise((resolve, reject) => {
           db.query(fetchSql, [record.personID, record.date], (err, rows) => {
             if (err) reject(err); else resolve(rows[0] ?? {});
@@ -2203,61 +2006,30 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
 
         const normalize = (v) => (v == null ? '' : String(v).trim());
         const fields = [
-          { key: 'timeIN',       label: 'Time IN'       },
-          { key: 'breaktimeIN',  label: 'Breaktime IN'  },
-          { key: 'breaktimeOUT', label: 'Breaktime OUT' },
-          { key: 'timeOUT',      label: 'Time OUT'      },
+          { key: 'timeIN', label: 'Time IN' }, { key: 'breaktimeIN', label: 'Breaktime IN' },
+          { key: 'breaktimeOUT', label: 'Breaktime OUT' }, { key: 'timeOUT', label: 'Time OUT' },
         ];
         const diff = fields
           .filter(({ key }) => normalize(oldRow[key]) !== normalize(record[key]))
-          .map(({ key, label }) =>
-            `${label}: [${normalize(oldRow[key]) || 'empty'} → ${normalize(record[key]) || 'empty'}]`,
-          )
+          .map(({ key, label }) => `${label}: [${normalize(oldRow[key]) || 'empty'} → ${normalize(record[key]) || 'empty'}]`)
           .join(' | ');
 
-        const updateSql = `
-          UPDATE attendancerecord
-          SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?
-          WHERE personID = ? AND date = ?
-        `;
+        const updateSql = `UPDATE attendancerecord SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ? WHERE personID = ? AND date = ?`;
         await new Promise((resolve, reject) => {
-          db.query(
-            updateSql,
-            [record.timeIN || null, record.breaktimeIN || null,
-             record.breaktimeOUT || null, record.timeOUT || null,
-             record.personID, record.date],
-            (err) => { if (err) reject(err); else resolve(); },
-          );
+          db.query(updateSql, [record.timeIN || null, record.breaktimeIN || null, record.breaktimeOUT || null, record.timeOUT || null, record.personID, record.date], (err) => { if (err) reject(err); else resolve(); });
         });
         updated++;
 
         if (diff) {
-          logAudit(
-            req.user,
-            `Updated Attendance Record (full-month) | ${record.date} | ${diff}`,
-            'Attendance Modification – Full View',
-            record.date,
-            record.personID,
-          );
+          logAudit(req.user, `Updated Attendance Record (full-month) | ${record.date} | ${diff}`, 'Attendance Modification – Full View', record.date, record.personID);
         }
       }
     }
 
-    // Notify connected sockets
     const personIDs = [...new Set(records.map((r) => r.personID).filter(Boolean))];
-    notifyAttendanceChanged('full-month-updated', {
-      scope: 'attendancerecord',
-      personIDs,
-      inserted,
-      updated,
-    });
+    notifyAttendanceChanged('full-month-updated', { scope: 'attendancerecord', personIDs, inserted, updated });
 
-    res.json({
-      message: `Saved successfully. ${inserted} inserted, ${updated} updated, ${skipped} skipped.`,
-      inserted,
-      updated,
-      skipped,
-    });
+    res.json({ message: `Saved successfully. ${inserted} inserted, ${updated} updated, ${skipped} skipped.`, inserted, updated, skipped });
   } catch (err) {
     console.error('view-attendance-full PUT error:', err);
     res.status(500).json({ error: err.message });
@@ -2265,4 +2037,3 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
 });
 
 module.exports = router;
-//

@@ -83,6 +83,10 @@ export const routeToComponentMap = {
   '/system-settings': 'system-settings',
   '/pds-templates': 'pds-templates',
   '/leave-commutation': 'leave-commutation',
+  '/service-credits': 'service-credits',
+  '/compensatory-time-off': 'compensatory-time-off',
+  '/assignment-management': 'assignment-management',
+  '/earnings-management': 'earnings-management',
 };
 
 /**
