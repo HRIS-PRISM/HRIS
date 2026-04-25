@@ -7,24 +7,19 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import PrintIcon from '@mui/icons-material/Print';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import {
-  Avatar,
   Box,
   Button,
   Card,
   Chip,
-  Container,
   Fade,
+  Grid,
   IconButton,
+  LinearProgress,
   Paper,
   styled,
-  TextField,
   Tooltip,
   Typography,
   CircularProgress as MCircularProgress,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Snackbar,
   Alert,
 } from '@mui/material';
@@ -38,13 +33,6 @@ import AccessDenied from '../AccessDenied';
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
-    : '109, 35, 35';
-};
-
 const generateHash = (data) => {
   const str = JSON.stringify(data);
   let hash = 0;
@@ -56,295 +44,120 @@ const generateHash = (data) => {
   return Math.abs(hash).toString(16).toUpperCase();
 };
 
+// ─── DESIGN TOKENS ───────────────────────────────────────────────────────────
+
+const T = {
+  accent: '#6d2323',
+  accentDark: '#5a1d1d',
+  accentMid: '#8B4545',
+  accentFaint: 'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  text: '#1a1a1a',
+  muted: '#6b6b6b',
+  faint: '#a0a0a0',
+  divider: 'rgba(0,0,0,0.08)',
+};
+
 // ─── STYLED COMPONENTS ───────────────────────────────────────────────────────
 
-const GlassCard = styled(Card)(() => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-}));
-
-const ProfessionalButton = styled(Button)(({ variant }) => ({
+const SectionCard = styled(Card)({
   borderRadius: 12,
-  fontWeight: 600,
-  padding: '12px 24px',
-  transition: 'box-shadow 0.2s ease-in-out, background-color 0.2s',
-  textTransform: 'none',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-  boxShadow: variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
-  '&:hover': {
-    boxShadow: variant === 'contained' ? '0 6px 20px rgba(254, 249, 225, 0.35)' : 'none',
-  },
-  '&:active': { boxShadow: 'none' },
-}));
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  overflow: 'hidden',
+  background: '#fff',
+});
 
-const ModernTextField = styled(TextField)(() => ({
-  '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition: 'box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.95)' },
-    '&.Mui-focused': {
-      boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
-      backgroundColor: 'rgba(255, 255, 255, 1)',
-    },
-  },
-  '& .MuiInputLabel-root': { fontWeight: 500 },
-}));
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.875rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  '&:hover': { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
+
+const FormSectionLabel = ({ icon: Icon, children }) => (
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5 }}>
+    <Icon sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
+    <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.45) }}>
+      {children}
+    </Typography>
+  </Box>
+);
 
 // ─── Shimmer / Wireframe ──────────────────────────────────────────────────────
 
 const SHIMMER_CSS = `
-@keyframes dtrShimmer {
-  0%   { background-position: -900px 0; }
-  100% { background-position:  900px 0; }
+@keyframes shimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
 }
-@keyframes dtrPulse {
+@keyframes blink {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.55; }
 }`;
 
-const S = ({ w = '100%', h = 14, r = 6, sx = {}, accent = '#6d2323' }) => (
-  <Box
-    sx={{
-      width: w, height: h, borderRadius: r, flexShrink: 0,
-      background: `linear-gradient(90deg,
-        ${alpha(accent, 0.07)} 25%,
-        ${alpha(accent, 0.18)} 50%,
-        ${alpha(accent, 0.07)} 75%)`,
-      backgroundSize: '900px 100%',
-      animation: 'dtrShimmer 1.6s infinite linear',
-      ...sx,
-    }}
-  />
+const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
+  <Box sx={{
+    width: w, height: h, borderRadius: r,
+    background: `linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)`,
+    backgroundSize: '800px 100%',
+    animation: 'shimmer 1.6s infinite linear',
+    flexShrink: 0, ...sx,
+  }} />
 );
 
-const Placeholder = ({ w, h, r = 4, color = 'rgba(109,35,35,0.08)', sx = {} }) => (
-  <Box sx={{ width: w, height: h, borderRadius: r, bgcolor: color, flexShrink: 0, ...sx }} />
-);
-
-const TableSkeleton = ({ accent }) => {
-  const border     = `1px solid rgba(0,0,0,0.18)`;
-  const cellBorder = `1px solid rgba(0,0,0,0.12)`;
-  const colWidths  = ['8%', '16%', '16%', '16%', '16%', '14%', '14%'];
-
-  return (
-    <Box sx={{ width: '49%', border, borderRadius: '2px', overflow: 'hidden', bgcolor: 'white', display: 'flex', flexDirection: 'column' }}>
-      {/* Header block */}
-      <Box sx={{ p: '12px 10px 8px', borderBottom: border, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
-        <S w="55%" h={9} r={3} accent={accent} />
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', justifyContent: 'center', my: '2px' }}>
-          <Placeholder w={44} h={44} r="50%" color={alpha(accent, 0.12)} />
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, maxWidth: 220 }}>
-            <S w="95%" h={9} r={3} accent={accent} />
-            <S w="80%" h={9} r={3} accent={accent} />
+const DTRWireframe = () => (
+  <>
+    <style>{SHIMMER_CSS}</style>
+    <Box sx={{ py: { xs: 2, md: 4 }, mt: { xs: 0, md: -5 }, width: '100vw', maxWidth: '100%', position: 'relative', left: '63%', transform: 'translateX(-61%)', px: { xs: 2, sm: 3, md: 6 } }}>
+      <Box sx={{ mb: 2, borderRadius: 3, overflow: 'hidden', border: `1px solid ${T.accentBorder}`, animation: 'blink 2s ease-in-out infinite' }}>
+        <Box sx={{ p: 3.5, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2.5, position: 'relative', overflow: 'hidden' }}>
+          <Box sx={{ position: 'absolute', top: -50, right: -50, width: 180, height: 180, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.06)' }} />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ width: 52, height: 52, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)', flexShrink: 0 }} />
+            <Box><Bone w={260} h={18} sx={{ mb: 1 }} /><Bone w={360} h={11} /></Box>
           </Box>
         </Box>
-        <S w="45%" h={8} r={3} accent={accent} />
-        <S w="32%" h={7} r={3} accent={accent} />
-        {/* Title — "DAILY TIME RECORD - OVERTIME" */}
-        <S w="72%" h={16} r={4} accent={accent} sx={{ my: '3px' }} />
-        <Box sx={{ width: '72%', mt: '4px' }}>
-          <Box sx={{ borderBottom: '2px solid rgba(0,0,0,0.25)', pb: '3px', mb: '3px' }}>
-            <S w="100%" h={11} r={3} accent={accent} />
-          </Box>
-          <S w="28%" h={7} r={3} accent={accent} sx={{ mx: 'auto' }} />
-        </Box>
-        <Box sx={{ width: '90%', display: 'flex', alignItems: 'center', gap: '6px', mt: '2px' }}>
-          <S w={72} h={8} r={3} accent={accent} />
-          <S w="55%" h={8} r={3} accent={accent} />
-        </Box>
-        <Box sx={{ width: '90%', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <S w={90} h={8} r={3} accent={accent} />
-          <S w="35%" h={8} r={3} accent={accent} />
-        </Box>
-        <S w="88%" h={8} r={3} accent={accent} sx={{ mt: '4px' }} />
-        <Box sx={{ width: '85%', display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
-          <S w={80} h={8} r={3} accent={accent} sx={{ flexShrink: 0 }} />
-          <Box sx={{ flex: 1, borderBottom: '1.5px solid rgba(0,0,0,0.18)', mb: '1px' }} />
-        </Box>
-        <Box sx={{ height: 10 }} />
-        <Box sx={{ width: '85%', display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
-          <S w={64} h={8} r={3} accent={accent} sx={{ flexShrink: 0 }} />
-          <Box sx={{ flex: 1, borderBottom: '1.5px solid rgba(0,0,0,0.18)', mb: '1px' }} />
-        </Box>
-        <Box sx={{ height: 10 }} />
       </Box>
-
-      {/* Column header row 1 */}
-      <Box sx={{ display: 'flex', borderBottom: cellBorder, bgcolor: alpha('#FEF9E1', 0.6) }}>
-        {colWidths.map((w, ci) => (
-          <Box key={ci} sx={{ width: w, py: '6px', px: '2px', borderRight: ci < 6 ? cellBorder : 'none', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-            <S w="70%" h={9} r={3} accent={accent} />
-          </Box>
-        ))}
-      </Box>
-
-      {/* Column header row 2 */}
-      <Box sx={{ display: 'flex', borderBottom: cellBorder, bgcolor: alpha('#FEF9E1', 0.35) }}>
-        {colWidths.map((w, ci) => (
-          <Box key={ci} sx={{ width: w, py: '5px', px: '2px', borderRight: ci < 6 ? cellBorder : 'none', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-            {ci !== 0 && <S w="65%" h={8} r={3} accent={accent} />}
-          </Box>
-        ))}
-      </Box>
-
-      {/* 31 data rows */}
-      {Array.from({ length: 31 }, (_, ri) => (
-        <Box key={ri} sx={{
-          display: 'flex',
-          borderBottom: '1px solid rgba(0,0,0,0.06)',
-          bgcolor: ri % 2 === 0 ? 'transparent' : alpha('#FEF9E1', 0.22),
-          animation: `dtrPulse 2.2s ease-in-out ${ri * 0.035}s infinite`,
-        }}>
-          {colWidths.map((w, ci) => (
-            <Box key={ci} sx={{ width: w, height: 15, borderRight: ci < 6 ? '1px solid rgba(0,0,0,0.06)' : 'none', display: 'flex', justifyContent: 'center', alignItems: 'center', px: '2px' }}>
-              {(ci === 0 || (ci >= 1 && ci <= 4 && ri % 3 === 0)) && (
-                <S w={ci === 0 ? '55%' : ri % 5 === 0 ? '0%' : '78%'} h={7} r={3} accent={accent} />
-              )}
+      <Grid container spacing={3}>
+        {[3, 9].map((lg, idx) => (
+          <Grid item xs={12} lg={lg} key={idx}>
+            <Box sx={{ borderRadius: 3, border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', overflow: 'hidden', animation: `blink 2s ease-in-out ${idx * 0.1}s infinite`, height: 'calc(100vh - 280px)' }}>
+              <Box sx={{ px: 3.5, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
+                <Bone w={lg === 3 ? 160 : 220} h={13} />
+              </Box>
+              <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+                {[100, 160, 120, 140, 110, 130].map((w, i) => (
+                  <Box key={i}><Bone w={w} h={10} sx={{ mb: 1 }} /><Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} /></Box>
+                ))}
+              </Box>
             </Box>
-          ))}
-        </Box>
-      ))}
-
-      {/* Footer */}
-      <Box sx={{ p: '10px 8px 14px', borderTop: border, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <Box sx={{ borderTop: '2px solid rgba(0,0,0,0.2)', mb: '4px' }} />
-        <S w="92%" h={7} r={3} accent={accent} />
-        <S w="85%" h={7} r={3} accent={accent} />
-        <S w="78%" h={7} r={3} accent={accent} />
-        <Box sx={{ width: '50%', ml: 'auto', mt: '28px', textAlign: 'center' }}>
-          <Box sx={{ borderTop: '2px solid rgba(0,0,0,0.18)', mb: '4px' }} />
-          <S w="60%" h={7} r={3} accent={accent} sx={{ mx: 'auto' }} />
-        </Box>
-        <Box sx={{ mt: '12px' }}>
-          <Box sx={{ borderTop: '1px solid rgba(0,0,0,0.15)', mb: '2px' }} />
-          <Box sx={{ borderTop: '1.5px solid rgba(0,0,0,0.2)', mb: '6px' }} />
-          <S w="72%" h={7} r={3} accent={accent} />
-        </Box>
-        <Box sx={{ width: '80%', ml: 'auto', mt: '12px', textAlign: 'center' }}>
-          <Box sx={{ borderTop: '2px solid rgba(0,0,0,0.18)', mb: '4px' }} />
-          <S w="45%" h={7} r={3} accent={accent} sx={{ mx: 'auto', mb: '3px' }} />
-          <S w="65%" h={7} r={3} accent={accent} sx={{ mx: 'auto' }} />
-        </Box>
-      </Box>
+          </Grid>
+        ))}
+      </Grid>
     </Box>
-  );
-};
+  </>
+);
 
-const DTROvertimeWireframeLoading = ({
-  accentColor    = '#6d2323',
-  primaryColor   = '#FEF9E1',
-  secondaryColor = '#FFF8E7',
-}) => {
-  const ac   = accentColor;
-  const grad = `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`;
-
-  return (
-    <>
-      <style>{SHIMMER_CSS}</style>
-      <Container maxWidth="xl" sx={{ py: 4, mt: -5 }}>
-        <Box sx={{ px: { xs: 2, sm: 4, md: 6 } }}>
-
-          {/* 1. Header card */}
-          <Box sx={{
-            mb: 4, borderRadius: '20px', overflow: 'hidden',
-            border: `1px solid ${alpha(ac, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-            animation: 'dtrPulse 2.2s ease-in-out infinite',
-          }}>
-            <Box sx={{ p: 5, background: grad }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Placeholder w={64} h={64} r="50%" color={alpha(ac, 0.13)} />
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <S w={290} h={26} r={6} accent={ac} />
-                    <S w={270} h={13} r={4} accent={ac} />
-                  </Box>
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  {/* Integrity badge + Overtime chip + icon button */}
-                  <S w={145} h={26} r={13} accent={ac} />
-                  <S w={90} h={26} r={13} accent={ac} />
-                  <Placeholder w={48} h={48} r="50%" color={alpha(ac, 0.11)} />
-                </Box>
-              </Box>
-            </Box>
-          </Box>
-
-          {/* 2. Filter card */}
-          <Box sx={{
-            mb: 4, borderRadius: '20px', overflow: 'hidden',
-            border: `1px solid ${alpha(ac, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-            animation: 'dtrPulse 2.2s ease-in-out 0.1s infinite',
-            bgcolor: `rgba(254,249,225,0.95)`,
-          }}>
-            {/* Banner */}
-            <Box sx={{ p: 4, background: grad, display: 'flex', alignItems: 'center', gap: 2, boxShadow: '0 2px 4px rgba(0,0,0,0.08)' }}>
-              <Placeholder w={28} h={28} r="50%" color={alpha(ac, 0.2)} />
-              <S w={280} h={13} r={4} accent={ac} />
-            </Box>
-
-            <Box sx={{ p: 4 }}>
-              {/* Employee Number + Start Date + End Date — 3-column row */}
-              <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-                {[110, 70, 70].map((labelW, fi) => (
-                  <Box key={fi} sx={{ flex: 1, minWidth: 160, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <S w={labelW} h={12} r={3} accent={ac} />
-                    <Box sx={{ height: 56, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', px: 1.5 }}>
-                      <S w={fi === 0 ? '40%' : '60%'} h={13} r={4} accent={ac} />
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-
-              {/* Year selector row */}
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <S w={185} h={15} r={4} accent={ac} />
-                <Box sx={{ width: 140, height: 40, borderRadius: '8px', border: `1px solid ${alpha(ac, 0.25)}`, bgcolor: 'white', display: 'flex', alignItems: 'center', px: 1.5, gap: 1 }}>
-                  <S w="50%" h={12} r={3} accent={ac} />
-                  <Placeholder w={18} h={18} r={3} color={alpha(ac, 0.15)} sx={{ ml: 'auto' }} />
-                </Box>
-              </Box>
-
-              {/* 12 month buttons */}
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
-                {Array.from({ length: 12 }, (_, i) => (
-                  <S key={i} w={64} h={44} r={10} accent={ac} sx={{ animation: `dtrShimmer 1.6s infinite linear ${i * 0.05}s` }} />
-                ))}
-              </Box>
-            </Box>
-          </Box>
-
-          {/* 3. DTR tables */}
-          <Box sx={{
-            borderRadius: '8px', overflow: 'hidden',
-            border: `1px solid ${alpha(ac, 0.12)}`,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-            mb: 4, bgcolor: 'white',
-            animation: 'dtrPulse 2.2s ease-in-out 0.18s infinite',
-          }}>
-            <Box sx={{ p: 5, display: 'flex', gap: '2%', overflowX: 'auto' }}>
-              <TableSkeleton accent={ac} />
-              <TableSkeleton accent={ac} />
-            </Box>
-          </Box>
-
+const DTRLoadingOverlay = ({ title, message }) => (
+  <Box sx={{ position: 'absolute', inset: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', px: 2, width: '100%', pointerEvents: 'none', bgcolor: 'rgba(255,255,255,0.78)', backdropFilter: 'blur(4px)' }}>
+    <Paper elevation={0} sx={{ width: '100%', maxWidth: 360, mt: -2, borderRadius: 4, bgcolor: '#fff', boxShadow: '0 12px 40px rgba(0,0,0,0.12)', p: 3, pointerEvents: 'auto' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+        <MCircularProgress size={22} sx={{ color: T.accent }} />
+        <Box>
+          <Typography sx={{ fontSize: '0.92rem', fontWeight: 800, color: T.text, lineHeight: 1.2 }}>{title}</Typography>
+          <Typography sx={{ fontSize: '0.76rem', color: T.muted, mt: 0.2 }}>{message}</Typography>
         </Box>
-      </Container>
-
-      {/* 4. FAB buttons — fixed bottom-right (? + Print + PDF) */}
-      <Box sx={{ position: 'fixed', bottom: 60, right: 24, display: 'flex', flexDirection: 'row', gap: 1.5, zIndex: 1300, animation: 'dtrPulse 2.2s ease-in-out 0.3s infinite' }}>
-        {Array.from({ length: 3 }, (_, i) => (
-          <Placeholder key={i} w={52} h={52} r="50%" color="rgba(255,255,255,0.9)" sx={{ border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.12)' }} />
-        ))}
       </Box>
-    </>
-  );
-};
+      <LinearProgress sx={{ height: 5, borderRadius: 3, backgroundColor: alpha(T.accent, 0.1), '& .MuiLinearProgress-bar': { borderRadius: 3, backgroundColor: T.accent } }} />
+    </Paper>
+  </Box>
+);
 
 // ─── COMPONENT ────────────────────────────────────────────────────────────────
 
@@ -352,16 +165,16 @@ const DailyTimeRecordOvertime = () => {
   const { settings } = useSystemSettings();
 
   // ── Core state ─────────────────────────────────────────────────────────────
-  const [personID, setPersonID]           = useState('');
-  const [startDate, setStartDate]         = useState('');
-  const [endDate, setEndDate]             = useState('');
-  const [records, setRecords]             = useState([]);
-  const [employeeName, setEmployeeName]   = useState('');
-  const [officialTimes, setOfficialTimes] = useState({});
+  const [personID, setPersonID]             = useState('');
+  const [startDate, setStartDate]           = useState('');
+  const [endDate, setEndDate]               = useState('');
+  const [records, setRecords]               = useState([]);
+  const [employeeName, setEmployeeName]     = useState('');
+  const [officialTimes, setOfficialTimes]   = useState({});
   const dtrRef = useRef(null);
-  const [selectedMonth, setSelectedMonth] = useState(null);
-  const [holidays, setHolidays]           = useState([]);
-  const [suspensions, setSuspensions]     = useState([]);
+  const [selectedMonth, setSelectedMonth]   = useState(null);
+  const [holidays, setHolidays]             = useState([]);
+  const [suspensions, setSuspensions]       = useState([]);
   const [approvedLeaves, setApprovedLeaves] = useState([]);
 
   // ── Anti-tamper state ──────────────────────────────────────────────────────
@@ -377,6 +190,12 @@ const DailyTimeRecordOvertime = () => {
   const originalRecordsRef = useRef([]);
   const isRestoringRef     = useRef(false);
   const formatTimeRef      = useRef(null);
+  const fetchRequestSeqRef = useRef(0);
+
+  // ── Loading states ─────────────────────────────────────────────────────────
+  const [singlePrintLoading, setSinglePrintLoading] = useState(false);
+  const [singlePrintStatus, setSinglePrintStatus]   = useState('');
+  const [monthLoading, setMonthLoading]             = useState(false);
 
   // ── Year selector ──────────────────────────────────────────────────────────
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -388,15 +207,6 @@ const DailyTimeRecordOvertime = () => {
   const initialLoadDone = useRef(false);
 
   const DTR_WIDTH_IN = '8.7in';
-
-  // ── Theme colours ──────────────────────────────────────────────────────────
-  const primaryColor       = settings.accentColor       || '#FEF9E1';
-  const secondaryColor     = settings.backgroundColor   || '#FFF8E7';
-  const accentColor        = settings.primaryColor      || '#6d2323';
-  const accentDark         = settings.secondaryColor    || '#8B3333';
-  const textPrimaryColor   = settings.textPrimaryColor  || '#6d2323';
-  const textSecondaryColor = settings.textSecondaryColor|| '#FEF9E1';
-  const hoverColor         = settings.hoverColor        || '#6D2323';
 
   // ── Access guard ───────────────────────────────────────────────────────────
   const { hasAccess, loading: accessLoading } = usePageAccess('daily-time-record-overtime');
@@ -517,12 +327,15 @@ const DailyTimeRecordOvertime = () => {
 
   // ── Data fetching ───────────────────────────────────────────────────────────
   const fetchRecords = async () => {
+    const requestSeq = ++fetchRequestSeqRef.current;
+    setMonthLoading(true);
     try {
       const response = await axios.post(
         `${API_BASE_URL}/attendance/api/view-attendance`,
         { personID, startDate, endDate },
         getAuthHeaders(),
       );
+      if (requestSeq !== fetchRequestSeqRef.current) return;
       const data = response.data;
       const overtimeRecords = data.filter(
         (r) => r.specialType === 'OVERTIME' && (r.specialTimeIN || r.specialTimeOUT),
@@ -553,6 +366,9 @@ const DailyTimeRecordOvertime = () => {
         setOfficialTimes({});
       }
     } catch (err) { console.error(err); }
+    finally {
+      if (requestSeq === fetchRequestSeqRef.current) setMonthLoading(false);
+    }
   };
 
   const fetchOfficialTimes = async (employeeID) => {
@@ -586,7 +402,6 @@ const DailyTimeRecordOvertime = () => {
   useEffect(() => {
     if (!personID || initialLoadDone.current) return;
     initialLoadDone.current = true;
-
     const init = async () => {
       await Promise.allSettled([
         fetchOfficialTimes(personID),
@@ -660,6 +475,8 @@ const DailyTimeRecordOvertime = () => {
   const printPage = async () => {
     if (!dtrRef.current) return;
     if (!verifyIntegrity()) return;
+    setSinglePrintLoading(true);
+    setSinglePrintStatus('Preparing DTR for printing...');
     restoreDOMFromOriginal();
     await new Promise((r) => setTimeout(r, 80));
     try {
@@ -674,11 +491,14 @@ const DailyTimeRecordOvertime = () => {
       pdf.addImage(imgData, 'PNG', (pw - dtrWidth) / 2, (ph - dtrHeight) / 2, dtrWidth, dtrHeight);
       addWatermark(pdf); pdf.autoPrint(); window.open(pdf.output('bloburl'), '_blank');
     } catch (err) { console.error('Error generating print view:', err); }
+    finally { setSinglePrintLoading(false); setSinglePrintStatus(''); }
   };
 
   const downloadPDF = async () => {
     if (!dtrRef.current) return;
     if (!verifyIntegrity()) return;
+    setSinglePrintLoading(true);
+    setSinglePrintStatus('Preparing DTR for download...');
     restoreDOMFromOriginal();
     await new Promise((r) => setTimeout(r, 80));
     try {
@@ -695,14 +515,16 @@ const DailyTimeRecordOvertime = () => {
       pdf.save(`DTR-Overtime-${employeeName}-${formatMonth(startDate)}.pdf`);
       setSnackbar({ open: true, message: 'DTR downloaded successfully. Integrity verified.', severity: 'success' });
     } catch (err) { console.error('Error generating PDF:', err); }
+    finally { setSinglePrintLoading(false); setSinglePrintStatus(''); }
   };
 
   // ── Month click ────────────────────────────────────────────────────────────
-  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const monthsShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   const handleMonthClick = (monthIndex) => {
     const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
     const end   = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
+    setMonthLoading(true);
     setStartDate(start.toISOString().substring(0, 10));
     setEndDate(end.toISOString().substring(0, 10));
     setSelectedMonth(monthIndex);
@@ -745,24 +567,21 @@ const DailyTimeRecordOvertime = () => {
 
   // ── Integrity badge ────────────────────────────────────────────────────────
   const IntegrityBadge = () => {
-    if (integrityStatus === 'none') return null;
-    if (integrityStatus === 'ok') return (
+    if (integrityStatus !== 'ok') return null;
+    return (
       <Tooltip title={`Data integrity verified | Hash: ${recordsHash} | Fetched: ${fetchedAt ? new Date(fetchedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'N/A'}`}>
-        <Chip icon={<VerifiedIcon sx={{ fontSize: '16px !important' }} />} label="Integrity Verified" size="small"
-          sx={{ bgcolor: 'rgba(46,125,50,0.15)', color: '#2e7d32', fontWeight: 600, fontSize: '11px', border: '1px solid rgba(46,125,50,0.4)', cursor: 'pointer' }} />
+        <Chip
+          icon={<VerifiedIcon sx={{ fontSize: '13px !important' }} />}
+          label="Integrity Verified"
+          size="small"
+          sx={{ bgcolor: 'rgba(46,125,50,0.1)', color: '#2e7d32', fontWeight: 700, fontSize: '0.65rem', border: '1px solid rgba(46,125,50,0.3)', cursor: 'pointer', height: 24 }}
+        />
       </Tooltip>
     );
-    return null;
   };
 
   // ── Access / loading guards ────────────────────────────────────────────────
-  if (pageLoading || accessLoading) return (
-    <DTROvertimeWireframeLoading
-      accentColor={accentColor}
-      primaryColor={primaryColor}
-      secondaryColor={secondaryColor}
-    />
-  );
+  if (pageLoading || accessLoading) return <DTRWireframe />;
 
   if (hasAccess === false) return (
     <AccessDenied
@@ -943,7 +762,8 @@ const DailyTimeRecordOvertime = () => {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <Fade in timeout={500}>
-      <Container maxWidth="xl" sx={{ py: 4, mt: -5 }}>
+      <Box>
+        <style>{SHIMMER_CSS}</style>
         <style>{`
           html { overflow-y: scroll; }
           .dtr-responsive-header,.dtr-responsive-cell,.dtr-time-cell{width:auto!important;max-width:none!important;}
@@ -974,155 +794,242 @@ const DailyTimeRecordOvertime = () => {
           <Alert onClose={() => setSnackbar((s) => ({ ...s, open: false }))} severity={snackbar.severity} variant="filled" sx={{ width: '100%', fontWeight: 600 }}>{snackbar.message}</Alert>
         </Snackbar>
 
-        <Box sx={{ px: { xs: 2, sm: 4, md: 6 } }}>
+        <Box sx={{ py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 }, width: '100vw', maxWidth: '100%', position: 'relative', left: '63%', transform: 'translateX(-61%)', px: { xs: 2, sm: 3, md: 6 } }}>
 
-          {/* Header card */}
-          <Fade in timeout={500}>
-            <Box sx={{ mb: 4 }} className="no-print">
-              <GlassCard sx={{ background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
-                <Box sx={{ p: 5, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, color: textPrimaryColor, position: 'relative', overflow: 'hidden' }}>
-                  <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle,${alpha(accentColor,0.1)} 0%,${alpha(accentColor,0)} 70%)` }} />
-                  <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, background: `radial-gradient(circle,${alpha(accentColor,0.08)} 0%,${alpha(accentColor,0)} 70%)` }} />
-                  <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
-                    <Box display="flex" alignItems="center">
-                      <Avatar sx={{ bgcolor: alpha(accentColor,0.15), mr: 4, width: 64, height: 64, boxShadow: `0 8px 24px ${alpha(accentColor,0.15)}` }}>
-                        <AccessTime sx={{ color: textPrimaryColor, fontSize: 32 }} />
-                      </Avatar>
-                      <Box>
-                        <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}>Daily Time Record - Overtime</Typography>
-                        <Typography variant="body1" sx={{ opacity: 0.8, fontWeight: 400, color: textPrimaryColor }}>Filter your overtime DTR records by date</Typography>
-                      </Box>
-                    </Box>
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <IntegrityBadge />
-                      <Chip label="Overtime" size="small" sx={{ bgcolor: alpha(accentColor,0.15), color: textPrimaryColor, fontWeight: 500, '& .MuiChip-label': { px: 1 } }} />
-                      <Tooltip title="Refresh Data">
-                        <IconButton onClick={() => window.location.reload()} sx={{ bgcolor: alpha(accentColor,0.1), '&:hover':{ bgcolor: alpha(accentColor,0.2) }, color: textPrimaryColor, width: 48, height: 48 }}>
-                          <AccessTime sx={{ fontSize: 24 }} />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </Box>
-                </Box>
-              </GlassCard>
-            </Box>
-          </Fade>
-
-          {/* Filter card */}
-          <Fade in timeout={700}>
-            <GlassCard className="no-print" sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
-              <Box sx={{ p: 4, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, color: textPrimaryColor, display: 'flex', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-                <CalendarToday sx={{ fontSize: '1.8rem', mr: 2 }} />
-                <Typography variant="h7" sx={{ opacity: 0.9 }}>Select date range to view records</Typography>
-              </Box>
-              <Box sx={{ p: 4 }}>
-
-                {/* Employee Number + Start Date + End Date — 3-column row */}
-                <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-                  <Box sx={{ flex: 1, minWidth: 160 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}>Employee Number</Typography>
-                    <ModernTextField value={personID} variant="outlined" disabled fullWidth />
-                  </Box>
-                  <Box sx={{ flex: 1, minWidth: 160 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}>Start Date</Typography>
-                    <ModernTextField type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} variant="outlined" InputLabelProps={{ shrink: true }} fullWidth />
-                  </Box>
-                  <Box sx={{ flex: 1, minWidth: 160 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}>End Date</Typography>
-                    <ModernTextField type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} variant="outlined" InputLabelProps={{ shrink: true }} fullWidth />
-                  </Box>
-                </Box>
-
-                {/* Year + Month selection */}
+          {/* ── Page Header ── */}
+          <SectionCard className="no-print" sx={{ mb: 2, overflow: 'hidden' }}>
+            <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
+              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)' }} />
+              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)' }} />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, position: 'relative', zIndex: 1 }}>
+                <AccessTime sx={{ fontSize: 32, color: T.accent }} />
                 <Box>
-                  <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2, mb: 2 }}>
-                    <Typography variant="subtitle1" sx={{ color: textPrimaryColor, fontWeight: 600 }}>Select Month &amp; Year</Typography>
-                    <FormControl sx={{ minWidth: 140 }}>
-                      <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>
-                      <Select
-                        value={selectedYear}
-                        label="Year"
-                        onChange={(e) => {
-                          setSelectedYear(e.target.value);
-                          setSelectedMonth(null);
-                          setSnackbar({ open: true, message: 'Year changed — please click a month to load records.', severity: 'info' });
-                        }}
-                        sx={{ backgroundColor: 'white', '& .MuiOutlinedInput-notchedOutline':{ borderColor: accentColor }, borderRadius: 2, fontWeight: 600 }}
-                      >
-                        {yearOptions.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
-                      </Select>
-                    </FormControl>
+                  <Typography sx={{ fontSize: '1.25rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3 }}>Daily Time Record - Overtime</Typography>
+                  <Typography sx={{ fontSize: '0.82rem', color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>Employee Portal • Overtime DTR records</Typography>
+                </Box>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+                <IntegrityBadge />
+                <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
+                  <Typography sx={{ fontSize: '0.8rem', color: T.accent, fontWeight: 700 }}>
+                    {records.length} records
+                  </Typography>
+                </Box>
+                <Box
+                  component="button"
+                  onClick={() => window.location.reload()}
+                  title="Refresh"
+                  sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, borderRadius: '8px', p: '7px 10px', cursor: 'pointer', color: T.accent, display: 'flex', alignItems: 'center', transition: 'all 0.15s', '&:hover': { bgcolor: alpha(T.accent, 0.15), transform: 'translateY(-1px)' } }}
+                >
+                  <AccessTime sx={{ fontSize: 17 }} />
+                </Box>
+              </Box>
+            </Box>
+          </SectionCard>
+
+          {/* ── Two-column layout ── */}
+          <Grid container spacing={2}>
+
+            {/* LEFT: Period selector panel */}
+            <Grid item xs={12} lg={3} className="no-print">
+              <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: T.accentFaint }}>
+                  <CalendarToday sx={{ fontSize: 15, color: T.accent }} />
+                  <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>OT DTR Period</Typography>
+                </Box>
+
+                <Box sx={{ px: 3.5, py: 3, flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 0, '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+
+                  {/* Employee (read-only) */}
+                  <FormSectionLabel icon={AccessTime}>Employee</FormSectionLabel>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1.1, mb: 2.5, borderRadius: '8px', border: `1px dashed ${T.accentBorder}`, bgcolor: alpha(T.accent, 0.03), cursor: 'not-allowed', userSelect: 'none' }}>
+                    <AccessTime sx={{ fontSize: 14, color: alpha(T.accent, 0.4), flexShrink: 0 }} />
+                    <Typography sx={{ fontSize: '0.82rem', color: T.muted, fontWeight: 600, flex: 1 }}>{personID || '—'}</Typography>
+                    <Box sx={{ px: 0.75, py: 0.2, borderRadius: '4px', bgcolor: alpha(T.accent, 0.08), border: `1px solid ${alpha(T.accent, 0.15)}` }}>
+                      <Typography sx={{ fontSize: '0.58rem', color: T.accent, fontWeight: 700, letterSpacing: '0.05em' }}>AUTO</Typography>
+                    </Box>
                   </Box>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
-                    {months.map((month, index) => {
-                      const sel = selectedMonth === index;
+
+                  {/* Year */}
+                  <FormSectionLabel icon={CalendarToday}>Year</FormSectionLabel>
+                  <Box sx={{ mb: 2.5 }}>
+                    <select
+                      value={selectedYear}
+                      onChange={(e) => {
+                        setSelectedYear(parseInt(e.target.value));
+                        setSelectedMonth(null);
+                        setSnackbar({ open: true, message: 'Year changed — please click a month to load records.', severity: 'info' });
+                      }}
+                      style={{ width: '100%', padding: '9px 13px', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, fontSize: '0.82rem', outline: 'none', fontFamily: 'inherit', background: '#fff', color: T.text, cursor: 'pointer' }}
+                    >
+                      {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                  </Box>
+
+                  {/* Month */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                      <CalendarToday sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
+                      <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.45) }}>Month</Typography>
+                    </Box>
+                    {selectedMonth !== null && (
+                      <Box onClick={() => { setSelectedMonth(null); setRecords([]); setStartDate(''); setEndDate(''); setIntegrityStatus('none'); }} sx={{ fontSize: '0.65rem', color: T.accent, cursor: 'pointer', fontWeight: 700, '&:hover': { textDecoration: 'underline' } }}>Clear</Box>
+                    )}
+                  </Box>
+
+                  {/* Month list */}
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    {monthsShort.map((m, idx) => {
+                      const isSelected = selectedMonth === idx;
                       return (
-                        <ProfessionalButton key={month} variant={sel ? 'contained' : 'outlined'} size="medium" onClick={() => handleMonthClick(index)}
-                          sx={{ borderColor: accentColor, backgroundColor: sel ? accentColor : 'transparent', color: sel ? textSecondaryColor : textPrimaryColor, py: 1.5, fontWeight: 600, '&:hover':{ backgroundColor: sel ? accentDark : alpha(accentColor,0.1), borderWidth: 2 }, transition: 'all 0.3s ease', boxShadow: sel ? `0 4px 12px ${alpha(accentColor,0.3)}` : 'none' }}>
-                          {month}
-                        </ProfessionalButton>
+                        <Box
+                          key={m}
+                          onClick={() => handleMonthClick(idx)}
+                          sx={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            px: 1.75, py: 0.9, borderRadius: '7px', cursor: 'pointer',
+                            border: `1px solid ${isSelected ? T.accent : 'transparent'}`,
+                            bgcolor: isSelected ? T.accent : 'transparent',
+                            transition: 'all 0.14s ease',
+                            '&:hover': isSelected ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` },
+                          }}
+                        >
+                          <Typography sx={{ fontSize: '0.8rem', fontWeight: isSelected ? 700 : 500, color: isSelected ? '#fff' : T.text, lineHeight: 1 }}>{m}</Typography>
+                          {isSelected ? (
+                            <Box sx={{ px: 0.75, py: 0.2, borderRadius: '4px', bgcolor: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.25)' }}>
+                              <Typography sx={{ fontSize: '0.6rem', fontWeight: 700, color: '#fff', lineHeight: 1 }}>{selectedYear}</Typography>
+                            </Box>
+                          ) : (
+                            <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: T.accentBorder, flexShrink: 0 }} />
+                          )}
+                        </Box>
                       );
                     })}
                   </Box>
                 </Box>
+              </SectionCard>
+            </Grid>
 
-              </Box>
-            </GlassCard>
-          </Fade>
+            {/* RIGHT: DTR preview panel */}
+            <Grid item xs={12} lg={9}>
+              <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                {monthLoading && (
+                  <DTRLoadingOverlay
+                    title="Loading Overtime records"
+                    message={selectedMonth !== null ? `Fetching ${monthsShort[selectedMonth]} data...` : 'Fetching records...'}
+                  />
+                )}
+                {singlePrintLoading && (
+                  <DTRLoadingOverlay
+                    title={singlePrintStatus || 'Preparing DTR...'}
+                    message="Your DTR is being captured and compiled. Please wait."
+                  />
+                )}
 
-          {/* DTR table */}
-          <Fade in timeout={900}>
-            <Paper elevation={4} sx={{ borderRadius: 2, overflowX: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', border: '1px solid rgba(109,35,35,0.1)', mb: 4, width: '100%' }}>
-              <Box sx={{ p: 5, minWidth: 'fit-content' }}>
-                <div className="table-container" ref={dtrRef}>
-                  <div className="table-wrapper">
-                    <div style={{ display: 'flex', gap: '2%', width: DTR_WIDTH_IN, minWidth: '8.5in', margin: '0 auto', backgroundColor: 'white' }} className="table-side-by-side">
-                      {[0, 1].map((tableIdx) => (
-                        <table key={tableIdx} style={{ border: '1px solid black', borderCollapse: 'collapse', width: '49%', tableLayout: 'fixed' }}>
-                          {colgroup}
-                          {renderHeader()}
-                          <tbody>
-                            {renderTableBody()}
-                            {renderFooter()}
-                          </tbody>
-                        </table>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </Box>
-            </Paper>
-          </Fade>
-
-          {/* FAB buttons */}
-          <Box className="no-print" sx={{ position: 'fixed', bottom: 60, right: 24, display: 'flex', flexDirection: 'row', gap: 1.5, zIndex: 1300, alignItems: 'center' }}>
-            <Tooltip placement="top" title={
-              <Box sx={{ p: 0.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '11px', letterSpacing: '0.05em' }}>LEGEND</Typography>
-                {[
-                  { label: 'Holiday',    bg: 'rgba(237,108,2,0.25)',  border: '#ed6c02' },
-                  { label: 'Suspension', bg: 'rgba(211,47,47,0.2)',   border: '#d32f2f' },
-                  { label: 'On Leave',   bg: 'rgba(46,125,50,0.2)',   border: '#2e7d32' },
-                ].map(({ label, bg, border }) => (
-                  <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Box sx={{ width: 28, height: 16, backgroundColor: bg, border: `1.5px solid ${border}`, borderRadius: '3px', flexShrink: 0 }} />
-                    <Typography variant="caption" sx={{ fontSize: '11px', fontWeight: 500 }}>{label}</Typography>
+                {/* Toolbar */}
+                <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }} className="no-print">
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <AccessTime sx={{ fontSize: 15, color: T.accent }} />
+                      <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>DTR Preview</Typography>
+                      {selectedMonth !== null && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                          <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: T.faint }} />
+                          <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 500 }}>{employeeName}</Typography>
+                          <Box sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, borderRadius: '5px', px: '6px', py: '2px' }}>{monthsShort[selectedMonth]}</Box>
+                          <Box sx={{ fontSize: '0.65rem', fontWeight: 700, color: '#b45309', bgcolor: 'rgba(180,83,9,0.08)', border: '1px solid rgba(180,83,9,0.2)', borderRadius: '5px', px: '6px', py: '2px' }}>OT</Box>
+                        </Box>
+                      )}
+                    </Box>
+                    {selectedMonth !== null && (
+                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                        {/* Legend tooltip */}
+                        <Tooltip placement="top" title={
+                          <Box sx={{ p: 0.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '11px', letterSpacing: '0.05em' }}>LEGEND</Typography>
+                            {[
+                              { label: 'Holiday',    bg: 'rgba(237,108,2,0.25)',  border: '#ed6c02' },
+                              { label: 'Suspension', bg: 'rgba(211,47,47,0.2)',   border: '#d32f2f' },
+                              { label: 'On Leave',   bg: 'rgba(46,125,50,0.2)',   border: '#2e7d32' },
+                            ].map(({ label, bg, border }) => (
+                              <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Box sx={{ width: 28, height: 16, backgroundColor: bg, border: `1.5px solid ${border}`, borderRadius: '3px', flexShrink: 0 }} />
+                                <Typography variant="caption" sx={{ fontSize: '11px', fontWeight: 500 }}>{label}</Typography>
+                              </Box>
+                            ))}
+                          </Box>
+                        } arrow componentsProps={{ tooltip: { sx: { bgcolor: 'white', color: '#333', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', border: '1px solid #e0e0e0', borderRadius: '10px', p: 1.5 } }, arrow: { sx: { color: 'white' } } }}>
+                          <IconButton size="small" sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, fontSize: '13px', fontWeight: 700, width: 32, height: 32, '&:hover': { bgcolor: alpha(T.accent, 0.15) } }}>?</IconButton>
+                        </Tooltip>
+                        <Tooltip title="Print DTR" placement="top">
+                          <IconButton size="small" onClick={printPage} sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, width: 32, height: 32, '&:hover': { bgcolor: alpha(T.accent, 0.15) } }}><PrintIcon sx={{ fontSize: 16 }} /></IconButton>
+                        </Tooltip>
+                        <AccentButton
+                          variant="contained"
+                          size="small"
+                          startIcon={singlePrintLoading ? <MCircularProgress size={12} sx={{ color: '#fff' }} /> : <PictureAsPdfIcon sx={{ fontSize: '13px !important' }} />}
+                          onClick={downloadPDF}
+                          disabled={singlePrintLoading}
+                          sx={{ fontSize: '0.78rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`, '&:hover': { bgcolor: T.accentDark }, '&:disabled': { bgcolor: '#ddd !important' } }}
+                        >
+                          {singlePrintLoading ? 'Processing…' : 'Download PDF'}
+                        </AccentButton>
+                      </Box>
+                    )}
                   </Box>
-                ))}
-              </Box>
-            } arrow componentsProps={{ tooltip: { sx: { bgcolor: 'white', color: '#333', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', border: '1px solid #e0e0e0', borderRadius: '10px', p: 1.5 } }, arrow: { sx: { color: 'white' } } }}>
-              <IconButton sx={{ backgroundColor: '#ffffff', color: '#6D2323', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', transition: 'all 0.2s ease', fontSize: '18px', fontWeight: 700, '&:hover':{ backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}>?</IconButton>
-            </Tooltip>
-            <Tooltip title="Print DTR" placement="top">
-              <IconButton onClick={printPage} sx={{ backgroundColor: '#ffffff', color: '#6D2323', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', transition: 'all 0.2s ease', '&:hover':{ backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}><PrintIcon /></IconButton>
-            </Tooltip>
-            <Tooltip title="Download PDF" placement="top">
-              <IconButton onClick={downloadPDF} sx={{ backgroundColor: '#ffffff', color: '#A31D1D', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', transition: 'all 0.2s ease', '&:hover':{ backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}><PictureAsPdfIcon /></IconButton>
-            </Tooltip>
-          </Box>
+                </Box>
+
+                {/* Content */}
+                <Box sx={{ flexGrow: 1, overflowY: 'auto', position: 'relative', '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                  {selectedMonth === null ? (
+                    <Box sx={{ py: 10, textAlign: 'center' }}>
+                      <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                        <CalendarToday sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                      </Box>
+                      <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>Select a DTR Period</Typography>
+                      <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>Choose a month from the left panel to view your Overtime Daily Time Record.</Typography>
+                    </Box>
+                  ) : (
+                    <Fade in timeout={250}>
+                      <Box sx={{ bgcolor: '#f4f0f0', p: 2.5, display: 'flex', justifyContent: 'center', position: 'relative' }}>
+                        <Paper elevation={2} sx={{ p: 2, borderRadius: '8px', bgcolor: '#fff', position: 'relative', boxSizing: 'border-box', overflowX: 'auto', width: '100%' }}>
+                          <Box sx={{ overflowX: 'auto' }}>
+                            <div className="table-container" ref={dtrRef}>
+                              <div className="table-wrapper">
+                                <div style={{ display: 'flex', gap: '2%', width: DTR_WIDTH_IN, minWidth: '8.5in', margin: '0 auto', backgroundColor: 'white' }} className="table-side-by-side">
+                                  {[0, 1].map((tableIdx) => (
+                                    <table key={tableIdx} style={{ border: '1px solid black', borderCollapse: 'collapse', width: '49%', tableLayout: 'fixed' }}>
+                                      {colgroup}
+                                      {renderHeader()}
+                                      <tbody>
+                                        {renderTableBody()}
+                                        {renderFooter()}
+                                      </tbody>
+                                    </table>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </Box>
+                        </Paper>
+                      </Box>
+                    </Fade>
+                  )}
+                </Box>
+
+                {/* Footer info bar */}
+                {selectedMonth !== null && (
+                  <Box className="no-print" sx={{ px: 3.5, py: 1.25, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <PictureAsPdfIcon sx={{ fontSize: 13, color: alpha(T.accent, 0.45) }} />
+                    <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>Download generates a verified PDF of your Overtime DTR for {monthsShort[selectedMonth]} {selectedYear}</Typography>
+                  </Box>
+                )}
+              </SectionCard>
+            </Grid>
+          </Grid>
 
         </Box>
-      </Container>
+      </Box>
     </Fade>
   );
 };
