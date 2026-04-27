@@ -442,15 +442,8 @@ const AttendanceFieldCell = ({ f, valueHrs, onChange }) => {
 
 
 const AttendanceSummary = ({
-  employee,
-  year,
-  month,
-  attendanceData,
-  attendanceLoading,
-  onRefresh,
-  onRecordsRefresh,
-  empCat,
-  vlReceiptRefreshKey,
+  employee, year, month, attendanceData, attendanceLoading,
+  onRefresh, onRecordsRefresh, empCat, vlReceiptRefreshKey, balanceRefreshKey,
 }) => {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -483,7 +476,7 @@ const fetchLiveBalances = useCallback(async () => {
   }
 }, [employee]);
 
-useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances]);
+useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]);
 
   const raw = attendanceData?.summary;
   const calDays = getCalendarDays(year, month);

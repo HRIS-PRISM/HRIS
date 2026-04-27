@@ -2444,17 +2444,18 @@ if (pageLoading) return <EarningsWireframe />;
                   flexDirection: "column",
                 }}
               >
-                <AttendanceSummary
-                  employee={selectedEmployee}
-                  year={periodYear}
-                  month={periodMonth}
-                  attendanceData={attendanceData}
-                  attendanceLoading={attendanceLoading}
-                  onRefresh={fetchAttendance}
-                  onRecordsRefresh={handleRecordsRefresh}
-                  empCat={empCat}
-                  vlReceiptRefreshKey={vlReceiptRefreshKey}
-                />
+      <AttendanceSummary
+  employee={selectedEmployee}
+  year={periodYear}
+  month={periodMonth}
+  attendanceData={attendanceData}
+  attendanceLoading={attendanceLoading}
+  onRefresh={fetchAttendance}
+  onRecordsRefresh={handleRecordsRefresh}
+  empCat={empCat}
+  vlReceiptRefreshKey={vlReceiptRefreshKey}
+  balanceRefreshKey={balanceKey}   // ← add this
+/>
               </Box>
               {/* Column 2: Input Earnings */}
               <Box
