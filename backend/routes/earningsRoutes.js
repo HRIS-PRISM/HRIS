@@ -20,12 +20,364 @@
     return fallback ? String(fallback) : "unknown";
   };
 
-  // ─── AUDIT LOG ────────────────────────────────────────────────────────────────
-  const auditEarning = (req, action, type, id, oldStatus, newStatus, payload) => {
-    const actor = getActorEmployeeNumber(req);
-    const details = JSON.stringify({ type, old_status: oldStatus, new_status: newStatus, payload });
-    logAudit({ employeeNumber: actor }, action, `earnings_${type}`, id, null, details);
+  const semRank = (s) => {
+    const v = String(s || "").trim().toLowerCase();
+    if (!v) return 0;
+    if (v.includes("2nd") || v === "2") return 3;
+    if (v.includes("1st") || v === "1") return 2;
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? n : 1;
   };
+
+  const isBeforePeriod = (row, targetYear, targetMonth) => {
+    const y = Number(row?.period_year);
+    const m = semRank(row?.period_semester);
+    if (!Number.isFinite(y)) return true;
+    if (y < targetYear) return true;
+    if (y > targetYear) return false;
+    return m < targetMonth;
+  };
+
+  const findTargetRow = (rows, targetYear, targetMonth) => {
+    const mStr = String(targetMonth);
+    const mPad = String(targetMonth).padStart(2, "0");
+    const filtered = (rows || []).filter(
+      (r) =>
+        Number(r?.period_year) === Number(targetYear) &&
+        (String(r?.period_semester || "") === mStr ||
+          String(r?.period_semester || "") === mPad),
+    );
+    // Prefer newest id if multiple
+    return filtered.sort((a, b) => Number(b.id) - Number(a.id))[0] || null;
+  };
+
+  // Option A: roll-forward remaining from earlier rows into the target period row,
+  // and zero-out earlier rows' remaining_hours to prevent double-counting.
+  const rollForwardLeaveBalance = async ({
+    req,
+    employeeNumber,
+    leaveCode,
+    periodYear,
+    periodMonth,
+  }) => {
+    const month = parseInt(periodMonth, 10);
+    const year = parseInt(periodYear, 10);
+    if (!employeeNumber || !leaveCode || !Number.isFinite(month) || !Number.isFinite(year)) {
+      return null;
+    }
+
+    const rows = await new Promise((resolve) => {
+      db.query(
+        `SELECT * FROM leave_assignment
+         WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
+         ORDER BY period_year DESC,
+           CASE
+             WHEN period_semester IN ('2nd','2nd semester','2') THEN 3
+             WHEN period_semester IN ('1st','1st semester','1') THEN 2
+             ELSE 1
+           END DESC,
+           id DESC`,
+        [employeeNumber, leaveCode],
+        (err, r) => resolve(!err && Array.isArray(r) ? r : []),
+      );
+    });
+
+    const earlier = rows.filter((r) => isBeforePeriod(r, year, month));
+    const carryHours = earlier.reduce(
+      (sum, r) => sum + (toNum(r.remaining_hours) || 0),
+      0,
+    );
+
+    // Nothing to roll forward
+    if (carryHours <= 0) {
+      return findTargetRow(rows, year, month);
+    }
+
+    let target = findTargetRow(rows, year, month);
+
+    const actorEmpNum = getActorEmployeeNumber(req);
+    const auditDetails = {
+      mode: "roll-forward",
+      employeeNumber,
+      leave_code: leaveCode,
+      from_periods: earlier.map((r) => ({
+        id: r.id,
+        period_year: r.period_year,
+        period_semester: r.period_semester,
+        remaining_hours: r.remaining_hours,
+      })),
+      to_period: { period_year: year, period_semester: String(month) },
+      carried_hours: carryHours,
+    };
+
+    if (!target) {
+      // Create target period row that absorbs the carry as carried_forward_hours
+      const insertedId = await new Promise((resolve) => {
+        db.query(
+          `INSERT INTO leave_assignment
+            (employeeNumber, leave_code, total_hours, remaining_hours, used_hours, carried_forward_hours, allocated_hours, period_year, period_semester)
+           VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?)`,
+          [
+            employeeNumber,
+            leaveCode,
+            carryHours,
+            carryHours,
+            carryHours,
+            year,
+            String(month),
+          ],
+          (err, result) => resolve(!err ? result?.insertId : null),
+        );
+      });
+      if (insertedId) {
+        try {
+          logAudit(
+            { employeeNumber: actorEmpNum },
+            `Roll forward leave balance (${carryHours} hrs)`,
+            "leave_assignment",
+            insertedId,
+            employeeNumber,
+            auditDetails,
+          );
+        } catch (e) {}
+        target = { id: insertedId };
+      }
+    } else {
+      // Add carry into existing target row (without touching allocated/used)
+      await new Promise((resolve) => {
+        db.query(
+          `UPDATE leave_assignment SET
+             carried_forward_hours = GREATEST(0, carried_forward_hours + ?),
+             total_hours           = GREATEST(0, total_hours + ?),
+             remaining_hours       = GREATEST(0, remaining_hours + ?)
+           WHERE id = ?`,
+          [carryHours, carryHours, carryHours, target.id],
+          () => resolve(),
+        );
+      });
+      try {
+        logAudit(
+          { employeeNumber: actorEmpNum },
+          `Roll forward leave balance (${carryHours} hrs)`,
+          "leave_assignment",
+          target.id,
+          employeeNumber,
+          auditDetails,
+        );
+      } catch (e) {}
+    }
+
+    // Zero-out earlier rows remaining_hours so totals aren't double-counted
+    await Promise.all(
+      earlier.map(
+        (r) =>
+          new Promise((resolve) => {
+            db.query(
+              `UPDATE leave_assignment SET remaining_hours = 0 WHERE id = ?`,
+              [r.id],
+              () => resolve(),
+            );
+          }),
+      ),
+    );
+
+    return target;
+  };
+
+  const getEmployeeFullName = (employeeNumber) =>
+    new Promise((resolve) => {
+      if (!employeeNumber) return resolve("");
+      db.query(
+        `SELECT CONCAT_WS(' ', firstName, middleName, lastName, nameExtension) AS fullName
+         FROM person_table
+         WHERE agencyEmployeeNum = ?
+         LIMIT 1`,
+        [employeeNumber],
+        (err, rows) => {
+          if (err) return resolve("");
+          resolve((rows && rows[0] && rows[0].fullName) || "");
+        },
+      );
+    });
+
+  const formatUserDisplayName = (employeeNumber, fullName) => {
+    const emp = employeeNumber ? String(employeeNumber) : "unknown";
+    const name = (fullName || "").trim();
+    return name ? `${name} (${emp})` : emp;
+  };
+
+  const insertTransactionLog = (employeeId, message, actorEmployeeNumber = null) =>
+    new Promise((resolve) => {
+      if (!employeeId || !message) return resolve();
+      db.query(
+        "INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)",
+        [employeeId, message],
+        (err) => {
+          if (err) return resolve();
+          resolve();
+        },
+      );
+    });
+
+  const buildEarningsTransactionMessage = ({
+    actionLabel,
+    actorDisplay,
+    targetDisplay,
+    earningTypeLabel,
+    hoursValue,
+    leaveCode,
+    periodYear,
+    periodMonth,
+  }) => {
+    const hoursPart =
+      typeof hoursValue === "number" && Number.isFinite(hoursValue)
+        ? ` (${hoursValue} hrs)`
+        : "";
+    const leavePart = leaveCode ? ` [${leaveCode}]` : "";
+    const periodPart =
+      periodYear && periodMonth
+        ? ` for ${periodYear}-${String(periodMonth).padStart(2, "0")}`
+        : "";
+    return `${actorDisplay} ${actionLabel} ${earningTypeLabel}${hoursPart}${leavePart}${periodPart} for ${targetDisplay}`;
+  };
+
+  // ─── AUDIT LOG ────────────────────────────────────────────────────────────────
+  const insertEarningsAuditLog = (
+    earningType,
+    earningId,
+    action,
+    oldStatus,
+    newStatus,
+    actor,
+    notes,
+    payload,
+  ) =>
+    new Promise((resolve) => {
+      if (!earningType || !earningId || !action) return resolve();
+      const safePayload =
+        payload == null
+          ? null
+          : typeof payload === "string"
+            ? payload
+            : (() => {
+                try {
+                  return JSON.stringify(payload);
+                } catch (e) {
+                  return null;
+                }
+              })();
+      db.query(
+        `INSERT INTO earnings_audit_log
+          (earning_type, earning_id, action, old_status, new_status, actor, notes, payload)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          String(earningType).toLowerCase(),
+          parseInt(earningId, 10),
+          String(action),
+          oldStatus != null ? String(oldStatus) : null,
+          newStatus != null ? String(newStatus) : null,
+          actor != null ? String(actor) : null,
+          notes != null ? String(notes) : null,
+          safePayload,
+        ],
+        (err) => {
+          if (err) {
+            // Non-fatal: keep app working even if audit table is missing.
+            console.error("[earnings] Failed to insert earnings_audit_log:", err.message);
+          }
+          resolve();
+        },
+      );
+    });
+
+  const getEarningsAuditMeta = (type, payload) => {
+    const t = String(type || "").toLowerCase();
+    const p = payload && typeof payload === "object" ? payload : {};
+
+    if (t === "leave") {
+      const leaveCode = (p.leave_code || p.leaveCode || p.leave_code_snapshot || "")
+        .toString()
+        .trim()
+        .toUpperCase();
+      const suffix = leaveCode ? ` (${leaveCode})` : "";
+      return {
+        actionSuffix: suffix,
+        notes: leaveCode ? `Leave Code: ${leaveCode}` : null,
+      };
+    }
+
+    if (t === "sc") {
+      const scType = (p.sc_type || p.scType || "")
+        .toString()
+        .trim()
+        .toLowerCase();
+      const pretty =
+        scType === "non_commutative"
+          ? "Non-commutative"
+          : scType === "commutative"
+            ? "Commutative"
+            : scType
+              ? scType.replace(/_/g, " ")
+              : "";
+      const suffix = pretty ? ` (${pretty})` : "";
+      return { actionSuffix: suffix, notes: pretty ? `SC Type: ${pretty}` : null };
+    }
+
+    // cto + others
+    return { actionSuffix: "", notes: null };
+  };
+
+  const auditEarning = (req, action, type, id, oldStatus, newStatus, payload = {}) => {
+    const actor = getActorEmployeeNumber(req);
+    const targetEmployeeNumber =
+      payload?.employeeNumber || payload?.employee_number || null;
+    const details = JSON.stringify({
+      type,
+      actor_employeeNumber: actor,
+      target_employeeNumber: targetEmployeeNumber,
+      old_status: oldStatus,
+      new_status: newStatus,
+      payload,
+    });
+    // Store also in earnings_audit_log (dedicated earnings audit trail)
+    const { actionSuffix, notes } = getEarningsAuditMeta(type, payload);
+    insertEarningsAuditLog(
+      type,
+      id,
+      `${action}${actionSuffix}`,
+      oldStatus,
+      newStatus,
+      actor,
+      notes,
+      { ...payload, targetEmployeeNumber },
+    );
+    logAudit(
+      { employeeNumber: actor },
+      action,
+      `earnings_${type}`,
+      id,
+      targetEmployeeNumber,
+      details,
+    );
+  };
+
+  // ─── Earnings audit trail API ────────────────────────────────────────────────
+  // GET /api/earnings/audit/:type/:earningId
+  router.get("/audit/:type/:earningId", authenticateToken, requireAdmin, (req, res) => {
+    const { type, earningId } = req.params;
+    if (!type || !earningId) return res.status(400).json({ error: "type and earningId are required" });
+    db.query(
+      `SELECT *
+       FROM earnings_audit_log
+       WHERE earning_type = ? AND earning_id = ?
+       ORDER BY id ASC`,
+      [String(type).toLowerCase(), parseInt(earningId, 10)],
+      (err, rows) => {
+        if (err) return res.status(500).json({ error: "Failed to fetch earnings audit log" });
+        res.json(Array.isArray(rows) ? rows : []);
+      },
+    );
+  });
 
   // ══════════════════════════════════════════════════════════════════════════════
   //  ATTENDANCE CONTEXT — GET
@@ -472,12 +824,45 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
         return res.status(500).json({ error: "Failed to create leave earning" });
       }
 
-      auditEarning(req, "created", "leave", result.insertId, null, "pending", {
+      const earningPayload = {
         employeeNumber,
         leave_code,
         earned_hours: hrs,
         entry_type,
-      });
+        period_year,
+        period_month: parseInt(period_month),
+        remarks: remarks || null,
+      };
+      auditEarning(
+        req,
+        "created leave earnings",
+        "leave",
+        result.insertId,
+        null,
+        "pending",
+        earningPayload,
+      );
+
+      (async () => {
+        const actorEmpNum = getActorEmployeeNumber(req);
+        const [actorName, targetName] = await Promise.all([
+          getEmployeeFullName(actorEmpNum),
+          getEmployeeFullName(employeeNumber),
+        ]);
+        const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+        const targetDisplay = formatUserDisplayName(employeeNumber, targetName);
+        const txMessage = buildEarningsTransactionMessage({
+          actionLabel: "created",
+          actorDisplay,
+          targetDisplay,
+          earningTypeLabel: "leave earnings",
+          hoursValue: hrs,
+          leaveCode: leave_code,
+          periodYear: period_year,
+          periodMonth: parseInt(period_month),
+        });
+        await insertTransactionLog(employeeNumber, txMessage, actorEmpNum);
+      })();
 
       res.status(201).json({
         id: result.insertId,
@@ -511,18 +896,53 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
           const earnedHrs   = toNum(rec.earned_hours);
           const periodMonth = rec.period_month ? parseInt(rec.period_month) : null;
 
-          const findQuery = periodMonth
-            ? `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? AND (period_semester = ? OR period_semester = ?) ORDER BY id DESC LIMIT 1`
-            : `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? ORDER BY id DESC LIMIT 1`;
-          const findParams = periodMonth
-            ? [rec.employee_number, rec.leave_code, rec.period_year, String(periodMonth), String(periodMonth).padStart(2, "0")]
-            : [rec.employee_number, rec.leave_code, rec.period_year];
+          (async () => {
+            // Roll-forward first so the target period row reflects prior remaining balance
+            await rollForwardLeaveBalance({
+              req,
+              employeeNumber: rec.employee_number,
+              leaveCode: rec.leave_code,
+              periodYear: rec.period_year,
+              periodMonth: periodMonth || 0,
+            });
 
-          db.query(findQuery, findParams, (err3, laRows) => {
-            const matched = (!err3 && laRows && laRows[0]) ? laRows[0] : null;
+            const mStr = periodMonth ? String(periodMonth) : null;
+            const mPad = periodMonth ? String(periodMonth).padStart(2, "0") : null;
+            const findQuery = periodMonth
+              ? `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? AND (period_semester = ? OR period_semester = ?) ORDER BY id DESC LIMIT 1`
+              : `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? ORDER BY id DESC LIMIT 1`;
+            const findParams = periodMonth
+              ? [rec.employee_number, rec.leave_code, rec.period_year, mStr, mPad]
+              : [rec.employee_number, rec.leave_code, rec.period_year];
+
+            const matched = await new Promise((resolve) => {
+              db.query(findQuery, findParams, (e3, laRows) =>
+                resolve((!e3 && laRows && laRows[0]) ? laRows[0] : null),
+              );
+            });
 
             const afterUpdate = () => {
-              auditEarning(req, "approved", "leave", parseInt(id), rec.earn_status, "approved", null);
+              auditEarning(req, "approved leave earnings", "leave", parseInt(id), rec.earn_status, "approved", rec);
+              (async () => {
+                const actorEmpNum = getActorEmployeeNumber(req);
+                const [actorName, targetName] = await Promise.all([
+                  getEmployeeFullName(actorEmpNum),
+                  getEmployeeFullName(rec.employee_number),
+                ]);
+                const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+                const targetDisplay = formatUserDisplayName(rec.employee_number, targetName);
+                const txMessage = buildEarningsTransactionMessage({
+                  actionLabel: "approved",
+                  actorDisplay,
+                  targetDisplay,
+                  earningTypeLabel: "leave earnings",
+                  hoursValue: toNum(rec.earned_hours),
+                  leaveCode: rec.leave_code,
+                  periodYear: rec.period_year,
+                  periodMonth: rec.period_month,
+                });
+                await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
+              })();
               db.query("SELECT * FROM leave_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
             };
 
@@ -530,21 +950,33 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
               db.query(
                 `UPDATE leave_assignment
 SET
-  total_hours = GREATEST(0, total_hours + ?),
+  total_hours     = GREATEST(0, total_hours + ?),
   remaining_hours = GREATEST(0, remaining_hours + ?),
   allocated_hours = GREATEST(0, allocated_hours + ?)
 WHERE id = ?`,
                 [earnedHrs, earnedHrs, earnedHrs, matched.id],
-                afterUpdate
+                afterUpdate,
               );
             } else {
               db.query(
                 `INSERT INTO leave_assignment (employeeNumber, leave_code, total_hours, remaining_hours, used_hours, carried_forward_hours, allocated_hours, period_year, period_semester)
-                VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?)`,
-                [rec.employee_number, rec.leave_code, earnedHrs, earnedHrs, earnedHrs, rec.period_year, periodMonth ? String(periodMonth) : null],
-                afterUpdate
+                 VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?)`,
+                [
+                  rec.employee_number,
+                  rec.leave_code,
+                  earnedHrs,
+                  earnedHrs,
+                  earnedHrs,
+                  rec.period_year,
+                  periodMonth ? String(periodMonth) : null,
+                ],
+                afterUpdate,
               );
             }
+          })().catch((e) => {
+            console.error("[earnings] roll-forward/approve error:", e.message);
+            // Still respond with a safe error
+            res.status(500).json({ error: "Failed to approve earning", detail: e.message });
           });
         }
       );
@@ -564,7 +996,27 @@ WHERE id = ?`,
         [reason || null, req.user?.username || null, id],
         (err2) => {
           if (err2) return res.status(500).json({ error: "Failed to reject" });
-          auditEarning(req, "rejected", "leave", parseInt(id), oldStatus, "rejected", { reason });
+          auditEarning(req, "rejected leave earnings", "leave", parseInt(id), oldStatus, "rejected", { ...rows[0], reason });
+          (async () => {
+            const actorEmpNum = getActorEmployeeNumber(req);
+            const [actorName, targetName] = await Promise.all([
+              getEmployeeFullName(actorEmpNum),
+              getEmployeeFullName(rows[0].employee_number),
+            ]);
+            const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+            const targetDisplay = formatUserDisplayName(rows[0].employee_number, targetName);
+            const txMessage = buildEarningsTransactionMessage({
+              actionLabel: "rejected",
+              actorDisplay,
+              targetDisplay,
+              earningTypeLabel: "leave earnings",
+              hoursValue: toNum(rows[0].earned_hours),
+              leaveCode: rows[0].leave_code,
+              periodYear: rows[0].period_year,
+              periodMonth: rows[0].period_month,
+            });
+            await insertTransactionLog(rows[0].employee_number, txMessage, actorEmpNum);
+          })();
           db.query("SELECT * FROM leave_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
         }
       );
@@ -581,7 +1033,27 @@ WHERE id = ?`,
       const doDelete = () => {
         db.query("DELETE FROM leave_earnings WHERE id = ?", [id], (err2) => {
           if (err2) return res.status(500).json({ error: "Failed to delete" });
-          auditEarning(req, "deleted", "leave", parseInt(id), rec.earn_status, null, rec);
+          auditEarning(req, "deleted leave earnings", "leave", parseInt(id), rec.earn_status, null, rec);
+          (async () => {
+            const actorEmpNum = getActorEmployeeNumber(req);
+            const [actorName, targetName] = await Promise.all([
+              getEmployeeFullName(actorEmpNum),
+              getEmployeeFullName(rec.employee_number),
+            ]);
+            const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+            const targetDisplay = formatUserDisplayName(rec.employee_number, targetName);
+            const txMessage = buildEarningsTransactionMessage({
+              actionLabel: "deleted",
+              actorDisplay,
+              targetDisplay,
+              earningTypeLabel: "leave earnings",
+              hoursValue: toNum(rec.earned_hours),
+              leaveCode: rec.leave_code,
+              periodYear: rec.period_year,
+              periodMonth: rec.period_month,
+            });
+            await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
+          })();
           res.json({ deleted: true, id: parseInt(id) });
         });
       };
@@ -675,7 +1147,24 @@ WHERE id = ?`,
       entry_type_val, remarks || null, emp_category_snapshot ? JSON.stringify(emp_category_snapshot) : null, req.user?.username || null
     ], (err, result) => {
       if (err) return res.status(500).json({ error: "Failed to create SC earning" });
-      auditEarning(req, "created", "sc", result.insertId, null, "pending", { employeeNumber, sc_type, earnedHrs });
+      auditEarning(req, "created service credit earnings", "sc", result.insertId, null, "pending", { employeeNumber, sc_type, earnedHrs, period_year, period_month: parseInt(period_month) });
+      (async () => {
+        const actorEmpNum = getActorEmployeeNumber(req);
+        const [actorName, targetName] = await Promise.all([
+          getEmployeeFullName(actorEmpNum),
+          getEmployeeFullName(employeeNumber),
+        ]);
+        const txMessage = buildEarningsTransactionMessage({
+          actionLabel: "created",
+          actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
+          targetDisplay: formatUserDisplayName(employeeNumber, targetName),
+          earningTypeLabel: "service credit earnings",
+          hoursValue: earnedHrs,
+          periodYear: period_year,
+          periodMonth: parseInt(period_month),
+        });
+        await insertTransactionLog(employeeNumber, txMessage, actorEmpNum);
+      })();
       res.status(201).json({ id: result.insertId, employee_number: employeeNumber, sc_type, earned_hours: earnedHrs, period_year, period_month: parseInt(period_month), earn_status: "pending" });
     });
   });
@@ -709,7 +1198,24 @@ WHERE id = ?`,
             const matched = (!err3 && scRows && scRows[0]) ? scRows[0] : null;
 
             const afterUpdate = () => {
-              auditEarning(req, "approved", "sc", parseInt(id), rec.earn_status, "approved", null);
+              auditEarning(req, "approved service credit earnings", "sc", parseInt(id), rec.earn_status, "approved", rec);
+              (async () => {
+                const actorEmpNum = getActorEmployeeNumber(req);
+                const [actorName, targetName] = await Promise.all([
+                  getEmployeeFullName(actorEmpNum),
+                  getEmployeeFullName(rec.employee_number),
+                ]);
+                const txMessage = buildEarningsTransactionMessage({
+                  actionLabel: "approved",
+                  actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
+                  targetDisplay: formatUserDisplayName(rec.employee_number, targetName),
+                  earningTypeLabel: "service credit earnings",
+                  hoursValue: toNum(rec.earned_hours),
+                  periodYear: rec.period_year,
+                  periodMonth: rec.period_month,
+                });
+                await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
+              })();
               db.query("SELECT * FROM sc_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
             };
 
@@ -754,7 +1260,24 @@ WHERE id = ?`,
         [reason || null, req.user?.username || null, id],
         (err2) => {
           if (err2) return res.status(500).json({ error: "Failed to reject SC" });
-          auditEarning(req, "rejected", "sc", parseInt(id), oldStatus, "rejected", { reason });
+          auditEarning(req, "rejected service credit earnings", "sc", parseInt(id), oldStatus, "rejected", { ...rows[0], reason });
+          (async () => {
+            const actorEmpNum = getActorEmployeeNumber(req);
+            const [actorName, targetName] = await Promise.all([
+              getEmployeeFullName(actorEmpNum),
+              getEmployeeFullName(rows[0].employee_number),
+            ]);
+            const txMessage = buildEarningsTransactionMessage({
+              actionLabel: "rejected",
+              actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
+              targetDisplay: formatUserDisplayName(rows[0].employee_number, targetName),
+              earningTypeLabel: "service credit earnings",
+              hoursValue: toNum(rows[0].earned_hours),
+              periodYear: rows[0].period_year,
+              periodMonth: rows[0].period_month,
+            });
+            await insertTransactionLog(rows[0].employee_number, txMessage, actorEmpNum);
+          })();
           db.query("SELECT * FROM sc_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
         }
       );
@@ -771,7 +1294,24 @@ WHERE id = ?`,
       const doDelete = () => {
         db.query("DELETE FROM sc_earnings WHERE id = ?", [id], (err2) => {
           if (err2) return res.status(500).json({ error: "Failed to delete SC" });
-          auditEarning(req, "deleted", "sc", parseInt(id), rec.earn_status, null, rec);
+          auditEarning(req, "deleted service credit earnings", "sc", parseInt(id), rec.earn_status, null, rec);
+          (async () => {
+            const actorEmpNum = getActorEmployeeNumber(req);
+            const [actorName, targetName] = await Promise.all([
+              getEmployeeFullName(actorEmpNum),
+              getEmployeeFullName(rec.employee_number),
+            ]);
+            const txMessage = buildEarningsTransactionMessage({
+              actionLabel: "deleted",
+              actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
+              targetDisplay: formatUserDisplayName(rec.employee_number, targetName),
+              earningTypeLabel: "service credit earnings",
+              hoursValue: toNum(rec.earned_hours),
+              periodYear: rec.period_year,
+              periodMonth: rec.period_month,
+            });
+            await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
+          })();
           res.json({ deleted: true, id: parseInt(id) });
         });
       };
@@ -865,7 +1405,24 @@ const earnedHrs = toNum(earned_hours || ot_hours);
       entry_type_val, remarks || null, emp_category_snapshot ? JSON.stringify(emp_category_snapshot) : null, req.user?.username || null
     ], (err, result) => {
       if (err) return res.status(500).json({ error: "Failed to create CTO earning" });
-      auditEarning(req, "created", "cto", result.insertId, null, "pending", { employeeNumber, earnedHrs });
+      auditEarning(req, "created cto earnings", "cto", result.insertId, null, "pending", { employeeNumber, earnedHrs, period_year, period_month: parseInt(period_month) });
+      (async () => {
+        const actorEmpNum = getActorEmployeeNumber(req);
+        const [actorName, targetName] = await Promise.all([
+          getEmployeeFullName(actorEmpNum),
+          getEmployeeFullName(employeeNumber),
+        ]);
+        const txMessage = buildEarningsTransactionMessage({
+          actionLabel: "created",
+          actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
+          targetDisplay: formatUserDisplayName(employeeNumber, targetName),
+          earningTypeLabel: "CTO earnings",
+          hoursValue: earnedHrs,
+          periodYear: period_year,
+          periodMonth: parseInt(period_month),
+        });
+        await insertTransactionLog(employeeNumber, txMessage, actorEmpNum);
+      })();
       res.status(201).json({ id: result.insertId, employee_number: employeeNumber, ot_hours: toNum(ot_hours) || earnedHrs, earned_hours: earnedHrs, period_year, period_month: parseInt(period_month), earn_status: "pending" });
     });
   });
@@ -899,7 +1456,24 @@ const earnedHrs = toNum(earned_hours || ot_hours);
             const matched = (!err3 && ctoRows && ctoRows[0]) ? ctoRows[0] : null;
 
             const afterUpdate = () => {
-              auditEarning(req, "approved", "cto", parseInt(id), rec.earn_status, "approved", null);
+              auditEarning(req, "approved cto earnings", "cto", parseInt(id), rec.earn_status, "approved", rec);
+              (async () => {
+                const actorEmpNum = getActorEmployeeNumber(req);
+                const [actorName, targetName] = await Promise.all([
+                  getEmployeeFullName(actorEmpNum),
+                  getEmployeeFullName(rec.employee_number),
+                ]);
+                const txMessage = buildEarningsTransactionMessage({
+                  actionLabel: "approved",
+                  actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
+                  targetDisplay: formatUserDisplayName(rec.employee_number, targetName),
+                  earningTypeLabel: "CTO earnings",
+                  hoursValue: toNum(rec.earned_hours),
+                  periodYear: rec.period_year,
+                  periodMonth: rec.period_month,
+                });
+                await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
+              })();
               db.query("SELECT * FROM cto_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
             };
 
@@ -936,7 +1510,24 @@ const earnedHrs = toNum(earned_hours || ot_hours);
         [reason || null, req.user?.username || null, id],
         (err2) => {
           if (err2) return res.status(500).json({ error: "Failed to reject CTO" });
-          auditEarning(req, "rejected", "cto", parseInt(id), oldStatus, "rejected", { reason });
+          auditEarning(req, "rejected cto earnings", "cto", parseInt(id), oldStatus, "rejected", { ...rows[0], reason });
+          (async () => {
+            const actorEmpNum = getActorEmployeeNumber(req);
+            const [actorName, targetName] = await Promise.all([
+              getEmployeeFullName(actorEmpNum),
+              getEmployeeFullName(rows[0].employee_number),
+            ]);
+            const txMessage = buildEarningsTransactionMessage({
+              actionLabel: "rejected",
+              actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
+              targetDisplay: formatUserDisplayName(rows[0].employee_number, targetName),
+              earningTypeLabel: "CTO earnings",
+              hoursValue: toNum(rows[0].earned_hours),
+              periodYear: rows[0].period_year,
+              periodMonth: rows[0].period_month,
+            });
+            await insertTransactionLog(rows[0].employee_number, txMessage, actorEmpNum);
+          })();
           db.query("SELECT * FROM cto_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
         }
       );
@@ -953,7 +1544,24 @@ const earnedHrs = toNum(earned_hours || ot_hours);
       const doDelete = () => {
         db.query("DELETE FROM cto_earnings WHERE id = ?", [id], (err2) => {
           if (err2) return res.status(500).json({ error: "Failed to delete CTO" });
-          auditEarning(req, "deleted", "cto", parseInt(id), rec.earn_status, null, rec);
+          auditEarning(req, "deleted cto earnings", "cto", parseInt(id), rec.earn_status, null, rec);
+          (async () => {
+            const actorEmpNum = getActorEmployeeNumber(req);
+            const [actorName, targetName] = await Promise.all([
+              getEmployeeFullName(actorEmpNum),
+              getEmployeeFullName(rec.employee_number),
+            ]);
+            const txMessage = buildEarningsTransactionMessage({
+              actionLabel: "deleted",
+              actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
+              targetDisplay: formatUserDisplayName(rec.employee_number, targetName),
+              earningTypeLabel: "CTO earnings",
+              hoursValue: toNum(rec.earned_hours),
+              periodYear: rec.period_year,
+              periodMonth: rec.period_month,
+            });
+            await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
+          })();
           res.json({ deleted: true, id: parseInt(id) });
         });
       };

@@ -974,7 +974,7 @@ const fetchPayrollData = useCallback(async () => {
                       </Typography>
                      <Typography sx={{ fontSize: "0.9rem", fontWeight: 800, color: T.text, lineHeight: 1.3 }}>
   {selectedMonth ? filteredPayroll.length : 0} {(selectedMonth ? filteredPayroll.length : 0) === 1 ? "record" : "records"} found
-</Typography>
+</Typography> 
                       <Typography sx={{ fontSize: "0.75rem", color: T.muted, mt: 0.4 }}>
                         Counts loaded payroll entries for the selected filters.
                       </Typography>
