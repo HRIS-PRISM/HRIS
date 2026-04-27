@@ -117,11 +117,37 @@ const DTRWireframe = () => (
                 <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
                 <Bone w={lg === 3 ? 160 : 220} h={13} />
               </Box>
-              <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-                {[100, 160, 120, 140, 110, 130].map((w, i) => (
-                  <Box key={i}><Bone w={w} h={10} sx={{ mb: 1 }} /><Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} /></Box>
-                ))}
-              </Box>
+              {lg === 3 ? (
+                <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <Box>
+                    <Bone w={80} h={10} sx={{ mb: 1 }} />
+                    <Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
+                  </Box>
+                  <Box>
+                    <Bone w={52} h={10} sx={{ mb: 1 }} />
+                    <Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
+                  </Box>
+                  <Box>
+                    <Bone w={60} h={10} sx={{ mb: 1 }} />
+                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 1 }}>
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <Box key={i} sx={{ height: 42, borderRadius: 1.5, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
+                      ))}
+                    </Box>
+                  </Box>
+                  <Box sx={{ mt: 1, p: 1.5, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint }}>
+                    <Bone w={100} h={10} sx={{ mb: 1 }} />
+                    <Bone w={150} h={12} sx={{ mb: 1 }} />
+                    <Bone w={180} h={10} />
+                  </Box>
+                </Box>
+              ) : (
+                <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+                  {[100, 160, 120, 140, 110, 130].map((w, i) => (
+                    <Box key={i}><Bone w={w} h={10} sx={{ mb: 1 }} /><Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} /></Box>
+                  ))}
+                </Box>
+              )}
             </Box>
           </Grid>
         ))}
@@ -719,7 +745,12 @@ const DailyTimeRecordHonorarium = () => {
                   </Box>
 
                   {/* Month list */}
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <Box sx={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                    gap: '8px',
+                    mb: 1.25,
+                  }}>
                     {monthsShort.map((m, idx) => {
                       const isSelected = selectedMonth === idx;
                       return (
@@ -727,25 +758,44 @@ const DailyTimeRecordHonorarium = () => {
                           key={m}
                           onClick={() => handleMonthClick(idx)}
                           sx={{
-                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                            px: 1.75, py: 0.9, borderRadius: '7px', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            minHeight: 42,
+                            px: 1,
+                            py: 0.65,
+                            borderRadius: '6px',
+                            cursor: 'pointer',
                             border: `1px solid ${isSelected ? T.accent : 'transparent'}`,
                             bgcolor: isSelected ? T.accent : 'transparent',
                             transition: 'all 0.14s ease',
                             '&:hover': isSelected ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` },
                           }}
                         >
-                          <Typography sx={{ fontSize: '0.8rem', fontWeight: isSelected ? 700 : 500, color: isSelected ? '#fff' : T.text, lineHeight: 1 }}>{m}</Typography>
-                          {isSelected ? (
-                            <Box sx={{ px: 0.75, py: 0.2, borderRadius: '4px', bgcolor: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.25)' }}>
-                              <Typography sx={{ fontSize: '0.6rem', fontWeight: 700, color: '#fff', lineHeight: 1 }}>{selectedYear}</Typography>
-                            </Box>
-                          ) : (
-                            <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: T.accentBorder, flexShrink: 0 }} />
-                          )}
+                          <Typography sx={{
+                            fontSize: '0.78rem',
+                            fontWeight: isSelected ? 700 : 600,
+                            color: isSelected ? '#fff' : T.text,
+                            lineHeight: 1,
+                            letterSpacing: '0.03em',
+                            textAlign: 'center',
+                            width: '100%',
+                          }}>
+                            {m}
+                          </Typography>
                         </Box>
                       );
                     })}
+                  </Box>
+
+                  <Box sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                    <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: alpha(T.accent, 0.6), mb: 0.5 }}>
+                      Total Records
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.9rem', fontWeight: 800, color: T.text, lineHeight: 1.3 }}>
+                      {records.length} {records.length === 1 ? 'record' : 'records'} found
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.75rem', color: T.muted, mt: 0.4 }}>
+                      Counts loaded entries for the selected month.
+                    </Typography>
                   </Box>
                 </Box>
               </SectionCard>
