@@ -716,13 +716,7 @@ const CTODeductionReceipt = ({
                   </Typography>
                 </Box>
               )}
-              {!absenceFullyDeducted && !absenceCoveredBySC && alreadyCtoDeducted > 0 && (
-                <Box sx={{ mx: 1.25, mt: 0.75 }}>
-                  <Typography sx={{ fontSize: "0.63rem", fontWeight: 700, color: "#7a4a00", fontFamily: T.poppins }}>
-                    Partial: {alreadyCtoDeducted.toFixed(3)}d already offset — {remainingAbsenceCto.toFixed(3)}d remaining
-                  </Typography>
-                </Box>
-              )}
+              
  
               <SectionLabel>Deduct with</SectionLabel>
               <Box sx={{ px: 1.25, py: 0.75 }}>
@@ -780,13 +774,7 @@ const CTODeductionReceipt = ({
                   </Typography>
                 </Box>
               )}
-              {!tardinessFullyDeducted && alreadyVlDeducted > 0 && (
-                <Box sx={{ mx: 1.25, mt: 0.75 }}>
-                  <Typography sx={{ fontSize: "0.63rem", fontWeight: 700, color: "#7a4a00", fontFamily: T.poppins }}>
-       {alreadyVlDeducted.toFixed(3)}d  — {remainingTardVl.toFixed(3)}d remaining
-                  </Typography>
-                </Box>
-              )}
+             
  
               <SectionLabel>Deduct with</SectionLabel>
               <Box sx={{ px: 1.25, py: 0.75, flex: 1 }}>
@@ -1520,16 +1508,7 @@ const DeductionReceiptSwitcher = ({
                   border: "1px solid rgba(255,160,0,0.22)",
                 }}
               >
-                <Typography
-                  sx={{
-                    fontSize: "0.63rem",
-                    fontWeight: 700,
-                    color: "#7a4a00",
-                    fontFamily: T.poppins,
-                  }}
-                >
-                    {alreadyDeductedDec.toFixed(3)}d already deducted —{" "} {remainingToDeductDec.toFixed(3)}d 
-                </Typography>
+               
               </Box>
             )}
 
