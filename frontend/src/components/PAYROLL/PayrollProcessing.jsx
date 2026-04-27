@@ -91,6 +91,7 @@ const isRowProcessed = (row) => row.status === 'Processed' || row.status === 1;
 const FROZEN_ROW_HEIGHT = 56;
 const STICKY_STATUS_WIDTH = 120;
 const STICKY_ACTIONS_WIDTH = 118;
+const WTAX_STICKY_HEADER_HEIGHT = 86;
 
 // ─── Unified Design Tokens ────────────────────────────────────────────────────
 const T = {
@@ -216,7 +217,6 @@ const PayrollProcess = () => {
     'nbcDiffl597',
     'increment',
     'grossSalary',
-    'tevl',
     'abs',
     'h',
     'm',
@@ -623,7 +623,6 @@ const PayrollProcess = () => {
       const normalizedData = res.data.map((item) => {
         const n = {
           ...item,
-          tevl: Number(item.tevl) || 0,
           increment: item.increment ?? 0,
           gsisSalaryLoan: item.gsisSalaryLoan ?? 0,
           gsisPolicyLoan: item.gsisPolicyLoan ?? 0,
@@ -879,78 +878,6 @@ const PayrollProcess = () => {
         const n = parseInt(v, 10);
         return Number.isFinite(n) ? n : 0;
       };
-      const toFloat = (v) => {
-        const n = parseFloat(String(v ?? '').replace(/,/g, ''));
-        return Number.isFinite(n) ? n : 0;
-      };
-      const toSecondsFromHMS = (h, m, s) =>
-        toInt(h) * 3600 + toInt(m) * 60 + toInt(s);
-      const secondsToHMS = (totalSeconds) => {
-        const sec = Math.max(0, totalSeconds);
-        const hh = Math.floor(sec / 3600);
-        const mm = Math.floor((sec % 3600) / 60);
-        const ss = sec % 60;
-        const pad = (n) => String(n).padStart(2, '0');
-        return {
-          h: hh,
-          m: mm,
-          s: ss,
-          text: `${pad(hh)}:${pad(mm)}:${pad(ss)}`,
-        };
-      };
-      // Fetch current VL leave balances once to avoid per-row requests.
-      let vlBalanceMap = {};
-      try {
-        const vlRes = await axios.get(
-          `${API_BASE_URL}/leaveRoute/leave_assignment`,
-          getAuthHeaders(),
-        );
-        const vlRecords = Array.isArray(vlRes.data) ? vlRes.data : [];
-        // Aggregate remaining_hours from VL variants (VL, VL-SL, VL*).
-        vlRecords.forEach((record) => {
-          const code = String(record.leave_code ?? '').toUpperCase();
-          const isVL = code === 'VL' || code === 'VL-SL' || code.startsWith('VL');
-          if (!isVL) return;
-          const empNum = String(record.employeeNumber ?? '');
-          const remHours = parseFloat(record.remaining_hours) || 0;
-          if (!vlBalanceMap[empNum]) vlBalanceMap[empNum] = 0;
-          vlBalanceMap[empNum] += remHours;
-        });
-      } catch (vlErr) {
-        // Non-fatal fallback to legacy behavior if leave balances are unavailable.
-        console.warn(
-          'Could not fetch VL balances; falling back to legacy +10 logic.',
-          vlErr,
-        );
-      }
-      const computeVLTimeOffset = (item) => {
-        const empNum = String(item.employeeNumber ?? '');
-        const vlBalanceHours = vlBalanceMap[empNum] ?? 0;
-        const hasVLBalance = vlBalanceHours > 0;
-
-        const storedTevl = toFloat(item.tevl);
-        const tardySeconds = toSecondsFromHMS(item.h, item.m, item.s);
-
-        let dvltSeconds;
-        let vlbSeconds;
-
-        if (hasVLBalance) {
-          // Existing VL balance absorbs tardiness first, then monthly +10 is credited.
-          const existingBalanceSeconds = vlBalanceHours * 3600;
-          dvltSeconds = Math.min(existingBalanceSeconds, tardySeconds);
-          const afterDeductionSeconds = existingBalanceSeconds - dvltSeconds;
-          vlbSeconds = afterDeductionSeconds + 10 * 3600;
-        } else {
-          // No VL balance: tardiness remains salary-side, employee still earns +10.
-          dvltSeconds = 0;
-          vlbSeconds = (storedTevl + 10) * 3600;
-        }
-
-        return {
-          dvlt: secondsToHMS(dvltSeconds).text,
-          vlb: secondsToHMS(vlbSeconds).text,
-        };
-      };
       const rowsToSubmit = updatedData.filter(
         (item) =>
           selectedRows.includes(
@@ -964,15 +891,11 @@ const PayrollProcess = () => {
           ),
       );
       const processedRowsToSubmit = rowsToSubmit.map((item) => {
-        const { dvlt, vlb } = computeVLTimeOffset(item);
         return {
           ...item,
           h: toInt(item.h),
           m: toInt(item.m),
           s: toInt(item.s),
-          tevl: toInt(item.tevl) + 10,
-          dvlt,
-          vlb,
           grossSalary: parseFloat(item.grossSalary) || 0,
           abs: parseFloat(item.abs) || 0,
           netSalary: parseFloat(item.netSalary) || 0,
@@ -1179,12 +1102,10 @@ const PayrollProcess = () => {
       ...c,
       h: c.h || 0,
       m: c.m || 0,
-      _tevlRawHours: parseFloat(c.tevl) || 0,
       totalGsisDeds: fmt(c.totalGsisDeds),
       totalPagibigDeds: fmt(c.totalPagibigDeds),
       totalOtherDeds: fmt(c.totalOtherDeds),
       grossSalary: fmt(c.grossSalary),
-      tevl: fmt(c.tevl),
       abs: fmt(c.abs),
       netSalary: fmt(c.netSalary),
       totalDeductions: fmt(c.totalDeductions),
@@ -1229,7 +1150,11 @@ const PayrollProcess = () => {
 
   const modalSectionAccess = {
     FULL_VIEW: null,
-    WTAX: null,
+    WTAX: new Set([
+      'Employee Information',
+      'Absent Deductions & Leave',
+      'Total Contributions & Deductions',
+    ]),
     PAY: new Set([
       'Employee Information',
       'Salary Rate and Adjustments',
@@ -1255,6 +1180,34 @@ const PayrollProcess = () => {
     const allowedSections = modalSectionAccess[viewModalContext] ?? null;
     if (!allowedSections) return true;
     return allowedSections.has(sectionTitle);
+  };
+
+  const viewModalFieldAccess = {
+    FULL_VIEW: null,
+    WTAX: {
+      'Absent Deductions & Leave': new Set(['ABS', 'Hours (H)', 'Minutes (M)']),
+      'Total Contributions & Deductions': new Set(['Withholding Tax']),
+    },
+    PAY: {
+      'Salary Rate and Adjustments': new Set(['Gross Salary']),
+      'Absent Deductions & Leave': new Set(['ABS', 'Net Salary']),
+      'Payroll Disbursement': new Set(['1st Pay', '2nd Pay', 'EC', 'RT Ins.']),
+      'Total Contributions & Deductions': new Set([
+        'Withholding Tax',
+        'PhilHealth',
+        'Total Deductions',
+      ]),
+    },
+    DEDUCTIONS: null,
+  };
+
+  const shouldShowViewField = (sectionTitle, fieldLabel) => {
+    if (sectionTitle === 'Employee Information') return true;
+    const sectionFieldAccess = viewModalFieldAccess[viewModalContext] ?? null;
+    if (!sectionFieldAccess) return true;
+    const allowedFields = sectionFieldAccess[sectionTitle] ?? null;
+    if (!allowedFields) return true;
+    return allowedFields.has(fieldLabel);
   };
 
   const formatEmployeeName = (name) => {
@@ -1649,10 +1602,10 @@ const PayrollProcess = () => {
             width: 28,
             height: 28,
             borderRadius: 1.5,
-            bgcolor: T.accentFaint,
-            color: T.accent,
-            border: `1px solid ${T.accentBorder}`,
-            '&:hover': { bgcolor: T.accent, color: '#fff' },
+            bgcolor: alpha('#2563eb', 0.08),
+            color: '#2563eb',
+            border: '1px solid rgba(37,99,235,0.3)',
+            '&:hover': { bgcolor: '#2563eb', color: '#fff' },
             transition: 'all 0.15s',
           }}
         >
@@ -2821,7 +2774,13 @@ const PayrollProcess = () => {
                   <TableCell
                     rowSpan={2}
                     align="center"
-                    sx={stickyActionsHeaderSx}
+                    sx={{
+                      ...stickyActionsHeaderSx,
+                      height: WTAX_STICKY_HEADER_HEIGHT,
+                      minHeight: WTAX_STICKY_HEADER_HEIGHT,
+                      py: 0,
+                      verticalAlign: 'middle',
+                    }}
                   >
                     Actions
                   </TableCell>
@@ -3899,11 +3858,6 @@ const PayrollProcess = () => {
                             'grossSalary',
                             'Gross Salary — Total salary before any deductions',
                           ],
-                          [
-                            'TEVL',
-                            'tevl',
-                            'Total Earned Vacation Leave (hrs / days)',
-                          ],
                           ['H', 'h', 'Hours Late / Undertime'],
                           ['M', 'm', 'Minutes Late / Undertime'],
                           [
@@ -4113,7 +4067,6 @@ const PayrollProcess = () => {
                           const isDuplicate = duplicateEmployeeNumbers.includes(
                             `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`,
                           );
-                          const tevlDays = (row._tevlRawHours / 8).toFixed(3);
                           return (
                             <TableRow
                               key={
@@ -4277,27 +4230,6 @@ const PayrollProcess = () => {
                                 }}
                               >
                                 {row.grossSalary}
-                              </ExcelTableCell>
-                              <ExcelTableCell sx={{ borderBottom: 'none' }}>
-                                <Typography
-                                  sx={{
-                                    fontSize: '0.78rem',
-                                    fontWeight: 700,
-                                    fontFamily: T.font,
-                                  }}
-                                >
-                                  {row.tevl}
-                                </Typography>
-                                <Typography
-                                  sx={{
-                                    fontSize: '0.62rem',
-                                    color: T.faint,
-                                    whiteSpace: 'nowrap',
-                                    fontFamily: T.font,
-                                  }}
-                                >
-                                  ({tevlDays} days)
-                                </Typography>
                               </ExcelTableCell>
                               <ExcelTableCell
                                 sx={{
@@ -5308,7 +5240,6 @@ const PayrollProcess = () => {
                     {
                       title: 'Absent Deductions & Leave',
                       fields: [
-                        { label: 'TEVL', value: editRow.tevl || '0.00' },
                         { label: 'ABS', value: editRow.abs || '0.00' },
                         { label: 'Hours (H)', value: editRow.h || '0' },
                         { label: 'Minutes (M)', value: editRow.m || '0' },
@@ -5653,7 +5584,6 @@ const PayrollProcess = () => {
                       content: (
                         <Grid container spacing={1.5}>
                           {[
-                            ['TEVL', 'tevl'],
                             ['ABS', 'abs'],
                             ['Hours (H)', 'h'],
                             ['Minutes (M)', 'm'],
@@ -6039,7 +5969,6 @@ const PayrollProcess = () => {
                   {
                     title: 'Absent Deductions & Leave',
                     fields: [
-                      { label: 'TEVL', value: viewRow.tevl },
                       { label: 'ABS', value: viewRow.abs },
                       { label: 'Hours (H)', value: viewRow.h },
                       { label: 'Minutes (M)', value: viewRow.m },
@@ -6157,6 +6086,13 @@ const PayrollProcess = () => {
                   },
                 ]
                   .filter((section) => shouldShowViewSection(section.title))
+                  .map((section) => ({
+                    ...section,
+                    fields: section.fields.filter((field) =>
+                      shouldShowViewField(section.title, field.label),
+                    ),
+                  }))
+                  .filter((section) => section.fields.length > 0)
                   .map((section) => (
                     <Paper
                       key={section.title}

@@ -29,7 +29,6 @@ import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
-import { usePayrollFormulas } from '../../hooks/usePayrollFormulas';
 import {
   CloudUpload,
   DeleteForever,
@@ -103,7 +102,7 @@ const payrollShimmerKeyframes = `
 `;
 
 const FROZEN_ROW_HEIGHT = 56;
-const STICKY_ACTIONS_WIDTH = 118;
+const STICKY_ACTIONS_WIDTH = 138;
 
 const SectionCard = styled(Card)({
   borderRadius: 12,
@@ -206,7 +205,6 @@ const getStickyActionsBodySx = (index) => ({
 const PayrollProcessed = () => {
   const { settings } = useSystemSettings();
   const { hasAccess, loading: accessLoading } = usePageAccess('payroll-processed');
-  const { calculatePayroll } = usePayrollFormulas();
 
   const [finalizedData, setFinalizedData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -239,9 +237,10 @@ const PayrollProcessed = () => {
   });
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
-  const [vlBalanceMap, setVlBalanceMap] = useState({});
   const [payrollFormulasData, setPayrollFormulasData] = useState([]);
   const [activePayrollView, setActivePayrollView] = useState('FULL_VIEW');
+  const [openViewModal, setOpenViewModal] = useState(false);
+  const [viewRow, setViewRow] = useState(null);
 
   // ── Payroll Month Filter State ──────────────────────────────────────────────
   const currentYear = new Date().getFullYear();
@@ -386,24 +385,6 @@ const PayrollProcessed = () => {
     } catch (err) { console.error('Error fetching released payroll:', err); }
   };
 
-  const fetchVlBalances = async () => {
-    try {
-      const res = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, getAuthHeaders());
-      const records = Array.isArray(res.data) ? res.data : [];
-      const map = {};
-      records.forEach((record) => {
-        const code = String(record.leave_code ?? '').toUpperCase();
-        const isVL = code === 'VL' || code === 'VL-SL' || code.startsWith('VL');
-        if (!isVL) return;
-        const empNum = String(record.employeeNumber ?? '');
-        const remHours = parseFloat(record.remaining_hours) || 0;
-        if (!map[empNum]) map[empNum] = 0;
-        map[empNum] += remHours;
-      });
-      setVlBalanceMap(map);
-    } catch (err) { console.error('Error fetching VL balances:', err); }
-  };
-
   const fetchDepartments = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/api/department-table`, getAuthHeaders());
@@ -416,14 +397,12 @@ const PayrollProcessed = () => {
     fetchFinalizedPayroll();
     fetchReleasedPayroll();
     fetchPayrollFormulasData();
-    fetchVlBalances();
   });
 
   useEffect(() => { fetchDepartments(); }, []);
   useEffect(() => { fetchFinalizedPayroll(); }, []);
   useEffect(() => { fetchReleasedPayroll(); }, []);
   useEffect(() => { fetchPayrollFormulasData(); }, []);
-  useEffect(() => { fetchVlBalances(); }, []);
 
   useEffect(() => {
     if (filteredFinalizedData.length > 0 && releasedIdSet.size > 0) {
@@ -679,6 +658,16 @@ const PayrollProcessed = () => {
     setSelectedRow(null);
   };
 
+  const handleViewRecord = (row) => {
+    setViewRow(row);
+    setOpenViewModal(true);
+  };
+
+  const handleCloseViewModal = () => {
+    setOpenViewModal(false);
+    setViewRow(null);
+  };
+
   const handleReleasePayroll = async () => {
     if (selectedRows.length === 0) { alert('Please select payroll records to release.'); return; }
     setOpenReleaseConfirm(false);
@@ -745,14 +734,14 @@ const PayrollProcessed = () => {
       const num = parseFloat(cleaned);
       return isNaN(num) ? value : num;
     };
-    const headers = ['No.','Department','Employee Number','Start Date','End Date','Name','Position','Rate NBC 594',"NBC DIFF'L 597",'Increment','Gross Salary','TEVL','DVLT','VLB','ABS','H','M','Net Salary','Withholding Tax','Total GSIS Deductions','Total Pag-ibig Deductions','PhilHealth','Total Other Deductions','Total Deductions','1st Pay','2nd Pay','RT Ins.','EC','Status'];
+    const headers = ['No.','Department','Employee Number','Start Date','End Date','Name','Position','Rate NBC 594',"NBC DIFF'L 597",'Increment','Gross Salary','ABS','H','M','Net Salary','Withholding Tax','Total GSIS Deductions','Total Pag-ibig Deductions','PhilHealth','Total Other Deductions','Total Deductions','1st Pay','2nd Pay','RT Ins.','EC','Status'];
     const excelDataArray = [];
     const title = `Payroll Processed - ${monthName} ${year}`;
     excelDataArray.push([title, ...Array(headers.length - 1).fill('')]);
     excelDataArray.push(Array(headers.length).fill(''));
     excelDataArray.push(headers);
     filteredFinalizedData.forEach((row, index) => {
-      excelDataArray.push([index + 1, row.department || '', row.employeeNumber || '', row.startDate || '', row.endDate || '', row.name || '', row.position || '', toNumber(row.rateNbc594), toNumber(row.nbcDiffl597), toNumber(row.increment), toNumber(row.grossSalary), toNumber(row.tevl), toNumber(row.dvlt), toNumber(row.vlb), toNumber(row.abs), row.h || 0, row.m || 0, toNumber(row.netSalary), toNumber(row.withholdingTax), toNumber(row.totalGsisDeds), toNumber(row.totalPagibigDeds), toNumber(row.PhilHealthContribution), toNumber(row.totalOtherDeds), toNumber(row.totalDeductions), toNumber(row.pay1st), toNumber(row.pay2nd), toNumber(row.rtIns), toNumber(row.ec), row.status || '']);
+      excelDataArray.push([index + 1, row.department || '', row.employeeNumber || '', row.startDate || '', row.endDate || '', row.name || '', row.position || '', toNumber(row.rateNbc594), toNumber(row.nbcDiffl597), toNumber(row.increment), toNumber(row.grossSalary), toNumber(row.abs), row.h || 0, row.m || 0, toNumber(row.netSalary), toNumber(row.withholdingTax), toNumber(row.totalGsisDeds), toNumber(row.totalPagibigDeds), toNumber(row.PhilHealthContribution), toNumber(row.totalOtherDeds), toNumber(row.totalDeductions), toNumber(row.pay1st), toNumber(row.pay2nd), toNumber(row.rtIns), toNumber(row.ec), row.status || '']);
     });
     const worksheet = XLSX.utils.aoa_to_sheet(excelDataArray);
     const workbook = XLSX.utils.book_new();
@@ -784,15 +773,59 @@ const PayrollProcessed = () => {
   }
 
   const computedRows = filteredFinalizedData.map((item) => {
-    const calculatedItem = calculatePayroll(item) || item;
     return {
-      ...calculatedItem,
-      netSalary: (parseFloat(calculatedItem.netSalary) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      ...item,
+      netSalary: (parseFloat(item.netSalary) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
     };
   });
 
   const fmt = (v, dec = 2) =>
     (parseFloat(String(v ?? '').replace(/,/g, '')) || 0).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+
+  const getLwopDisplay = (row) => {
+    const start = row.startDate ? new Date(row.startDate) : null;
+    const end = row.endDate ? new Date(row.endDate) : null;
+    const validStart = start && !Number.isNaN(start.getTime());
+    const validEnd = end && !Number.isNaN(end.getTime());
+
+    let monthLabel = 'N/A';
+    let calendarDays = 30;
+
+    if (validStart && validEnd) {
+      const s = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const e = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+      const from = s <= e ? s : e;
+      const to = s <= e ? e : s;
+      calendarDays = Math.floor((to - from) / 86400000) + 1;
+      monthLabel = to.toLocaleString('en-US', { month: 'short' }).toUpperCase();
+    } else {
+      const d = validStart ? start : validEnd ? end : null;
+      if (d) {
+        monthLabel = d.toLocaleString('en-US', { month: 'short' }).toUpperCase();
+        calendarDays = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      }
+    }
+
+    const rate = Number.parseFloat(String(row.rateNbc594 ?? 0).replace(/,/g, ''));
+    const rateText = Number.isFinite(rate)
+      ? rate.toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
+      : '0.00';
+    const lwopValue = calendarDays > 0 && Number.isFinite(rate) ? rate / calendarDays : 0;
+    const valueText = Number.isFinite(lwopValue)
+      ? lwopValue.toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
+      : '0.00';
+
+    return {
+      valueText,
+      formulaText: `${rateText} / ${monthLabel} (${calendarDays} days)`,
+    };
+  };
 
   const statCards = [
     { label: 'Total Employees', value: summaryData.totalEmployees, icon: PeopleIcon, color: T.accent },
@@ -811,30 +844,51 @@ const PayrollProcessed = () => {
           <Table sx={{ minWidth: 1180, tableLayout: 'auto', borderCollapse: 'separate', borderSpacing: 0 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: '#fff' }}>
-                {['NO.', 'NAME', 'POSITION', 'EMP. NO.', 'WTAX', 'H', 'M', 'ABS'].map((head) => (
-                  <TableCell key={head} sx={{ border: `1px solid ${T.divider}`, py: 1.2, px: 1.5, fontSize: '0.65rem', fontWeight: 800, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap', bgcolor: '#fff', fontFamily: T.font }}>
+                {['NO.', 'NAME (SURNAME, FIRST NAME, M.I.)', 'POSITION', 'EMPLOYEE NO.', 'WTAX', 'LWOP (CALENDAR DAYS)'].map((head) => (
+                  <TableCell key={head} rowSpan={2} sx={{ border: `1px solid ${T.divider}`, py: 1.2, px: 1.5, fontSize: '0.65rem', fontWeight: 800, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap', bgcolor: '#fff', fontFamily: T.font }}>
                     {head}
                   </TableCell>
                 ))}
-                <TableCell align="center" sx={stickyActionsHeaderSx}>Actions</TableCell>
+                <TableCell align="center" colSpan={3} sx={{ border: `1px solid ${T.divider}`, py: 0.9, px: 1.5, fontSize: '0.65rem', fontWeight: 800, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap', bgcolor: '#fff', fontFamily: T.font }}>
+                  Late / Absences
+                </TableCell>
+                <TableCell rowSpan={2} align="center" sx={stickyActionsHeaderSx}>Actions</TableCell>
+              </TableRow>
+              <TableRow sx={{ bgcolor: '#fff' }}>
+                {['H', 'M', 'ABS'].map((head) => (
+                  <TableCell key={head} align="center" sx={{ border: `1px solid ${T.divider}`, py: 1.1, px: 1.5, fontSize: '0.62rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap', bgcolor: '#fff', fontFamily: T.font }}>
+                    {head}
+                  </TableCell>
+                ))}
               </TableRow>
             </TableHead>
             <TableBody>
-              {computedRows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((row, index) => (
-                <TableRow key={row.id} sx={{ bgcolor: index % 2 === 0 ? T.rowEven : T.rowOdd, '&:hover': { bgcolor: `${T.rowHover} !important` }, borderBottom: `1px solid ${T.divider}` }}>
-                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', color: T.muted }}>{page * rowsPerPage + index + 1}</ExcelTableCell>
-                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 700 }}>{row.name}</ExcelTableCell>
-                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.position}</ExcelTableCell>
-                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontFamily: 'monospace', fontWeight: 700 }}>{row.employeeNumber}</ExcelTableCell>
-                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 700 }}>{fmt(row.withholdingTax)}</ExcelTableCell>
-                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', textAlign: 'center' }}>{row.h}</ExcelTableCell>
-                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', textAlign: 'center' }}>{row.m}</ExcelTableCell>
-                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', textAlign: 'center', fontWeight: 700 }}>{row.abs}</ExcelTableCell>
-                  <ExcelTableCell sx={getStickyActionsBodySx(index)}>
-                    <ActionButtons row={row} />
-                  </ExcelTableCell>
-                </TableRow>
-              ))}
+              {computedRows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((row, index) => {
+                const lwopInfo = getLwopDisplay(row);
+                return (
+                  <TableRow key={row.id} sx={{ bgcolor: index % 2 === 0 ? T.rowEven : T.rowOdd, '&:hover': { bgcolor: `${T.rowHover} !important` }, borderBottom: `1px solid ${T.divider}` }}>
+                    <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', color: T.muted }}>{page * rowsPerPage + index + 1}</ExcelTableCell>
+                    <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 700 }}>{row.name}</ExcelTableCell>
+                    <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.position}</ExcelTableCell>
+                    <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontFamily: 'monospace', fontWeight: 700 }}>{row.employeeNumber}</ExcelTableCell>
+                    <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 700 }}>{fmt(row.withholdingTax)}</ExcelTableCell>
+                    <ExcelTableCell sx={{ borderBottom: 'none', whiteSpace: 'nowrap' }}>
+                      <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, lineHeight: 1.2, fontFamily: T.font }}>
+                        {lwopInfo.valueText}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.62rem', color: T.faint, lineHeight: 1.2, fontFamily: T.font }}>
+                        {lwopInfo.formulaText}
+                      </Typography>
+                    </ExcelTableCell>
+                    <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', textAlign: 'center' }}>{row.h}</ExcelTableCell>
+                    <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', textAlign: 'center' }}>{row.m}</ExcelTableCell>
+                    <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', textAlign: 'center', fontWeight: 700 }}>{row.abs}</ExcelTableCell>
+                    <ExcelTableCell sx={getStickyActionsBodySx(index)}>
+                      <ActionButtons row={row} />
+                    </ExcelTableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>
@@ -847,12 +901,33 @@ const PayrollProcessed = () => {
           <Table sx={{ minWidth: 2000, tableLayout: 'auto', borderCollapse: 'separate', borderSpacing: 0 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: '#fff' }}>
-                {['Serial No.', 'Name', 'Position', 'Emp. No.', 'Gross Salary', 'ABS', 'Net Salary', 'WTAX', 'Total GSIS', 'Total Pag-ibig', 'PhilHealth', 'Total Other', 'Total Deductions', 'Net Amount Due', '1st Pay', '2nd Pay', 'RT. INS.', 'EC', 'PHILHEALTH', 'PAG-IBIG'].map((head) => (
-                  <TableCell key={head} sx={{ border: `1px solid ${T.divider}`, py: 1.1, px: 1.5, fontSize: '0.65rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap', bgcolor: '#fff', fontFamily: T.font }}>
+                {['Serial No.', 'Name', 'Position', 'Emp. No.'].map((head) => (
+                  <TableCell key={head} rowSpan={2} sx={{ border: `1px solid ${T.divider}`, py: 1.2, px: 1.5, fontSize: '0.65rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap', bgcolor: '#fff', fontFamily: T.font }}>
                     {head}
                   </TableCell>
                 ))}
-                <TableCell align="center" sx={stickyActionsHeaderSx}>Actions</TableCell>
+                <TableCell align="center" colSpan={3} sx={{ border: `1px solid ${T.divider}`, py: 0.9, px: 1.5, fontSize: '0.65rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.12em', whiteSpace: 'nowrap', bgcolor: '#fff', fontFamily: T.font }}>
+                  Compensations
+                </TableCell>
+                <TableCell align="center" colSpan={6} sx={{ border: `1px solid ${T.divider}`, py: 0.9, px: 1.5, fontSize: '0.65rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.12em', whiteSpace: 'nowrap', bgcolor: '#fff', fontFamily: T.font }}>
+                  Deductions
+                </TableCell>
+                {['Net Amount Due', '1st Pay', '2nd Pay'].map((head) => (
+                  <TableCell key={head} rowSpan={2} sx={{ border: `1px solid ${T.divider}`, py: 1.2, px: 1.5, fontSize: '0.65rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap', bgcolor: '#fff', fontFamily: T.font }}>
+                    {head}
+                  </TableCell>
+                ))}
+                <TableCell align="center" colSpan={4} sx={{ border: `1px solid ${T.divider}`, py: 0.9, px: 1.5, fontSize: '0.65rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.1em', whiteSpace: 'nowrap', bgcolor: '#fff', fontFamily: T.font }}>
+                  Government Share
+                </TableCell>
+                <TableCell rowSpan={2} align="center" sx={stickyActionsHeaderSx}>Actions</TableCell>
+              </TableRow>
+              <TableRow sx={{ bgcolor: '#fff' }}>
+                {['Gross Salary', 'ABS', 'Net Salary', 'WTAX', 'Total GSIS', 'Total Pag-ibig', 'PhilHealth', 'Total Other', 'Total Deductions', 'RT. INS.', 'EC', 'PHILHEALTH', 'PAG-IBIG'].map((head) => (
+                  <TableCell key={head} sx={{ border: `1px solid ${T.divider}`, py: 1.1, px: 1.5, fontSize: '0.62rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap', bgcolor: '#fff', fontFamily: T.font }}>
+                    {head}
+                  </TableCell>
+                ))}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -996,8 +1071,7 @@ const PayrollProcessed = () => {
                     ["NBC DIFF'L 597", 'nbcDiffl597', 'NBC Differential 597 — Salary Adjustment'],
                     ['Increment', 'increment', 'Salary Increment / Step Increment'],
                     ['Gross Salary', 'grossSalary', 'Gross Salary — Total salary before deductions'],
-                    ['TEVL', 'tevl', 'Total Earned Vacation Leave'], ['DVLT', null, 'Deducted Vacation Leave Tardiness'],
-                    ['VLB', null, 'Vacation Leave Balance'], ['H', 'h', 'Hours Late / Undertime'],
+                    ['H', 'h', 'Hours Late / Undertime'],
                     ['M', 'm', 'Minutes Late / Undertime'], ['ABS', 'abs', 'Absence Deductions'],
                     ['Net Salary', 'netSalary', 'Net Salary — Take-home pay after all deductions'],
                     ['Withholding Tax', 'withholdingTax', 'Withholding Tax — BIR income tax withheld'],
@@ -1051,30 +1125,6 @@ const PayrollProcessed = () => {
                       <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.nbcDiffl597 ? Number(row.nbcDiffl597).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
                       <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.increment ? Number(row.increment).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
                       <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600 }}>{row.grossSalary ? Number(String(row.grossSalary).replace(/,/g,'')).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
-                      <ExcelTableCell sx={{ borderBottom: 'none' }}>
-                        {(() => {
-                          const empNum = String(row.employeeNumber ?? '');
-                          const showDeductMsg = row.dvlt && row.dvlt !== '00:00:00';
-                          return (
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: '5px' }}>
-                                <span style={{ fontSize: '0.78rem', fontFamily: T.font }}>{row.tevl}</span>
-                                <Tooltip title={<Box sx={{ p: 0.25 }}><Typography sx={{ fontSize: '0.72rem', fontWeight: 700 }}>+10 hrs monthly credit earned</Typography></Box>} arrow placement="top">
-                                  <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 28, height: 17, px: '5px', borderRadius: '9px', bgcolor: '#2e7d32', color: '#fff', fontSize: '0.6rem', fontWeight: 800, cursor: 'default', flexShrink: 0, mt: '1px' }}>+10</Box>
-                                </Tooltip>
-                              </Box>
-                              {showDeductMsg && (
-                                <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: '3px', px: '6px', py: '2px', borderRadius: '5px', bgcolor: 'rgba(21,101,192,0.08)', border: '1px solid rgba(21,101,192,0.22)', cursor: 'help', width: 'fit-content' }}>
-                                  <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: '#1565c0', flexShrink: 0 }} />
-                                  <Typography sx={{ fontSize: '0.58rem', fontWeight: 700, color: '#1565c0', whiteSpace: 'nowrap', fontFamily: T.font }}>VL balance deducted</Typography>
-                                </Box>
-                              )}
-                            </Box>
-                          );
-                        })()}
-                      </ExcelTableCell>
-                      <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.dvlt}</ExcelTableCell>
-                      <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.vlb}</ExcelTableCell>
                       <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.h}</ExcelTableCell>
                       <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.m}</ExcelTableCell>
                       <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 700 }}>{row.abs}</ExcelTableCell>
@@ -1126,6 +1176,24 @@ const PayrollProcessed = () => {
     const isRowReleased = releasedIdSet.has(getRecordKey(row));
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
+        <Tooltip title="View Record">
+          <IconButton
+            size="small"
+            onClick={() => handleViewRecord(row)}
+            sx={{
+              width: 28,
+              height: 28,
+              borderRadius: 1.5,
+              bgcolor: alpha('#2563eb', 0.08),
+              color: '#2563eb',
+              border: '1px solid rgba(37,99,235,0.3)',
+              '&:hover': { bgcolor: '#2563eb', color: '#fff' },
+              transition: 'all 0.15s',
+            }}
+          >
+            <Visibility sx={{ fontSize: 13 }} />
+          </IconButton>
+        </Tooltip>
         <Tooltip title="Delete Record">
           <span>
             <IconButton
@@ -1447,6 +1515,70 @@ const PayrollProcessed = () => {
           Release Selected ({selectedRows.length})
         </AccentButton>
       </Box>
+
+      {/* ── Delete Confirm Modal ── */}
+      <Modal open={openViewModal} onClose={handleCloseViewModal}>
+        <Box sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: { xs: '92%', sm: 620 }, maxHeight: '85vh', overflowY: 'auto', bgcolor: T.surface, borderRadius: 3, boxShadow: '0 24px 80px rgba(0,0,0,0.18)', overflowX: 'hidden', border: `2px solid ${T.accentBorder}`, fontFamily: T.font }}>
+          <Box sx={{ height: 4, background: `linear-gradient(90deg, ${T.accent} 0%, ${T.accentMid} 100%)` }} />
+          <Box sx={{ px: 3, py: 2.5, background: T.headerGrad, display: 'flex', alignItems: 'center', gap: 2, borderBottom: `1px solid ${T.divider}` }}>
+            <Box sx={{ width: 38, height: 38, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Visibility sx={{ fontSize: 18, color: T.accent }} />
+            </Box>
+            <Box>
+              <Typography sx={{ fontWeight: 700, color: T.text, fontSize: '0.95rem', lineHeight: 1.2, fontFamily: T.font }}>Payroll Record Details</Typography>
+              <Typography sx={{ fontSize: '0.72rem', color: T.muted, mt: 0.2, fontFamily: T.font }}>Read-only view of the selected payroll row</Typography>
+            </Box>
+          </Box>
+
+          <Box sx={{ p: 3 }}>
+            {viewRow ? (
+              <Grid container spacing={1.25}>
+                {[
+                  ['Employee Number', viewRow.employeeNumber],
+                  ['Name', viewRow.name],
+                  ['Department', viewRow.department],
+                  ['Position', viewRow.position],
+                  ['Start Date', viewRow.startDate],
+                  ['End Date', viewRow.endDate],
+                  ['Gross Salary', fmt(viewRow.grossSalary)],
+                  ['Net Salary', fmt(viewRow.netSalary)],
+                  ['Withholding Tax', fmt(viewRow.withholdingTax)],
+                  ['Total Deductions', fmt(viewRow.totalDeductions)],
+                  ['1st Pay', fmt(viewRow.pay1st)],
+                  ['2nd Pay', fmt(viewRow.pay2nd)],
+                  ['Status', viewRow.status || 'Processed'],
+                  ['Date Submitted', viewRow.dateCreated ? new Date(viewRow.dateCreated).toLocaleString() : ''],
+                ].map(([label, value]) => (
+                  <Grid key={label} item xs={12} sm={6}>
+                    <Box sx={{ border: `1px solid ${T.divider}`, borderRadius: 1.5, px: 1.25, py: 0.9, bgcolor: '#fff' }}>
+                      <Typography sx={{ fontSize: '0.68rem', color: T.faint, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, fontFamily: T.font }}>
+                        {label}
+                      </Typography>
+                      <Typography sx={{ mt: 0.35, fontSize: '0.82rem', color: T.text, fontWeight: 600, wordBreak: 'break-word', fontFamily: T.font }}>
+                        {value || '-'}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                ))}
+              </Grid>
+            ) : (
+              <Typography sx={{ fontSize: '0.86rem', color: T.muted, fontFamily: T.font }}>
+                No record selected.
+              </Typography>
+            )}
+
+            <Box display="flex" justifyContent="flex-end" mt={2.5}>
+              <AccentButton
+                variant="outlined"
+                onClick={handleCloseViewModal}
+                sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}
+              >
+                Close
+              </AccentButton>
+            </Box>
+          </Box>
+        </Box>
+      </Modal>
 
       {/* ── Delete Confirm Modal ── */}
       <Modal open={openConfirm} onClose={() => setOpenConfirm(false)}>

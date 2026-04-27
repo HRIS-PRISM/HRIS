@@ -133,9 +133,6 @@ const calculationOrder = [
     'grossSalary',
     'lwopRatePerDay', // <-- comma was missing here
     'abs',
-    'tevl',
-    'dvlt',
-    'vlb',
     'PhilHealthContribution',
     'personalLifeRetIns',
     'netSalary',
