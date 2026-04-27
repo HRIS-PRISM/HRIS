@@ -474,6 +474,7 @@ const EarningRow = ({
   onApprove,
   onReject,
   showTypeBadge,
+  onViewAudit,
 }) => {
   const earnH = toNum(record.earned_hours ?? record.total_hours);
   const status = record.earn_status || "pending";
@@ -623,6 +624,43 @@ const EarningRow = ({
           }}
         >
           <StatusBadge status={status} />
+
+          <Box
+            onClick={() => onViewAudit && onViewAudit(record)}
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 0.5,
+              px: 0.9,
+              py: 0.35,
+              borderRadius: 1.5,
+              bgcolor: "rgba(0,0,0,0.03)",
+              border: "1px solid rgba(0,0,0,0.10)",
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+              "&:hover": {
+                bgcolor: "rgba(0,0,0,0.06)",
+                transform: "translateY(-1px)",
+              },
+            }}
+            title="View earnings audit trail"
+          >
+            <HistoryIcon sx={{ fontSize: 12, color: T.faint }} />
+            <Typography
+              sx={{
+                fontSize: "0.6rem",
+                fontWeight: 800,
+                color: T.faint,
+                fontFamily: T.poppins,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                lineHeight: 1,
+              }}
+            >
+              Audit
+            </Typography>
+          </Box>
  
           {status === "pending" && (
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
@@ -1151,6 +1189,14 @@ const RecordsList = ({
     record: null,
   });
   const [actionLoading, setActionLoading] = useState(false);
+
+  const [auditDialog, setAuditDialog] = useState({
+    open: false,
+    record: null,
+    rows: [],
+    loading: false,
+    error: "",
+  });
  
   // ── fetch: all three or just one type ────────────────────────────────────
   const fetchEarnings = useCallback(async () => {
@@ -1281,6 +1327,31 @@ const RecordsList = ({
     } catch {}
     setActionLoading(false);
   };
+
+  const openAudit = async (record) => {
+    if (!record?.id) return;
+    const recordType = record._earningType || type;
+    setAuditDialog({ open: true, record, rows: [], loading: true, error: "" });
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.get(
+        `${API_BASE_URL}/api/earnings/audit/${recordType}/${record.id}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setAuditDialog((p) => ({
+        ...p,
+        rows: Array.isArray(res.data) ? res.data : [],
+        loading: false,
+      }));
+    } catch (e) {
+      setAuditDialog((p) => ({
+        ...p,
+        loading: false,
+        error: "Failed to load earnings audit trail.",
+        rows: [],
+      }));
+    }
+  };
  
   // ── early-out when no employee selected ──────────────────────────────────
   if (!employeeNumber) {
@@ -1330,6 +1401,7 @@ const RecordsList = ({
             showTypeBadge={showTypeBadge}
             onApprove={handleApprove}
             onReject={(r) => setRejectDialog({ open: true, record: r })}
+            onViewAudit={openAudit}
           />
         ))
       )}
@@ -1339,6 +1411,162 @@ const RecordsList = ({
         onConfirm={handleReject}
         loading={actionLoading}
       />
+      <Dialog
+        open={auditDialog.open}
+        onClose={() =>
+          setAuditDialog({
+            open: false,
+            record: null,
+            rows: [],
+            loading: false,
+            error: "",
+          })
+        }
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: { borderRadius: 3, overflow: "hidden", fontFamily: T.poppins },
+        }}
+      >
+        <DialogTitle
+          sx={{
+            bgcolor: T.accent,
+            color: "#fff",
+            fontWeight: 800,
+            fontFamily: T.poppins,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          Earnings Audit Trail
+          <IconButton
+            onClick={() =>
+              setAuditDialog({
+                open: false,
+                record: null,
+                rows: [],
+                loading: false,
+                error: "",
+              })
+            }
+            sx={{ color: "#fff" }}
+            size="small"
+          >
+            <Close sx={{ fontSize: 18 }} />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 2.25 }}>
+          {auditDialog.loading ? (
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                py: 4,
+              }}
+            >
+              <CircularProgress size={22} />
+            </Box>
+          ) : auditDialog.error ? (
+            <Alert severity="error" sx={{ borderRadius: 2 }}>
+              {auditDialog.error}
+            </Alert>
+          ) : auditDialog.rows.length === 0 ? (
+            <Alert severity="info" sx={{ borderRadius: 2 }}>
+              No audit entries yet for this earning record.
+            </Alert>
+          ) : (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {auditDialog.rows.map((r) => {
+                const ts = r.created_at ? new Date(r.created_at) : null;
+                const timeLabel =
+                  ts && !isNaN(ts)
+                    ? `${ts.toLocaleDateString("en-PH", {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      })} • ${ts.toLocaleTimeString("en-PH", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}`
+                    : "—";
+                return (
+                  <Box
+                    key={r.id}
+                    sx={{
+                      border: `1px solid ${T.divider}`,
+                      borderRadius: 2,
+                      p: 1.5,
+                      bgcolor: "#fff",
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 1,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontSize: "0.72rem",
+                          fontWeight: 900,
+                          color: T.accent,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        {String(r.action || "").toUpperCase()}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.65rem", color: T.faint }}>
+                        {timeLabel}
+                      </Typography>
+                    </Box>
+                    <Typography
+                      sx={{ fontSize: "0.7rem", color: T.muted, mt: 0.4 }}
+                    >
+                      Actor: {r.actor || "—"}
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.7rem", color: T.muted }}>
+                      Status: {(r.old_status || "—")} → {(r.new_status || "—")}
+                    </Typography>
+                    {r.notes && (
+                      <Typography sx={{ fontSize: "0.7rem", color: T.muted }}>
+                        Notes: {r.notes}
+                      </Typography>
+                    )}
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions
+          sx={{
+            px: 2.25,
+            py: 1.5,
+            borderTop: `1px solid ${T.divider}`,
+            bgcolor: "rgba(0,0,0,0.02)",
+          }}
+        >
+          <Button
+            onClick={() =>
+              setAuditDialog({
+                open: false,
+                record: null,
+                rows: [],
+                loading: false,
+                error: "",
+              })
+            }
+            sx={{ textTransform: "none", fontWeight: 800, fontFamily: T.poppins }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
  

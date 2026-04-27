@@ -167,6 +167,7 @@ const AuditLogs = () => {
   const [sessionWarningOpen, setSessionWarningOpen] = useState(false);
   const [auditPage, setAuditPage] = useState(1);
   const [expandedOfficialDetails, setExpandedOfficialDetails] = useState({});
+  const [resolvedEmployeeNames, setResolvedEmployeeNames] = useState({});
   const LOGS_PER_PAGE = 10;
   const logScrollRef = useRef(null);
 
@@ -436,7 +437,14 @@ const AuditLogs = () => {
       );
 
       if (response.data && Array.isArray(response.data)) {
-        setAuditLogs(response.data);
+        // Avoid "double" entries: transaction_table messages are mirrored into audit_log
+        // under `leave_transaction`. Those are already visible in the Transaction Logs UIs,
+        // so we hide them in the Audit Logs page to keep one audit entry per action.
+        setAuditLogs(
+          response.data.filter(
+            (log) => String(log?.table_name || '').toLowerCase() !== 'leave_transaction',
+          ),
+        );
       } else {
         setAuditLogs([]);
       }
@@ -454,6 +462,93 @@ const AuditLogs = () => {
       loadAuditLogs();
     }
   }, [isAuthenticated]);
+
+  const parseAuditDetailsSafe = (raw) => {
+    if (!raw) return null;
+    if (typeof raw === 'object') return raw;
+    if (typeof raw !== 'string') return null;
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const getActorEmployeeNumber = (log) => {
+    const details = parseAuditDetailsSafe(log?.details_json);
+    return details?.actor_employeeNumber || log?.employeeNumber || null;
+  };
+
+  const getTargetEmployeeNumber = (log) => {
+    const details = parseAuditDetailsSafe(log?.details_json);
+    const payload = details?.payload || {};
+    return (
+      details?.target_employeeNumber ||
+      payload?.employeeNumber ||
+      payload?.employee_number ||
+      log?.targetEmployeeNumber ||
+      null
+    );
+  };
+
+  const getResolvedEmployeeName = (employeeNumber) => {
+    if (!employeeNumber) return '';
+    const key = String(employeeNumber);
+    return resolvedEmployeeNames[key] || '';
+  };
+
+  useEffect(() => {
+    if (!isAuthenticated || !Array.isArray(auditLogs) || auditLogs.length === 0) {
+      return;
+    }
+
+    const employeeIds = new Set();
+    auditLogs.forEach((log) => {
+      const actorEmpNum = getActorEmployeeNumber(log);
+      const targetEmpNum = getTargetEmployeeNumber(log);
+      if (actorEmpNum) employeeIds.add(String(actorEmpNum));
+      if (targetEmpNum) employeeIds.add(String(targetEmpNum));
+    });
+
+    const unresolved = [...employeeIds].filter(
+      (id) => !resolvedEmployeeNames[id],
+    );
+    if (!unresolved.length) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const fetchedNames = {};
+      await Promise.all(
+        unresolved.map(async (empNum) => {
+          try {
+            const res = await axios.get(
+              `${API_BASE_URL}/personalinfo/person_table/${empNum}`,
+              getAuthHeaders(),
+            );
+            const firstName = res.data?.firstName || '';
+            const middleName = res.data?.middleName || '';
+            const lastName = res.data?.lastName || '';
+            const middleInitial = middleName ? `${middleName.charAt(0)}.` : '';
+            const formatted = `${lastName}, ${firstName} ${middleInitial}`
+              .replace(/\s+/g, ' ')
+              .trim();
+            if (formatted) fetchedNames[empNum] = formatted;
+          } catch (e) {
+            // keep empty on failed lookup
+          }
+        }),
+      );
+
+      if (!cancelled && Object.keys(fetchedNames).length) {
+        setResolvedEmployeeNames((prev) => ({ ...prev, ...fetchedNames }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [auditLogs, isAuthenticated]);
 
   useEffect(() => {
     setAuditPage(1);
@@ -742,20 +837,215 @@ const AuditLogs = () => {
     return tableName.toUpperCase().replace(/[\s\-]+/g, '_');
   };
 
+  const toSimpleName = (name) => {
+    const raw = String(name || '').trim();
+    if (!raw) return '';
+    if (raw.includes(',')) {
+      const [last, rest] = raw.split(',');
+      const firstToken = (rest || '').trim().split(/\s+/).filter(Boolean)[0] || '';
+      const lastToken = (last || '').trim();
+      return `${firstToken} ${lastToken}`.trim();
+    }
+    return raw;
+  };
+
+  const getLeaveTypeLabel = (code) => {
+    const c = String(code || '').trim().toUpperCase();
+    if (!c) return '';
+    const map = {
+      VL: 'Vacation Leave',
+      SL: 'Sick Leave',
+      SPL: 'Special Privilege Leave',
+      ML: 'Maternity Leave',
+      PL: 'Paternity Leave',
+      FL: 'Force Leave',
+    };
+    return map[c] || c;
+  };
+
+  const parseEarningsTxMessage = (message) => {
+    const raw = String(message || '').trim();
+    if (!raw) return null;
+    const rx =
+      /^(.*?)\s+(created|approved|rejected|deleted)\s+(leave earnings|service credit earnings|CTO earnings)(?:\s+\(([-\d.]+)\s*hrs\))?(?:\s+\[([^\]]+)\])?(?:\s+for\s+(\d{4}-\d{2}))?\s+for\s+(.*?)$/i;
+    const m = raw.match(rx);
+    if (!m) return null;
+    return {
+      actorRaw: m[1]?.trim() || '',
+      action: (m[2] || '').toLowerCase(),
+      earningType: (m[3] || '').toLowerCase(),
+      hours: m[4] != null ? Number(m[4]) : null,
+      leaveCode: m[5] ? String(m[5]).toUpperCase() : '',
+      period: m[6] || '',
+      targetRaw: m[7]?.trim() || '',
+    };
+  };
+
+  const getEarningsDisplayMeta = (log) => {
+    const details = parseAuditDetailsSafe(log?.details_json) || {};
+    const payload = details?.payload || {};
+    const txParsed =
+      String(log?.table_name || '').toLowerCase() === 'leave_transaction'
+        ? parseEarningsTxMessage(log?.action || log?.message || '')
+        : null;
+
+    const actorEmp = getActorEmployeeNumber(log) || 'unknown';
+    const targetEmp = getTargetEmployeeNumber(log) || 'unknown';
+    const actorResolved = getResolvedEmployeeName(actorEmp);
+    const targetResolved = getResolvedEmployeeName(targetEmp);
+
+    const actorNameFromTx = txParsed?.actorRaw
+      ? txParsed.actorRaw.replace(/\(\s*\d+\s*\)\s*$/i, '').trim()
+      : '';
+    const targetNameFromTx = txParsed?.targetRaw
+      ? txParsed.targetRaw.replace(/\(\s*\d+\s*\)\s*$/i, '').trim()
+      : '';
+
+    const actorName = toSimpleName(actorResolved || actorNameFromTx);
+    const targetName = toSimpleName(targetResolved || targetNameFromTx);
+
+    const action = txParsed?.action || String(log?.action || '').toLowerCase().split(' ')[0] || 'updated';
+    const earningTypeRaw =
+      txParsed?.earningType ||
+      (String(log?.table_name || '').toLowerCase().startsWith('earnings_')
+        ? `${String(log.table_name).replace(/^earnings_/i, '')} earnings`
+        : 'earnings');
+    const earningType = earningTypeRaw.toLowerCase();
+
+    const leaveCode = (
+      txParsed?.leaveCode ||
+      payload?.leave_code ||
+      ''
+    )
+      .toString()
+      .toUpperCase();
+
+    const periodRaw =
+      txParsed?.period ||
+      (payload?.period_year && payload?.period_month
+        ? `${payload.period_year}-${String(payload.period_month).padStart(2, '0')}`
+        : '');
+
+    const hoursRaw =
+      txParsed?.hours ??
+      payload?.earned_hours ??
+      payload?.earnedHrs ??
+      null;
+    const hours = Number(hoursRaw);
+
+    return {
+      action,
+      earningType,
+      leaveCode,
+      period: periodRaw,
+      hours: Number.isFinite(hours) ? hours : null,
+      actorName,
+      targetName,
+      actorEmp,
+      targetEmp,
+    };
+  };
+
+  const buildActionBadgeLabel = (log) => {
+    const table = String(log?.table_name || '').toLowerCase();
+    const isEarningsLike =
+      table.startsWith('earnings_') ||
+      (table === 'leave_transaction' &&
+        /(?:leave|service credit|cto)\s+earnings/i.test(
+          String(log?.action || log?.message || ''),
+        ));
+    if (!isEarningsLike) return log.action?.toUpperCase() || 'UNKNOWN';
+
+    const meta = getEarningsDisplayMeta(log);
+    const typeUpper = meta.earningType
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toUpperCase();
+    const codePart = meta.leaveCode ? ` (${meta.leaveCode})` : '';
+    return `${meta.action.toUpperCase()} ${typeUpper.toUpperCase()}${codePart}`;
+  };
+
   // Build a clean readable sentence for each audit log entry
   const buildLogDescription = (log) => {
-    const actor = log.employeeNumber
-      ? `Employee #${log.employeeNumber}`
+    const tableNameLower = String(log?.table_name || '').toLowerCase();
+    const isEarningsModule = tableNameLower.startsWith('earnings_');
+    const isEarningsTransaction =
+      tableNameLower === 'leave_transaction' &&
+      /(?:leave|service credit|cto)\s+earnings/i.test(
+        String(log?.action || log?.message || ''),
+      );
+
+    if (isEarningsModule || isEarningsTransaction) {
+      const meta = getEarningsDisplayMeta(log);
+      const hoursText =
+        meta.hours !== null ? ` total of ${meta.hours} hours ` : ' ';
+      const periodText = meta.period ? ` for ${meta.period}` : '';
+
+      if (meta.earningType.includes('leave earnings') && meta.leaveCode) {
+        const leaveLabel = getLeaveTypeLabel(meta.leaveCode);
+        return `${meta.actorName || `Employee #${meta.actorEmp}`} ${meta.action} an earning${hoursText}for ${leaveLabel} (${meta.leaveCode})${periodText} for ${meta.targetName || `employee #${meta.targetEmp}`}.`;
+      }
+
+      const typeLabel = meta.earningType
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+      return `${meta.actorName || `Employee #${meta.actorEmp}`} ${meta.action} ${typeLabel}${hoursText}${periodText} for ${meta.targetName || `employee #${meta.targetEmp}`}.`;
+    }
+
+    // Leave balance adjustments (show before/after balance)
+    const tableLower = String(log?.table_name || '').toLowerCase();
+    const actionLower = String(log?.action || '').toLowerCase();
+    if (tableLower === 'leave_assignment' && actionLower.includes('auto-adjust leave balance')) {
+      const actorEmpNum = getActorEmployeeNumber(log);
+      const targetEmpNum = getTargetEmployeeNumber(log);
+      const actorName = getResolvedEmployeeName(actorEmpNum);
+      const targetName = getResolvedEmployeeName(targetEmpNum);
+
+      const details = parseAuditDetailsSafe(log?.details_json) || {};
+      const beforeRem = Number(details?.before?.remaining_hours);
+      const afterRem = Number(details?.after?.remaining_hours);
+      const beforeUsed = Number(details?.before?.used_hours);
+      const afterUsed = Number(details?.after?.used_hours);
+      const leaveCode = String(details?.leave_code || '').toUpperCase();
+
+      const fmt = (n) => (Number.isFinite(n) ? n.toFixed(3) : '—');
+      const fmtDays = (n) =>
+        Number.isFinite(n) ? (n / 8).toFixed(3) : '—';
+
+      const who = actorEmpNum
+        ? `${actorName ? `${actorName} ` : ''}(#${actorEmpNum})`
+        : 'Unknown user';
+      const target = targetEmpNum
+        ? `${targetName ? `${targetName} ` : ''}employee #${targetEmpNum}`
+        : 'employee';
+
+      const remLine = `Remaining${leaveCode ? ` [${leaveCode}]` : ''}: ${fmt(beforeRem)} → ${fmt(afterRem)} hrs (${fmtDays(beforeRem)} → ${fmtDays(afterRem)} day(s))`;
+      const usedLine = `Used: ${fmt(beforeUsed)} → ${fmt(afterUsed)} hrs`;
+
+      return `${who} adjusted ${target}'s leave balance. ${remLine}. ${usedLine}.`;
+    }
+
+    if (isEarningsModule) {
+      // fallback kept for safety; branch above handles earnings
+      return 'Earnings activity logged.';
+    }
+
+    const actorEmpNum = getActorEmployeeNumber(log);
+    const targetEmpNum = getTargetEmployeeNumber(log);
+    const actorName = getResolvedEmployeeName(actorEmpNum);
+    const targetName = getResolvedEmployeeName(targetEmpNum);
+    const actor = actorEmpNum
+      ? `${actorName ? `${actorName} ` : ''}(#${actorEmpNum})`
       : 'Unknown user';
     const action = log.action?.toLowerCase() || 'performed an action';
     const module = log.table_name
       ? formatModuleName(log.table_name)
       : 'the system';
-    const recordHint = log.record_id ? ` (Record #${log.record_id})` : '';
-    const targetHint = log.targetEmployeeNumber
-      ? ` on employee #${log.targetEmployeeNumber}`
+    const targetHint = targetEmpNum
+      ? ` on ${targetName ? `${targetName} ` : ''}employee #${targetEmpNum}`
       : '';
-    return `${actor} performed ${action} on ${module}${recordHint}${targetHint}.`;
+    return `${actor} performed ${action} on ${module}${targetHint}.`;
   };
 
   const isOfficialTimeModule = (tableName) => {
@@ -1949,6 +2239,12 @@ const AuditLogs = () => {
                           ? `${ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
                           : null;
 
+                      const actorEmpNum = getActorEmployeeNumber(log);
+                      const targetEmpNum = getTargetEmployeeNumber(log);
+                      const actorName =
+                        log.actorName || getResolvedEmployeeName(actorEmpNum);
+                      const targetName =
+                        log.targetName || getResolvedEmployeeName(targetEmpNum);
                       const description = buildLogDescription(log);
 
                       return (
@@ -2002,7 +2298,7 @@ const AuditLogs = () => {
                                   lineHeight: 1,
                                 }}
                               >
-                                {log.action?.toUpperCase() || 'UNKNOWN'}
+                                {buildActionBadgeLabel(log)}
                               </Typography>
                             </Box>
                             {timeLabel && (
@@ -2035,7 +2331,7 @@ const AuditLogs = () => {
                               flexWrap: 'wrap',
                             }}
                           >
-                            {log.employeeNumber && (
+                            {actorEmpNum && (
                               <Box
                                 sx={{
                                   display: 'flex',
@@ -2070,7 +2366,7 @@ const AuditLogs = () => {
                                   >
                                     PERFORMED BY
                                   </Typography>
-                                  {log.actorName && (
+                                  {actorName && (
                                     <Typography
                                       sx={{
                                         fontSize: '0.82rem',
@@ -2080,7 +2376,7 @@ const AuditLogs = () => {
                                         lineHeight: 1.2,
                                       }}
                                     >
-                                      {log.actorName}
+                                      {actorName}
                                     </Typography>
                                   )}
                                   <Typography
@@ -2088,16 +2384,16 @@ const AuditLogs = () => {
                                       fontSize: '0.68rem',
                                       color: '#888',
                                       lineHeight: 1,
-                                      mt: log.actorName ? 0.2 : 0,
+                                      mt: actorName ? 0.2 : 0,
                                     }}
                                   >
-                                    #{log.employeeNumber}
+                                    #{actorEmpNum}
                                   </Typography>
                                 </Box>
                               </Box>
                             )}
 
-                            {log.targetEmployeeNumber && (
+                            {targetEmpNum && (
                               <Box
                                 sx={{
                                   display: 'flex',
@@ -2127,7 +2423,7 @@ const AuditLogs = () => {
                                   >
                                     EMPLOYEE
                                   </Typography>
-                                  {log.targetName && (
+                                  {targetName && (
                                     <Typography
                                       sx={{
                                         fontSize: '0.82rem',
@@ -2136,7 +2432,7 @@ const AuditLogs = () => {
                                         lineHeight: 1.2,
                                       }}
                                     >
-                                      {log.targetName}
+                                      {targetName}
                                     </Typography>
                                   )}
                                   <Typography
@@ -2144,10 +2440,10 @@ const AuditLogs = () => {
                                       fontSize: '0.68rem',
                                       color: '#888',
                                       lineHeight: 1,
-                                      mt: log.targetName ? 0.2 : 0,
+                                      mt: targetName ? 0.2 : 0,
                                     }}
                                   >
-                                    #{log.targetEmployeeNumber}
+                                    #{targetEmpNum}
                                   </Typography>
                                 </Box>
                               </Box>

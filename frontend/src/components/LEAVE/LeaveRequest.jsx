@@ -741,11 +741,6 @@ const TransactionLogsSurface = ({
                         <Icon sx={{ fontSize: 12, color }} />
                         <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color, lineHeight: 1 }}>{label}</Typography>
                       </Box>
-                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.1, py: 0.32, borderRadius: '6px', bgcolor: alpha(T.accent, 0.05), border: `1px solid ${T.accentBorder}` }}>
-                        <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: T.accent, lineHeight: 1 }}>
-                          {leaveCategory}
-                        </Typography>
-                      </Box>
                     </Box>
                     {timeLabel && (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -755,26 +750,22 @@ const TransactionLogsSurface = ({
                     )}
                   </Box>
 
-                  {logEmpNum && (
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, gap: 1, flexWrap: 'wrap' }}>
+                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.1, py: 0.32, borderRadius: '6px', bgcolor: alpha(T.accent, 0.05), border: `1px solid ${T.accentBorder}` }}>
+                      <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.accent, lineHeight: 1 }}>
+                        {leaveType?.leave_description || leaveCategory}
+                      </Typography>
+                    </Box>
+
+                    {logEmpNum && (
                       <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, px: 1.5, py: 0.5, bgcolor: alpha('#1565C0', 0.05), borderRadius: 1.5, border: '1px solid rgba(21,101,192,0.15)' }}>
                         <PersonIcon sx={{ fontSize: 14, color: '#1565C0', flexShrink: 0 }} />
                         <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: '#1565C0', lineHeight: 1 }}>
                           {logEmpNum} {logEmpName && logEmpName !== 'Unknown' && '| '}{logEmpName && logEmpName !== 'Unknown' && logEmpName.toUpperCase()}
                         </Typography>
                       </Box>
-                    </Box>
-                  )}
-
-                  {leaveType?.leave_description && (
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-                      <Chip
-                        size="small"
-                        label={`${leaveType.leave_code} — ${leaveType.leave_description}`}
-                        sx={{ height: 22, fontSize: '0.68rem', fontWeight: 700, bgcolor: T.accentFaint, color: T.accent, border: `1px solid ${T.accentBorder}` }}
-                      />
-                    </Box>
-                  )}
+                    )}
+                  </Box>
 
                   {renderTxSentence(log)}
                 </Box>
@@ -976,12 +967,20 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
     let creditMsg = '';
     try {
       const creditsRes = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, getAuthHeaders());
-      const assignment = creditsRes.data?.assignments || [];
+      // Backend returns an array; older code expected { assignments: [...] }.
+      const assignment = Array.isArray(creditsRes.data)
+        ? creditsRes.data
+        : (creditsRes.data?.assignments || []);
       const la = assignment.find(
         (a) => a.employeeNumber?.toString() === newRequest.employeeNumber?.toString() && a.leave_code === newRequest.leave_code,
       );
-      if (la) {
-        const available = (parseFloat(la.allocated_hours) || 0) - (parseFloat(la.used_hours) || 0);
+      if (!la) {
+        creditsOk = false;
+        creditMsg = `No leave assignment found for Employee #${newRequest.employeeNumber} under leave code "${newRequest.leave_code}".\n\nPlease assign leave credits first.`;
+      } else {
+        // Prefer remaining_hours (server-authoritative) over allocated-used math.
+        // Some rows/periods have allocated/used values that don't reflect the current available balance.
+        const available = parseFloat(la.remaining_hours ?? ((parseFloat(la.allocated_hours) || 0) - (parseFloat(la.used_hours) || 0))) || 0;
         if (available < hoursRequested) {
           creditsOk = false;
           creditMsg = `Insufficient leave balance for this request.\n\nRequested: ${(hoursRequested / 8).toFixed(3)} day(s) (${hoursRequested} hrs)\nAvailable: ${(available / 8).toFixed(3)} day(s) (${available.toFixed(3)} hrs)\n\nPlease select fewer dates or choose a different leave type.`;
@@ -1010,7 +1009,7 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
         try {
           await axios.post(
             `${API_BASE_URL}/leaveRoute/leave_request`,
-            { employeeNumber: newRequest.employeeNumber, leave_code: newRequest.leave_code, leave_dates: [newRequest.leave_date], status: Number(newRequest.status) },
+            { employeeNumber: newRequest.employeeNumber, leave_code: newRequest.leave_code, leave_dates: leaveDates, status: Number(newRequest.status) },
             getAuthHeaders(),
           );
           setNewRequest({ employeeNumber: '', leave_code: '', leave_date: '', status: '0' });
@@ -1020,7 +1019,11 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
           setTimeout(() => setSuccessOpen(false), 2000);
           fetchAll();
         } catch (e) {
-          const specificError = e.response?.data?.error || e.response?.data?.message || e.message;
+          const specificError =
+            e.response?.data?.detail ||
+            e.response?.data?.error ||
+            e.response?.data?.message ||
+            e.message;
           showError('Submission Failed', specificError);
         } finally {
           setLoading(false);

@@ -48,6 +48,128 @@ const normalizeAssignmentRow = (r) => ({
   allocated_hours: parseDbHours(r.allocated_hours),
 });
 
+const semRank = (s) => {
+  const v = String(s || "").toLowerCase().trim();
+  if (!v) return 0;
+  if (v.includes("2nd") || v === "2") return 3;
+  if (v.includes("1st") || v === "1") return 2;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : 1;
+};
+
+const getLeaveAssignmentsForCode = (employeeNumber, leave_code) =>
+  new Promise((resolve) => {
+    db.query(
+      `SELECT *
+       FROM leave_assignment
+       WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
+       ORDER BY period_year DESC,
+         CASE
+           WHEN period_semester IN ('2nd','2nd semester','2') THEN 3
+           WHEN period_semester IN ('1st','1st semester','1') THEN 2
+           ELSE 1
+         END DESC,
+         id DESC`,
+      [employeeNumber, leave_code],
+      (err, rows) => {
+        if (err) return resolve([]);
+        resolve(Array.isArray(rows) ? rows.map(normalizeAssignmentRow) : []);
+      },
+    );
+  });
+
+const getTotalRemainingHours = async (employeeNumber, leave_code) => {
+  const rows = await getLeaveAssignmentsForCode(employeeNumber, leave_code);
+  return rows.reduce((sum, r) => sum + (parseDbHours(r.remaining_hours) || 0), 0);
+};
+
+// Deduct or restore hours across multiple rows (newest-first).
+// deltaHours > 0: deduct from remaining, add to used
+// deltaHours < 0: restore to remaining, subtract from used
+const applyHoursDeltaAcrossAssignments = async ({
+  req,
+  actorEmployeeNumber,
+  employeeNumber,
+  leave_code,
+  deltaHours,
+  requestId = null,
+  reason,
+}) => {
+  const abs = Math.abs(Number(deltaHours) || 0);
+  if (!employeeNumber || !leave_code || !abs) return;
+
+  const rows = await getLeaveAssignmentsForCode(employeeNumber, leave_code);
+  if (!rows.length) return;
+
+  let remaining = abs;
+  for (const row of rows) {
+    if (remaining <= 0) break;
+
+    const curRem = parseDbHours(row.remaining_hours) || 0;
+    const curUsed = parseDbHours(row.used_hours) || 0;
+
+    // Deduct
+    if (deltaHours > 0) {
+      if (curRem <= 0) continue;
+      const take = Math.min(curRem, remaining);
+      const newRem = Math.max(0, curRem - take);
+      const newUsed = Math.max(0, curUsed + take);
+      await new Promise((resolve) => {
+        db.query(
+          "UPDATE leave_assignment SET remaining_hours = ?, used_hours = ? WHERE id = ?",
+          [newRem, newUsed, row.id],
+          () => resolve(),
+        );
+      });
+      auditLeaveBalanceAdjustment({
+        req,
+        actorEmployeeNumber,
+        employeeNumber,
+        leave_code,
+        requestId,
+        reason,
+        oldRemaining: curRem,
+        newRemaining: newRem,
+        oldUsed: curUsed,
+        newUsed,
+        deltaHours: -take,
+        assignmentRowId: row.id,
+      });
+      remaining -= take;
+      continue;
+    }
+
+    // Restore
+    const canRestore = curUsed > 0;
+    if (!canRestore) continue;
+    const putBack = Math.min(curUsed, remaining);
+    const newRem = curRem + putBack;
+    const newUsed = Math.max(0, curUsed - putBack);
+    await new Promise((resolve) => {
+      db.query(
+        "UPDATE leave_assignment SET remaining_hours = ?, used_hours = ? WHERE id = ?",
+        [newRem, newUsed, row.id],
+        () => resolve(),
+      );
+    });
+    auditLeaveBalanceAdjustment({
+      req,
+      actorEmployeeNumber,
+      employeeNumber,
+      leave_code,
+      requestId,
+      reason,
+      oldRemaining: curRem,
+      newRemaining: newRem,
+      oldUsed: curUsed,
+      newUsed,
+      deltaHours: +putBack,
+      assignmentRowId: row.id,
+    });
+    remaining -= putBack;
+  }
+};
+
 const getActorEmployeeNumber = (req, fallback = null) => {
   if (req.user?.employeeNumber) return String(req.user.employeeNumber);
 
@@ -145,6 +267,13 @@ const buildLeaveTransactionMessage = ({
   })();
 
   if (action === "request") {
+    if (
+      requesterDisplayName &&
+      actorDisplayName &&
+      requesterDisplayName !== actorDisplayName
+    ) {
+      return `${actorDisplayName} submitted a ${leaveDesc} request${dateStr} for ${requesterDisplayName}.`;
+    }
     return `${actorDisplayName} submitted a ${leaveDesc} request${dateStr}.`;
   }
 
@@ -174,6 +303,51 @@ const statusToLeaveAction = (statusValue) => {
   if (s === 3) return "denied";
   if (s === 4) return "cancelled";
   return null;
+};
+
+const auditLeaveBalanceAdjustment = ({
+  req,
+  actorEmployeeNumber,
+  employeeNumber,
+  leave_code,
+  requestId = null,
+  reason,
+  oldRemaining,
+  newRemaining,
+  oldUsed,
+  newUsed,
+  deltaHours,
+  assignmentRowId = null,
+}) => {
+  try {
+    const details = {
+      reason,
+      source: "leave_request_status_change",
+      request_id: requestId,
+      employeeNumber,
+      leave_code,
+      delta_hours: deltaHours,
+      before: {
+        remaining_hours: oldRemaining,
+        used_hours: oldUsed,
+      },
+      after: {
+        remaining_hours: newRemaining,
+        used_hours: newUsed,
+      },
+      assignment_row_id: assignmentRowId,
+    };
+    logAudit(
+      { employeeNumber: actorEmployeeNumber },
+      `Auto-adjust leave balance (${deltaHours >= 0 ? "+" : ""}${deltaHours} hrs)`,
+      "leave_assignment",
+      assignmentRowId,
+      employeeNumber,
+      details,
+    );
+  } catch (e) {
+    console.error("[leave] Failed to audit leave balance adjustment:", e.message);
+  }
 };
 
 // ============================================
@@ -771,40 +945,16 @@ router.post("/leave_request", (req, res) => {
 
   const hoursNeeded = dates.length * 8;
 
-  // Find the ALLOCATED assignment row only (carried_forward_hours = 0 or NULL)
-  // Falls back to latest row if none found.
-  const allocatedQuery = `
-    SELECT *
-    FROM leave_assignment
-    WHERE employeeNumber = ?
-      AND TRIM(leave_code) = TRIM(?)
-      AND (carried_forward_hours IS NULL OR carried_forward_hours = 0)
-    ORDER BY period_year DESC,
-      CASE WHEN period_semester IN ('2nd','2nd semester') THEN 2
-           WHEN period_semester IN ('1st','1st semester') THEN 1 ELSE 0 END DESC
-    LIMIT 1
-  `;
-  const fallbackQuery = `
-    SELECT *
-    FROM leave_assignment
-    WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
-    ORDER BY period_year DESC,
-      CASE WHEN period_semester IN ('2nd','2nd semester') THEN 2
-           WHEN period_semester IN ('1st','1st semester') THEN 1 ELSE 0 END DESC
-    LIMIT 1
-  `;
-
-  const proceed = (assignmentRow) => {
-    const currentRemaining = assignmentRow ? parseDbHours(assignmentRow.remaining_hours) : 0;
-
-    // ── BALANCE CHECK ──────────────────────────────────────────
-    if (!assignmentRow || currentRemaining < hoursNeeded) {
-      const remainingDays = (currentRemaining / 8).toFixed(1);
+  const proceed = async () => {
+    const totalRemaining = await getTotalRemainingHours(employeeNumber, leave_code);
+    // ── BALANCE CHECK (TOTAL across rows) ───────────────────────
+    if (totalRemaining < hoursNeeded) {
+      const remainingDays = (totalRemaining / 8).toFixed(1);
       const neededDays = dates.length;
       return res.status(400).json({
         error: "Insufficient Leave Balance",
         detail: `You requested ${neededDays} day(s) but only have ${remainingDays} allocated day(s) remaining.`,
-        remaining_hours: currentRemaining,
+        remaining_hours: totalRemaining,
         required_hours: hoursNeeded,
       });
     }
@@ -838,25 +988,30 @@ router.post("/leave_request", (req, res) => {
           leaveTypeRows[0].leave_description) ||
         leave_code;
 
-      const actorFullName = await getEmployeeFullName(
-        actorEmployeeNumber
-      );
+      const [actorFullName, requesterFullName] = await Promise.all([
+        getEmployeeFullName(actorEmployeeNumber),
+        getEmployeeFullName(employeeNumber),
+      ]);
 
       const actorDisplayName = formatUserDisplayName(
         actorEmployeeNumber,
         actorFullName
       );
+      const requesterDisplayName = formatUserDisplayName(
+        employeeNumber,
+        requesterFullName
+      );
 
       const requestMessage = buildLeaveTransactionMessage({
         action: "request",
         actorDisplayName,
-        requesterDisplayName: actorDisplayName,
+        requesterDisplayName,
         leaveDesc: leave_description,
         leaveDates: dates,
       });
 
       await insertTransactionLog(
-        actorEmployeeNumber,
+        employeeNumber,
         requestMessage,
         actorEmployeeNumber
       );
@@ -877,18 +1032,9 @@ router.post("/leave_request", (req, res) => {
         res.status(500).json({ error: "Failed to create leave requests" });
       });
   };
-
-  db.query(allocatedQuery, [employeeNumber, leave_code], (err, rows) => {
-    if (err || !rows.length) {
-      return db.query(
-        fallbackQuery,
-        [employeeNumber, leave_code],
-        (err2, rows2) => {
-          proceed(rows2 && rows2.length ? rows2[0] : null);
-        },
-      );
-    }
-    proceed(rows[0]);
+  proceed().catch((e) => {
+    console.error("[leave_request] balance check error:", e.message);
+    res.status(500).json({ error: "Balance check failed" });
   });
 });
 
@@ -1020,6 +1166,25 @@ router.put("/leave_request/bulk-update", (req, res) => {
                 [newRemaining, newUsed, row.id],
                 (err) => {
                   if (err) console.error("[Bulk Credit] Update error:", err);
+                  else {
+                    auditLeaveBalanceAdjustment({
+                      req,
+                      actorEmployeeNumber,
+                      employeeNumber,
+                      leave_code,
+                      requestId: null,
+                      reason:
+                        newStatus === 2
+                          ? "HR Approved (bulk) — deducted 8 hours"
+                          : "HR approval reversed (bulk) — restored 8 hours",
+                      oldRemaining: currentRem,
+                      newRemaining,
+                      oldUsed: currentUsed,
+                      newUsed,
+                      deltaHours: -deltaHours, // remaining decreases when deltaHours is +8
+                      assignmentRowId: row.id,
+                    });
+                  }
                   processNext(index + 1);
                 },
               );
@@ -1209,83 +1374,91 @@ router.put("/leave_request/:id", (req, res) => {
 
       // DEDUCT: status → 2 (HR Approved)
       if (newStatus === 2 && oldStatus !== 2) {
-        const findAndDeduct = (row) => {
-          if (!row) {
-            console.warn(
-              `[Deduct] No allocation row for ${employeeNumber}/${leave_code}`,
+        (async () => {
+          await applyHoursDeltaAcrossAssignments({
+            req,
+            actorEmployeeNumber,
+            employeeNumber,
+            leave_code,
+            deltaHours: 8,
+            requestId: id,
+            reason: "HR Approved — deducted 8 hours from leave balance",
+          });
+
+          // Transaction log entry for the auto-deduction (so it appears in Transaction Logs too)
+          try {
+            const [empName, actorName] = await Promise.all([
+              getEmployeeFullName(String(employeeNumber)),
+              getEmployeeFullName(actorEmployeeNumber),
+            ]);
+            const leaveDesc = await new Promise((resolve) =>
+              db.query(
+                "SELECT leave_description FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1",
+                [leave_code],
+                (e, r) => resolve((r && r[0] && r[0].leave_description) || leave_code),
+              ),
             );
-            return updateStatus();
+            const actorDisplay = formatUserDisplayName(actorEmployeeNumber, actorName);
+            const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
+            await insertTransactionLog(
+              String(employeeNumber),
+              `${actorDisplay} deducted 8 hrs from ${leaveDesc} balance for ${empDisplay} (system auto-deduction after HR approval).`,
+              actorEmployeeNumber,
+            );
+          } catch (e) {
+            console.error("[leave] Failed to insert deduction transaction log:", e.message);
           }
-            const currentRem = parseDbHours(row.remaining_hours);
-            const currentUsed = parseDbHours(row.used_hours);
-            const newRemaining = Math.max(0, currentRem - 8);
-            const newUsed = currentUsed + 8;
-          db.query(
-            "UPDATE leave_assignment SET remaining_hours = ?, used_hours = ? WHERE id = ?",
-            [newRemaining, newUsed, row.id],
-            (err) => {
-              if (err) console.error("[Deduct] Error:", err);
-              else emitLeaveChange("leaveAssignmentChanged");
-              updateStatus();
-            },
-          );
-        };
-        db.query(
-          getAllocatedQuery,
-          [employeeNumber, leave_code],
-          (err, rows) => {
-            if (err || !rows.length) {
-              return db.query(
-                fallbackQuery,
-                [employeeNumber, leave_code],
-                (err2, rows2) => {
-                  findAndDeduct(rows2 && rows2.length ? rows2[0] : null);
-                },
-              );
-            }
-            findAndDeduct(rows[0]);
-          },
-        );
+
+          emitLeaveChange("leaveAssignmentChanged");
+          updateStatus();
+        })().catch((e) => {
+          console.error("[Deduct] Error:", e.message);
+          updateStatus();
+        });
       }
       // RESTORE: was HR Approved (2), now denied/cancelled
       else if (oldStatus === 2 && (newStatus === 3 || newStatus === 4)) {
-        const findAndRestore = (row) => {
-          if (!row) {
-            console.warn(
-              `[Restore] No allocation row for ${employeeNumber}/${leave_code}`,
+        (async () => {
+          await applyHoursDeltaAcrossAssignments({
+            req,
+            actorEmployeeNumber,
+            employeeNumber,
+            leave_code,
+            deltaHours: -8,
+            requestId: id,
+            reason: `HR approval reversed (${newStatus === 3 ? "denied" : "cancelled"}) — restored 8 hours`,
+          });
+
+          // Transaction log entry for the auto-restoration
+          try {
+            const [empName, actorName] = await Promise.all([
+              getEmployeeFullName(String(employeeNumber)),
+              getEmployeeFullName(actorEmployeeNumber),
+            ]);
+            const leaveDesc = await new Promise((resolve) =>
+              db.query(
+                "SELECT leave_description FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1",
+                [leave_code],
+                (e, r) => resolve((r && r[0] && r[0].leave_description) || leave_code),
+              ),
             );
-            return updateStatus();
+            const actorDisplay = formatUserDisplayName(actorEmployeeNumber, actorName);
+            const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
+            await insertTransactionLog(
+              String(employeeNumber),
+              `${actorDisplay} restored 8 hrs to ${leaveDesc} balance for ${empDisplay} (system auto-restoration after reversal).`,
+              actorEmployeeNumber,
+            );
+          } catch (e) {
+            console.error("[leave] Failed to insert restoration transaction log:", e.message);
           }
-          const currentRem = parseDbHours(row.remaining_hours);
-          const currentUsed = parseDbHours(row.used_hours);
-          const newRemaining = currentRem + 8;
-          const newUsed = Math.max(0, currentUsed - 8);
-          db.query(
-            "UPDATE leave_assignment SET remaining_hours = ?, used_hours = ? WHERE id = ?",
-            [newRemaining, newUsed, row.id],
-            (err) => {
-              if (err) console.error("[Restore] Error:", err);
-              else emitLeaveChange("leaveAssignmentChanged");
-              updateStatus();
-            },
-          );
-        };
-        db.query(
-          getAllocatedQuery,
-          [employeeNumber, leave_code],
-          (err, rows) => {
-            if (err || !rows.length) {
-              return db.query(
-                fallbackQuery,
-                [employeeNumber, leave_code],
-                (err2, rows2) => {
-                  findAndRestore(rows2 && rows2.length ? rows2[0] : null);
-                },
-              );
-            }
-            findAndRestore(rows[0]);
-          },
-        );
+
+          emitLeaveChange("leaveAssignmentChanged");
+          updateStatus();
+        })().catch((e) => {
+          console.error("[Restore] Error:", e.message);
+          updateStatus();
+        });
       } else {
         updateStatus();
       }
