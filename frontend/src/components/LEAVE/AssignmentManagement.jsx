@@ -431,23 +431,252 @@ const Bone = ({ w = "100%", h = 14, r = 6, sx = {} }) => (
 );
 
 const Wireframe = () => (
-  <Box sx={{ py: 2, px: { xs: 2, sm: 3, md: 6 } }}>
-    <Box sx={{ borderRadius: 3, border: `1px solid ${T.accentBorder}`, bgcolor: "#fff", overflow: "hidden", animation: "blink 2s ease-in-out 0.2s infinite", height: "calc(100vh - 200px)", display: "flex", flexDirection: "column" }}>
-      <Box sx={{ px: 3.5, py: 1.75, borderBottom: `1px solid ${T.divider}`, display: "flex", justifyContent: "space-between", flexShrink: 0 }}>
-        <Bone w={160} h={14} /><Bone w={220} h={34} r={8} />
-      </Box>
-      <Box sx={{ px: 3.5, py: 1.25, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: "flex", gap: 3, flexShrink: 0 }}>
-        {[60,200,80,70,80].map((w, i) => <Bone key={i} w={w} h={10} />)}
-      </Box>
-      <Box sx={{ flexGrow: 1, overflowY: "auto" }}>
-        {[...Array(6)].map((_, i) => (
-          <Box key={i} sx={{ px: 3.5, py: 1.6, borderBottom: `1px solid ${T.divider}`, display: "flex", gap: 3, alignItems: "center", bgcolor: i % 2 === 0 ? "#fff" : "rgba(109,35,35,0.025)" }}>
-            <Bone w={60} h={24} r={5} /><Bone w={200} h={11} /><Bone w={70} h={18} r={9} /><Bone w={50} h={11} /><Bone w={58} h={26} r={5} />
+  <>
+    <style>{shimmerKf}</style>
+    <Box
+      sx={{
+        py: { xs: 1, md: 2 },
+        mt: { xs: 0, md: -5 },
+        width: "100vw",
+        maxWidth: "100%",
+        position: "relative",
+        left: "63%",
+        transform: "translateX(-61%)",
+        px: { xs: 2, sm: 3, md: 6 },
+      }}
+    >
+      {/* ── Header card skeleton ── */}
+      <Box
+        sx={{
+          mb: 0,
+          borderRadius: "12px 12px 0 0",
+          overflow: "hidden",
+          border: `1px solid rgba(109,35,35,0.12)`,
+          animation: "blink 2s ease-in-out infinite",
+        }}
+      >
+        {/* Gradient top bar */}
+        <Box
+          sx={{
+            p: 3,
+            background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 2,
+            position: "relative",
+            overflow: "hidden",
+          }}
+        >
+          <Box sx={{ position: "absolute", top: -50, right: -50, width: 180, height: 180, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.06)" }} />
+          <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.04)" }} />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
+            <Box sx={{ width: 44, height: 44, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.1)", flexShrink: 0 }} />
+            <Box>
+              <Bone w={220} h={16} sx={{ mb: 1 }} />
+              <Bone w={340} h={10} />
+            </Box>
           </Box>
-        ))}
+          <Bone w={140} h={30} r={8} sx={{ position: "relative", zIndex: 1 }} />
+        </Box>
+
+        {/* Tab row */}
+        <Box
+          sx={{
+            background: "linear-gradient(135deg,#6d2323 0%,#7e2c2c 100%)",
+            px: 1,
+            pt: 0.75,
+            pb: 0,
+            display: "flex",
+            alignItems: "flex-end",
+            gap: 0.5,
+          }}
+        >
+          {[110, 120, 175].map((w, i) => (
+            <Box
+              key={i}
+              sx={{
+                px: 2.5,
+                py: 1.1,
+                borderRadius: "8px 8px 0 0",
+                bgcolor: i === 0 ? "rgba(255,255,255,0.95)" : "transparent",
+                display: "flex",
+                alignItems: "center",
+                gap: 0.75,
+              }}
+            >
+              <Box sx={{
+                width: 13, height: 13, borderRadius: "50%",
+                bgcolor: i === 0 ? "rgba(109,35,35,0.2)" : "rgba(255,255,255,0.25)",
+              }} />
+              <Bone
+                w={w}
+                h={11}
+                sx={{
+                  background: i === 0
+                    ? `linear-gradient(90deg,rgba(109,35,35,0.1) 25%,rgba(109,35,35,0.2) 50%,rgba(109,35,35,0.1) 75%)`
+                    : `linear-gradient(90deg,rgba(255,255,255,0.15) 25%,rgba(255,255,255,0.28) 50%,rgba(255,255,255,0.15) 75%)`,
+                  backgroundSize: "800px 100%",
+                }}
+              />
+            </Box>
+          ))}
+        </Box>
+      </Box>
+
+      {/* ── Body skeleton ── */}
+      <Box
+        sx={{
+          borderRadius: "0 0 12px 12px",
+          border: `1px solid rgba(109,35,35,0.12)`,
+          borderTop: "none",
+          overflow: "hidden",
+          bgcolor: "#fff",
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          height: "calc(100vh - 300px)",
+          minHeight: 480,
+          animation: "blink 2s ease-in-out 0.1s infinite",
+        }}
+      >
+        {/* ── Col 1 — Leave Assignment ── */}
+        <Box sx={{ borderRight: "1px solid rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <Box sx={{ px: 2, py: 1.25, borderBottom: "1px solid rgba(0,0,0,0.08)", bgcolor: "rgba(0,0,0,0.02)", display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
+            <Box sx={{ width: 13, height: 13, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.12)" }} />
+            <Bone w={150} h={10} />
+          </Box>
+          <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 1.5 }}>
+            {/* Search / filter bar */}
+            <Bone w="100%" h={32} r={8} />
+            {/* Leave type rows */}
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Box
+                key={i}
+                sx={{
+                  borderRadius: 1.5,
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  overflow: "hidden",
+                  animation: `blink 1.6s ease-in-out ${i * 0.08}s infinite`,
+                }}
+              >
+                <Box sx={{ px: 1.5, py: 0.6, bgcolor: "rgba(0,0,0,0.03)", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <Bone w={80} h={10} />
+                  <Bone w={50} h={16} r={20} />
+                </Box>
+                <Box sx={{ px: 1.5, py: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <Box>
+                    <Bone w={140} h={12} sx={{ mb: 0.5 }} />
+                    <Bone w={90} h={9} />
+                  </Box>
+                  <Bone w={60} h={26} r={5} />
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+
+        {/* ── Col 2 — Service Credits ── */}
+        <Box sx={{ borderRight: "1px solid rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <Box sx={{ px: 2, py: 1.25, borderBottom: "1px solid rgba(0,0,0,0.08)", bgcolor: "rgba(0,0,0,0.02)", display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
+            <Box sx={{ width: 13, height: 13, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.12)" }} />
+            <Bone w={130} h={10} />
+          </Box>
+          <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 1.5 }}>
+            {/* Summary card */}
+            <Box sx={{ borderRadius: 2, border: "1px solid rgba(0,0,0,0.1)", overflow: "hidden" }}>
+              <Box sx={{ display: "flex", height: 80 }}>
+                <Box sx={{ width: 56, bgcolor: "rgba(109,35,35,0.04)", borderRight: "1px solid rgba(0,0,0,0.07)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Box sx={{ width: 28, height: 28, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.1)" }} />
+                </Box>
+                <Box sx={{ flex: 1, p: 1.5, display: "flex", flexDirection: "column", gap: 0.75, justifyContent: "center" }}>
+                  <Bone w="70%" h={18} />
+                  <Bone w="50%" h={10} />
+                </Box>
+              </Box>
+            </Box>
+            {/* Balance cards */}
+            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
+              {[1, 2].map((i) => (
+                <Box key={i} sx={{ borderRadius: 1.5, border: "1px solid rgba(0,0,0,0.08)", p: 1.25 }}>
+                  <Bone w="60%" h={9} sx={{ mb: 0.75 }} />
+                  <Bone w="80%" h={20} sx={{ mb: 0.5 }} />
+                  <Bone w="50%" h={9} />
+                </Box>
+              ))}
+            </Box>
+            {/* SC type rows */}
+            {[1, 2, 3].map((i) => (
+              <Box
+                key={i}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  px: 1.25,
+                  py: 0.85,
+                  borderRadius: 1.5,
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  bgcolor: "rgba(0,0,0,0.01)",
+                  animation: `blink 1.6s ease-in-out ${i * 0.1}s infinite`,
+                }}
+              >
+                <Box>
+                  <Bone w={90} h={11} sx={{ mb: 0.5 }} />
+                  <Bone w={120} h={8} />
+                </Box>
+                <Bone w={70} h={28} r={6} />
+              </Box>
+            ))}
+          </Box>
+        </Box>
+
+        {/* ── Col 3 — Compensatory Time Off ── */}
+        <Box sx={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <Box sx={{ px: 2, py: 1.25, borderBottom: "1px solid rgba(0,0,0,0.08)", bgcolor: "rgba(0,0,0,0.02)", display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
+            <Box sx={{ width: 13, height: 13, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.12)" }} />
+            <Bone w={160} h={10} />
+          </Box>
+          {/* Status filter pills */}
+          <Box sx={{ px: 1.5, py: 0.75, borderBottom: "1px solid rgba(0,0,0,0.08)", bgcolor: "rgba(109,35,35,0.02)", display: "flex", gap: 0.75, flexShrink: 0 }}>
+            {[55, 60, 65, 55].map((w, i) => <Bone key={i} w={w} h={20} r={20} />)}
+          </Box>
+          {/* Record rows */}
+          <Box sx={{ flex: 1, overflowY: "auto", px: 1.5, pt: 1.25, pb: 1, display: "flex", flexDirection: "column", gap: 1 }}>
+            {[1, 2, 3, 4].map((i) => (
+              <Box
+                key={i}
+                sx={{
+                  p: 1.5,
+                  borderRadius: 2,
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  bgcolor: "#fff",
+                  animation: `blink 1.6s ease-in-out ${i * 0.1}s infinite`,
+                }}
+              >
+                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.75 }}>
+                  <Box sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>
+                    <Bone w={45} h={16} r={20} />
+                    <Bone w={90} h={14} />
+                    <Bone w={55} h={16} r={20} />
+                  </Box>
+                  <Bone w={55} h={22} r={6} />
+                </Box>
+                <Bone w="40%" h={18} sx={{ mb: 0.5 }} />
+                <Bone w="65%" h={9} />
+              </Box>
+            ))}
+          </Box>
+          {/* Pagination */}
+          <Box sx={{ px: 1.5, py: 0.85, borderTop: "1px solid rgba(0,0,0,0.08)", bgcolor: "rgba(0,0,0,0.015)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+            <Bone w={120} h={10} />
+            <Box sx={{ display: "flex", gap: 0.4 }}>
+              {[1, 2, 3, 4].map((i) => <Bone key={i} w={20} h={20} r={4} />)}
+            </Box>
+          </Box>
+        </Box>
       </Box>
     </Box>
-  </Box>
+  </>
 );
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────

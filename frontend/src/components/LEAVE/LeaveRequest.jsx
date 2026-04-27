@@ -864,6 +864,17 @@ const LeaveRequest = () => {
   const showConfirm = (opts) => setConfirmModal({ open: true, title: '', message: '', confirmLabel: 'Confirm', confirmColor: T.accent, confirmHoverColor: T.accentDark, icon: HelpOutlineIcon, iconColor: T.accent, iconBg: T.accentFaint, loading: false, onConfirm: () => {}, ...opts });
   const closeConfirm = () => setConfirmModal((p) => ({ ...p, open: false, loading: false }));
 
+  const userRole = useMemo(() => {
+  try {
+    const token = localStorage.getItem('token');
+    if (!token) return '';
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return (payload.role || payload.userRole || '').toLowerCase();
+  } catch { return ''; }
+}, []);
+
+const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole);
+
   useEffect(() => { setPage(0); }, [deferredSearch, statusFilter, leaveTypeFilter, dateRangeFilter, dateFiledFilter]);
 
   useEffect(() => {
@@ -1655,27 +1666,10 @@ const LeaveRequest = () => {
                     primaryColor="#fdf5f5"
                     secondaryColor="#f0dede"
                     allowPastDates={isSickLeave(newRequest.leave_code)}
+                    adminOverride={isPrivilegedRole} 
                   />
                 </Box>
 
-                {/* Initial Status */}
-                <Box sx={{ mb: 2.5 }}>
-                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
-                    Initial Status
-                  </Typography>
-                  <FormControl fullWidth size="small">
-                    <Select value={newRequest.status} onChange={(e) => setNewRequest({ ...newRequest, status: e.target.value })} sx={selectSx}>
-                      {statusOptions.map((o) => (
-                        <MenuItem key={o.value} value={o.value}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: o.color }} />
-                            <Typography sx={{ fontSize: '0.875rem' }}>{o.label}</Typography>
-                          </Box>
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Box>
 
                 {/* Submit */}
                 <Box sx={{ mt: 'auto' }}>

@@ -411,6 +411,305 @@ const SCActionDialog = ({ open, record, action, onClose, onConfirm, loading }) =
   );
 };
 
+// ─── Bone skeleton primitive ──────────────────────────────────────────────────
+const Bone = ({ w = "100%", h = 14, r = 6, sx = {} }) => (
+  <Box sx={{
+    width: w, height: h, borderRadius: r,
+    background: `linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)`,
+    backgroundSize: "800px 100%",
+    animation: "scShimmer 1.6s infinite linear",
+    flexShrink: 0, ...sx,
+  }} />
+);
+
+// ─── Full-page wireframe ──────────────────────────────────────────────────────
+const ServiceCreditWireframe = () => (
+  <>
+    <style>{`
+      @keyframes scShimmer {
+        0%   { background-position: -800px 0; }
+        100% { background-position:  800px 0; }
+      }
+      @keyframes scPulse {
+        0%,100% { opacity:1; }
+        50%     { opacity:0.55; }
+      }
+    `}</style>
+    <Box
+      sx={{
+        py: { xs: 1, md: 2 },
+        mt: { xs: 0, md: -2 },
+        width: "100vw",
+        maxWidth: "100%",
+        position: "relative",
+        left: "63%",
+        transform: "translateX(-61%)",
+        px: { xs: 2, sm: 3, md: 6 },
+      }}
+    >
+      {/* ── Page header skeleton ── */}
+      <Box
+        sx={{
+          mb: 2,
+          borderRadius: "12px",
+          overflow: "hidden",
+          border: `1px solid rgba(109,35,35,0.12)`,
+          animation: "scPulse 2s ease-in-out infinite",
+        }}
+      >
+        <Box
+          sx={{
+            p: 3,
+            background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 2,
+            position: "relative",
+            overflow: "hidden",
+          }}
+        >
+          <Box sx={{ position: "absolute", top: -50, right: -50, width: 180, height: 180, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.06)" }} />
+          <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.04)" }} />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2.5, position: "relative", zIndex: 1 }}>
+            <Box sx={{ width: 40, height: 40, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.1)", flexShrink: 0 }} />
+            <Box>
+              <Bone w={240} h={16} sx={{ mb: 1 }} />
+              <Bone w={380} h={10} />
+            </Box>
+          </Box>
+          <Box sx={{ display: "flex", gap: 1, position: "relative", zIndex: 1, alignItems: "center" }}>
+            {/* SC type legend chips skeleton */}
+            <Box sx={{ display: "flex", gap: 0.75 }}>
+              {[90, 110, 100].map((w, i) => (
+                <Bone key={i} w={w} h={24} r={6} />
+              ))}
+            </Box>
+            <Bone w={90} h={30} r={20} />
+            <Bone w={36} h={36} r={8} />
+          </Box>
+        </Box>
+      </Box>
+
+      {/* ── Two-column body skeleton ── */}
+      <Box sx={{ display: "grid", gridTemplateColumns: "5fr 7fr", gap: 2 }}>
+
+        {/* ── Left col — Record SC Form ── */}
+        <Box
+          sx={{
+            borderRadius: "12px",
+            border: `1px solid rgba(109,35,35,0.12)`,
+            overflow: "hidden",
+            bgcolor: "#fff",
+            height: "calc(100vh - 280px)",
+            minHeight: 480,
+            display: "flex",
+            flexDirection: "column",
+            animation: "scPulse 2s ease-in-out 0.05s infinite",
+          }}
+        >
+          {/* Col header */}
+          <Box sx={{ px: 2.5, py: 1.25, borderBottom: "1px solid rgba(0,0,0,0.08)", bgcolor: "rgba(109,35,35,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box sx={{ width: 13, height: 13, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.2)" }} />
+              <Bone w={170} h={10} />
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Bone w={50} h={9} />
+              <Bone w={100} h={26} r={6} />
+            </Box>
+          </Box>
+
+          <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 1.5, flex: 1, overflowY: "hidden" }}>
+            {/* Employee autocomplete */}
+            <Box>
+              <Bone w={130} h={10} sx={{ mb: 0.75 }} />
+              <Bone w="100%" h={36} r={8} />
+            </Box>
+            {/* Period row */}
+            <Box sx={{ display: "grid", gridTemplateColumns: "5fr 7fr", gap: 1.5 }}>
+              <Box>
+                <Bone w={80} h={10} sx={{ mb: 0.75 }} />
+                <Bone w="100%" h={36} r={8} />
+              </Box>
+              <Box>
+                <Bone w={100} h={10} sx={{ mb: 0.75 }} />
+                <Bone w="100%" h={36} r={8} />
+              </Box>
+            </Box>
+            {/* SC Rule Engine panel skeleton */}
+            <Box sx={{ borderRadius: 2, border: "1px solid rgba(46,125,50,0.25)", bgcolor: "rgba(46,125,50,0.04)", p: 1.5 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
+                <Box sx={{ width: 13, height: 13, borderRadius: "50%", bgcolor: "rgba(46,125,50,0.2)" }} />
+                <Bone w={160} h={10} />
+                <Bone w={60} h={16} r={20} sx={{ ml: "auto" }} />
+              </Box>
+              {[120, 160, 140].map((w, i) => (
+                <Bone key={i} w={w} h={9} sx={{ mb: 0.5 }} />
+              ))}
+            </Box>
+            {/* SC Type override panel skeleton */}
+            <Box sx={{ borderRadius: 2, border: "1px solid rgba(109,35,35,0.12)", bgcolor: "rgba(109,35,35,0.04)", p: 1.5 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
+                <Box sx={{ width: 12, height: 12, borderRadius: "2px", bgcolor: "rgba(109,35,35,0.2)" }} />
+                <Bone w={100} h={9} />
+              </Box>
+              <Box sx={{ display: "flex", gap: 0.75 }}>
+                {[45, 90, 120, 110].map((w, i) => (
+                  <Bone key={i} w={w} h={28} r={7} />
+                ))}
+              </Box>
+            </Box>
+            {/* OT column headers */}
+            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 0.7fr", gap: 1, px: 1.5, py: 0.75, bgcolor: "rgba(109,35,35,0.04)", borderRadius: 1 }}>
+              {[80, 100, 65].map((w, i) => <Bone key={i} w={w} h={9} />)}
+            </Box>
+            {/* OT input rows */}
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+              {[1, 2, 3].map((i) => (
+                <Box
+                  key={i}
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr 0.7fr",
+                    gap: 1,
+                    px: 1.5,
+                    py: 1,
+                    borderRadius: 1.5,
+                    border: "1px solid rgba(0,0,0,0.08)",
+                    bgcolor: "rgba(0,0,0,0.01)",
+                    animation: `scPulse 1.6s ease-in-out ${i * 0.08}s infinite`,
+                  }}
+                >
+                  <Box>
+                    <Bone w={70} h={11} sx={{ mb: 0.4 }} />
+                    <Bone w={90} h={8} />
+                  </Box>
+                  <Bone w="100%" h={30} r={6} />
+                  <Box sx={{ textAlign: "center" }}>
+                    <Bone w={50} h={8} sx={{ mb: 0.4, mx: "auto" }} />
+                    <Bone w={60} h={14} sx={{ mx: "auto" }} />
+                  </Box>
+                </Box>
+              ))}
+              {/* Total row */}
+              <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 0.7fr", gap: 1, px: 1.5, py: 1.25, borderRadius: 1.5, bgcolor: "rgba(109,35,35,0.05)", border: "1.5px solid rgba(109,35,35,0.14)" }}>
+                <Bone w={50} h={12} />
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Bone w={80} h={20} r={4} />
+                </Box>
+                <Box sx={{ textAlign: "center" }}>
+                  <Bone w={40} h={8} sx={{ mb: 0.4, mx: "auto" }} />
+                  <Bone w={55} h={16} sx={{ mx: "auto" }} />
+                </Box>
+              </Box>
+            </Box>
+          </Box>
+
+          {/* Submit button */}
+          <Box sx={{ px: 2.5, pb: 2, pt: 1, borderTop: "1px solid rgba(0,0,0,0.08)", flexShrink: 0 }}>
+            <Bone w="100%" h={40} r={8} />
+          </Box>
+        </Box>
+
+        {/* ── Right col — SC Records Panel ── */}
+        <Box
+          sx={{
+            borderRadius: "12px",
+            border: `1px solid rgba(109,35,35,0.12)`,
+            overflow: "hidden",
+            bgcolor: "#fff",
+            height: "calc(100vh - 280px)",
+            minHeight: 480,
+            display: "flex",
+            flexDirection: "column",
+            animation: "scPulse 2s ease-in-out 0.1s infinite",
+          }}
+        >
+          {/* Records header */}
+          <Box sx={{ px: 2.5, py: 1.75, borderBottom: "1px solid rgba(0,0,0,0.08)", bgcolor: "rgba(109,35,35,0.05)", flexShrink: 0 }}>
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.25 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Box sx={{ width: 15, height: 15, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.2)" }} />
+                <Bone w={160} h={12} />
+              </Box>
+              <Box sx={{ display: "flex", gap: 0.75 }}>
+                <Bone w={140} h={22} r={20} />
+                <Bone w={56} h={28} r={6} />
+              </Box>
+            </Box>
+            {/* Tabs skeleton */}
+            <Box sx={{ display: "flex", gap: 0.5, mb: 1.25, borderBottom: "2px solid rgba(109,35,35,0.1)", pb: 0.5 }}>
+              {[60, 100, 105, 80].map((w, i) => (
+                <Bone key={i} w={w} h={20} r={4} sx={{ opacity: i === 0 ? 1 : 0.5 }} />
+              ))}
+            </Box>
+            {/* Search + filters */}
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <Bone w="100%" h={32} r={8} />
+              <Bone w={120} h={32} r={8} sx={{ flexShrink: 0 }} />
+              <Bone w={130} h={32} r={8} sx={{ flexShrink: 0 }} />
+            </Box>
+          </Box>
+
+          {/* Grid of employee cards */}
+          <Box sx={{ flex: 1, overflowY: "hidden", p: 2 }}>
+            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1.5 }}>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
+                <Box
+                  key={i}
+                  sx={{
+                    p: 1.75,
+                    borderRadius: 2,
+                    border: "1px solid rgba(109,35,35,0.12)",
+                    bgcolor: "#fff",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 0.75,
+                    animation: `scPulse 1.6s ease-in-out ${i * 0.06}s infinite`,
+                  }}
+                >
+                  {/* Avatar + name */}
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                    <Box sx={{ width: 32, height: 32, borderRadius: "8px", bgcolor: "rgba(109,35,35,0.1)", flexShrink: 0 }} />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Bone w="85%" h={12} sx={{ mb: 0.4 }} />
+                      <Box sx={{ display: "flex", gap: 0.4 }}>
+                        <Bone w={40} h={9} />
+                        <Bone w={36} h={14} r={20} />
+                      </Box>
+                    </Box>
+                  </Box>
+                  {/* SC type badges */}
+                  <Box sx={{ display: "flex", gap: 0.4 }}>
+                    <Bone w={80} h={16} r={20} />
+                  </Box>
+                  {/* Period chips */}
+                  <Box sx={{ display: "flex", gap: 0.4, flexWrap: "wrap" }}>
+                    {[55, 60, 52].map((w, j) => (
+                      <Bone key={j} w={w} h={18} r={4} />
+                    ))}
+                  </Box>
+                  {/* Footer */}
+                  <Box sx={{ display: "flex", justifyContent: "space-between", pt: 0.75, borderTop: "1px solid rgba(0,0,0,0.06)" }}>
+                    <Bone w={60} h={9} />
+                    <Bone w={65} h={9} />
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+
+          {/* Pagination */}
+          <Box sx={{ px: 2, py: 0.75, borderTop: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "flex-end", flexShrink: 0 }}>
+            <Bone w={220} h={28} r={6} />
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+  </>
+);
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -814,13 +1113,8 @@ const ServiceCredit = () => {
   };
 
   // ── Guard ──────────────────────────────────────────────────────────────────
-  if (accessLoading || pageLoading) {
-    return (
-      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 8 }}>
-        <CircularProgress sx={{ color: T.accent, mb: 2 }} />
-        <Typography sx={{ color: T.accent, fontFamily: T.poppins }}>Loading Service Credit module…</Typography>
-      </Box>
-    );
+if (accessLoading || pageLoading) {
+    return <ServiceCreditWireframe />;
   }
   if (!hasAccess) return <AccessDenied />;
 

@@ -184,6 +184,30 @@ const globalCss = `
 @keyframes attPulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
 `;
 
+const shimmerKf = `
+@keyframes shimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}`;
+
+const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
+  <Box
+    sx={{
+      height: h,
+      borderRadius: r,
+      background: `linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)`,
+      backgroundSize: '800px 100%',
+      animation: 'shimmer 1.6s infinite linear',
+      flexShrink: 0,
+      ...sx,
+    }}
+  />
+);
+
 // ─── Conversion defaults ──────────────────────────────────────────────────────
 const DEFAULT_HOURS_8 = Array.from({ length: 8 }, (_, i) => ({
   rate_type: "hour",
@@ -274,6 +298,276 @@ function sanitizeDecimal(v) {
   if (!Number.isFinite(n) || n < 0) return 0;
   return Number(n.toFixed(3));
 }
+
+const EarningsWireframe = () => (
+  <>
+    <style>{shimmerKf}</style>
+    <Box
+      sx={{
+        py: { xs: 1, md: 2 },
+        mt: { xs: 0, md: -5 },
+        width: '100vw',
+        maxWidth: '100%',
+        position: 'relative',
+        left: '63%',
+        transform: 'translateX(-61%)',
+        px: { xs: 2, sm: 3, md: 6 },
+      }}
+    >
+      {/* Header card skeleton */}
+      <Box
+        sx={{
+          mb: 0,
+          borderRadius: '12px 12px 0 0',
+          overflow: 'hidden',
+          border: `1px solid rgba(109,35,35,0.12)`,
+          animation: 'blink 2s ease-in-out infinite',
+        }}
+      >
+        {/* Gradient top bar */}
+        <Box
+          sx={{
+            p: 3,
+            background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2,
+            position: 'relative',
+            overflow: 'hidden',
+          }}
+        >
+          <Box sx={{ position: 'absolute', top: -50, right: -50, width: 180, height: 180, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.06)' }} />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ width: 38, height: 38, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.1)', flexShrink: 0 }} />
+            <Box>
+              <Bone w={220} h={16} sx={{ mb: 1 }} />
+              <Bone w={340} h={10} />
+            </Box>
+          </Box>
+          <Bone w={140} h={30} r={8} />
+        </Box>
+
+        {/* Employee selector row */}
+        <Box
+          sx={{
+            px: 4, py: 2,
+            bgcolor: 'rgba(109,35,35,0.05)',
+            borderBottom: '1px solid rgba(0,0,0,0.08)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            flexWrap: 'wrap',
+          }}
+        >
+          <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.15)', flexShrink: 0 }} />
+          <Bone w={240} h={32} r={8} sx={{ flex: 1, maxWidth: 340 }} />
+          <Bone w={160} h={32} r={8} />
+          <Bone w={260} h={28} r={8} sx={{ ml: 'auto' }} />
+        </Box>
+
+        {/* Tab row */}
+        <Box
+          sx={{
+            background: 'linear-gradient(135deg,#6d2323 0%,#7e2c2c 100%)',
+            px: 1, pt: 0.75, pb: 0,
+            display: 'flex',
+            alignItems: 'flex-end',
+            gap: 0.5,
+          }}
+        >
+          {[100, 130, 180].map((w, i) => (
+            <Box
+              key={i}
+              sx={{
+                px: 2.5, py: 1.1,
+                borderRadius: '8px 8px 0 0',
+                bgcolor: i === 0 ? 'rgba(255,255,255,0.95)' : 'transparent',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.75,
+              }}
+            >
+              <Box sx={{ width: 13, height: 13, borderRadius: '50%', bgcolor: i === 0 ? 'rgba(109,35,35,0.2)' : 'rgba(255,255,255,0.25)' }} />
+              <Bone
+                w={w}
+                h={11}
+                sx={{
+                  background: i === 0
+                    ? `linear-gradient(90deg, rgba(109,35,35,0.1) 25%, rgba(109,35,35,0.2) 50%, rgba(109,35,35,0.1) 75%)`
+                    : `linear-gradient(90deg, rgba(255,255,255,0.15) 25%, rgba(255,255,255,0.28) 50%, rgba(255,255,255,0.15) 75%)`,
+                  backgroundSize: '800px 100%',
+                }}
+              />
+            </Box>
+          ))}
+        </Box>
+      </Box>
+
+      {/* 3-column body */}
+      <Box
+        sx={{
+          borderRadius: '0 0 12px 12px',
+          border: `1px solid rgba(109,35,35,0.12)`,
+          borderTop: 'none',
+          overflow: 'hidden',
+          bgcolor: '#fff',
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr 1fr',
+          height: 'calc(100vh - 340px)',
+          minHeight: 480,
+          animation: 'blink 2s ease-in-out 0.1s infinite',
+        }}
+      >
+        {/* Col 1 — Attendance */}
+        <Box sx={{ borderRight: '1px solid rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* col header */}
+          <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+            <Box sx={{ width: 13, height: 13, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
+            <Bone w={160} h={10} />
+          </Box>
+          <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {/* summary card skeleton */}
+            <Box sx={{ borderRadius: 2, border: '1px solid rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+              <Box sx={{ display: 'flex', height: 72 }}>
+                <Box sx={{ width: 52, bgcolor: 'rgba(109,35,35,0.04)', borderRight: '1px solid rgba(0,0,0,0.07)' }} />
+                <Box sx={{ flex: 1, p: 1.5, display: 'flex', flexDirection: 'column', gap: 0.75, justifyContent: 'center', borderRight: '1px solid rgba(0,0,0,0.07)' }}>
+                  <Bone w="70%" h={18} />
+                  <Bone w="50%" h={10} />
+                </Box>
+                <Box sx={{ width: 48, bgcolor: 'rgba(0,0,0,0.02)', borderRight: '1px solid rgba(0,0,0,0.07)' }} />
+                <Box sx={{ flex: 1, bgcolor: 'rgba(46,125,50,0.04)' }} />
+              </Box>
+            </Box>
+            {/* edit record skeleton */}
+            <Box sx={{ borderRadius: 1.5, border: '1px solid rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+              <Box sx={{ px: 1.5, py: 0.85, bgcolor: 'rgba(0,0,0,0.03)', borderBottom: '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Bone w={90} h={10} />
+                <Bone w={40} h={22} r={6} />
+              </Box>
+              <Box sx={{ p: 1.5, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                {[1, 2].map((i) => (
+                  <Box key={i} sx={{ borderRadius: 1.5, border: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+                    <Box sx={{ px: 1, py: 0.4, bgcolor: 'rgba(0,0,0,0.03)', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+                      <Bone w="60%" h={8} />
+                    </Box>
+                    <Box sx={{ p: 1 }}>
+                      <Bone w="80%" h={16} />
+                      <Bone w="50%" h={9} sx={{ mt: 0.5 }} />
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+            {/* deduction receipt skeleton */}
+            <Box sx={{ borderRadius: 1.5, border: '1px solid rgba(109,35,35,0.15)', overflow: 'hidden' }}>
+              <Box sx={{ px: 1.5, py: 0.75, bgcolor: 'rgba(109,35,35,0.06)', borderBottom: '1px solid rgba(109,35,35,0.1)', display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <Box sx={{ width: 11, height: 11, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.2)' }} />
+                <Bone w={180} h={9} />
+              </Box>
+              <Box sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Box sx={{ borderRadius: 1.25, border: '1px solid rgba(109,35,35,0.12)', overflow: 'hidden' }}>
+                  {[80, 120, 100].map((w, i) => (
+                    <Box key={i} sx={{ px: 1.25, py: 0.85, borderBottom: i < 2 ? '1px solid rgba(0,0,0,0.06)' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Bone w={w} h={10} />
+                      <Bone w={50} h={13} r={4} />
+                    </Box>
+                  ))}
+                </Box>
+                <Bone w="100%" h={30} r={6} />
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* Col 2 — Input */}
+        <Box sx={{ borderRight: '1px solid rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+            <Box sx={{ width: 13, height: 13, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
+            <Bone w={180} h={10} />
+          </Box>
+          <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.25, flex: 1 }}>
+            <Bone w="55%" h={10} />
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Box
+                key={i}
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto',
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 1.25, py: 0.85,
+                  borderRadius: 1.5,
+                  border: '1px solid rgba(0,0,0,0.08)',
+                  bgcolor: 'rgba(0,0,0,0.01)',
+                }}
+              >
+                <Box>
+                  <Bone w={80} h={11} sx={{ mb: 0.5 }} />
+                  <Bone w={120} h={8} />
+                </Box>
+                <Bone w={80} h={32} r={6} />
+              </Box>
+            ))}
+          </Box>
+          <Box sx={{ px: 2, pb: 2, pt: 1, borderTop: '1px solid rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            <Bone w="100%" h={32} r={8} />
+            <Bone w="100%" h={36} r={8} />
+          </Box>
+        </Box>
+
+        {/* Col 3 — Records */}
+        <Box sx={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+            <Box sx={{ width: 13, height: 13, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
+            <Bone w={150} h={10} />
+          </Box>
+          {/* type filter bar */}
+          <Box sx={{ px: 1.5, py: 0.75, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(109,35,35,0.02)', display: 'flex', gap: 0.75, flexShrink: 0 }}>
+            {[50, 55, 40, 55].map((w, i) => <Bone key={i} w={w} h={20} r={20} />)}
+          </Box>
+          {/* status filter bar */}
+          <Box sx={{ px: 1.5, py: 0.6, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(0,0,0,0.015)', display: 'flex', gap: 0.75, flexShrink: 0 }}>
+            {[60, 65, 68, 65].map((w, i) => <Bone key={i} w={w} h={18} r={20} />)}
+          </Box>
+          {/* record rows */}
+          <Box sx={{ flex: 1, overflowY: 'auto', px: 1.5, pt: 1.25, pb: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {[1, 2, 3, 4].map((i) => (
+              <Box
+                key={i}
+                sx={{
+                  p: 1.5,
+                  borderRadius: 2,
+                  border: '1px solid rgba(0,0,0,0.08)',
+                  bgcolor: '#fff',
+                  animation: `blink 1.6s ease-in-out ${i * 0.1}s infinite`,
+                }}
+              >
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.75 }}>
+                  <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
+                    <Bone w={40} h={16} r={20} />
+                    <Bone w={80} h={14} />
+                    <Bone w={55} h={16} r={20} />
+                  </Box>
+                  <Bone w={55} h={22} r={6} />
+                </Box>
+                <Bone w="35%" h={18} sx={{ mb: 0.5 }} />
+                <Bone w="60%" h={9} />
+              </Box>
+            ))}
+          </Box>
+          {/* pagination */}
+          <Box sx={{ px: 1.5, py: 0.85, borderTop: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(0,0,0,0.015)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            <Bone w={120} h={10} />
+            <Box sx={{ display: 'flex', gap: 0.4 }}>
+              {[1, 2, 3, 4].map((i) => <Bone key={i} w={20} h={20} r={4} />)}
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+  </>
+);
 
 // ─── Styled components ────────────────────────────────────────────────────────
 const SectionCard = styled(Card)({
@@ -1948,10 +2242,9 @@ const VLDeductionReceipt = ({
                   lineHeight: 1.55,
                 }}
               >
-                <strong style={{ color: "#c62828" }}>Note:</strong> If the new
-                balance is negative (e.g. <em>−0.xxx d</em>), the employee does
-                not have enough balance — the shortfall will be directly
-                deducted from their salary.
+                <strong style={{ color: "#c62828" }}>Note:</strong> 
+                Negative balance (e.g. <em>−0.xxx d</em>) will be directly
+                deducted from salary.
               </Typography>
             </Box>
           )}
@@ -2749,7 +3042,7 @@ const AttendanceColumn = ({
                       count: (tardHrs / 8).toFixed(3),
                       sub1: `${tardHrs.toFixed(3)} hrs`,
                       sub2: hrsToHMS(tardHrs),
-                      label: "Tardiness",
+                      label: "Tardiness (Late)",
                       Icon: LateIcon,
                       accent: "#c62828",
                       bg: "#fdf6f6",
@@ -5117,9 +5410,8 @@ const CTODeductionReceipt = ({
                   }}
                 >
                   {" "}
-                  <strong style={{ color: "#c62828" }}>Note:</strong> If the new
-                  balance is negative (e.g. <em>−0.xxx d</em>), it will be directly
-                  deducted from their salary.{" "}
+                  <strong style={{ color: "#c62828" }}>Note:</strong>  Negative balance (e.g. <em>−0.xxx d</em>) will be directly
+                deducted from salary.{" "}
                 </Typography>
               </Box>
             )}
@@ -5958,7 +6250,14 @@ const RejectDialog = ({ open, onClose, onConfirm, loading }) => {
 };
 
 // ─── Earning Record Row ────────────────────────────────────────────────────────
-const EarningRow = ({ record, unit, type, onApprove, onReject }) => {
+const EarningRow = ({
+  record,
+  unit,
+  type,
+  onApprove,
+  onReject,
+  showTypeBadge,
+}) => {
   const earnH = toNum(record.earned_hours ?? record.total_hours);
   const status = record.earn_status || "pending";
   const isTardinessDeduction = record.entry_type === "TARDINESS_DEDUCTION";
@@ -5985,6 +6284,9 @@ const EarningRow = ({ record, unit, type, onApprove, onReject }) => {
               mb: 0.4,
             }}
           >
+            {/* Type badge — only shown in "all" view */}
+            {showTypeBadge && <TypeBadge type={type} />}
+ 
             <Typography
               sx={{
                 fontSize: "0.78rem",
@@ -5998,8 +6300,9 @@ const EarningRow = ({ record, unit, type, onApprove, onReject }) => {
                 ? ` · ${monthShort(record.period_month)}`
                 : ""}
               {record.leave_code && ` · ${record.leave_code}`}
-              {record.sc_type && ` · SC (${record.sc_type.replace("_", "-")})`}
-              {type === "cto" && ` · CTO`}
+              {record.sc_type &&
+                ` · SC (${record.sc_type.replace("_", "-")})`}
+              {type === "cto" && !record.sc_type && ` · CTO`}
             </Typography>
             <StatusBadge status={status} />
             {isTardinessDeduction && (
@@ -6092,6 +6395,8 @@ const EarningRow = ({ record, unit, type, onApprove, onReject }) => {
             </Typography>
           )}
         </Box>
+ 
+        {/* Actions column */}
         <Box
           sx={{
             display: "flex",
@@ -6101,7 +6406,7 @@ const EarningRow = ({ record, unit, type, onApprove, onReject }) => {
           }}
         >
           <StatusBadge status={status} />
-
+ 
           {status === "pending" && (
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
               <Box
@@ -6138,7 +6443,7 @@ const EarningRow = ({ record, unit, type, onApprove, onReject }) => {
                   Approve
                 </Typography>
               </Box>
-
+ 
               <Box
                 onClick={() => onReject(record)}
                 sx={{
@@ -6180,7 +6485,6 @@ const EarningRow = ({ record, unit, type, onApprove, onReject }) => {
     </Box>
   );
 };
-
 // ─── Pagination Controls ───────────────────────────────────────────────────────
 const PaginationControls = ({
   page,
@@ -6411,10 +6715,171 @@ const StatusFilterBar = ({ statusFilter, onStatusFilter, counts }) => (
   </Box>
 );
 
+const TYPE_META = {
+  leave: {
+    label: "Leave",
+    color: "#6d2323",
+    bg: "rgba(109,35,35,0.08)",
+    border: "rgba(109,35,35,0.22)",
+    icon: LeaveIcon,
+  },
+  sc: {
+    label: "SC",
+    color: "#1565c0",
+    bg: "rgba(21,101,192,0.08)",
+    border: "rgba(21,101,192,0.22)",
+    icon: SCIcon,
+  },
+  cto: {
+    label: "CTO",
+    color: "#2e7d32",
+    bg: "rgba(46,125,50,0.08)",
+    border: "rgba(46,125,50,0.22)",
+    icon: CTOIcon,
+  },
+};
+ 
+const TYPE_FILTER_OPTIONS = [
+  { value: "all", label: "All Types", color: "#555" },
+  { value: "leave", label: "Leave", color: TYPE_META.leave.color },
+  { value: "sc", label: "SC", color: TYPE_META.sc.color },
+  { value: "cto", label: "CTO", color: TYPE_META.cto.color },
+];
+ 
+// Badge shown on each earning row when viewing "all" types
+const TypeBadge = ({ type }) => {
+  const meta = TYPE_META[type];
+  if (!meta) return null;
+  const Icon = meta.icon;
+  return (
+    <Box
+      sx={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 0.35,
+        px: 0.75,
+        py: 0.15,
+        borderRadius: "20px",
+        bgcolor: meta.bg,
+        border: `1px solid ${meta.border}`,
+      }}
+    >
+      <Icon sx={{ fontSize: 9, color: meta.color }} />
+      <Typography
+        sx={{
+          fontSize: "0.58rem",
+          fontWeight: 800,
+          color: meta.color,
+          fontFamily: T.poppins,
+          letterSpacing: "0.05em",
+        }}
+      >
+        {meta.label}
+      </Typography>
+    </Box>
+  );
+};
+ 
+// ─── Type Filter Bar ──────────────────────────────────────────────────────────
+const TypeFilterBar = ({ typeFilter, onTypeFilter, typeCounts }) => (
+  <Box
+    sx={{
+      display: "flex",
+      alignItems: "center",
+      gap: 0.5,
+      px: 1.5,
+      py: 0.55,
+      borderBottom: `1px solid ${T.divider}`,
+      bgcolor: alpha(T.accent, 0.03),
+      flexShrink: 0,
+      flexWrap: "wrap",
+    }}
+  >
+    {/* Label */}
+    <Typography
+      sx={{
+        fontSize: "0.56rem",
+        fontWeight: 800,
+        color: T.faint,
+        fontFamily: T.poppins,
+        textTransform: "uppercase",
+        letterSpacing: "0.08em",
+        mr: 0.25,
+      }}
+    >
+      Type
+    </Typography>
+ 
+    {TYPE_FILTER_OPTIONS.map((opt) => {
+      const count = typeCounts[opt.value] ?? 0;
+      const active = typeFilter === opt.value;
+      return (
+        <Box
+          key={opt.value}
+          onClick={() => onTypeFilter(opt.value)}
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 0.4,
+            px: 0.85,
+            py: 0.2,
+            borderRadius: "20px",
+            cursor: "pointer",
+            border: `1px solid ${active ? opt.color : "rgba(0,0,0,0.1)"}`,
+            bgcolor: active ? alpha(opt.color, 0.1) : "transparent",
+            transition: "all 0.15s",
+            "&:hover": {
+              bgcolor: alpha(opt.color, 0.08),
+              borderColor: opt.color,
+            },
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: "0.6rem",
+              fontWeight: active ? 800 : 500,
+              color: active ? opt.color : T.faint,
+              fontFamily: T.poppins,
+            }}
+          >
+            {opt.label}
+          </Typography>
+          {/* count bubble (skip "all" — it's implied by total) */}
+          {opt.value !== "all" && (
+            <Box
+              sx={{
+                minWidth: 14,
+                height: 14,
+                borderRadius: "7px",
+                bgcolor: active ? opt.color : "rgba(0,0,0,0.07)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Typography
+                sx={{
+                  fontSize: "0.5rem",
+                  fontWeight: 800,
+                  color: active ? "#fff" : T.faint,
+                  fontFamily: T.poppins,
+                  lineHeight: 1,
+                }}
+              >
+                {count}
+              </Typography>
+            </Box>
+          )}
+        </Box>
+      );
+    })}
+  </Box>
+);
+
 // ─── Records List (Column 2) ───────────────────────────────────────────────────
 const RecordsList = ({
   employeeNumber,
-  type,
+  type,          // the tab's native type ("leave" | "sc" | "cto")
   unit,
   refreshKey,
   year,
@@ -6425,6 +6890,10 @@ const RecordsList = ({
 }) => {
   const [data, setData] = useState({ earnings: [], balances: [] });
   const [loading, setLoading] = useState(false);
+ 
+  // ── NEW: type filter (independent of the tab) ──
+  const [typeFilter, setTypeFilter] = useState("all");
+ 
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -6433,35 +6902,45 @@ const RecordsList = ({
     record: null,
   });
   const [actionLoading, setActionLoading] = useState(false);
-
+ 
+  // ── fetch: all three or just one type ────────────────────────────────────
   const fetchEarnings = useCallback(async () => {
     if (!employeeNumber) return;
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await axios.get(
-        `${API_BASE_URL}/api/earnings/${type}/${employeeNumber}?year=${year}&month=${month}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      setData({
-        earnings: res.data.earnings || [],
-        balances: res.data.balances || [],
-      });
+      const h = { headers: { Authorization: `Bearer ${token}` } };
+      const qs = `?year=${year}&month=${month}`;
+ 
+      // Always fetch all three so type-counts stay accurate regardless of filter
+      const [leaveRes, scRes, ctoRes] = await Promise.allSettled([
+        axios.get(`${API_BASE_URL}/api/earnings/leave/${employeeNumber}${qs}`, h),
+        axios.get(`${API_BASE_URL}/api/earnings/sc/${employeeNumber}${qs}`, h),
+        axios.get(`${API_BASE_URL}/api/earnings/cto/${employeeNumber}${qs}`, h),
+      ]);
+ 
+      const tag = (rows, t) =>
+        (rows || []).map((r) => ({ ...r, _earningType: t }));
+ 
+      const allEarnings = [
+        ...tag(leaveRes.status === "fulfilled" ? leaveRes.value.data?.earnings : [], "leave"),
+        ...tag(scRes.status  === "fulfilled" ? scRes.value.data?.earnings  : [], "sc"),
+        ...tag(ctoRes.status === "fulfilled" ? ctoRes.value.data?.earnings : [], "cto"),
+      ];
+ 
+      setData({ earnings: allEarnings, balances: [] });
     } catch {
       setData({ earnings: [], balances: [] });
     }
     setLoading(false);
-  }, [employeeNumber, type, year, month]);
-
-  useEffect(() => {
-    fetchEarnings();
-  }, [fetchEarnings, refreshKey]);
-
-  // Reset to page 1 when filter or data changes
-  useEffect(() => {
-    setPage(1);
-  }, [statusFilter, employeeNumber, year, month, type]);
-
+  }, [employeeNumber, year, month]);
+ 
+  useEffect(() => { fetchEarnings(); }, [fetchEarnings, refreshKey]);
+ 
+  // Reset to page 1 when any filter or key data changes
+  useEffect(() => { setPage(1); }, [typeFilter, statusFilter, employeeNumber, year, month]);
+ 
+  // ── sorting ───────────────────────────────────────────────────────────────
   const sortedEarnings = useMemo(
     () =>
       [...data.earnings].sort((a, b) => {
@@ -6472,44 +6951,60 @@ const RecordsList = ({
       }),
     [data.earnings],
   );
-
-  const statusCounts = useMemo(() => {
-    const counts = {
-      all: sortedEarnings.length,
-      pending: 0,
-      approved: 0,
-      rejected: 0,
-    };
+ 
+  // ── counts for the type filter bar ───────────────────────────────────────
+  const typeCounts = useMemo(() => {
+    const counts = { all: sortedEarnings.length, leave: 0, sc: 0, cto: 0 };
     sortedEarnings.forEach((e) => {
+      const t = e._earningType;
+      if (t in counts) counts[t]++;
+    });
+    return counts;
+  }, [sortedEarnings]);
+ 
+  // ── apply type filter ─────────────────────────────────────────────────────
+  const typeFiltered = useMemo(
+    () =>
+      typeFilter === "all"
+        ? sortedEarnings
+        : sortedEarnings.filter((e) => e._earningType === typeFilter),
+    [sortedEarnings, typeFilter],
+  );
+ 
+  // ── status counts (scoped to current type filter) ─────────────────────────
+  const statusCounts = useMemo(() => {
+    const counts = { all: typeFiltered.length, pending: 0, approved: 0, rejected: 0 };
+    typeFiltered.forEach((e) => {
       const s = e.earn_status || "pending";
       if (s in counts) counts[s]++;
     });
     return counts;
-  }, [sortedEarnings]);
-
+  }, [typeFiltered]);
+ 
+  // ── apply status filter ───────────────────────────────────────────────────
   const filteredEarnings = useMemo(
     () =>
       statusFilter === "all"
-        ? sortedEarnings
-        : sortedEarnings.filter(
-            (e) => (e.earn_status || "pending") === statusFilter,
-          ),
-    [sortedEarnings, statusFilter],
+        ? typeFiltered
+        : typeFiltered.filter((e) => (e.earn_status || "pending") === statusFilter),
+    [typeFiltered, statusFilter],
   );
-
-  const totalPages = Math.max(1, Math.ceil(filteredEarnings.length / pageSize));
+ 
+  const totalPages  = Math.max(1, Math.ceil(filteredEarnings.length / pageSize));
   const clampedPage = Math.min(page, totalPages);
   const pagedEarnings = filteredEarnings.slice(
     (clampedPage - 1) * pageSize,
     clampedPage * pageSize,
   );
-
+ 
+  // ── approve / reject ──────────────────────────────────────────────────────
   const handleApprove = async (record) => {
     setActionLoading(true);
     try {
       const token = localStorage.getItem("token");
+      const recordType = record._earningType || type;
       await axios.patch(
-        `${API_BASE_URL}/api/earnings/${type}/${record.id}/approve`,
+        `${API_BASE_URL}/api/earnings/${recordType}/${record.id}/approve`,
         {},
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -6519,13 +7014,14 @@ const RecordsList = ({
     } catch {}
     setActionLoading(false);
   };
-
+ 
   const handleReject = async (reason) => {
     setActionLoading(true);
     try {
       const token = localStorage.getItem("token");
+      const recordType = rejectDialog.record._earningType || type;
       await axios.patch(
-        `${API_BASE_URL}/api/earnings/${type}/${rejectDialog.record.id}/reject`,
+        `${API_BASE_URL}/api/earnings/${recordType}/${rejectDialog.record.id}/reject`,
         { reason },
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -6536,7 +7032,8 @@ const RecordsList = ({
     } catch {}
     setActionLoading(false);
   };
-
+ 
+  // ── early-out when no employee selected ──────────────────────────────────
   if (!employeeNumber) {
     if (standalone)
       return (
@@ -6546,9 +7043,10 @@ const RecordsList = ({
       );
     return null;
   }
-
+ 
   const pendingCount = statusCounts.pending;
-
+  const showTypeBadge = typeFilter === "all";   // show type badge only in "all" view
+ 
   const content = (
     <>
       {loading ? (
@@ -6569,17 +7067,18 @@ const RecordsList = ({
             sx={{ fontSize: "0.73rem", color: T.faint, fontFamily: T.poppins }}
           >
             {statusFilter === "all"
-              ? `No earnings for ${monthName(month)} ${year}`
-              : `No ${statusFilter} earnings`}
+              ? `No ${typeFilter === "all" ? "" : typeFilter.toUpperCase() + " "}earnings for ${monthName(month)} ${year}`
+              : `No ${statusFilter} ${typeFilter === "all" ? "" : typeFilter.toUpperCase() + " "}earnings`}
           </Typography>
         </Box>
       ) : (
         pagedEarnings.map((record) => (
           <EarningRow
-            key={record.id}
+            key={`${record._earningType}-${record.id}`}
             record={record}
             unit={unit}
-            type={type}
+            type={record._earningType || type}
+            showTypeBadge={showTypeBadge}
             onApprove={handleApprove}
             onReject={(r) => setRejectDialog({ open: true, record: r })}
           />
@@ -6593,10 +7092,11 @@ const RecordsList = ({
       />
     </>
   );
-
+ 
   if (standalone)
     return (
       <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+        {/* ── Column header ── */}
         <ColHeader icon={HistoryIcon} label="Earnings Records">
           {pendingCount > 0 && (
             <Chip
@@ -6623,15 +7123,22 @@ const RecordsList = ({
             />
           </IconButton>
         </ColHeader>
-
-        {/* Status filter bar */}
+ 
+        {/* ── NEW: Type filter bar ── */}
+        <TypeFilterBar
+          typeFilter={typeFilter}
+          onTypeFilter={(v) => { setTypeFilter(v); setStatusFilter("all"); }}
+          typeCounts={typeCounts}
+        />
+ 
+        {/* ── Existing: Status filter bar ── */}
         <StatusFilterBar
           statusFilter={statusFilter}
           onStatusFilter={(v) => setStatusFilter(v)}
           counts={statusCounts}
         />
-
-        {/* Scrollable records list */}
+ 
+        {/* ── Scrollable records list ── */}
         <Box
           sx={{
             flex: 1,
@@ -6648,23 +7155,20 @@ const RecordsList = ({
         >
           {content}
         </Box>
-
-        {/* Pagination */}
+ 
+        {/* ── Pagination ── */}
         <PaginationControls
           page={clampedPage}
           totalPages={totalPages}
           pageSize={pageSize}
           onPageChange={setPage}
-          onPageSizeChange={(s) => {
-            setPageSize(s);
-            setPage(1);
-          }}
+          onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
           totalCount={sortedEarnings.length}
           filteredCount={filteredEarnings.length}
         />
       </Box>
     );
-
+ 
   return <Box sx={{ mt: 1 }}>{content}</Box>;
 };
 
@@ -8221,7 +8725,7 @@ const CTOInputColumn = ({
               fontFamily: T.poppins,
             }}
           >
-            CTO Rule — 40-hr / Designated only · 1:1 OT accrual
+            CTO Rule — 40-hr / Designated only
           </Typography>
           {!isEligible && (
             <Typography
@@ -8666,12 +9170,7 @@ const EarningsManagement = () => {
     return list;
   }, [employees, empCatMap, catFilter]);
 
-  if (pageLoading)
-    return (
-      <Box sx={{ py: 8, textAlign: "center" }}>
-        <CircularProgress sx={{ color: T.accent }} />
-      </Box>
-    );
+if (pageLoading) return <EarningsWireframe />;
 
   const deptCode = selectedEmployee
     ? deptMap[String(selectedEmployee.employeeNumber)]
