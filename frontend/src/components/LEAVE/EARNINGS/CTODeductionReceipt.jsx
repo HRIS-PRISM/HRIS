@@ -1246,34 +1246,7 @@ const DeductionReceiptSwitcher = ({
 }) => {
   if (!employee || !attendanceData?.summary) return null;
 
-  const label = (empCat?.label || "").toLowerCase();
-  const parentGroup = (empCat?.parentGroup || "").toLowerCase();
-
-  // CTO applies to: 40hr/designated, Temporary (any subcat), Non-Teaching
-  const usesCTO =
-    label.includes("40") ||
-    label.includes("designated") ||
-    label.includes("temporary") ||
-    parentGroup.includes("temporary") ||
-    label.includes("non-teaching") ||
-    label.includes("non teaching") ||
-    parentGroup.includes("non-teaching") ||
-    label.includes("non teaching");
-
-  if (usesCTO) {
-    return (
-      <CTODeductionReceipt
-        employee={employee}
-        attendanceData={attendanceData}
-        year={year}
-        month={month}
-        onDeductSuccess={onDeductSuccess}
-        refreshKey={refreshKey}
-        empCat={empCat}
-      />
-    );
-  }
-
+  if (false) {
   const SCDeductionReceipt = ({
     employee,
     attendanceData,
@@ -2256,16 +2229,17 @@ const DeductionReceiptSwitcher = ({
       </>
     );
   };
+  }
 
-  // 30hr or unclassified → SC covers everything
   return (
-    <SCDeductionReceipt
+    <CTODeductionReceipt
       employee={employee}
       attendanceData={attendanceData}
       year={year}
       month={month}
       onDeductSuccess={onDeductSuccess}
       refreshKey={refreshKey}
+      empCat={empCat}
     />
   );
 };
