@@ -451,7 +451,7 @@ const CTOInputColumn = ({
   if (!employee)
     return (
       <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-        <ColHeader icon={CTOIcon} label="CTO Input" color={T.accent} />
+        <ColHeader icon={CTOIcon} label="Cmpensatory Time Off Input" color={T.accent} />
         <Box
           sx={{
             flex: 1,
@@ -479,7 +479,7 @@ const CTOInputColumn = ({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <ColHeader icon={CTOIcon} label="CTO Input" color={T.accent} />
+      <ColHeader icon={CTOIcon} label="Compensatory Time Off Input" color={T.accent} />
       <Box
         sx={{
           flex: 1,

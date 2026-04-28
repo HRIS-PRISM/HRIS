@@ -276,6 +276,7 @@ const ColHeader = ({ icon: Icon, label, color = T.accent, children }) => (
       gap: 0.75,
       px: 1.5,
       py: 1,
+      flexWrap: "nowrap",
       borderBottom: `1px solid ${T.divider}`,
       bgcolor: "rgba(0,0,0,0.02)",
       flexShrink: 0,
@@ -291,11 +292,23 @@ const ColHeader = ({ icon: Icon, label, color = T.accent, children }) => (
         textTransform: "uppercase",
         letterSpacing: "0.07em",
         flex: 1,
+        minWidth: 0,
+        whiteSpace: "nowrap",
       }}
     >
       {label}
     </Typography>
-    {children}
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 0.5,
+        flexShrink: 0,
+        flexWrap: "nowrap",
+      }}
+    >
+      {children}
+    </Box>
   </Box>
 );
 
@@ -597,22 +610,25 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
       }}
     >
       <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.muted}>
-  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-    {success && (
-      <Typography sx={{ fontSize: "0.58rem", color: "#2e7d32", fontFamily: T.poppins, fontWeight: 700 }}>
-        {success}
-      </Typography>
-    )}
+  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "nowrap" }}>
     {!editing ? (
       <Button
         variant="contained"
         size="small"
         onClick={() => setEditing(true)}
         sx={{
-          fontSize: "0.7rem", fontWeight: 700, color: "#fff",
+          height: 20,
+          fontSize: "0.6rem",
+          fontWeight: 700,
+          color: "#fff",
           textTransform: "none", fontFamily: T.poppins,
-          px: 1, py: 0.4, minWidth: 0, borderRadius: 1,
-          bgcolor: T.accent, boxShadow: "none", lineHeight: 1.6,
+          px: 1,
+          py: 0,
+          minWidth: 0,
+          borderRadius: 1,
+          bgcolor: T.accent,
+          boxShadow: "none",
+          lineHeight: 1,
           "&:hover": { bgcolor: T.accentDark, boxShadow: "none" },
         }}
       >
@@ -624,9 +640,16 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
           size="small"
           onClick={() => setEditing(false)}
           sx={{
-            fontSize: "0.7rem", fontWeight: 600, color: T.muted,
+            height: 20,
+            fontSize: "0.6rem",
+            fontWeight: 600,
+            color: T.muted,
             textTransform: "none", fontFamily: T.poppins,
-            px: 1, py: 0.4, minWidth: 0, borderRadius: 1, lineHeight: 1.6,
+            px: 1,
+            py: 0,
+            minWidth: 0,
+            borderRadius: 1,
+            lineHeight: 1,
           }}
         >
           Cancel
@@ -637,10 +660,18 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
           disabled={saving}
           startIcon={saving ? <CircularProgress size={10} /> : <SaveIcon sx={{ fontSize: "12px !important" }} />}
           sx={{
-            fontSize: "0.7rem", fontWeight: 700, color: "#fff",
+            height: 20,
+            fontSize: "0.6rem",
+            fontWeight: 700,
+            color: "#fff",
             textTransform: "none", fontFamily: T.poppins,
-            px: 1.5, py: 0.4, minWidth: 0, borderRadius: 1, lineHeight: 1.6,
-            bgcolor: T.accent, "&:hover": { bgcolor: T.accentDark },
+            px: 1.2,
+            py: 0,
+            minWidth: 0,
+            borderRadius: 1,
+            lineHeight: 1,
+            bgcolor: T.accent,
+            "&:hover": { bgcolor: T.accentDark },
           }}
         >
           {saving ? "…" : "Save"}
@@ -650,9 +681,9 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     <IconButton
       size="small"
       onClick={onRefresh}
-      sx={{ p: 0.3, color: T.muted }}
+      sx={{ p: 0.2, color: T.muted }}
     >
-      <RefreshIcon sx={{ fontSize: 13 }} />
+      <RefreshIcon sx={{ fontSize: 12 }} />
     </IconButton>
   </Box>
 </ColHeader>
@@ -663,11 +694,11 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
           flex: 1,
           overflowY: "auto",
           px: 1.25,
-          pt: 1,
-          pb: 1,
+          pt: 0.75,
+          pb: 0.75,
           display: "flex",
           flexDirection: "column",
-          gap: 0.75,
+          gap: 0.55,
           "&::-webkit-scrollbar": { width: 3 },
           "&::-webkit-scrollbar-thumb": {
             bgcolor: "rgba(0,0,0,0.12)",
@@ -675,6 +706,20 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
           },
         }}
       >
+        {success && (
+          <Alert
+            severity="success"
+            sx={{
+              py: 0,
+              px: 1,
+              fontSize: "0.65rem",
+              borderRadius: 1.25,
+              "& .MuiAlert-icon": { mr: 0.75 },
+            }}
+          >
+            {success}
+          </Alert>
+        )}
         {!raw ? (
           <Box
             sx={{
@@ -742,7 +787,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
                 <Box
                   sx={{
                     px: 1,
-                    py: 0.85,
+                    py: 0.6,
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
@@ -782,7 +827,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
                 <Box
                   sx={{
                     px: 1.25,
-                    py: 0.85,
+                    py: 0.6,
                     borderRight: "1px solid rgba(0,0,0,0.07)",
                     display: "flex",
                     flexDirection: "column",
@@ -807,7 +852,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
                   <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.3 }}>
                     <Typography
                       sx={{
-                        fontSize: "1rem",
+                        fontSize: "0.92rem",
                         fontWeight: 800,
                         color: "#111",
                         fontFamily: T.poppins,
@@ -866,7 +911,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
                         key={label}
                         sx={{
                           flex: 1,
-                          py: 0.75,
+                          py: 0.55,
                           px: 0.5,
                           display: "flex",
                           flexDirection: "column",
@@ -890,7 +935,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
                           </Typography>
                         </Box>
                         <Typography
-                          sx={{ fontSize: "1.05rem", fontWeight: 800, color: accent, fontFamily: T.poppins, lineHeight: 1 }}
+                          sx={{ fontSize: "0.98rem", fontWeight: 800, color: accent, fontFamily: T.poppins, lineHeight: 1 }}
                         >
                           {count}
                         </Typography>
@@ -965,17 +1010,17 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
   >
     <Box
       sx={{
-        px: 1.25, py: 0.5,
+        px: 1, py: 0.35,
         bgcolor: "rgba(0,0,0,0.03)",
         borderBottom: "1px solid rgba(0,0,0,0.08)",
         display: "flex", alignItems: "center", gap: 0.5,
       }}
     >
-      <EarnIcon sx={{ fontSize: 11, color: T.muted }} />
-      <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: T.muted, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.06em", flex: 1 }}>
+      <EarnIcon sx={{ fontSize: 10, color: T.muted }} />
+      <Typography sx={{ fontSize: "0.58rem", fontWeight: 800, color: T.muted, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.06em", flex: 1 }}>
         Leave Balances
       </Typography>
-      {balLoading && <CircularProgress size={9} sx={{ color: T.muted }} />}
+      {balLoading && <CircularProgress size={8} sx={{ color: T.muted }} />}
     </Box>
     <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 0 }}>
       {[
@@ -990,30 +1035,27 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
           <Box
             key={label}
             sx={{
-              py: 0.85, px: 1,
+              py: 0.4, px: 0.75,
               display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
               bgcolor: bg,
               borderRight: idx < arr.length - 1 ? `1px solid ${border}` : "none",
             }}
           >
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.3, mb: 0.3 }}>
-              <Icon sx={{ fontSize: 9, color, opacity: 0.75 }} />
-              <Typography sx={{ fontSize: "0.5rem", fontWeight: 700, color, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.09em", opacity: 0.85 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, mb: 0.15 }}>
+              <Icon sx={{ fontSize: 8.5, color, opacity: 0.75 }} />
+              <Typography sx={{ fontSize: "0.48rem", fontWeight: 800, color, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.09em", opacity: 0.85 }}>
                 {label}
               </Typography>
             </Box>
             {balLoading ? (
-              <Box sx={{ height: 20, display: "flex", alignItems: "center" }}>
-                <CircularProgress size={10} sx={{ color }} />
+              <Box sx={{ height: 16, display: "flex", alignItems: "center" }}>
+                <CircularProgress size={9} sx={{ color }} />
               </Box>
             ) : (
-              <Typography sx={{ fontSize: "1.05rem", fontWeight: 800, color: displayColor, fontFamily: T.poppins, lineHeight: 1 }}>
+              <Typography sx={{ fontSize: "0.86rem", fontWeight: 900, color: displayColor, fontFamily: T.poppins, lineHeight: 1 }}>
                 {val ?? "—"}
               </Typography>
             )}
-            <Typography sx={{ fontSize: "0.52rem", color: T.faint, fontFamily: T.poppins, fontWeight: 500, mt: 0.2 }}>
-              {isNeg ? "salary deduct" : "balance"}
-            </Typography>
           </Box>
         );
       })}

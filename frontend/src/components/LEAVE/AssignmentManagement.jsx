@@ -713,39 +713,35 @@ const AssignmentManagement = () => {
         <SectionCard sx={{ borderRadius: "12px 12px 0 0" }}>
           {/* Gradient header */}
           <Box sx={{
-            px: 4, py: 2.75,
-            background: "linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)",
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            position: "relative", overflow: "hidden",
+            px: 4,
+            py: 2,
+            background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            position: "relative",
+            overflow: "hidden",
           }}>
             <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)" }} />
             <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, borderRadius: "50%", background: "radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)" }} />
 
-            <Box sx={{ display: "flex", alignItems: "center", gap: 2.5, position: "relative", zIndex: 1 }}>
-              <Box sx={{ width: 44, height: 44, borderRadius: "50%", bgcolor: alpha(T.accent, 0.12), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <tab.icon sx={{ fontSize: 22, color: T.accent }} />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
+              <Box sx={{ width: 38, height: 38, borderRadius: "50%", bgcolor: alpha(T.accent, 0.1), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <tab.icon sx={{ fontSize: 18, color: T.accent }} />
               </Box>
               <Box>
-                <Typography sx={{ fontSize: "1.15rem", fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3, fontFamily: T.poppins }}>
+                <Typography sx={{ fontSize: "1rem", fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.2, fontFamily: T.poppins }}>
                   Assignment Management
                 </Typography>
-                <Typography sx={{ fontSize: "0.78rem", color: T.accentMid, fontWeight: 600, opacity: 0.85, fontFamily: T.poppins }}>
-                  Leave types · service credits · compensatory time off
-                </Typography>
-              </Box>
-            </Box>
-
-            <Box sx={{ position: "relative", zIndex: 1 }}>
-              <Box sx={{ px: 2, py: 0.6, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
-                <Typography sx={{ fontSize: "0.78rem", color: T.accent, fontWeight: 700, fontFamily: T.poppins }}>
-                  Administrative Panel
+                <Typography sx={{ fontSize: "0.7rem", color: T.accentMid, fontWeight: 600, fontFamily: T.poppins }}>
+                  Leave Assignment · Service Credits (SC) · Compensatory Time Off (CTO)
                 </Typography>
               </Box>
             </Box>
           </Box>
 
           {/* Tab row */}
-          <Box sx={{ background: T.headerGrad, px: { xs: 0, sm: 1, md: 1 }, pt: 1, pb: 0, display: "flex", alignItems: "flex-end" }}>
+          <Box sx={{ background: T.headerGrad, px: { xs: 0, sm: 1 }, pt: 0.75, pb: 0, display: "flex", alignItems: "flex-end" }}>
             {TABS.map((t, idx) => {
               const Icon = t.icon;
               const isActive = idx === activeTab;
@@ -754,21 +750,25 @@ const AssignmentManagement = () => {
                   key={t.id}
                   onClick={() => setActiveTab(idx)}
                   sx={{
-                    display: "flex", alignItems: "center", gap: 0.75,
-                    px: { xs: 1.5, sm: 2.5 }, py: 1,
-                    cursor: "pointer", position: "relative",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 0.6,
+                    px: { xs: 1.5, sm: 2.5 },
+                    py: 0.85,
+                    cursor: "pointer",
+                    position: "relative",
                     borderRadius: "8px 8px 0 0",
-                    transition: "background 0.15s ease",
+                    transition: "background 0.15s",
                     bgcolor: isActive ? "rgba(255,255,255,0.97)" : "transparent",
                     "&:hover": isActive ? {} : { bgcolor: "rgba(255,255,255,0.1)" },
                     "&::after": isActive ? { content: '""', position: "absolute", bottom: -1, left: 0, right: 0, height: 2, bgcolor: "rgba(255,255,255,0.97)" } : {},
                   }}
                 >
-                  <Icon sx={{ fontSize: 14, color: isActive ? t.color : "rgba(255,255,255,0.6)", transition: "color 0.15s", flexShrink: 0 }} />
-                  <Typography sx={{ fontSize: "0.76rem", fontWeight: isActive ? 700 : 500, color: isActive ? t.color : "rgba(255,255,255,0.7)", fontFamily: T.poppins, whiteSpace: "nowrap", transition: "color 0.15s", display: { xs: "none", sm: "block" } }}>
+                  <Icon sx={{ fontSize: 13, color: isActive ? T.accent : "rgba(255,255,255,0.6)", flexShrink: 0 }} />
+                  <Typography sx={{ fontSize: "0.73rem", fontWeight: isActive ? 700 : 500, color: isActive ? T.accent : "rgba(255,255,255,0.7)", fontFamily: T.poppins, whiteSpace: "nowrap", display: { xs: "none", sm: "block" } }}>
                     {t.label}
                   </Typography>
-                  <Typography sx={{ fontSize: "0.76rem", fontWeight: isActive ? 700 : 500, color: isActive ? t.color : "rgba(255,255,255,0.7)", fontFamily: T.poppins, whiteSpace: "nowrap", display: { xs: "block", sm: "none" } }}>
+                  <Typography sx={{ fontSize: "0.73rem", fontWeight: isActive ? 700 : 500, color: isActive ? T.accent : "rgba(255,255,255,0.7)", fontFamily: T.poppins, whiteSpace: "nowrap", display: { xs: "block", sm: "none" } }}>
                     {t.shortLabel}
                   </Typography>
                 </Box>

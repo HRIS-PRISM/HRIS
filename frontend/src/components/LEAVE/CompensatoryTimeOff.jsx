@@ -31,12 +31,11 @@ import {
   ViewModule as ViewModuleIcon, ViewList as ViewListIcon,
   Reorder,
   CheckCircle as CheckIcon,
-  Block as OffsetIcon,
   AccessTime as CTOIcon,
   Domain as DomainIcon,
   Work as WorkIcon,
   Info as InfoIcon,
-  EventBusy as ForfeitIcon,
+  MonetizationOn as CommutationIcon,
   CalendarToday as CalIcon,
   Warning as WarnIcon,
 } from "@mui/icons-material";
@@ -174,7 +173,7 @@ const ExpiryBadge = ({ expiryDate }) => {
   const d = new Date(expiryDate).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" });
   return (
     <Chip size="small"
-      icon={expired ? <ForfeitIcon style={{ fontSize: 10, color: "#d32f2f" }} /> : <CalIcon style={{ fontSize: 10, color: "#e65100" }} />}
+      icon={expired ? <WarnIcon style={{ fontSize: 10, color: "#d32f2f" }} /> : <CalIcon style={{ fontSize: 10, color: "#e65100" }} />}
       label={expired ? `Expired ${d}` : `Expires ${d}`}
       sx={{ height: 18, fontSize: "0.62rem", fontWeight: 700,
         bgcolor: expired ? "rgba(211,47,47,0.08)" : "rgba(230,81,0,0.08)",
@@ -184,115 +183,7 @@ const ExpiryBadge = ({ expiryDate }) => {
   );
 };
 
-// ─── CTO Action Dialog ─────────────────────────────────────────────────────────
-// hoursToApply is always stored in HOURS internally; display/input in days when unit="days"
-const CTOActionDialog = ({ open, record, action, onClose, onConfirm, loading, unit }) => {
-  // Internal state in display unit (days or hours depending on toggle)
-  const [inputValue, setInputValue] = useState(0);
-
-  useEffect(() => {
-    if (open) {
-      const remHrs = toNum(record?.remaining_hours);
-      // Set input default in the current display unit
-      setInputValue(unit === "days" ? parseFloat((remHrs / 8).toFixed(3)) : parseFloat(remHrs.toFixed(3)));
-    }
-  }, [open, record, unit]);
-
-  if (!record) return null;
-
-  const remHrs    = toNum(record.remaining_hours);
-  const remInUnit = unit === "days" ? remHrs / 8 : remHrs;
-  const needsInput = action === "offset" || action === "use_as_leave";
-  const titles    = { offset: "Apply CTO as Offset", use_as_leave: "Use CTO as Leave", forfeit: "Forfeit CTO Credits" };
-  const actionColor = action === "forfeit" ? "#d32f2f" : action === "use_as_leave" ? "#2e7d32" : T.accent;
-
-  // Convert display input back to hours for API
-  const appliedHours = toHours(inputValue, unit);
-  const counterLabel = unit === "days"
-    ? `= ${appliedHours.toFixed(3)} hrs`
-    : `= ${(inputValue / 8).toFixed(3)} days`;
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth
-      PaperProps={{ sx: { borderRadius: 3, overflow: "hidden", fontFamily: T.poppins } }}>
-      <DialogTitle sx={{ p: 0 }}>
-        <Box sx={{ px: 3.5, py: 2.5, background: T.headerGrad, display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", overflow: "hidden" }}>
-          <Box sx={{ position: "absolute", top: -40, right: -30, width: 160, height: 160, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.04)" }} />
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
-            <Box sx={{ width: 40, height: 40, borderRadius: 2, bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {action === "forfeit" ? <ForfeitIcon sx={{ fontSize: 18, color: "#fff" }} /> : <CTOIcon sx={{ fontSize: 18, color: "#fff" }} />}
-            </Box>
-            <Box>
-              <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.95rem", lineHeight: 1.2, fontFamily: T.poppins }}>{titles[action] || "CTO Action"}</Typography>
-              <Typography sx={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.65)", fontFamily: T.poppins }}>{record.fullName || record.employeeNumber}</Typography>
-            </Box>
-          </Box>
-          <IconButton onClick={onClose} size="small" sx={{ color: "rgba(255,255,255,0.75)", position: "relative", zIndex: 1, "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}>
-            <Close sx={{ fontSize: 16 }} />
-          </IconButton>
-        </Box>
-      </DialogTitle>
-      <DialogContent sx={{ p: 3 }}>
-        <Box sx={{ bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: 2, p: 2.5, mb: 2.5 }}>
-          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.accent, mb: 1.25, fontFamily: T.poppins }}>Summary</Typography>
-          {[
-            ["Employee",          record.fullName || record.employeeNumber],
-            ["Period",            periodLabel(record.period_year, record.period_month)],
-            ["Available Balance", fmtHrs(remHrs, unit) + (unit === "days" ? ` (${remHrs.toFixed(3)} hrs)` : ` (${(remHrs / 8).toFixed(3)} days)`)],
-            ...(record.expiry_date ? [["Expiry", new Date(record.expiry_date).toLocaleDateString("en-PH")]] : []),
-          ].map(([lbl, val]) => (
-            <Box key={lbl} sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", py: 0.6, borderBottom: "1px solid rgba(0,0,0,0.05)", "&:last-child": { borderBottom: "none" } }}>
-              <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontWeight: 700, fontFamily: T.poppins }}>{lbl}</Typography>
-              <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.text, fontFamily: T.poppins }}>{val}</Typography>
-            </Box>
-          ))}
-        </Box>
-        {needsInput && (
-          <Box sx={{ mb: 2.5 }}>
-            <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>
-              {unit === "days" ? "Days" : "Hours"} to Apply{" "}
-              <span style={{ color: T.faint, fontWeight: 500 }}>(max {remInUnit.toFixed(3)} {unit === "days" ? "days" : "hrs"})</span>
-            </Typography>
-            <FieldInput type="number" size="small" fullWidth
-              value={inputValue || ""}
-              inputProps={{ min: 0, max: remInUnit, step: 0.001 }}
-              onChange={(e) => setInputValue(Math.min(parseFloat(e.target.value) || 0, remInUnit))}
-              InputProps={{ endAdornment: <InputAdornment position="end">
-                <Typography sx={{ fontSize: "0.7rem", color: T.faint, fontWeight: 700, fontFamily: T.poppins }}>
-                  {unit === "days" ? "days" : "hrs"} · {counterLabel}
-                </Typography>
-              </InputAdornment> }}
-            />
-          </Box>
-        )}
-        <Alert severity={action === "forfeit" ? "error" : "warning"} sx={{ borderRadius: 2 }}>
-          <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: T.poppins }}>
-            {action === "offset"
-              ? `${fmtHrs(appliedHours, unit)} will be applied as work offset. This action cannot be undone.`
-              : action === "use_as_leave"
-              ? `${fmtHrs(appliedHours, unit)} will be deducted and recorded as leave usage.`
-              : "All remaining CTO credits will be forfeited. This action is permanent."}
-          </Typography>
-        </Alert>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: "#f9f9f9", gap: 1 }}>
-        <AccentButton onClick={onClose} variant="outlined"
-          sx={{ fontSize: "0.8rem", fontFamily: T.poppins, borderColor: T.accentBorder, color: T.muted, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>
-          Cancel
-        </AccentButton>
-        <AccentButton
-          onClick={() => onConfirm({ action, hours: needsInput ? appliedHours : remHrs })}
-          disabled={loading || (needsInput && inputValue <= 0)}
-          variant="contained"
-          startIcon={loading ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : null}
-          sx={{ fontSize: "0.8rem", fontFamily: T.poppins, bgcolor: actionColor, color: "#fff", "&:hover": { bgcolor: alpha(actionColor, 0.85) }, "&:disabled": { bgcolor: "#ccc" } }}>
-          {loading ? "Processing…" : "Confirm"}
-        </AccentButton>
-      </DialogActions>
-    </Dialog>
-  );
-};
-
+// (Forfeit dialog removed; only "Transfer to Commutation" is allowed)
 
 // ─── Bone skeleton primitive ──────────────────────────────────────────────────
 const Bone = ({ w = "100%", h = 14, r = 6, sx = {} }) => (
@@ -369,7 +260,7 @@ const CompensatoryTimeOffWireframe = () => (
       </Box>
 
       {/* ── Two-column body skeleton ── */}
-      <Box sx={{ display: "grid", gridTemplateColumns: "5fr 7fr", gap: 2 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: "4fr 8fr", gap: 2 }}>
 
         {/* ── Left col — Record CTO Form ── */}
         <Box
@@ -416,7 +307,7 @@ const CompensatoryTimeOffWireframe = () => (
             </Box>
 
             {/* Period row */}
-            <Box sx={{ display: "grid", gridTemplateColumns: "5fr 7fr", gap: 1.5 }}>
+            <Box sx={{ display: "grid", gridTemplateColumns: "4fr 8fr", gap: 1.5 }}>
               <Box>
                 <Bone w={80} h={10} sx={{ mb: 0.75 }} />
                 <Bone w="100%" h={36} r={8} />
@@ -511,7 +402,7 @@ const CompensatoryTimeOffWireframe = () => (
 
           {/* Grid of employee cards */}
           <Box sx={{ flex: 1, overflowY: "hidden", p: 2 }}>
-            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1.5 }}>
+            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1.5 }}>
               {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
                 <Box
                   key={i}
@@ -677,11 +568,8 @@ const CompensatoryTimeOff = () => {
   const [editRecord,           setEditRecord]           = useState(null);
   // editHours is always stored in HOURS internally
   const [editHours,            setEditHours]            = useState(0);
-  const [actionDialogOpen,     setActionDialogOpen]     = useState(false);
-  const [actionRecord,         setActionRecord]         = useState(null);
-  const [currentAction,        setCurrentAction]        = useState(null);
-  const [actionLoading,        setActionLoading]        = useState(false);
   const [actionSuccess,        setActionSuccess]        = useState("");
+  const [commuteLoadingId,     setCommuteLoadingId]     = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -917,22 +805,24 @@ const CompensatoryTimeOff = () => {
     } catch (err) { setError("Error deleting: " + (err.response?.data?.error || err.message)); }
   };
 
-  const handleCTOAction = async ({ action, hours }) => {
-    if (!actionRecord) return;
-    setActionLoading(true);
+  const handleTransferToCommutation = async (record) => {
+    if (!record?.id) return;
+    const remH = toNum(record.remaining_hours);
+    if (remH <= 0) return;
+    if (!window.confirm(`Transfer remaining ${fmtHrs(remH, unit)} to Leave Commutation?`)) return;
+    setCommuteLoadingId(record.id);
     try {
       const token = localStorage.getItem("token");
       await axios.post(
-        `${API_BASE_URL}/api/cto/cto/${actionRecord.id}/action`,
-        { action, hours }, // hours is always in hours (converted before being passed here)
+        `${API_BASE_URL}/api/cto/cto/${record.id}/commute`,
+        { commuted_by: token ? "admin" : null },
         { headers: { Authorization: `Bearer ${token}` } },
       );
       await fetchCTORecords();
-      setActionDialogOpen(false);
-      setActionSuccess(`CTO action "${action.replace(/_/g, " ")}" applied successfully.`);
+      setActionSuccess(`Transferred ${fmtHrs(remH, unit)} to Leave Commutation.`);
       setTimeout(() => setActionSuccess(""), 4000);
-    } catch (err) { setError("Action failed: " + (err.response?.data?.error || err.message)); }
-    finally { setActionLoading(false); }
+    } catch (err) { setError("Transfer failed: " + (err.response?.data?.error || err.message)); }
+    finally { setCommuteLoadingId(null); }
   };
 
   const openEmployeeCTOModal = (grp) => {
@@ -963,13 +853,6 @@ if (accessLoading || pageLoading) {
         }}>
           <LoadingOverlay open={loading} message="Processing CTO record…" />
           <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
-          <CTOActionDialog
-            open={actionDialogOpen} record={actionRecord} action={currentAction}
-            onClose={() => setActionDialogOpen(false)}
-            onConfirm={handleCTOAction} loading={actionLoading}
-            unit={unit}
-          />
-
           {/* ── Page Header ── */}
           <SectionCard sx={{ mb: 2, overflow: "hidden" }}>
             <Box sx={{
@@ -1009,7 +892,7 @@ if (accessLoading || pageLoading) {
 
           <Grid container spacing={2}>
             {/* ── LEFT: Record CTO Form ── */}
-            <Grid item xs={12} lg={5}>
+            <Grid item xs={12} lg={4}>
               <SectionCard sx={{ height: "calc(100vh - 280px)", display: "flex", flexDirection: "column" }}>
                 {/* Panel header */}
                 <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.5, bgcolor: T.accentFaint, flexShrink: 0 }}>
@@ -1038,7 +921,7 @@ if (accessLoading || pageLoading) {
                         sx={{ height: 16, fontSize: "0.58rem", fontWeight: 700, bgcolor: alpha(T.accent, 0.1), color: T.accent, border: `1px solid ${alpha(T.accent, 0.25)}` }} />
                     </Box>
                     <Typography sx={{ fontSize: "0.68rem", color: T.accentMid, fontFamily: T.poppins, opacity: 0.85 }}>
-                      CTO accrues at 1:1 with OT hours. Can be used as offset or leave. Cannot be monetized or converted to SL/VL.
+                      CTO accrues at 1:1 with OT hours. Cannot be monetized or converted to SL/VL.
                     </Typography>
                   </Box>
 
@@ -1227,7 +1110,7 @@ if (accessLoading || pageLoading) {
             </Grid>
 
             {/* ── RIGHT: Records Panel ── */}
-            <Grid item xs={12} lg={7}>
+            <Grid item xs={12} lg={8}>
               <SectionCard sx={{ height: "calc(100vh - 280px)", display: "flex", flexDirection: "column" }}>
                 <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
                   <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
@@ -1291,7 +1174,7 @@ if (accessLoading || pageLoading) {
                         const empCat      = empCatLabelMap[grp.employeeNumber] || null;
                         const hasExpired  = grp.records.some((r) => isExpired(r.expiry_date));
                         return (
-                          <Grid item xs={12} sm={6} md={4} key={grp.employeeNumber} sx={{ display: "flex" }}>
+                          <Grid item xs={12} sm={6} md={3} key={grp.employeeNumber} sx={{ display: "flex" }}>
                             <Box onClick={() => openEmployeeCTOModal(grp)}
                               sx={{ width: "100%", display: "flex", flexDirection: "column", p: 2, borderRadius: 2, cursor: "pointer", bgcolor: "#fff",
                                 border: `1px solid ${hasExpired ? "rgba(211,47,47,0.25)" : T.accentBorder}`,
@@ -1545,7 +1428,7 @@ if (accessLoading || pageLoading) {
                                       <Box sx={{ px: 2.5, py: 1.25, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
                                         <Typography sx={{ fontSize: "0.72rem", color: expired ? T.faint : remH > 0 ? "#2e7d32" : T.faint, fontFamily: T.poppins }}>
                                           {expired ? "⚠ This CTO record has expired."
-                                            : remH > 0 ? `${fmt(remH)} remaining · Can be used as offset or leave.`
+                                            : remH > 0 ? `${fmt(remH)} remaining.`
                                             : "All CTO credits for this period have been used."}
                                         </Typography>
                                         <Box sx={{ display: "flex", gap: 0.75, flexShrink: 0 }}>
@@ -1555,29 +1438,21 @@ if (accessLoading || pageLoading) {
                                             sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28, borderColor: T.accentBorder, color: T.accent, "&:hover": { borderColor: T.accent, bgcolor: T.accentFaint, transform: "none" } }}>
                                             Edit
                                           </AccentButton>
-                                          {remH > 0 && !expired && (
-                                            <>
-                                              <AccentButton onClick={() => { setActionRecord({ ...r, fullName: selectedEmployeeCTO.fullName }); setCurrentAction("offset"); setActionDialogOpen(true); }}
-                                                variant="outlined" size="small"
-                                                startIcon={<OffsetIcon sx={{ fontSize: "12px !important" }} />}
-                                                sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28, borderColor: T.accentBorder, color: T.accent, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, transform: "none" } }}>
-                                                Offset
-                                              </AccentButton>
-                                              <AccentButton onClick={() => { setActionRecord({ ...r, fullName: selectedEmployeeCTO.fullName }); setCurrentAction("use_as_leave"); setActionDialogOpen(true); }}
-                                                variant="contained" size="small"
-                                                startIcon={<CTOIcon sx={{ fontSize: "12px !important" }} />}
-                                                sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28, bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark, transform: "none" } }}>
-                                                Use as Leave
-                                              </AccentButton>
-                                            </>
-                                          )}
                                           {remH > 0 && (
-                                            <AccentButton onClick={() => { setActionRecord({ ...r, fullName: selectedEmployeeCTO.fullName }); setCurrentAction("forfeit"); setActionDialogOpen(true); }}
-                                              variant="outlined" size="small"
-                                              startIcon={<ForfeitIcon sx={{ fontSize: "12px !important" }} />}
-                                              sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28, borderColor: "rgba(211,47,47,0.4)", color: "#d32f2f", "&:hover": { bgcolor: "rgba(211,47,47,0.05)", transform: "none" } }}>
-                                              Forfeit
-                                            </AccentButton>
+                                            <Tooltip title="Transfer remaining balance to Leave Commutation">
+                                              <span>
+                                                <AccentButton
+                                                  onClick={() => handleTransferToCommutation(r)}
+                                                  variant="contained"
+                                                  size="small"
+                                                  disabled={commuteLoadingId === r.id}
+                                                  startIcon={commuteLoadingId === r.id ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : <CommutationIcon sx={{ fontSize: "12px !important" }} />}
+                                                  sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28, bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark, transform: "none" }, "&:disabled": { bgcolor: "#ccc" } }}
+                                                >
+                                                  Transfer to Commutation
+                                                </AccentButton>
+                                              </span>
+                                            </Tooltip>
                                           )}
                                         </Box>
                                       </Box>

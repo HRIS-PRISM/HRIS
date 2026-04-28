@@ -2,6 +2,11 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "axios";
 import API_BASE_URL from "../../../apiConfig";
 import {
+  getLeaveGenderRestriction,
+  isLeaveAllowedForGender,
+} from "../leaveGenderUtils";
+import { DeptBadge, EmpCatBadge } from "./RecordsList";
+import {
   Box,
   Typography,
   Card,
@@ -68,6 +73,10 @@ import {
   OpenInNew as OpenInNewIcon,
   RemoveCircleOutline as DeductIcon,
   Receipt as ReceiptIcon,
+  Male as MaleIcon,
+  Female as FemaleIcon,
+  Wc as GenderIcon,
+  Warning as WarningIcon,
 } from "@mui/icons-material";
 
 const T = {
@@ -329,6 +338,35 @@ const AccentButton = styled(Button)({
   "&:active": { transform: "translateY(0)" },
 });
 
+/** Matches LeaveAssignment.jsx — employee gender pill */
+const GenderBadge = ({ gender }) => {
+  if (!gender) return null;
+  const isMale = String(gender).trim().toLowerCase() === "male";
+  return (
+    <Chip
+      size="small"
+      icon={
+        isMale ? (
+          <MaleIcon style={{ fontSize: 11, color: "#1565C0" }} />
+        ) : (
+          <FemaleIcon style={{ fontSize: 11, color: "#c2185b" }} />
+        )
+      }
+      label={gender}
+      sx={{
+        height: 18,
+        fontSize: "0.6rem",
+        fontWeight: 800,
+        letterSpacing: 0.3,
+        bgcolor: isMale ? "rgba(21,101,192,0.08)" : "rgba(194,24,91,0.08)",
+        color: isMale ? "#1565C0" : "#c2185b",
+        border: `1px solid ${isMale ? "rgba(21,101,192,0.25)" : "rgba(194,24,91,0.25)"}`,
+        borderRadius: "4px",
+      }}
+    />
+  );
+};
+
 const ColHeader = ({ icon: Icon, label, color = T.accent, children }) => (
   <Box
     sx={{
@@ -363,6 +401,11 @@ const ColHeader = ({ icon: Icon, label, color = T.accent, children }) => (
 const SL_VL_AUTO_CODES = ["SL", "VL"];
 const SL_VL_DEFAULT_HOURS = 1.25 * 8;
 
+/**
+ * Leave earning rows use the same registry as Leave Assignment / Leave Table:
+ * `GET /leaveRoute/leave_table` → `gender_restriction` (Male/Female/empty) from admins in LeaveTable.jsx.
+ * Eligible rows match LeaveAssignment `filteredLeaveTypesForNew` via `isLeaveAllowedForGender`.
+ */
 const LeaveInputColumn = ({
   employee,
   deptMap,
@@ -376,6 +419,7 @@ const LeaveInputColumn = ({
 }) => {
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [assignmentMap, setAssignmentMap] = useState({});
+  const [existingEarnedByCode, setExistingEarnedByCode] = useState({});
   const [earnedHours, setEarnedHours] = useState({});
   const [earnedDraft, setEarnedDraft] = useState({});
   const [userTouched, setUserTouched] = useState({});
@@ -385,9 +429,37 @@ const LeaveInputColumn = ({
   const [success, setSuccess] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const calDays = getCalendarDays(year, month);
+  const employeeGender = employee?.sex || employee?.gender || null;
+
+  const visibleLeaveTypes = useMemo(
+    () =>
+      leaveTypes.filter((lt) => isLeaveAllowedForGender(lt, employeeGender)),
+    [leaveTypes, employeeGender],
+  );
+
+  /** Same “not eligible” set as types excluded from Leave Assignment for this employee. */
+  const hiddenLeaveTypesForPrompt = useMemo(() => {
+    return leaveTypes
+      .filter((lt) => !isLeaveAllowedForGender(lt, employeeGender))
+      .map((lt) => {
+        const r = getLeaveGenderRestriction(lt);
+        const who =
+          r === "male"
+            ? "Male employees only"
+            : r === "female"
+              ? "Female employees only"
+              : "Gender restricted";
+        return {
+          code: lt.leave_code,
+          description: (lt.leave_description || "").trim(),
+          who,
+        };
+      });
+  }, [leaveTypes, employeeGender]);
 
   useEffect(() => {
     axios
+      // Leave Table registry — same source as LeaveAssignment.jsx / LeaveTable.jsx (admin gender_restriction)
       .get(`${API_BASE_URL}/leaveRoute/leave_table`)
       .then((r) => setLeaveTypes(Array.isArray(r.data) ? r.data : []))
       .catch(() => {});
@@ -410,16 +482,47 @@ const LeaveInputColumn = ({
     }
   }, [employee]);
 
+  const fetchExistingEarned = useCallback(async () => {
+    if (!employee) {
+      setExistingEarnedByCode({});
+      return;
+    }
+    const token = localStorage.getItem("token");
+    try {
+      const r = await axios.get(
+        `${API_BASE_URL}/api/earnings/leave/${employee.employeeNumber}?year=${year}&month=${month}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const rows = Array.isArray(r.data?.earnings) ? r.data.earnings : [];
+      const map = {};
+      for (const e of rows) {
+        if (!e?.leave_code) continue;
+        if (e.entry_type !== "EARNED") continue;
+        if (e.earn_status === "rejected") continue;
+        const code = String(e.leave_code).toUpperCase();
+        const prev = map[code];
+        // approved wins over pending
+        if (e.earn_status === "approved") map[code] = "approved";
+        else if (!prev) map[code] = e.earn_status || "pending";
+      }
+      setExistingEarnedByCode(map);
+    } catch {
+      setExistingEarnedByCode({});
+    }
+  }, [employee, year, month]);
+
   useEffect(() => {
     if (!employee) {
       setAssignmentMap({});
+      setExistingEarnedByCode({});
       return;
     }
     fetchBalances();
-  }, [employee, year, month, fetchBalances]);
+    fetchExistingEarned();
+  }, [employee, year, month, fetchBalances, fetchExistingEarned, refreshKey, externalRefreshKey]);
 
   useEffect(() => {
-    if (!employee || leaveTypes.length === 0) {
+    if (!employee || visibleLeaveTypes.length === 0) {
       setEarnedHours({});
       setEarnedDraft({});
       setUserTouched({});
@@ -428,7 +531,7 @@ const LeaveInputColumn = ({
       return;
     }
     const defaults = {};
-    leaveTypes.forEach((lt) => {
+    visibleLeaveTypes.forEach((lt) => {
       if (SL_VL_AUTO_CODES.includes(lt.leave_code))
         defaults[lt.leave_code] = SL_VL_DEFAULT_HOURS;
     });
@@ -437,26 +540,26 @@ const LeaveInputColumn = ({
     setUserTouched({});
     setRemarks("");
     setError("");
-  }, [employee, year, month, leaveTypes]);
+  }, [employee, year, month, visibleLeaveTypes]);
 
   const activeLeaves = useMemo(
     () =>
-      leaveTypes.filter((lt) => {
+      visibleLeaveTypes.filter((lt) => {
         const hrs = toNum(earnedHours[lt.leave_code]);
         if (hrs <= 0) return false;
         const isAuto = SL_VL_AUTO_CODES.includes(lt.leave_code);
         const isTouched = !!userTouched[lt.leave_code];
         return isTouched || !isAuto;
       }),
-    [leaveTypes, earnedHours, userTouched],
+    [visibleLeaveTypes, earnedHours, userTouched],
   );
 
   const autoDefaultCodes = useMemo(
     () =>
-      leaveTypes
+      visibleLeaveTypes
         .filter((lt) => SL_VL_AUTO_CODES.includes(lt.leave_code))
         .map((lt) => lt.leave_code),
-    [leaveTypes],
+    [visibleLeaveTypes],
   );
 
   const handleSave = async () => {
@@ -473,6 +576,8 @@ const LeaveInputColumn = ({
     const token = localStorage.getItem("token");
     let created = 0;
     for (const lt of activeLeaves) {
+      const status = existingEarnedByCode[String(lt.leave_code).toUpperCase()];
+      if (status === "approved" || status === "pending") continue;
       try {
         await axios.post(
           `${API_BASE_URL}/api/earnings/leave`,
@@ -496,7 +601,7 @@ const LeaveInputColumn = ({
         `${created} leave earning(s) submitted for ${monthName(month)} ${year}.`,
       );
       const defaults = {};
-      leaveTypes.forEach((lt) => {
+      visibleLeaveTypes.forEach((lt) => {
         if (SL_VL_AUTO_CODES.includes(lt.leave_code))
           defaults[lt.leave_code] = SL_VL_DEFAULT_HOURS;
       });
@@ -507,6 +612,8 @@ const LeaveInputColumn = ({
       setRefreshKey((k) => k + 1);
       if (onRecordsRefresh) onRecordsRefresh();
       setTimeout(() => setSuccess(""), 3500);
+    } else {
+      setError("All selected leave earnings are already submitted (pending/approved).");
     }
   };
 
@@ -551,7 +658,14 @@ const LeaveInputColumn = ({
     );
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        minHeight: 0,
+      }}
+    >
       <ColHeader icon={LeaveIcon} label="Leave Earning Input" color={T.accent}>
         {autoDefaultCodes.length > 0 && (
           <Tooltip
@@ -573,6 +687,205 @@ const LeaveInputColumn = ({
           </Tooltip>
         )}
       </ColHeader>
+
+      <Box
+        sx={{
+          flexShrink: 0,
+          px: 1.5,
+          py: 1.15,
+          borderBottom: `1px solid ${T.divider}`,
+          bgcolor: alpha(T.accent, 0.05),
+        }}
+      >
+        <Typography
+          sx={{
+            fontSize: "0.6rem",
+            fontWeight: 800,
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            color: T.faint,
+            mb: 0.65,
+            fontFamily: T.poppins,
+          }}
+        >
+          Selected employee
+        </Typography>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 0.75,
+            flexWrap: "wrap",
+            mb: 0.5,
+          }}
+        >
+          {employeeGender && (
+            <>
+              <Typography
+                variant="caption"
+                sx={{ color: "#888", fontWeight: 700, fontFamily: T.poppins }}
+              >
+                Gender:
+              </Typography>
+              <GenderBadge gender={employeeGender} />
+            </>
+          )}
+          {deptMap?.[String(employee.employeeNumber)] && (
+            <>
+              <Typography
+                variant="caption"
+                sx={{
+                  color: "#888",
+                  fontWeight: 700,
+                  fontFamily: T.poppins,
+                  ml: employeeGender ? 1 : 0,
+                }}
+              >
+                Dept:
+              </Typography>
+              <DeptBadge code={deptMap[String(employee.employeeNumber)]} />
+            </>
+          )}
+          {empCatMap?.[String(employee.employeeNumber)]?.label && (
+            <>
+              <Typography
+                variant="caption"
+                sx={{
+                  color: "#888",
+                  fontWeight: 700,
+                  fontFamily: T.poppins,
+                  ml: 1,
+                }}
+              >
+                Category:
+              </Typography>
+              <EmpCatBadge
+                label={empCatMap[String(employee.employeeNumber)].label}
+                colorHex={empCatMap[String(employee.employeeNumber)].colorHex}
+              />
+            </>
+          )}
+        </Box>
+        {!employeeGender && (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 0.65,
+              mb: leaveTypes.length ? 0.85 : 0,
+            }}
+          >
+            <WarningIcon sx={{ fontSize: 14, color: "#e65100" }} />
+            <Typography
+              variant="caption"
+              sx={{
+                color: "#e65100",
+                fontWeight: 700,
+                fontFamily: T.poppins,
+              }}
+            >
+              No gender on file — gender-restricted leave types are hidden.
+            </Typography>
+          </Box>
+        )}
+        {leaveTypes.length > 0 && (
+          <>
+            <Typography
+              sx={{
+                fontSize: "0.6rem",
+                fontWeight: 800,
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                color: T.faint,
+                mb: 0.45,
+                mt: 0.35,
+                fontFamily: T.poppins,
+              }}
+            >
+              Leave table — restrictions for this employee
+            </Typography>
+            <Box
+              sx={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 0.45,
+                alignItems: "center",
+              }}
+            >
+              {visibleLeaveTypes.map((lt) => {
+                const r = getLeaveGenderRestriction(lt);
+                const tip = [
+                  lt.leave_description || lt.leave_name || "",
+                  r === "male"
+                    ? "Male only (Leave Table)"
+                    : r === "female"
+                      ? "Female only (Leave Table)"
+                      : "No gender restriction",
+                  "Shown below for earning input.",
+                ]
+                  .filter(Boolean)
+                  .join(" · ");
+                return (
+                  <Tooltip key={lt.leave_code} title={tip} arrow>
+                    <Chip
+                      size="small"
+                      label={lt.leave_code}
+                      icon={
+                        r === "male" ? (
+                          <MaleIcon sx={{ fontSize: 12, color: "#1565C0 !important" }} />
+                        ) : r === "female" ? (
+                          <FemaleIcon sx={{ fontSize: 12, color: "#c2185b !important" }} />
+                        ) : (
+                          <GenderIcon sx={{ fontSize: 11, opacity: 0.45 }} />
+                        )
+                      }
+                      sx={{
+                        height: 22,
+                        fontSize: "0.62rem",
+                        fontWeight: 700,
+                        fontFamily: T.poppins,
+                        bgcolor: "rgba(46,125,50,0.09)",
+                        border: "1px solid rgba(46,125,50,0.28)",
+                        color: "#1b5e20",
+                      }}
+                    />
+                  </Tooltip>
+                );
+              })}
+              {hiddenLeaveTypesForPrompt.map((row) => (
+                <Tooltip
+                  key={`hid-${row.code}`}
+                  title={`${row.description ? `${row.description} · ` : ""}${row.who} · Hidden from input list`}
+                  arrow
+                >
+                  <Chip
+                    size="small"
+                    label={row.code}
+                    icon={
+                      row.who.startsWith("Male") ? (
+                        <MaleIcon sx={{ fontSize: 12, color: "#1565C0 !important" }} />
+                      ) : (
+                        <FemaleIcon sx={{ fontSize: 12, color: "#c2185b !important" }} />
+                      )
+                    }
+                    sx={{
+                      height: 22,
+                      fontSize: "0.62rem",
+                      fontWeight: 700,
+                      fontFamily: T.poppins,
+                      bgcolor: "rgba(0,0,0,0.06)",
+                      border: "1px dashed rgba(0,0,0,0.22)",
+                      color: T.muted,
+                      opacity: 0.92,
+                    }}
+                  />
+                </Tooltip>
+              ))}
+            </Box>
+          </>
+        )}
+      </Box>
+
       <Box
         sx={{
           flex: 1,
@@ -580,6 +893,7 @@ const LeaveInputColumn = ({
           px: 1.5,
           pt: 1.25,
           pb: 1,
+          minHeight: 0,
           "&::-webkit-scrollbar": { width: 3 },
           "&::-webkit-scrollbar-thumb": {
             bgcolor: "rgba(0,0,0,0.1)",
@@ -601,6 +915,96 @@ const LeaveInputColumn = ({
             sx={{ borderRadius: 2, mb: 0.75, fontSize: "0.75rem", py: 0 }}
           >
             {success}
+          </Alert>
+        )}
+        {hiddenLeaveTypesForPrompt.length > 0 && (
+          <Alert
+            severity="info"
+            sx={{
+              borderRadius: 2,
+              mb: 1,
+              py: 1,
+              "& .MuiAlert-message": { width: "100%" },
+            }}
+          >
+            <Typography
+              sx={{
+                fontWeight: 800,
+                fontSize: "0.78rem",
+                fontFamily: T.poppins,
+                mb: 0.75,
+                color: "rgba(0,0,0,0.78)",
+              }}
+            >
+              Hidden leave types
+            </Typography>
+            {!employeeGender ? (
+              <Typography
+                sx={{
+                  fontSize: "0.72rem",
+                  fontFamily: T.poppins,
+                  color: T.muted,
+                  mb: 1,
+                  lineHeight: 1.45,
+                }}
+              >
+                Employee gender is not on file. Any leave type that has a Male or Female
+                restriction in the Leave Table is hidden below until gender is set in
+                personnel records.
+              </Typography>
+            ) : (
+              <Typography
+                sx={{
+                  fontSize: "0.72rem",
+                  fontFamily: T.poppins,
+                  color: T.muted,
+                  mb: 1,
+                  lineHeight: 1.45,
+                }}
+              >
+                These types are restricted to a different gender than this employee.
+                They are hidden from the list (restrictions match Leave Table).
+              </Typography>
+            )}
+            <Box
+              component="ul"
+              sx={{
+                m: 0,
+                pl: 2.25,
+                fontSize: "0.72rem",
+                fontFamily: T.poppins,
+                color: T.text,
+                "& li": { mb: 0.35 },
+              }}
+            >
+              {hiddenLeaveTypesForPrompt.map((row) => (
+                <li key={row.code}>
+                  <strong>{row.code}</strong>
+                  {row.description ? ` — ${row.description}` : ""}
+                  <Typography
+                    component="span"
+                    sx={{
+                      fontSize: "0.68rem",
+                      color: T.muted,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {" "}
+                    ({row.who})
+                  </Typography>
+                </li>
+              ))}
+            </Box>
+          </Alert>
+        )}
+        {leaveTypes.length > 0 && visibleLeaveTypes.length === 0 && (
+          <Alert
+            severity="warning"
+            sx={{ borderRadius: 2, mb: 0.75, fontSize: "0.75rem", py: 0 }}
+          >
+            No leave types are available for this employee — either gender on file is
+            missing and all types are restricted, or none match this employee&apos;s
+            gender. Update Leave Table or personnel gender as needed.
           </Alert>
         )}
         <Box
@@ -642,7 +1046,7 @@ const LeaveInputColumn = ({
           Step 1 — Leave Balances · Enter days to earn
         </Typography>
         <Box sx={{ mb: 1.25 }}>
-          {[...leaveTypes]
+          {[...visibleLeaveTypes]
             .sort((a, b) => {
               const aB = assignmentMap[a.leave_code];
               const bB = assignmentMap[b.leave_code];
@@ -652,6 +1056,7 @@ const LeaveInputColumn = ({
               );
             })
             .map((lt) => {
+              const restriction = getLeaveGenderRestriction(lt);
               const balance = assignmentMap[lt.leave_code];
               const remaining = toNum(balance?.remaining_hours);
               const total = toNum(balance?.total_hours);
@@ -660,6 +1065,8 @@ const LeaveInputColumn = ({
               const valHrs = toNum(earnedHours[lt.leave_code]);
               const isActive = valHrs > 0 && (isTouched || !isAuto);
               const isAutoUnconfirmed = isAuto && !isTouched && valHrs > 0;
+              const status = existingEarnedByCode[String(lt.leave_code).toUpperCase()];
+              const isLocked = status === "approved" || status === "pending";
               const draft = earnedDraft[lt.leave_code];
               const displayVal =
                 draft !== undefined
@@ -681,19 +1088,30 @@ const LeaveInputColumn = ({
                     px: 1,
                     py: 0.65,
                     borderRadius: 1.5,
-                    border: `1.5px solid ${isActive ? "rgba(0,0,0,0.18)" : isAutoUnconfirmed ? "rgba(0,0,0,0.12)" : "rgba(0,0,0,0.08)"}`,
+                    border: `1.5px solid ${isLocked ? "rgba(0,0,0,0.12)" : isActive ? "rgba(0,0,0,0.18)" : isAutoUnconfirmed ? "rgba(0,0,0,0.12)" : "rgba(0,0,0,0.08)"}`,
                     bgcolor: isActive
                       ? "rgba(0,0,0,0.03)"
                       : isAutoUnconfirmed
                         ? "rgba(0,0,0,0.02)"
                         : "rgba(0,0,0,0.01)",
                     transition: "all 0.15s",
+                    opacity: isLocked ? 0.72 : 1,
                   }}
                 >
                   <Box sx={{ minWidth: 0 }}>
                     <Box
                       sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
                     >
+                      {restriction === "male" && (
+                        <MaleIcon
+                          sx={{ fontSize: 12, color: "#1565C0", flexShrink: 0 }}
+                        />
+                      )}
+                      {restriction === "female" && (
+                        <FemaleIcon
+                          sx={{ fontSize: 12, color: "#c2185b", flexShrink: 0 }}
+                        />
+                      )}
                       <Typography
                         sx={{
                           fontSize: "0.73rem",
@@ -705,6 +1123,34 @@ const LeaveInputColumn = ({
                       >
                         {lt.leave_code}
                       </Typography>
+                      {status === "approved" && (
+                        <Chip
+                          size="small"
+                          label="Approved"
+                          sx={{
+                            height: 16,
+                            fontSize: "0.56rem",
+                            fontWeight: 800,
+                            bgcolor: "rgba(109,35,35,0.06)",
+                            color: T.accent,
+                            border: `1px solid ${T.accentBorder}`,
+                          }}
+                        />
+                      )}
+                      {status === "pending" && (
+                        <Chip
+                          size="small"
+                          label="Pending"
+                          sx={{
+                            height: 16,
+                            fontSize: "0.56rem",
+                            fontWeight: 800,
+                            bgcolor: "rgba(0,0,0,0.04)",
+                            color: "#7a4a00",
+                            border: "1px solid rgba(0,0,0,0.12)",
+                          }}
+                        />
+                      )}
                       {isAuto && (
                         <Tooltip
                           title={
@@ -790,12 +1236,19 @@ const LeaveInputColumn = ({
                     }}
                   >
                     <Box sx={{ position: "relative", width: 78 }}>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        placeholder={isAuto ? "1.250" : "0.000"}
-                        value={displayVal}
-                        onChange={(e) => {
+                      <Tooltip
+                        title={isLocked ? "Approved/Pending entries are locked." : ""}
+                        arrow
+                        disableHoverListener={!isLocked}
+                      >
+                        <span style={{ display: "block" }}>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            placeholder={isAuto ? "1.250" : "0.000"}
+                            value={displayVal}
+                            disabled={isLocked}
+                            onChange={(e) => {
                           setEarnedDraft((p) => ({
                             ...p,
                             [lt.leave_code]: e.target.value,
@@ -809,42 +1262,44 @@ const LeaveInputColumn = ({
                             ...p,
                             [lt.leave_code]: true,
                           }));
-                        }}
-                        onFocus={() =>
-                          setEarnedDraft((p) => ({
-                            ...p,
-                            [lt.leave_code]: displayVal,
-                          }))
-                        }
-                        onBlur={() => {
-                          const raw = earnedDraft[lt.leave_code] ?? displayVal;
-                          const n = parseFloat(raw);
-                          setEarnedHours((p) => ({
-                            ...p,
-                            [lt.leave_code]: isNaN(n) ? 0 : toHours(n, unit),
-                          }));
-                          setEarnedDraft((p) => {
-                            const { [lt.leave_code]: _, ...rest } = p;
-                            return rest;
-                          });
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") e.currentTarget.blur();
-                        }}
-                        style={{
-                          width: "100%",
-                          padding: "5px 22px 5px 7px",
-                          borderRadius: 6,
-                          border: `1.5px solid ${isActive ? "rgba(0,0,0,0.25)" : "rgba(0,0,0,0.14)"}`,
-                          fontSize: "0.82rem",
-                          fontWeight: 700,
-                          outline: "none",
-                          fontFamily: T.poppins,
-                          boxSizing: "border-box",
-                          background: "#fff",
-                          color: "#1a1a1a",
-                        }}
-                      />
+                            }}
+                            onFocus={() =>
+                              setEarnedDraft((p) => ({
+                                ...p,
+                                [lt.leave_code]: displayVal,
+                              }))
+                            }
+                            onBlur={() => {
+                              const raw = earnedDraft[lt.leave_code] ?? displayVal;
+                              const n = parseFloat(raw);
+                              setEarnedHours((p) => ({
+                                ...p,
+                                [lt.leave_code]: isNaN(n) ? 0 : toHours(n, unit),
+                              }));
+                              setEarnedDraft((p) => {
+                                const { [lt.leave_code]: _, ...rest } = p;
+                                return rest;
+                              });
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") e.currentTarget.blur();
+                            }}
+                            style={{
+                              width: "100%",
+                              padding: "5px 22px 5px 7px",
+                              borderRadius: 6,
+                              border: `1.5px solid ${isLocked ? "rgba(0,0,0,0.12)" : isActive ? "rgba(0,0,0,0.25)" : "rgba(0,0,0,0.14)"}`,
+                              fontSize: "0.82rem",
+                              fontWeight: 700,
+                              outline: "none",
+                              fontFamily: T.poppins,
+                              boxSizing: "border-box",
+                              background: isLocked ? "rgba(0,0,0,0.02)" : "#fff",
+                              color: isLocked ? "rgba(0,0,0,0.55)" : "#1a1a1a",
+                            }}
+                          />
+                        </span>
+                      </Tooltip>
                       <span
                         style={{
                           position: "absolute",
@@ -864,6 +1319,7 @@ const LeaveInputColumn = ({
                       <Tooltip title="Confirm this value — adds to Step 3">
                         <IconButton
                           size="small"
+                          disabled={isLocked}
                           onClick={() =>
                             setUserTouched((p) => ({
                               ...p,
@@ -893,6 +1349,7 @@ const LeaveInputColumn = ({
                       >
                         <IconButton
                           size="small"
+                          disabled={isLocked}
                           onClick={() => {
                             const resetVal = isAuto ? SL_VL_DEFAULT_HOURS : 0;
                             setEarnedHours((p) => ({
@@ -1066,7 +1523,7 @@ const LeaveInputColumn = ({
             size="small"
             onClick={() => {
               const defaults = {};
-              leaveTypes.forEach((lt) => {
+              visibleLeaveTypes.forEach((lt) => {
                 if (SL_VL_AUTO_CODES.includes(lt.leave_code))
                   defaults[lt.leave_code] = SL_VL_DEFAULT_HOURS;
               });

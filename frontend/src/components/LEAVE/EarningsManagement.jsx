@@ -74,6 +74,7 @@ import { SCInputColumn } from './EARNINGS/SCEarnings';
 import { CTOInputColumn } from './EARNINGS/CTOEarnings';
 import { AttendanceSummary } from './EARNINGS/AttendanceSummary';
 import { RecordsList, DeptBadge, EmpCatBadge } from './EARNINGS/RecordsList';
+import { useRef } from "react";
 
 const T = {
   accent: "#6d2323",
@@ -306,16 +307,18 @@ function sanitizeDecimal(v) {
 const EarningsWireframe = () => (
   <>
     <style>{shimmerKf}</style>
+    {/* ── Header card skeleton ── */}
     <Box
       sx={{
-        py: { xs: 1, md: 2 },
-        mt: { xs: 0, md: -5 },
-        width: '100vw',
-        maxWidth: '100%',
-        position: 'relative',
-        left: '63%',
-        transform: 'translateX(-61%)',
+        width: "100vw",
+        maxWidth: "100%",
+        position: "relative",
+        left: "63%",
+        transform: "translateX(-61%)",
         px: { xs: 2, sm: 3, md: 6 },
+        pt: { xs: 2, md: 4 },
+        pb: 0,
+        mt: { xs: 0, md: -5 },
       }}
     >
       {/* Header card skeleton */}
@@ -408,23 +411,37 @@ const EarningsWireframe = () => (
         </Box>
       </Box>
 
-      {/* 3-column body */}
+    </Box>
+
+    {/* ── 3-Column Content skeleton ── */}
+    <Box
+      sx={{
+        width: "100vw",
+        maxWidth: "100%",
+        position: "relative",
+        left: "63%",
+        transform: "translateX(-61%)",
+        px: { xs: 2, sm: 3, md: 6 },
+        pb: 4,
+      }}
+    >
       <Box
         sx={{
-          borderRadius: '0 0 12px 12px',
+          borderRadius: "0 0 12px 12px",
           border: `1px solid rgba(109,35,35,0.12)`,
-          borderTop: 'none',
-          overflow: 'hidden',
-          bgcolor: '#fff',
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr 1fr',
-          height: 'calc(100vh - 340px)',
-          minHeight: 480,
-          animation: 'blink 2s ease-in-out 0.1s infinite',
+          borderTop: "none",
+          overflow: { xs: "visible", md: "hidden" },
+          bgcolor: "#fff",
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" },
+          height: { xs: "auto", md: "calc(100vh - 340px)" },
+          minHeight: { xs: "unset", md: 480 },
+          rowGap: { xs: 2, md: 0 },
+          animation: "blink 2s ease-in-out 0.1s infinite",
         }}
       >
         {/* Col 1 — Attendance */}
-        <Box sx={{ borderRight: '1px solid rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Box sx={{ borderRight: { xs: "none", md: "1px solid rgba(0,0,0,0.08)" }, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {/* col header */}
           <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
             <Box sx={{ width: 13, height: 13, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
@@ -485,7 +502,7 @@ const EarningsWireframe = () => (
         </Box>
 
         {/* Col 2 — Input */}
-        <Box sx={{ borderRight: '1px solid rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Box sx={{ borderRight: { xs: "none", md: "1px solid rgba(0,0,0,0.08)" }, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
             <Box sx={{ width: 13, height: 13, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
             <Bone w={180} h={10} />
@@ -1452,35 +1469,6 @@ const MonthYearNavigator = ({ year, month, onChange }) => {
         flexWrap: "wrap",
       }}
     >
-      <FormControl size="small" sx={{ minWidth: 86 }}>
-        <Select
-          value={year}
-          onChange={(e) => onChange(Number(e.target.value), month)}
-          sx={{
-            fontSize: "0.78rem",
-            fontWeight: 700,
-            color: T.accent,
-            "& .MuiOutlinedInput-notchedOutline": {
-              borderColor: T.accentBorder,
-            },
-            bgcolor: "#fff",
-            borderRadius: 2,
-          }}
-        >
-          {yearOptions.map((y) => (
-            <MenuItem
-              key={y}
-              value={y}
-              sx={{
-                fontSize: "0.8rem",
-                fontWeight: y === now.getFullYear() ? 700 : 400,
-              }}
-            >
-              {y}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
         <IconButton
           size="small"
@@ -1525,6 +1513,48 @@ const MonthYearNavigator = ({ year, month, onChange }) => {
           <NextIcon sx={{ fontSize: 16 }} />
         </IconButton>
       </Box>
+      <Chip
+        icon={<DateRangeIcon style={{ fontSize: 11, color: "#555" }} />}
+        label={`${calDays} cal. days`}
+        size="small"
+        sx={{
+          height: 20,
+          fontSize: "0.62rem",
+          fontWeight: 600,
+          bgcolor: "rgba(0,0,0,0.05)",
+          color: "#444",
+          border: "1px solid rgba(0,0,0,0.12)",
+        }}
+      />
+      <FormControl size="small" sx={{ minWidth: 86 }}>
+        <Select
+          value={year}
+          onChange={(e) => onChange(Number(e.target.value), month)}
+          sx={{
+            fontSize: "0.78rem",
+            fontWeight: 700,
+            color: T.accent,
+            "& .MuiOutlinedInput-notchedOutline": {
+              borderColor: T.accentBorder,
+            },
+            bgcolor: "#fff",
+            borderRadius: 2,
+          }}
+        >
+          {yearOptions.map((y) => (
+            <MenuItem
+              key={y}
+              value={y}
+              sx={{
+                fontSize: "0.8rem",
+                fontWeight: y === now.getFullYear() ? 700 : 400,
+              }}
+            >
+              {y}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
       {!isCurrent && (
         <Tooltip title="Go to current month">
           <IconButton
@@ -1550,19 +1580,6 @@ const MonthYearNavigator = ({ year, month, onChange }) => {
           }}
         />
       )}
-      <Chip
-        icon={<DateRangeIcon style={{ fontSize: 11, color: "#555" }} />}
-        label={`${calDays} cal. days`}
-        size="small"
-        sx={{
-          height: 20,
-          fontSize: "0.62rem",
-          fontWeight: 600,
-          bgcolor: "rgba(0,0,0,0.05)",
-          color: "#444",
-          border: "1px solid rgba(0,0,0,0.12)",
-        }}
-      />
     </Box>
   );
 };
@@ -1638,6 +1655,9 @@ const EarningsManagement = () => {
   const [activeTab, setActiveTab] = useState(0);
   const [employees, setEmployees] = useState([]);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [showEmployeeAutocomplete, setShowEmployeeAutocomplete] = useState(true);
+  const [employeePickerOpen, setEmployeePickerOpen] = useState(false);
+  const employeePickerInputRef = useRef(null);
   const [deptMap, setDeptMap] = useState({});
   const [empCatMap, setEmpCatMap] = useState({});
   const [typeConfigs, setTypeConfigs] = useState([]);
@@ -1723,18 +1743,20 @@ const EarningsManagement = () => {
           list.forEach((p) => {
             const num =
               p.agencyEmployeeNum?.toString() || p.employeeNumber?.toString();
-            if (num)
-              sexMap[num] = {
-                firstName: p.firstName,
-                middleName: p.middleName,
-                lastName: p.lastName,
-              };
+            if (!num) return;
+            sexMap[num] = {
+              firstName: p.firstName,
+              middleName: p.middleName,
+              lastName: p.lastName,
+              sex: p.sex || p.gender || null,
+            };
           });
         }
         setEmployees(
           usersData.map((u) => {
             const num = u.employeeNumber?.toString();
-            return { ...u, ...(num ? sexMap[num] || {} : {}) };
+            const pi = num ? sexMap[num] || {} : {};
+            return { ...u, ...pi, sex: pi.sex || u.sex || u.gender || null };
           }),
         );
         if (deptRes.status === "fulfilled") {
@@ -1787,6 +1809,29 @@ const EarningsManagement = () => {
       ? `${last.toUpperCase()}, ${[first, mid].filter(Boolean).join(" ")}`
       : [first, mid].filter(Boolean).join(" ");
   };
+
+  const selectedEmployeeDisplay = useMemo(() => {
+    if (!selectedEmployee) return null;
+    const initials =
+      `${selectedEmployee.lastName?.[0] || ""}${selectedEmployee.firstName?.[0] || ""}`.toUpperCase() ||
+      "?";
+    const dc = deptMap[selectedEmployee.employeeNumber?.toString()];
+    const ec = empCatMap[selectedEmployee.employeeNumber?.toString()];
+    return { initials, dc, ec, name: buildDisplayName(selectedEmployee) };
+  }, [selectedEmployee, deptMap, empCatMap]);
+
+  const openEmployeePicker = useCallback(() => {
+    setShowEmployeeAutocomplete(true);
+    setSelectedEmployee(null);
+    setEmployeePickerOpen(true);
+    setTimeout(() => {
+      try {
+        employeePickerInputRef.current?.focus?.();
+      } catch {
+        /* noop */
+      }
+    }, 0);
+  }, []);
 
   const groupedTypeConfigs = useMemo(() => {
     const g = {};
@@ -2003,9 +2048,16 @@ if (pageLoading) return <EarningsWireframe />;
               <PersonIcon
                 sx={{ fontSize: 14, color: T.accent, flexShrink: 0 }}
               />
+              {(showEmployeeAutocomplete || !selectedEmployee) ? (
               <Autocomplete
                 value={selectedEmployee}
-                onChange={(_, v) => setSelectedEmployee(v)}
+                onChange={(_, v) => {
+                  setSelectedEmployee(v);
+                  setShowEmployeeAutocomplete(!v);
+                }}
+                open={employeePickerOpen}
+                onOpen={() => setEmployeePickerOpen(true)}
+                onClose={() => setEmployeePickerOpen(false)}
                 options={employeeOptions}
                 autoHighlight
                 getOptionLabel={(o) =>
@@ -2102,6 +2154,7 @@ if (pageLoading) return <EarningsWireframe />;
                           {params.InputProps.startAdornment}
                         </>
                       ),
+                      inputRef: employeePickerInputRef,
                     }}
                   />
                 )}
@@ -2116,6 +2169,77 @@ if (pageLoading) return <EarningsWireframe />;
                 }}
                 sx={{ flex: 1, maxWidth: 340 }}
               />
+              ) : (
+                <Box
+                  role="button"
+                  tabIndex={0}
+                  onClick={openEmployeePicker}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") openEmployeePicker();
+                  }}
+                  sx={{
+                    flex: 1,
+                    maxWidth: 340,
+                    height: 40,
+                    bgcolor: "#fff",
+                    borderRadius: 2,
+                    border: `1px solid ${T.accentBorder}`,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    px: 1,
+                    cursor: "pointer",
+                    "&:hover": { borderColor: T.accent, bgcolor: "rgba(109,35,35,0.02)" },
+                    "&:active": { bgcolor: "rgba(109,35,35,0.04)" },
+                  }}
+                >
+                  <Avatar
+                    sx={{
+                      width: 24,
+                      height: 24,
+                      bgcolor: T.accent,
+                      fontSize: "0.6rem",
+                      fontWeight: 800,
+                      borderRadius: "4px",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {selectedEmployeeDisplay?.initials || "?"}
+                  </Avatar>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography
+                      sx={{
+                        fontWeight: 800,
+                        fontFamily: T.poppins,
+                        fontSize: "0.78rem",
+                        lineHeight: 1.1,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        color: T.text,
+                      }}
+                    >
+                      {selectedEmployeeDisplay?.name}
+                    </Typography>
+                    <Box sx={{ display: "flex", gap: 0.4, flexWrap: "nowrap", mt: 0.2, minWidth: 0 }}>
+                      <Typography
+                        variant="caption"
+                        sx={{ color: T.faint, fontFamily: T.poppins, whiteSpace: "nowrap" }}
+                      >
+                        #{selectedEmployee?.employeeNumber}
+                      </Typography>
+                      {selectedEmployeeDisplay?.dc && <DeptBadge code={selectedEmployeeDisplay.dc} />}
+                      {selectedEmployeeDisplay?.ec && (
+                        <EmpCatBadge
+                          label={selectedEmployeeDisplay.ec.label}
+                          colorHex={selectedEmployeeDisplay.ec.colorHex}
+                        />
+                      )}
+                    </Box>
+                  </Box>
+                  <ExpandMoreIcon sx={{ fontSize: 18, color: T.faint, flexShrink: 0 }} />
+                </Box>
+              )}
               {/* Category filter */}
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                 <FilterIcon sx={{ fontSize: 13, color: T.accent }} />
@@ -2242,72 +2366,13 @@ if (pageLoading) return <EarningsWireframe />;
                 )}
               </Box>
               {/* Month/Year Navigator */}
-              <Box sx={{ ml: "auto" }}>
+              <Box>
                 <MonthYearNavigator
                   year={periodYear}
                   month={periodMonth}
                   onChange={handleMonthChange}
                 />
               </Box>
-              {/* Selected employee chip */}
-              {selectedEmployee && (
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 0.6,
-                    pl: 1,
-                    borderLeft: `1px solid ${T.divider}`,
-                  }}
-                >
-                  <Avatar
-                    sx={{
-                      width: 20,
-                      height: 20,
-                      bgcolor: T.accent,
-                      fontSize: "0.58rem",
-                      fontWeight: 800,
-                      borderRadius: "4px",
-                    }}
-                  >
-                    {`${selectedEmployee.lastName?.[0] || ""}${selectedEmployee.firstName?.[0] || ""}`.toUpperCase() ||
-                      "?"}
-                  </Avatar>
-                  <Box>
-                    <Typography
-                      sx={{
-                        fontSize: "0.7rem",
-                        fontWeight: 700,
-                        color: T.text,
-                        fontFamily: T.poppins,
-                        lineHeight: 1,
-                      }}
-                    >
-                      {`${(selectedEmployee.lastName || "").toUpperCase()}, ${selectedEmployee.firstName || ""}`.trim()}
-                    </Typography>
-                    <Box sx={{ display: "flex", gap: 0.35 }}>
-                      {deptCode && <DeptBadge code={deptCode} />}
-                      {empCat && (
-                        <EmpCatBadge
-                          label={empCat.label}
-                          colorHex={empCat.colorHex}
-                        />
-                      )}
-                    </Box>
-                  </Box>
-                  <IconButton
-                    size="small"
-                    onClick={() => setSelectedEmployee(null)}
-                    sx={{
-                      color: T.faint,
-                      p: 0.2,
-                      "&:hover": { color: T.accent },
-                    }}
-                  >
-                    <Close sx={{ fontSize: 12 }} />
-                  </IconButton>
-                </Box>
-              )}
             </Box>
             {catFilter && (
               <Typography
@@ -2430,18 +2495,21 @@ if (pageLoading) return <EarningsWireframe />;
             <Box
               sx={{
                 display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr",
-                height: "calc(100vh - 340px)",
-                minHeight: 480,
-                overflow: "hidden",
+                gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" },
+                height: { xs: "auto", md: "calc(100vh - 340px)" },
+                minHeight: { xs: "unset", md: 480 },
+                overflow: { xs: "visible", md: "hidden" },
+                rowGap: { xs: 2, md: 0 },
               }}
             >
               {/* Column 1: Attendance */}
               <Box
                 sx={{
-                  overflow: "hidden",
+                  overflowY: "auto",
+                  overflowX: "hidden",
                   display: "flex",
                   flexDirection: "column",
+                  borderRight: { xs: "none", md: `1px solid ${T.divider}` },
                 }}
               >
       <AttendanceSummary
@@ -2460,9 +2528,11 @@ if (pageLoading) return <EarningsWireframe />;
               {/* Column 2: Input Earnings */}
               <Box
                 sx={{
-                  overflow: "hidden",
+                  overflowY: "auto",
+                  overflowX: "hidden",
                   display: "flex",
                   flexDirection: "column",
+                  borderRight: { xs: "none", md: `1px solid ${T.divider}` },
                 }}
               >
                 {activeTab === 0 && (
@@ -2489,8 +2559,8 @@ if (pageLoading) return <EarningsWireframe />;
               {/* Column 3: Records Earnings*/}
               <Box
                 sx={{
-                  borderRight: `1px solid ${T.divider}`,
-                  overflow: "hidden",
+                  overflowY: "auto",
+                  overflowX: "hidden",
                   display: "flex",
                   flexDirection: "column",
                 }}

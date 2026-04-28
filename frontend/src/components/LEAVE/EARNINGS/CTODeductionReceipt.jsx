@@ -151,6 +151,12 @@ const fmtHrs = (h, unit) =>
     ? `${toNum(h).toFixed(3)} hrs`
     : `${(toNum(h) / 8).toFixed(3)} days`;
 
+const fmtDays3 = (n, { allowNegZero = true } = {}) => {
+  const fixed = Number(toNum(n).toFixed(3));
+  const safe = (!allowNegZero && Object.is(fixed, -0)) ? 0 : fixed;
+  return `${safe.toFixed(3)} d`;
+};
+
 const parseHHMM = (val) => {
   if (!val) return 0;
   const str = String(val).trim();
@@ -468,6 +474,7 @@ const CTODeductionReceipt = ({
   const absenceAmountForSource = remainingAbsenceCto > 0 ? remainingAbsenceCto : absentDays;
   const newScBalance = Number((scBuffer - absenceAmountForSource).toFixed(3));
   const newCtoBalanceOverride = Number((ctoBal - absenceAmountForSource).toFixed(3));
+  const allowScNegZero = ctoBal <= 0;
  
   const bothDone =
     (absentDays === 0 || absenceCoveredBySC || absenceFullyDeducted) &&
@@ -680,8 +687,8 @@ const CTODeductionReceipt = ({
             <Box sx={{ flex: 1 }}>
              
               <Typography sx={{ fontSize: "0.61rem", color: "#e65100", fontFamily: T.poppins, lineHeight: 1.5}}>
-                This employee has <strong>{scBuffer.toFixed(3)}d</strong> SC balance. Choose where to deduct the <strong>{absentDays}d</strong> absence using the dropdown in the action area below.
-              </Typography>
+              Absences should be deducted from Service Credits first before Compensatory Time Off.
+                           </Typography>
             </Box>
           </Box>
         )}
@@ -722,7 +729,7 @@ const CTODeductionReceipt = ({
               <Box sx={{ px: 1.25, py: 0.75 }}>
                 <R label="CTO Balance" sub={balLoading ? "Loading…" : "Current balance"} value={balLoading ? "…" : `${ctoBal.toFixed(3)} d`} valueColor={ctoBal > 0 ? "#1e4d20" : T.faint} bold />
                 {scBuffer > 0 && (
-                  <R label="SC buffer (should deduct first)" sub={`${scBuffer.toFixed(3)}d available`} value={`${scBuffer.toFixed(3)} d`} valueColor="#1565c0" faded />
+                  <R label="SC buffer (should deduct first)" sub={`${scBuffer.toFixed(3)}d available`} value={fmtDays3(scBuffer, { allowNegZero: allowScNegZero })} valueColor="#1565c0" faded />
                 )}
               </Box>
  
@@ -777,11 +784,22 @@ const CTODeductionReceipt = ({
              
  
               <SectionLabel>Deduct with</SectionLabel>
-              <Box sx={{ px: 1.25, py: 0.75, flex: 1 }}>
+              <Box sx={{ px: 1.25, py: 0.75 }}>
                 <R label="Vacation Leave (VL)" sub={balLoading ? "Loading…" : "Current balance"} value={balLoading ? "…" : `${vlBal.toFixed(3)} d`} valueColor={vlBal > 0 ? "#1e4d20" : T.faint} bold />
+                {/* Keep section headers aligned with Absence column when SC buffer row is shown */}
+                {scBuffer > 0 && (
+                  <Box sx={{ visibility: "hidden" }}>
+                    <R
+                      label="SC buffer (placeholder)"
+                      sub="—"
+                      value="—"
+                      valueColor={T.faint}
+                      faded
+                    />
+                  </Box>
+                )}
               </Box>
- 
-              <Box sx={{ mt: "auto" }} />
+
               <SectionLabel>You're about to deduct</SectionLabel>
               <Box sx={{ px: 1.25, py: 0.75 }}>
                 <R label="Tardiness (ABS)" sub={tardHrs > 0 ? `${tardHrs.toFixed(3)} hrs · ${hrsToHMS(tardHrs)}` : "No tardiness"} value={tardDays > 0 ? `− ${tardDays.toFixed(3)} d` : "0.000 d"} valueColor={tardDays > 0 ? "#c62828" : T.faint} faded={tardDays === 0} />
@@ -806,9 +824,9 @@ const CTODeductionReceipt = ({
         )}
  
         {/* ── Normal CTO/VL action area (always visible; policy dropdown shows when SC policy applies) ── */}
-        <Box sx={{ px: 1.25, pb: 0.75, pt: 0.75, borderTop: "1px solid rgba(109,35,35,0.08)", bgcolor: "rgba(109,35,35,0.02)", maxHeight: 180, overflow: "auto" }}>
+        <Box sx={{ px: 1.25, pb: 0.75, pt: 0.75, borderTop: "1px solid rgba(109,35,35,0.08)", bgcolor: "rgba(109,35,35,0.02)" }}>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.8, alignItems: "center" }}>
-              {tardDays > 0 && !tardinessFullyDeducted && remainingTardVl > 0 && (
+              {tardDays > 0 && !tardinessFullyDeducted && remainingTardVl > 0 && !(tardinessPending || tardinessApproved) && (
                 <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.5 }}>
                   <Checkbox checked={checkedTardiness} onChange={(e) => setCheckedTardiness(e.target.checked)} size="small"
                     sx={{ p: 0, mt: "1px", flexShrink: 0, color: T.accent, "&.Mui-checked": { color: T.accent } }}
@@ -818,8 +836,13 @@ const CTODeductionReceipt = ({
                   </Typography>
                 </Box>
               )}
+              {(tardinessPending || tardinessApproved) && tardDays > 0 && !tardinessFullyDeducted && (
+                <Box/>
+                 
+    
+              )}
               {/* CTO checkbox OR Policy dropdown — mutually exclusive */}
-              {absentDays > 0 && !absenceCoveredBySC && !absenceFullyDeducted && remainingAbsenceCto > 0 && !showScWarningButtons && (
+              {absentDays > 0 && !absenceCoveredBySC && !absenceFullyDeducted && remainingAbsenceCto > 0 && !showScWarningButtons && !(absencePending || absenceApproved || scPending || scApproved) && (
                 <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.5 }}>
                   <Checkbox checked={checkedAbsence} onChange={(e) => setCheckedAbsence(e.target.checked)} size="small"
                     sx={{ p: 0, mt: "1px", flexShrink: 0, color: T.accent, "&.Mui-checked": { color: T.accent } }}
@@ -829,30 +852,78 @@ const CTODeductionReceipt = ({
                   </Typography>
                 </Box>
               )}
+              {(absencePending || absenceApproved || scPending || scApproved) && absentDays > 0 && !absenceCoveredBySC && !absenceFullyDeducted && remainingAbsenceCto > 0 && !showScWarningButtons && (
+                <Box sx={{ px: 1, py: 0.6, borderRadius: 1.25, bgcolor: "rgba(109,35,35,0.05)", border: "1px solid rgba(109,35,35,0.14)" }}>
+                  <Typography sx={{ fontSize: "0.63rem", fontWeight: 700, color: T.accentDark, fontFamily: T.poppins }}>
+                    Absence deduction is already {absenceApproved || scApproved ? "approved" : "pending"}.
+                  </Typography>
+                </Box>
+              )}
               {/* Policy selection dropdown replaces CTO checkbox when SC buffer exists */}
               {showScWarningButtons && absentDays > 0 && !absenceCoveredBySC && !absenceFullyDeducted && remainingAbsenceCto > 0 && (
                 <Box sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    endIcon={<ArrowDownIcon sx={{ fontSize: "11px !important" }} />}
-                    onClick={(e) => setPolicyMenuAnchor(e.currentTarget)}
-                    disabled={deducting || isLoading}
-                    sx={{
-                      height: 28, fontSize: "0.62rem", fontWeight: 600,
-                      textTransform: "none", fontFamily: T.poppins, borderRadius: 1.25,
-                      color: T.accent, borderColor: T.accent, bgcolor: "transparent",
-                      whiteSpace: "nowrap", minWidth: 110, px: 1,
-                      "&:hover": { bgcolor: "rgba(109,35,35,0.04)", borderColor: T.accentDark },
-                      "&.Mui-disabled": { opacity: 0.4 },
-                    }}
+                  <Tooltip
+                    title={
+                      policySelection === "cto"
+                        ? "Deduct from Compensatory Time Off (CTO)"
+                        : "Deduct from Service Credit (SC)"
+                    }
+                    arrow
+                    placement="top"
                   >
-                    {policySelection === "cto" ? "CTO Override" : "From SC"}
-                  </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      endIcon={<ArrowDownIcon sx={{ fontSize: "14px !important" }} />}
+                      onClick={(e) => setPolicyMenuAnchor(e.currentTarget)}
+                      disabled={deducting || isLoading || scPending || scApproved || absencePending || absenceApproved}
+                      sx={{
+                        height: 30,
+                        fontSize: "0.7rem",
+                        fontWeight: 700,
+                        textTransform: "none",
+                        fontFamily: T.poppins,
+                        borderRadius: 2,
+                        color: T.accent,
+                        borderColor: T.accentBorder,
+                        bgcolor: "#fff",
+                        justifyContent: "space-between",
+                        textAlign: "left",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        minWidth: 0,
+                        maxWidth: { xs: "100%", sm: 270 },
+                        flex: "1 1 220px",
+                        px: 1.25,
+                        boxShadow: "none",
+                        "& .MuiButton-endIcon": { ml: 0.75, flexShrink: 0 },
+                        "&:hover": { bgcolor: "rgba(109,35,35,0.04)", borderColor: T.accent },
+                        "&:active": { bgcolor: "rgba(109,35,35,0.06)" },
+                        "&.Mui-disabled": { opacity: 0.4 },
+                      }}
+                    >
+                      {policySelection === "cto"
+                        ? "Deduct from CTO"
+                        : "Deduct from Service Credits"}
+                    </Button>
+                  </Tooltip>
                   <Menu
                     anchorEl={policyMenuAnchor}
                     open={Boolean(policyMenuAnchor)}
                     onClose={() => setPolicyMenuAnchor(null)}
+                    slotProps={{
+                      paper: {
+                        sx: {
+                          mt: 0.75,
+                          borderRadius: 2,
+                          border: `1px solid ${T.accentBorder}`,
+                          boxShadow:
+                            "0 10px 28px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)",
+                          overflow: "hidden",
+                        },
+                      },
+                    }}
                   >
                     <MenuItem
                       selected={policySelection === "sc"}
@@ -860,10 +931,16 @@ const CTODeductionReceipt = ({
                         setPolicySelection("sc");
                         setPolicyMenuAnchor(null);
                       }}
-                      sx={{ fontSize: "0.75rem", fontFamily: T.poppins }}
+                      sx={{
+                        fontSize: "0.78rem",
+                        fontFamily: T.poppins,
+                        py: 1,
+                        "&.Mui-selected": { bgcolor: "rgba(109,35,35,0.06)" },
+                        "&.Mui-selected:hover": { bgcolor: "rgba(109,35,35,0.09)" },
+                      }}
                     >
                       <SCIcon sx={{ fontSize: "14px", mr: 0.8, color: "#2e7d32" }} />
-                      Deduct from SC (recommended)
+                      Service Credit (SC) — Deduct first (Recommended)
                     </MenuItem>
                     <MenuItem
                       selected={policySelection === "cto"}
@@ -871,10 +948,16 @@ const CTODeductionReceipt = ({
                         setPolicySelection("cto");
                         setPolicyMenuAnchor(null);
                       }}
-                      sx={{ fontSize: "0.75rem", fontFamily: T.poppins }}
+                      sx={{
+                        fontSize: "0.78rem",
+                        fontFamily: T.poppins,
+                        py: 1,
+                        "&.Mui-selected": { bgcolor: "rgba(109,35,35,0.06)" },
+                        "&.Mui-selected:hover": { bgcolor: "rgba(109,35,35,0.09)" },
+                      }}
                     >
                       <CTOIcon sx={{ fontSize: "14px", mr: 0.8, color: "#6a1b9a" }} />
-                      Deduct from CTO (override)
+                      Compensatory Time Off (CTO) — Override
                     </MenuItem>
                   </Menu>
                 </Box>
@@ -894,7 +977,16 @@ const CTODeductionReceipt = ({
               const canDeductNormal =
                 (checkedAbsence && remainingAbsenceCto > 0) ||
                 (checkedTardiness && remainingTardVl > 0);
-              const canApply = !bothDone && (canDeductNormal || (showScWarningButtons && (policySelection === "sc" || policySelection === "cto")));
+              const lockedAbsence = absencePending || absenceApproved || scPending || scApproved;
+              const lockedTardiness = tardinessPending || tardinessApproved;
+              const canApply =
+                !bothDone &&
+                (
+                  ((canDeductNormal && !lockedAbsence && !lockedTardiness) ||
+                    (checkedAbsence && remainingAbsenceCto > 0 && !lockedAbsence) ||
+                    (checkedTardiness && remainingTardVl > 0 && !lockedTardiness)) ||
+                  (showScWarningButtons && (policySelection === "sc" || policySelection === "cto") && !lockedAbsence)
+                );
               return (
                 canApply && (
                   <Button fullWidth variant="contained" size="small"
@@ -935,12 +1027,7 @@ const CTODeductionReceipt = ({
         {/* Colored header */}
         <Box sx={{
           px: 2.5, py: 2,
-          background:
-            deductSource === "sc"
-              ? "linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%)"
-              : deductSource === "cto"
-                ? "linear-gradient(135deg, #4a148c 0%, #6a1b9a 100%)"
-                : "linear-gradient(135deg, #6d2323 0%, #8b2c2c 100%)",
+          background: T.headerGrad,
           display: "flex", alignItems: "center", gap: 1.5,
         }}>
           <Box sx={{ width: 36, height: 36, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.18)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -977,9 +1064,9 @@ const CTODeductionReceipt = ({
  
           {/* SC policy note */}
           {deductSource === "sc" && (
-            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.8, mb: 1.75, px: 1.25, py: 1, borderRadius: 2, bgcolor: "rgba(46,125,50,0.07)", border: "1px solid rgba(46,125,50,0.22)" }}>
-              <PolicyIcon sx={{ fontSize: 15, color: "#2e7d32", flexShrink: 0, mt: "1px" }} />
-              <Typography sx={{ fontSize: "0.7rem", color: "#1b5e20", fontFamily: T.poppins, fontWeight: 600, lineHeight: 1.6 }}>
+            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.8, mb: 1.75, px: 1.25, py: 1, borderRadius: 2, bgcolor: "rgba(109,35,35,0.06)", border: "1px solid rgba(109,35,35,0.18)" }}>
+              <PolicyIcon sx={{ fontSize: 15, color: T.accent, flexShrink: 0, mt: "1px" }} />
+              <Typography sx={{ fontSize: "0.7rem", color: T.accentDark, fontFamily: T.poppins, fontWeight: 600, lineHeight: 1.6 }}>
                 Following SC-first policy. This will deduct from your SC balance before using CTO.
               </Typography>
             </Box>
@@ -997,8 +1084,8 @@ const CTODeductionReceipt = ({
             <Box sx={{ px: 1.75, py: 1, display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px dashed rgba(0,0,0,0.08)" }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.7 }}>
                 {deductSource === "sc"
-                  ? <SCIcon sx={{ fontSize: 15, color: "#2e7d32" }} />
-                  : <CTOIcon sx={{ fontSize: 15, color: "#6a1b9a" }} />
+                  ? <SCIcon sx={{ fontSize: 15, color: T.accent }} />
+                  : <CTOIcon sx={{ fontSize: 15, color: T.accent }} />
                 }
                 <Typography sx={{ fontSize: "0.76rem", fontWeight: 600, color: "#1a1a1a", fontFamily: T.poppins }}>
                   {deductSource === "sc" ? "Service Credit (SC)" : deductSource === "cto" ? "Compensatory Time Off (CTO)" : "CTO / VL"}
@@ -1009,9 +1096,9 @@ const CTODeductionReceipt = ({
                 label={`${deductSource === "sc" ? scBuffer.toFixed(3) : ctoBal.toFixed(3)} d available`}
                 sx={{
                   height: 20, fontSize: "0.63rem", fontWeight: 700,
-                  bgcolor: deductSource === "sc" ? "rgba(46,125,50,0.1)" : "rgba(106,27,154,0.1)",
-                  color: deductSource === "sc" ? "#1b5e20" : "#6a1b9a",
-                  border: `1px solid ${deductSource === "sc" ? "rgba(46,125,50,0.25)" : "rgba(106,27,154,0.25)"}`,
+                  bgcolor: "rgba(109,35,35,0.06)",
+                  color: T.accent,
+                  border: `1px solid ${T.accentBorder}`,
                 }}
               />
             </Box>
@@ -1026,10 +1113,10 @@ const CTODeductionReceipt = ({
               {(deductSource === "sc" || deductSource === "cto") && (
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <Box>
-                    <Typography sx={{ fontSize: "0.74rem", fontWeight: 600, color: "#6a1b9a", fontFamily: T.poppins }}>Absences</Typography>
+                    <Typography sx={{ fontSize: "0.74rem", fontWeight: 600, color: T.accent, fontFamily: T.poppins }}>Absences</Typography>
                     <Typography sx={{ fontSize: "0.61rem", color: T.faint, fontFamily: T.poppins }}>{absentDays} day(s) × 8h</Typography>
                   </Box>
-                  <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#6a1b9a", fontFamily: T.poppins }}>
+                  <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>
                     − {absenceAmountForSource.toFixed(3)} d
                   </Typography>
                 </Box>
@@ -1060,7 +1147,8 @@ const CTODeductionReceipt = ({
  
             {/* New balance preview */}
             {(deductSource === "sc" || deductSource === "cto") && (() => {
-              const newBal = deductSource === "sc" ? newScBalance : newCtoBalanceOverride;
+              const newBalRaw = deductSource === "sc" ? newScBalance : newCtoBalanceOverride;
+              const newBal = (deductSource === "sc" && !allowScNegZero && Object.is(newBalRaw, -0)) ? 0 : newBalRaw;
               const balColor = newBal < 0 ? "#c62828" : newBal === 0 ? "#7a4a00" : "#1e4d20";
               const bgColor = newBal < 0 ? "rgba(198,40,40,0.06)" : newBal === 0 ? "rgba(122,74,0,0.05)" : "rgba(46,125,50,0.06)";
               return (
@@ -1093,8 +1181,8 @@ const CTODeductionReceipt = ({
  
           {/* Auto-approved note */}
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.7, px: 1.25, py: 1, borderRadius: 1.75, bgcolor: "rgba(46,125,50,0.07)", border: "1px solid rgba(46,125,50,0.2)", mb: 2 }}>
-            <CheckIcon sx={{ fontSize: 14, color: "#2e7d32", flexShrink: 0 }} />
-            <Typography sx={{ fontSize: "0.68rem", color: "#1b5e20", fontFamily: T.poppins, fontWeight: 600 }}>
+            <CheckIcon sx={{ fontSize: 14, color: T.accent, flexShrink: 0 }} />
+            <Typography sx={{ fontSize: "0.68rem", color: T.accentDark, fontFamily: T.poppins, fontWeight: 600 }}>
               Auto-approved — balance updates immediately upon confirmation.
             </Typography>
           </Box>
@@ -1124,20 +1212,10 @@ const CTODeductionReceipt = ({
             sx={{
               textTransform: "none", fontFamily: T.poppins, fontWeight: 700,
               fontSize: "0.82rem", borderRadius: 1.5, px: 2.5, boxShadow: "none",
-              background:
-                deductSource === "sc"
-                  ? "linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%)"
-                  : deductSource === "cto"
-                    ? "linear-gradient(135deg, #4a148c 0%, #6a1b9a 100%)"
-                    : "linear-gradient(135deg, #6d2323 0%, #8b2c2c 100%)",
+              background: T.headerGrad,
               color: "#fff",
               "&:hover": {
-                background:
-                  deductSource === "sc"
-                    ? "linear-gradient(135deg, #155218 0%, #256427 100%)"
-                    : deductSource === "cto"
-                      ? "linear-gradient(135deg, #38006b 0%, #5c1282 100%)"
-                      : "linear-gradient(135deg, #5a1d1d 0%, #7a2525 100%)",
+                background: "linear-gradient(135deg, #5a1d1d 0%, #7a2525 100%)",
                 boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
               },
               "&.Mui-disabled": { bgcolor: "#c0c0c0 !important", background: "#c0c0c0 !important", color: "#888 !important" },

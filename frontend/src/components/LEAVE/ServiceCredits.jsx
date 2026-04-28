@@ -6,9 +6,7 @@
  *  - Month names instead of numbers
  *  - Dynamic OT types (fetched from DB, not hardcoded)
  *  - Employment category filter on records panel
- *  - 40hr employees default to Commutative but can be overridden
- *  - Manual SC type override (commutative / non_commutative / tempo)
- *  - Tabs: Commutative vs Non-Commutative SC records
+ *  - Compact, filterable records list
  *  - SC records isolated by employment category snapshot
  *    (30hr SC and 40hr SC cannot be mixed)
  *
@@ -24,7 +22,7 @@ import {
   Select, MenuItem, FormControl, Alert, InputAdornment, Card, Avatar,
   Divider, Autocomplete, Dialog, DialogTitle, DialogContent, DialogActions,
   TablePagination, Tooltip, Fade, CircularProgress,
-  ToggleButton, ToggleButtonGroup, Tabs, Tab,
+  ToggleButton, ToggleButtonGroup,
 } from "@mui/material";
 import { alpha, styled } from "@mui/material/styles";
 import {
@@ -36,9 +34,6 @@ import {
   ViewModule as ViewModuleIcon, ViewList as ViewListIcon,
   Reorder,
   CheckCircle as CheckIcon,
-  MonetizationOn as MonetizeIcon,
-  SwapHoriz as ConvertIcon,
-  Block as BlockIcon,
   WorkHistory as SCIcon,
   AccountBalance as CommIcon,
   Lock as LockIcon,
@@ -47,6 +42,7 @@ import {
   Work as WorkIcon,
   Info as InfoIcon,
   Settings as SettingsIcon,
+  MonetizationOn as CommutationIcon,
 } from "@mui/icons-material";
 import LoadingOverlay from "../LoadingOverlay";
 import SuccessfulOverlay from "../SuccessfulOverlay";
@@ -119,18 +115,7 @@ const periodLabel = (year, month) => {
   return `${year} · ${monthName(month)}`;
 };
 
-// ─── SC Type meta ─────────────────────────────────────────────────────────────
-const SC_TYPE = {
-  commutative:     { label: "Commutative",        color: "#2E7D32", bg: "rgba(46,125,50,0.08)",  border: "rgba(46,125,50,0.25)",  icon: <CommIcon sx={{ fontSize: 13 }} /> },
-  non_commutative: { label: "Non-Commutative",    color: "#5D4037", bg: "rgba(93,64,55,0.08)",   border: "rgba(93,64,55,0.25)",   icon: <LockIcon sx={{ fontSize: 13 }} /> },
-  tempo:           { label: "Leave-Only (Tempo)", color: "#1565C0", bg: "rgba(21,101,192,0.08)", border: "rgba(21,101,192,0.25)", icon: <SCIcon   sx={{ fontSize: 13 }} /> },
-};
-
-const SC_ACTIONS = {
-  commutative:     ["convert_to_sl", "convert_to_vl", "monetize"],
-  non_commutative: ["offset"],
-  tempo:           ["use_as_leave"],
-};
+// Note: SC type UI removed.
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const toNum    = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -141,14 +126,6 @@ const getStatusColor = (rem, total) => {
   if (!total || total === 0) return "#9e9e9e";
   const p = (rem / total) * 100;
   return p > 50 ? "#2e7d32" : p > 20 ? "#ed6c02" : "#d32f2f";
-};
-
-const deriveSCType = (empCatData) => {
-  if (!empCatData) return "non_commutative";
-  if (empCatData.isTempo || empCatData.is_tempo) return "tempo";
-  if (empCatData.isDesignated || empCatData.is_designated) return "commutative";
-  if (empCatData.is40hrs || empCatData.isFortyHours) return "commutative";
-  return "non_commutative";
 };
 
 const computeSCFromOT = (otHours, empCatData) => {
@@ -192,18 +169,6 @@ const selectSx = {
   "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: T.accent, borderWidth: "1.5px" },
 };
 
-// ─── Badges ───────────────────────────────────────────────────────────────────
-const SCTypeBadge = ({ scType, size = "small" }) => {
-  const meta = SC_TYPE[scType] || null;
-  if (!meta) return null;
-  return (
-    <Chip size="small" label={meta.label}
-      sx={{ height: size === "large" ? 24 : 18, fontSize: size === "large" ? "0.72rem" : "0.62rem", fontWeight: 700,
-        bgcolor: meta.bg, color: meta.color, border: `1px solid ${meta.border}`, fontFamily: T.poppins,
-        "& .MuiChip-label": { px: 0.75 } }} />
-  );
-};
-
 const DeptBadge = ({ code, light = false }) => {
   if (!code) return null;
   if (light) return (
@@ -236,32 +201,22 @@ const EmpCatBadge = ({ label, colorHex, light = false }) => {
 };
 
 // ─── SC Rule Engine Panel ─────────────────────────────────────────────────────
-const SCRuleEnginePanel = ({ scType, empCatData, employee }) => {
+const SCRuleEnginePanel = ({ empCatData, employee }) => {
   if (!employee) return null;
-  const meta = SC_TYPE[scType] || SC_TYPE.non_commutative;
-  const descriptions = {
-    commutative:     ["✔ Can be converted to SL or VL credits", "✔ Eligible for Monetization", "✔ Credited based on OT hours rendered"],
-    non_commutative: ["⚠ For offset use only (no SL/VL conversion)", "⚠ Cannot be monetized", "✔ Credited based on OT hours rendered"],
-    tempo:           ["✔ SC functions as Leave credits only", "✗ No SL/VL assignment allowed", "✔ SC earns through OT; used like leave days"],
-  };
-  const lines = descriptions[scType] || descriptions.non_commutative;
   return (
-    <Box sx={{ p: 2, borderRadius: 2, border: `1.5px solid ${meta.border || T.accentBorder}`,
-      bgcolor: meta.bg || T.accentFaint, mb: 1.5 }}>
+    <Box sx={{ p: 2, borderRadius: 2, border: `1.5px solid ${T.accentBorder}`, bgcolor: T.accentFaint, mb: 1.5 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-        <Box sx={{ color: meta.color }}>{meta.icon}</Box>
-        <Typography sx={{ fontWeight: 800, fontSize: "0.82rem", color: meta.color, fontFamily: T.poppins }}>
-          SC Rule: {meta.label}
+        <InfoIcon sx={{ fontSize: 14, color: T.accent }} />
+        <Typography sx={{ fontWeight: 800, fontSize: "0.82rem", color: T.accent, fontFamily: T.poppins }}>
+          Service Credit Rules
         </Typography>
-        {empCatData?.isTempo      && <Chip label="Tempo"      size="small" sx={{ height: 16, fontSize: "0.58rem", fontWeight: 700, bgcolor: alpha(T.tempoColor, 0.12),    color: T.tempoColor,    border: `1px solid ${alpha(T.tempoColor, 0.3)}`,    fontFamily: T.poppins }} />}
-        {empCatData?.isDesignated && <Chip label="Designated" size="small" sx={{ height: 16, fontSize: "0.58rem", fontWeight: 700, bgcolor: alpha(T.commColor,  0.12),    color: T.commColor,     border: `1px solid ${alpha(T.commColor,  0.3)}`,    fontFamily: T.poppins }} />}
-        {empCatData?.is40hrs      && <Chip label="40-hr week" size="small" sx={{ height: 16, fontSize: "0.58rem", fontWeight: 700, bgcolor: "rgba(46,125,50,0.1)",         color: "#2E7D32",       border: "1px solid rgba(46,125,50,0.25)",           fontFamily: T.poppins }} />}
-        {empCatData?.is30hrs      && <Chip label="30-hr week" size="small" sx={{ height: 16, fontSize: "0.58rem", fontWeight: 700, bgcolor: "rgba(103,58,183,0.1)",         color: "#6a1b9a",       border: "1px solid rgba(103,58,183,0.25)",          fontFamily: T.poppins }} />}
+        {empCatData?.isDesignated && <Chip label="Designated" size="small" sx={{ height: 16, fontSize: "0.58rem", fontWeight: 700, bgcolor: alpha(T.accent, 0.12), color: T.accent, border: `1px solid ${alpha(T.accent, 0.25)}`, fontFamily: T.poppins }} />}
+        {empCatData?.is40hrs      && <Chip label="40-hr week" size="small" sx={{ height: 16, fontSize: "0.58rem", fontWeight: 700, bgcolor: alpha(T.accent, 0.08), color: T.accent, border: `1px solid ${alpha(T.accent, 0.18)}`, fontFamily: T.poppins }} />}
+        {empCatData?.is30hrs      && <Chip label="30-hr week" size="small" sx={{ height: 16, fontSize: "0.58rem", fontWeight: 700, bgcolor: alpha(T.accent, 0.08), color: T.accent, border: `1px solid ${alpha(T.accent, 0.18)}`, fontFamily: T.poppins }} />}
       </Box>
       <Box sx={{ display: "flex", flexDirection: "column", gap: 0.4 }}>
-        {lines.map((l, i) => (
-          <Typography key={i} sx={{ fontSize: "0.72rem", color: meta.color, fontFamily: T.poppins,
-            fontWeight: l.startsWith("✗") ? 700 : 500, opacity: l.startsWith("✗") ? 1 : 0.85 }}>{l}</Typography>
+        {["✔ Credited based on OT hours rendered", "✔ Tracked as Service Credit balance"].map((l, i) => (
+          <Typography key={i} sx={{ fontSize: "0.72rem", color: T.accentMid, fontFamily: T.poppins, fontWeight: 600, opacity: 0.9 }}>{l}</Typography>
         ))}
       </Box>
     </Box>
@@ -315,99 +270,6 @@ const OTInputRow = ({ label, otHours, onChangeOT, scHours, unit, note = "" }) =>
         </Typography>
       </Box>
     </Box>
-  );
-};
-
-// ─── SC Action Dialog ─────────────────────────────────────────────────────────
-const SCActionDialog = ({ open, record, action, onClose, onConfirm, loading }) => {
-  const [hoursToConvert, setHoursToConvert] = useState(0);
-
-  useEffect(() => {
-    if (open) setHoursToConvert(toNum(record?.remaining_hours));
-  }, [open, record]);
-
-  if (!record) return null;
-  const remHrs = toNum(record.remaining_hours);
-  const titles = {
-    convert_to_sl: "Convert SC → Sick Leave",
-    convert_to_vl: "Convert SC → Vacation Leave",
-    monetize:      "Monetize Service Credit",
-    offset:        "Apply SC as Offset",
-    use_as_leave:  "Use SC as Leave",
-  };
-  const title      = titles[action] || "SC Action";
-  const isConvert  = action === "convert_to_sl" || action === "convert_to_vl";
-  const isMonetize = action === "monetize";
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth
-      PaperProps={{ sx: { borderRadius: 3, overflow: "hidden", fontFamily: T.poppins } }}>
-      <DialogTitle sx={{ p: 0 }}>
-        <Box sx={{ px: 3.5, py: 2.5, background: T.headerGrad, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-            <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {isConvert ? <ConvertIcon sx={{ fontSize: 18, color: "#fff" }} /> : isMonetize ? <MonetizeIcon sx={{ fontSize: 18, color: "#fff" }} /> : <SCIcon sx={{ fontSize: 18, color: "#fff" }} />}
-            </Box>
-            <Box>
-              <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.92rem", fontFamily: T.poppins }}>{title}</Typography>
-              <Typography sx={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.6)", fontFamily: T.poppins }}>{record.fullName || record.employeeNumber}</Typography>
-            </Box>
-          </Box>
-          <IconButton onClick={onClose} size="small" sx={{ color: "rgba(255,255,255,0.75)" }}><Close sx={{ fontSize: 16 }} /></IconButton>
-        </Box>
-      </DialogTitle>
-      <DialogContent sx={{ p: 3 }}>
-        <Box sx={{ bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: 2, p: 2, mb: 2 }}>
-          {[
-            ["Employee",          record.fullName || record.employeeNumber],
-            ["SC Type",           SC_TYPE[record.sc_type]?.label || record.sc_type],
-            ["Period",            periodLabel(record.period_year, record.period_month)],
-            ["Available Balance", `${toNum(remHrs).toFixed(3)} hrs (${(toNum(remHrs) / 8).toFixed(3)} days)`],
-          ].map(([lbl, val]) => (
-            <Box key={lbl} sx={{ display: "flex", justifyContent: "space-between", py: 0.5,
-              borderBottom: "1px solid rgba(0,0,0,0.05)", "&:last-child": { borderBottom: "none" } }}>
-              <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontWeight: 700, fontFamily: T.poppins }}>{lbl}</Typography>
-              <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.text, fontFamily: T.poppins }}>{val}</Typography>
-            </Box>
-          ))}
-        </Box>
-        {isConvert && (
-          <Box sx={{ mb: 2 }}>
-            <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>
-              Hours to Convert (max {remHrs.toFixed(3)})
-            </Typography>
-            <FieldInput type="number" size="small" fullWidth
-              value={hoursToConvert || ""} inputProps={{ min: 0, max: remHrs, step: 0.001 }}
-              onChange={(e) => setHoursToConvert(Math.min(parseFloat(e.target.value) || 0, remHrs))}
-              InputProps={{ endAdornment: <InputAdornment position="end">
-                <Typography sx={{ fontSize: "0.7rem", color: T.faint, fontWeight: 700 }}>hrs = {(hoursToConvert / 8).toFixed(3)} days</Typography>
-              </InputAdornment> }}
-            />
-          </Box>
-        )}
-        <Alert severity={isMonetize ? "success" : "info"} sx={{ borderRadius: 2 }}>
-          <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: T.poppins }}>
-            {isMonetize
-              ? "The remaining SC balance will be converted to monetary equivalent based on the employee's daily rate."
-              : isConvert
-              ? `${hoursToConvert.toFixed(3)} hrs of SC will be credited to the employee's ${action === "convert_to_sl" ? "Sick Leave" : "Vacation Leave"} balance.`
-              : "SC balance will be applied as an offset. This action cannot be undone."}
-          </Typography>
-        </Alert>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: "#f9f9f9", gap: 1 }}>
-        <AccentButton onClick={onClose} variant="outlined"
-          sx={{ fontSize: "0.8rem", fontFamily: T.poppins, borderColor: T.accentBorder, color: T.muted }}>Cancel</AccentButton>
-        <AccentButton
-          onClick={() => onConfirm({ action, hoursToConvert, targetLeaveCode: action === "convert_to_sl" ? "SL" : action === "convert_to_vl" ? "VL" : null })}
-          disabled={loading || (isConvert && hoursToConvert <= 0)}
-          variant="contained"
-          startIcon={loading ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : isConvert ? <ConvertIcon sx={{ fontSize: "14px !important" }} /> : <MonetizeIcon sx={{ fontSize: "14px !important" }} />}
-          sx={{ fontSize: "0.8rem", fontFamily: T.poppins, bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark } }}>
-          {loading ? "Processing…" : "Confirm"}
-        </AccentButton>
-      </DialogActions>
-    </Dialog>
   );
 };
 
@@ -479,12 +341,6 @@ const ServiceCreditWireframe = () => (
             </Box>
           </Box>
           <Box sx={{ display: "flex", gap: 1, position: "relative", zIndex: 1, alignItems: "center" }}>
-            {/* SC type legend chips skeleton */}
-            <Box sx={{ display: "flex", gap: 0.75 }}>
-              {[90, 110, 100].map((w, i) => (
-                <Bone key={i} w={w} h={24} r={6} />
-              ))}
-            </Box>
             <Bone w={90} h={30} r={20} />
             <Bone w={36} h={36} r={8} />
           </Box>
@@ -492,7 +348,7 @@ const ServiceCreditWireframe = () => (
       </Box>
 
       {/* ── Two-column body skeleton ── */}
-      <Box sx={{ display: "grid", gridTemplateColumns: "5fr 7fr", gap: 2 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: "4fr 8fr", gap: 2 }}>
 
         {/* ── Left col — Record SC Form ── */}
         <Box
@@ -527,7 +383,7 @@ const ServiceCreditWireframe = () => (
               <Bone w="100%" h={36} r={8} />
             </Box>
             {/* Period row */}
-            <Box sx={{ display: "grid", gridTemplateColumns: "5fr 7fr", gap: 1.5 }}>
+            <Box sx={{ display: "grid", gridTemplateColumns: "4fr 8fr", gap: 1.5 }}>
               <Box>
                 <Bone w={80} h={10} sx={{ mb: 0.75 }} />
                 <Bone w="100%" h={36} r={8} />
@@ -548,18 +404,7 @@ const ServiceCreditWireframe = () => (
                 <Bone key={i} w={w} h={9} sx={{ mb: 0.5 }} />
               ))}
             </Box>
-            {/* SC Type override panel skeleton */}
-            <Box sx={{ borderRadius: 2, border: "1px solid rgba(109,35,35,0.12)", bgcolor: "rgba(109,35,35,0.04)", p: 1.5 }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
-                <Box sx={{ width: 12, height: 12, borderRadius: "2px", bgcolor: "rgba(109,35,35,0.2)" }} />
-                <Bone w={100} h={9} />
-              </Box>
-              <Box sx={{ display: "flex", gap: 0.75 }}>
-                {[45, 90, 120, 110].map((w, i) => (
-                  <Bone key={i} w={w} h={28} r={7} />
-                ))}
-              </Box>
-            </Box>
+            {/* SC Type override panel removed */}
             {/* OT column headers */}
             <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 0.7fr", gap: 1, px: 1.5, py: 0.75, bgcolor: "rgba(109,35,35,0.04)", borderRadius: 1 }}>
               {[80, 100, 65].map((w, i) => <Bone key={i} w={w} h={9} />)}
@@ -638,12 +483,7 @@ const ServiceCreditWireframe = () => (
                 <Bone w={56} h={28} r={6} />
               </Box>
             </Box>
-            {/* Tabs skeleton */}
-            <Box sx={{ display: "flex", gap: 0.5, mb: 1.25, borderBottom: "2px solid rgba(109,35,35,0.1)", pb: 0.5 }}>
-              {[60, 100, 105, 80].map((w, i) => (
-                <Bone key={i} w={w} h={20} r={4} sx={{ opacity: i === 0 ? 1 : 0.5 }} />
-              ))}
-            </Box>
+            {/* Tabs removed */}
             {/* Search + filters */}
             <Box sx={{ display: "flex", gap: 1 }}>
               <Bone w="100%" h={32} r={8} />
@@ -654,7 +494,7 @@ const ServiceCreditWireframe = () => (
 
           {/* Grid of employee cards */}
           <Box sx={{ flex: 1, overflowY: "hidden", p: 2 }}>
-            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1.5 }}>
+            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1.5 }}>
               {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
                 <Box
                   key={i}
@@ -680,10 +520,7 @@ const ServiceCreditWireframe = () => (
                       </Box>
                     </Box>
                   </Box>
-                  {/* SC type badges */}
-                  <Box sx={{ display: "flex", gap: 0.4 }}>
-                    <Bone w={80} h={16} r={20} />
-                  </Box>
+                  {/* SC type badges removed */}
                   {/* Period chips */}
                   <Box sx={{ display: "flex", gap: 0.4, flexWrap: "wrap" }}>
                     {[55, 60, 52].map((w, j) => (
@@ -731,7 +568,6 @@ const ServiceCredit = () => {
   const [unit,             setUnit]             = useState("days"); // ← DEFAULT CHANGED TO DAYS
   const [otValues,         setOtValues]         = useState({});
   const [otRemarks,        setOtRemarks]        = useState("");
-  const [manualSCType,     setManualSCType]     = useState(null);
 
   // ── UI state ────────────────────────────────────────────────────────────────
   const [loading,       setLoading]       = useState(false);
@@ -745,7 +581,6 @@ const ServiceCredit = () => {
   const [viewMode,      setViewMode]      = useState("grid");
   const [recordsPage,   setRecordsPage]   = useState(0);
   const [rowsPerPage,   setRowsPerPage]   = useState(24);
-  const [recordsTab,    setRecordsTab]    = useState(0);
 
   // ── Modal state ─────────────────────────────────────────────────────────────
   const [employeeSCModalOpen, setEmployeeSCModalOpen] = useState(false);
@@ -753,11 +588,8 @@ const ServiceCredit = () => {
   const [selectedSCRecord,    setSelectedSCRecord]    = useState(null);
   const [editRecord,          setEditRecord]          = useState(null);
   const [editHours,           setEditHours]           = useState(0);
-  const [actionDialogOpen,    setActionDialogOpen]    = useState(false);
-  const [actionRecord,        setActionRecord]        = useState(null);
-  const [currentAction,       setCurrentAction]       = useState(null);
-  const [actionLoading,       setActionLoading]       = useState(false);
   const [actionSuccess,       setActionSuccess]       = useState("");
+  const [commuteLoadingId,    setCommuteLoadingId]    = useState(null);
 
   // ── Init ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -770,12 +602,11 @@ const ServiceCredit = () => {
     })();
   }, []);
 
-  useEffect(() => { setRecordsPage(0); }, [searchTerm, deptFilter, empCatFilter, recordsTab]);
+  useEffect(() => { setRecordsPage(0); }, [searchTerm, deptFilter, empCatFilter]);
 
   useEffect(() => {
     setOtValues({});
     setOtRemarks("");
-    setManualSCType(null);
     setError("");
   }, [selectedEmployee, periodYear, periodMonth]);
 
@@ -927,16 +758,6 @@ const ServiceCredit = () => {
     [selectedEmployee, empCatRawMap],
   );
 
-  const effectiveSCType = useMemo(
-    () => manualSCType || deriveSCType(selectedEmpCatData),
-    [manualSCType, selectedEmpCatData],
-  );
-
-  const autoDerivedSCType = useMemo(
-    () => deriveSCType(selectedEmpCatData),
-    [selectedEmpCatData],
-  );
-
   const computedSC = useMemo(() => {
     let totalOT = 0;
     let totalSC = 0;
@@ -954,8 +775,6 @@ const ServiceCredit = () => {
   // ── Records filtering ─────────────────────────────────────────────────────
   const filteredRecords = useMemo(() => {
     const s = searchTerm.toLowerCase();
-    const tabTypeMap = { 1: "commutative", 2: "non_commutative", 3: "tempo" };
-    const tabType = tabTypeMap[recordsTab] || null;
 
     return scRecords.filter((r) => {
       const matchSearch =
@@ -965,10 +784,9 @@ const ServiceCredit = () => {
         (deptMap[r.employeeNumber?.toString()] || "") === deptFilter;
       const matchEmpCat = empCatFilter === "all" ||
         (empCatLabelMap[r.employeeNumber?.toString()]?.label || "") === empCatFilter;
-      const matchTab = !tabType || r.sc_type === tabType;
-      return matchSearch && matchDept && matchEmpCat && matchTab;
+      return matchSearch && matchDept && matchEmpCat;
     });
-  }, [scRecords, searchTerm, deptFilter, empCatFilter, recordsTab, deptMap, empCatLabelMap]);
+  }, [scRecords, searchTerm, deptFilter, empCatFilter, deptMap, empCatLabelMap]);
 
   const getEmployeeInfo = useCallback(
     (num) => employees.find((e) => e.employeeNumber?.toString() === num?.toString()) ||
@@ -1001,14 +819,6 @@ const ServiceCredit = () => {
     return groupedByEmployee.slice(s, s + rowsPerPage);
   }, [groupedByEmployee, recordsPage, rowsPerPage]);
 
-  const tabCounts = useMemo(() => {
-    const counts = { all: scRecords.length, commutative: 0, non_commutative: 0, tempo: 0 };
-    scRecords.forEach((r) => {
-      if (r.sc_type && counts[r.sc_type] !== undefined) counts[r.sc_type]++;
-    });
-    return counts;
-  }, [scRecords]);
-
   // ── Handlers ─────────────────────────────────────────────────────────────
   const handleAddSC = async () => {
     const empNum = selectedEmployee?.employeeNumber?.toString().trim();
@@ -1023,7 +833,7 @@ const ServiceCredit = () => {
         `${API_BASE_URL}/api/service-credits/service_credit`,
         {
           employeeNumber:      empNum,
-          sc_type:             effectiveSCType,
+          sc_type:             "non_commutative",
           ot_hours_regular:    toNum(otValues["regular"]    || otValues[otTypes[0]?.id]),
           ot_hours_holiday:    toNum(otValues["holiday"]    || otValues[otTypes[1]?.id]),
           ot_hours_night_diff: toNum(otValues["night_diff"] || otValues[otTypes[2]?.id]),
@@ -1045,7 +855,7 @@ const ServiceCredit = () => {
         { headers: { Authorization: `Bearer ${token}` } },
       );
       await fetchSCRecords();
-      setOtValues({}); setOtRemarks(""); setManualSCType(null);
+      setOtValues({}); setOtRemarks("");
       setSuccessAction("adding"); setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
     } catch (err) {
@@ -1087,23 +897,27 @@ const ServiceCredit = () => {
     } catch (err) { setError("Error deleting: " + (err.response?.data?.error || err.message)); }
   };
 
-  const handleSCAction = async ({ action, hoursToConvert, targetLeaveCode }) => {
-    if (!actionRecord) return;
-    setActionLoading(true);
+  const handleTransferToCommutation = async (record) => {
+    if (!record?.id) return;
+    const remH = toNum(record.remaining_hours);
+    if (remH <= 0) return;
+    if (!window.confirm(`Transfer remaining ${fmtHrs(remH, unit)} to Leave Commutation?`)) return;
+    setCommuteLoadingId(record.id);
     try {
       const token = localStorage.getItem("token");
       await axios.post(
-        `${API_BASE_URL}/api/service-credits/service_credit/${actionRecord.id}/action`,
-        { action, hours: hoursToConvert, targetLeaveCode },
+        `${API_BASE_URL}/api/service-credits/service_credit/${record.id}/commute`,
+        { commuted_by: token ? "admin" : null },
         { headers: { Authorization: `Bearer ${token}` } },
       );
       await fetchSCRecords();
-      setActionDialogOpen(false);
-      setActionSuccess(`SC action "${action.replace(/_/g, " ")}" completed successfully.`);
+      setActionSuccess(`Transferred ${fmtHrs(remH, unit)} to Leave Commutation.`);
       setTimeout(() => setActionSuccess(""), 4000);
     } catch (err) {
-      setError("Action failed: " + (err.response?.data?.error || err.message));
-    } finally { setActionLoading(false); }
+      setError("Transfer failed: " + (err.response?.data?.error || err.message));
+    } finally {
+      setCommuteLoadingId(null);
+    }
   };
 
   const openEmployeeSCModal = (grp) => {
@@ -1133,11 +947,6 @@ if (accessLoading || pageLoading) {
         }}>
           <LoadingOverlay open={loading} message="Processing service credit…" />
           <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
-          <SCActionDialog
-            open={actionDialogOpen} record={actionRecord} action={currentAction}
-            onClose={() => setActionDialogOpen(false)}
-            onConfirm={handleSCAction} loading={actionLoading}
-          />
 
           {/* ── Page Header ── */}
           <SectionCard sx={{ mb: 2, overflow: "hidden" }}>
@@ -1160,15 +969,6 @@ if (accessLoading || pageLoading) {
                 </Box>
               </Box>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, position: "relative", zIndex: 1 }}>
-                <Box sx={{ display: "flex", gap: 0.75, mr: 1 }}>
-                  {Object.entries(SC_TYPE).map(([key, meta]) => (
-                    <Box key={key} sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1, py: 0.3,
-                      borderRadius: 1, bgcolor: meta.bg, border: `1px solid ${meta.border}` }}>
-                      <Box sx={{ color: meta.color, display: "flex" }}>{meta.icon}</Box>
-                      <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: meta.color, fontFamily: T.poppins }}>{meta.label}</Typography>
-                    </Box>
-                  ))}
-                </Box>
                 <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
                   <Typography sx={{ fontSize: "0.8rem", color: T.accent, fontWeight: 700, fontFamily: T.poppins }}>
                     {scRecords.length} records
@@ -1187,7 +987,7 @@ if (accessLoading || pageLoading) {
 
           <Grid container spacing={2}>
             {/* ── LEFT: Add SC Form ── */}
-            <Grid item xs={12} lg={5}>
+            <Grid item xs={12} lg={4}>
               <SectionCard sx={{ height: "calc(100vh - 280px)", display: "flex", flexDirection: "column" }}>
                 <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`,
                   display: "flex", alignItems: "center", gap: 1.5, bgcolor: T.accentFaint, flexShrink: 0 }}>
@@ -1267,10 +1067,6 @@ if (accessLoading || pageLoading) {
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.75, flexWrap: "wrap" }}>
                         {deptMap[selectedEmployee.employeeNumber?.toString()] && <DeptBadge code={deptMap[selectedEmployee.employeeNumber?.toString()]} />}
                         {empCatLabelMap[selectedEmployee.employeeNumber?.toString()] && <EmpCatBadge label={empCatLabelMap[selectedEmployee.employeeNumber?.toString()].label} colorHex={empCatLabelMap[selectedEmployee.employeeNumber?.toString()].colorHex} />}
-                        {selectedEmpCatData?.isTempo     && <Chip label="Tempo Employee" size="small" sx={{ height: 18, fontSize: "0.62rem", fontWeight: 700, bgcolor: alpha(T.tempoColor, 0.12), color: T.tempoColor }} />}
-                        {selectedEmpCatData?.isDesignated && <Chip label="Designated"    size="small" sx={{ height: 18, fontSize: "0.62rem", fontWeight: 700, bgcolor: alpha(T.commColor,  0.12), color: T.commColor  }} />}
-                        {selectedEmpCatData?.is40hrs     && <Chip label="40-hr week"     size="small" sx={{ height: 18, fontSize: "0.62rem", fontWeight: 700, bgcolor: "rgba(46,125,50,0.1)",  color: "#2E7D32" }} />}
-                        {selectedEmpCatData?.is30hrs     && <Chip label="30-hr week"     size="small" sx={{ height: 18, fontSize: "0.62rem", fontWeight: 700, bgcolor: "rgba(0,121,107,0.1)", color: "#00695c" }} />}
                       </Box>
                     )}
                   </Box>
@@ -1327,49 +1123,7 @@ if (accessLoading || pageLoading) {
 
                   {selectedEmployee ? (
                     <>
-                      <SCRuleEnginePanel scType={effectiveSCType} empCatData={selectedEmpCatData} employee={selectedEmployee} />
-
-                      {/* Manual SC Type Override */}
-                      <Box sx={{ mb: 2, p: 1.5, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint }}>
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-                          <SettingsIcon sx={{ fontSize: 14, color: T.accent }} />
-                          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins }}>
-                            SC Type Override
-                          </Typography>
-                          {manualSCType && (
-                            <Chip label="Manual" size="small"
-                              sx={{ height: 16, fontSize: "0.58rem", fontWeight: 700,
-                                bgcolor: "rgba(230,81,0,0.12)", color: "#bf360c",
-                                border: "1px solid rgba(230,81,0,0.3)", fontFamily: T.poppins }} />
-                          )}
-                        </Box>
-                        <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins, mb: 1 }}>
-                          Auto-detected: <strong style={{ color: T.accent }}>{SC_TYPE[autoDerivedSCType]?.label}</strong>
-                          {" "}(from employment category). Override if needed.
-                        </Typography>
-                        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
-                          <Box onClick={() => setManualSCType(null)}
-                            sx={{ px: 1.25, py: 0.5, borderRadius: "7px", cursor: "pointer",
-                              border: `1px solid ${!manualSCType ? T.accent : T.accentBorder}`,
-                              bgcolor: !manualSCType ? T.accentFaint : "#fff",
-                              "&:hover": { bgcolor: T.accentHover } }}>
-                            <Typography sx={{ fontSize: "0.68rem", fontWeight: !manualSCType ? 700 : 500,
-                              color: !manualSCType ? T.accent : T.muted, fontFamily: T.poppins }}>Auto</Typography>
-                          </Box>
-                          {Object.entries(SC_TYPE).map(([key, meta]) => (
-                            <Box key={key} onClick={() => setManualSCType(key)}
-                              sx={{ px: 1.25, py: 0.5, borderRadius: "7px", cursor: "pointer",
-                                border: `1px solid ${manualSCType === key ? meta.color : T.accentBorder}`,
-                                bgcolor: manualSCType === key ? meta.bg : "#fff",
-                                "&:hover": { bgcolor: alpha(meta.color, 0.05) } }}>
-                              <Typography sx={{ fontSize: "0.68rem", fontWeight: manualSCType === key ? 700 : 500,
-                                color: manualSCType === key ? meta.color : T.muted, fontFamily: T.poppins }}>
-                                {meta.label}
-                              </Typography>
-                            </Box>
-                          ))}
-                        </Box>
-                      </Box>
+                      <SCRuleEnginePanel empCatData={selectedEmpCatData} employee={selectedEmployee} />
 
                       {/* OT Input table */}
                       <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 0.7fr", gap: 1,
@@ -1430,27 +1184,6 @@ if (accessLoading || pageLoading) {
                           placeholder="e.g. OT Order No. 2024-01, event name…" />
                       </Box>
 
-                      {/* SC Type info box */}
-                      <Box sx={{ display: "flex", gap: 1, mb: 2, p: 1.5, borderRadius: 2,
-                        bgcolor: SC_TYPE[effectiveSCType]?.bg || T.accentFaint,
-                        border: `1px solid ${SC_TYPE[effectiveSCType]?.border || T.accentBorder}` }}>
-                        <InfoIcon sx={{ fontSize: 14, color: SC_TYPE[effectiveSCType]?.color || T.accent, mt: 0.1, flexShrink: 0 }} />
-                        <Box>
-                          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700,
-                            color: SC_TYPE[effectiveSCType]?.color || T.accent, fontFamily: T.poppins, mb: 0.3 }}>
-                            This SC will be stored as: <strong>{SC_TYPE[effectiveSCType]?.label}</strong>
-                            {manualSCType && <span style={{ color: "#bf360c", fontSize: "0.65rem", marginLeft: 6 }}>(manually overridden)</span>}
-                          </Typography>
-                          <Typography sx={{ fontSize: "0.68rem", color: T.muted, fontFamily: T.poppins }}>
-                            {effectiveSCType === "commutative"
-                              ? "Designated / 40-hr employees can convert or monetize these credits."
-                              : effectiveSCType === "tempo"
-                              ? "Tempo employees use SC as leave credits — no SL/VL conversion."
-                              : "Non-commutative SC can only be used as offset."}
-                          </Typography>
-                        </Box>
-                      </Box>
-
                       <AccentButton onClick={handleAddSC} variant="contained" fullWidth
                         startIcon={loading ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AddIcon sx={{ fontSize: "16px !important" }} />}
                         disabled={loading || computedSC.total <= 0}
@@ -1468,7 +1201,7 @@ if (accessLoading || pageLoading) {
                       <PersonIcon sx={{ fontSize: 40, color: alpha(T.accent, 0.2), mb: 1 }} />
                       <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins }}>Select an employee to begin</Typography>
                       <Typography sx={{ fontSize: "0.75rem", color: T.faint, mt: 0.5, fontFamily: T.poppins }}>
-                        The SC Rule Engine will automatically determine the SC type
+                        Record OT hours to generate Service Credits.
                       </Typography>
                     </Box>
                   )}
@@ -1477,7 +1210,7 @@ if (accessLoading || pageLoading) {
             </Grid>
 
             {/* ── RIGHT: Records Panel ── */}
-            <Grid item xs={12} lg={7}>
+            <Grid item xs={12} lg={8}>
               <SectionCard sx={{ height: "calc(100vh - 280px)", display: "flex", flexDirection: "column" }}>
                 <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
                   <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
@@ -1500,21 +1233,6 @@ if (accessLoading || pageLoading) {
                         <ToggleButton value="list"><ViewListIcon   sx={{ fontSize: 14 }} /></ToggleButton>
                       </ToggleButtonGroup>
                     </Box>
-                  </Box>
-
-                  {/* Tabs */}
-                  <Box sx={{ mb: 1.5 }}>
-                    <Tabs value={recordsTab} onChange={(_, v) => setRecordsTab(v)} variant="scrollable" scrollButtons={false}
-                      sx={{ minHeight: 32,
-                        "& .MuiTab-root": { minHeight: 32, fontSize: "0.72rem", fontWeight: 700,
-                          textTransform: "none", fontFamily: T.poppins, color: T.muted, py: 0,
-                          "&.Mui-selected": { color: T.accent } },
-                        "& .MuiTabs-indicator": { bgcolor: T.accent, height: 2 } }}>
-                      <Tab label={`All (${tabCounts.all})`} />
-                      <Tab label={<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}><CommIcon sx={{ fontSize: 13, color: recordsTab === 1 ? T.commColor : T.faint }} /><span>Commutative ({tabCounts.commutative})</span></Box>} />
-                      <Tab label={<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}><LockIcon sx={{ fontSize: 13, color: recordsTab === 2 ? T.nonCommColor : T.faint }} /><span>Non-Comm. ({tabCounts.non_commutative})</span></Box>} />
-                      <Tab label={<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}><SCIcon sx={{ fontSize: 13, color: recordsTab === 3 ? T.tempoColor : T.faint }} /><span>Tempo ({tabCounts.tempo})</span></Box>} />
-                    </Tabs>
                   </Box>
 
                   {/* Filters */}
@@ -1581,7 +1299,7 @@ if (accessLoading || pageLoading) {
                         const empCat       = empCatLabelMap[grp.employeeNumber] || null;
                         const scTypes      = [...new Set(grp.records.map((r) => r.sc_type))];
                         return (
-                          <Grid item xs={12} sm={6} md={4} key={grp.employeeNumber} sx={{ display: "flex" }}>
+                          <Grid item xs={12} sm={6} md={3} key={grp.employeeNumber} sx={{ display: "flex" }}>
                             <Box onClick={() => openEmployeeSCModal(grp)}
                               sx={{ width: "100%", display: "flex", flexDirection: "column", p: 2, borderRadius: 2,
                                 cursor: "pointer", bgcolor: "#fff", border: `1px solid ${T.accentBorder}`,
@@ -1601,9 +1319,7 @@ if (accessLoading || pageLoading) {
                                   </Box>
                                 </Box>
                               </Box>
-                              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.75 }}>
-                                {scTypes.map((t) => <SCTypeBadge key={t} scType={t} />)}
-                              </Box>
+                              {/* SC type chips removed */}
                               <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.75 }}>
                                 {grp.records.slice(0, 3).map((r) => {
                                   const sc = getStatusColor(r.remaining_hours, r.earned_hours);
@@ -1645,7 +1361,7 @@ if (accessLoading || pageLoading) {
                       <Box sx={{ px: 1.5, py: 1, display: "grid",
                         gridTemplateColumns: "2fr 1fr 1fr 1.2fr 1.5fr", gap: 1, alignItems: "center",
                         bgcolor: alpha(T.accent, 0.04), borderRadius: 1.5, mb: 1 }}>
-                        {["Employee", "Dept / Category", "Records", "Balance", "SC Types"].map((col) => (
+                        {["Employee", "Dept / Category", "Records", "Balance"].map((col) => (
                           <Typography key={col} sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.accent,
                             textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: T.poppins }}>{col}</Typography>
                         ))}
@@ -1687,9 +1403,7 @@ if (accessLoading || pageLoading) {
                             <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: overallColor, fontFamily: T.poppins }}>
                               {fmtHrs(totalRem, unit)}
                             </Typography>
-                            <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-                              {scTypes.map((t) => <SCTypeBadge key={t} scType={t} />)}
-                            </Box>
+                            {/* SC type chips removed */}
                           </Box>
                         );
                       })}
@@ -1774,7 +1488,6 @@ if (accessLoading || pageLoading) {
                           <Box sx={{ flex: 1, overflowY: "auto" }}>
                             {sortedRecords.map((r) => {
                               const sc      = getStatusColor(r.remaining_hours, r.earned_hours);
-                              const meta    = SC_TYPE[r.sc_type];
                               const isActive = selectedSCRecord?.id === r.id;
                               let catSnap = null;
                               try { catSnap = r.emp_category_snapshot ? JSON.parse(r.emp_category_snapshot) : null; } catch {}
@@ -1794,7 +1507,6 @@ if (accessLoading || pageLoading) {
                                     </Typography>
                                   </Box>
                                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.3, flexWrap: "wrap" }}>
-                                    {meta && <SCTypeBadge scType={r.sc_type} />}
                                     {catSnap?.is30hrs && <Chip label="30hr" size="small" sx={{ height: 14, fontSize: "0.55rem", fontWeight: 700, bgcolor: "rgba(103,58,183,0.08)", color: "#6a1b9a", fontFamily: T.poppins }} />}
                                     {catSnap?.is40hrs && <Chip label="40hr" size="small" sx={{ height: 14, fontSize: "0.55rem", fontWeight: 700, bgcolor: "rgba(46,125,50,0.08)", color: "#2e7d32", fontFamily: T.poppins }} />}
                                   </Box>
@@ -1820,29 +1532,26 @@ if (accessLoading || pageLoading) {
                             </Box>
                           ) : (() => {
                             const r              = selectedSCRecord;
-                            const meta           = SC_TYPE[r.sc_type] || SC_TYPE.non_commutative;
                             const sc             = getStatusColor(r.remaining_hours, r.earned_hours);
                             const remH           = toNum(r.remaining_hours);
                             const earnedH        = toNum(r.earned_hours);
                             const usedH          = toNum(r.used_hours);
                             const pctUsed        = earnedH > 0 ? Math.min((usedH / earnedH) * 100, 100) : 0;
                             const fmt            = (h) => fmtHrs(h, unit);
-                            const allowedActions = SC_ACTIONS[r.sc_type] || [];
+                            // action buttons removed
                             let catSnap = null;
                             try { catSnap = r.emp_category_snapshot ? JSON.parse(r.emp_category_snapshot) : null; } catch {}
 
                             return (
                               <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                <Box sx={{ borderRadius: "10px", border: `1.5px solid ${meta.border || T.accentBorder}`,
+                                <Box sx={{ borderRadius: "10px", border: `1.5px solid ${T.accentBorder}`,
                                   overflow: "hidden", bgcolor: "#fff" }}>
                                   <Box sx={{ px: 2.5, py: 1.5, display: "flex", alignItems: "center", gap: 1.5,
-                                    bgcolor: meta.bg || T.accentFaint, borderBottom: `1px solid ${T.divider}` }}>
-                                    <Box sx={{ color: meta.color }}>{meta.icon}</Box>
-                                    <Typography sx={{ fontWeight: 700, color: meta.color, fontSize: "0.92rem", fontFamily: T.poppins }}>
-                                      {periodLabel(r.period_year, r.period_month)} — {meta.label}
+                                    bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}` }}>
+                                    <SCIcon sx={{ fontSize: 16, color: T.accent }} />
+                                    <Typography sx={{ fontWeight: 700, color: T.accent, fontSize: "0.92rem", fontFamily: T.poppins }}>
+                                      {periodLabel(r.period_year, r.period_month)}
                                     </Typography>
-                                    <Chip label={r.sc_type} size="small" sx={{ height: 18, fontSize: "0.6rem", fontWeight: 700,
-                                      bgcolor: meta.bg, color: meta.color, border: `1px solid ${meta.border}`, fontFamily: T.poppins }} />
                                     {catSnap?.is30hrs && <Chip label="30-hr SC" size="small" sx={{ height: 18, fontSize: "0.6rem", fontWeight: 700, bgcolor: "rgba(103,58,183,0.08)", color: "#6a1b9a", border: "1px solid rgba(103,58,183,0.2)", fontFamily: T.poppins }} />}
                                     {catSnap?.is40hrs && <Chip label="40-hr SC" size="small" sx={{ height: 18, fontSize: "0.6rem", fontWeight: 700, bgcolor: "rgba(46,125,50,0.08)", color: "#2e7d32", border: "1px solid rgba(46,125,50,0.2)", fontFamily: T.poppins }} />}
                                     <Box sx={{ flex: 1 }} />
@@ -1859,7 +1568,7 @@ if (accessLoading || pageLoading) {
                                   <Box sx={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
                                     {[
                                       ["OT Hours",   toNum(r.total_ot_hours), "#1565c0"],
-                                      ["SC Earned",  earnedH,                  meta.color],
+                                      ["SC Earned",  earnedH,                  T.accent],
                                       ["Used",       usedH,                    "#e65100"],
                                       ["Remaining",  remH,                     sc],
                                       ["Reg/Hol/ND", `${toNum(r.ot_hours_regular).toFixed(1)}/${toNum(r.ot_hours_holiday).toFixed(1)}/${toNum(r.ot_hours_night_diff).toFixed(1)}`, T.muted],
@@ -1907,9 +1616,9 @@ if (accessLoading || pageLoading) {
                                   <Box sx={{ px: 2.5, py: 1.5, display: "flex", alignItems: "center",
                                     justifyContent: "space-between", gap: 2 }}>
                                     <Typography sx={{ fontSize: "0.72rem",
-                                      color: remH > 0 ? meta.color : T.faint, fontFamily: T.poppins }}>
+                                      color: remH > 0 ? T.accent : T.faint, fontFamily: T.poppins }}>
                                       {remH > 0
-                                        ? `${fmt(remH)} available · ${meta.label} rules apply.`
+                                        ? `${fmt(remH)} available · Can be transferred to Commutation.`
                                         : "All SC credits for this period have been used."}
                                     </Typography>
                                     <Box sx={{ display: "flex", gap: 0.75, flexShrink: 0, flexWrap: "wrap" }}>
@@ -1921,43 +1630,30 @@ if (accessLoading || pageLoading) {
                                           "&:hover": { borderColor: T.accent, bgcolor: T.accentFaint, transform: "none" } }}>
                                         Edit
                                       </AccentButton>
-                                      {allowedActions.includes("convert_to_sl") && remH > 0 && (
-                                        <AccentButton onClick={() => { setActionRecord({ ...r, fullName: selectedEmployeeSC.fullName }); setCurrentAction("convert_to_sl"); setActionDialogOpen(true); }}
-                                          variant="outlined" size="small"
-                                          sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28,
-                                            borderColor: alpha(T.commColor, 0.4), color: T.commColor,
-                                            "&:hover": { bgcolor: alpha(T.commColor, 0.06), transform: "none" } }}>→ SL</AccentButton>
-                                      )}
-                                      {allowedActions.includes("convert_to_vl") && remH > 0 && (
-                                        <AccentButton onClick={() => { setActionRecord({ ...r, fullName: selectedEmployeeSC.fullName }); setCurrentAction("convert_to_vl"); setActionDialogOpen(true); }}
-                                          variant="outlined" size="small"
-                                          sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28,
-                                            borderColor: alpha(T.commColor, 0.4), color: T.commColor,
-                                            "&:hover": { bgcolor: alpha(T.commColor, 0.06), transform: "none" } }}>→ VL</AccentButton>
-                                      )}
-                                      {allowedActions.includes("monetize") && remH > 0 && (
-                                        <AccentButton onClick={() => { setActionRecord({ ...r, fullName: selectedEmployeeSC.fullName }); setCurrentAction("monetize"); setActionDialogOpen(true); }}
-                                          variant="contained" size="small"
-                                          startIcon={<MonetizeIcon sx={{ fontSize: "12px !important" }} />}
-                                          sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28,
-                                            bgcolor: T.commColor, color: "#fff",
-                                            "&:hover": { bgcolor: "#1b5e20", transform: "none" } }}>Monetize</AccentButton>
-                                      )}
-                                      {allowedActions.includes("offset") && remH > 0 && (
-                                        <AccentButton onClick={() => { setActionRecord({ ...r, fullName: selectedEmployeeSC.fullName }); setCurrentAction("offset"); setActionDialogOpen(true); }}
-                                          variant="contained" size="small"
-                                          startIcon={<BlockIcon sx={{ fontSize: "12px !important" }} />}
-                                          sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28,
-                                            bgcolor: T.nonCommColor, color: "#fff",
-                                            "&:hover": { bgcolor: "#3e2723", transform: "none" } }}>Apply Offset</AccentButton>
-                                      )}
-                                      {allowedActions.includes("use_as_leave") && remH > 0 && (
-                                        <AccentButton onClick={() => { setActionRecord({ ...r, fullName: selectedEmployeeSC.fullName }); setCurrentAction("use_as_leave"); setActionDialogOpen(true); }}
-                                          variant="contained" size="small"
-                                          startIcon={<SCIcon sx={{ fontSize: "12px !important" }} />}
-                                          sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28,
-                                            bgcolor: T.tempoColor, color: "#fff",
-                                            "&:hover": { bgcolor: "#0d47a1", transform: "none" } }}>Use as Leave</AccentButton>
+                                      {remH > 0 && (
+                                        <Tooltip title="Transfer remaining balance to Leave Commutation">
+                                          <span>
+                                            <AccentButton
+                                              onClick={() => handleTransferToCommutation(r)}
+                                              variant="contained"
+                                              size="small"
+                                              disabled={commuteLoadingId === r.id}
+                                              startIcon={commuteLoadingId === r.id ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : <CommutationIcon sx={{ fontSize: "12px !important" }} />}
+                                              sx={{
+                                                fontSize: "0.72rem",
+                                                fontFamily: T.poppins,
+                                                px: 1.5,
+                                                height: 28,
+                                                bgcolor: T.accent,
+                                                color: "#fff",
+                                                "&:hover": { bgcolor: T.accentDark, transform: "none" },
+                                                "&:disabled": { bgcolor: "#ccc", color: "#fff" },
+                                              }}
+                                            >
+                                              Transfer to Commutation
+                                            </AccentButton>
+                                          </span>
+                                        </Tooltip>
                                       )}
                                     </Box>
                                   </Box>
@@ -1983,7 +1679,6 @@ if (accessLoading || pageLoading) {
                 maxHeight: "90vh", overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.22)",
                 display: "flex", flexDirection: "column", fontFamily: T.poppins }}>
                 {editRecord && (() => {
-                  const meta   = SC_TYPE[editRecord.sc_type] || SC_TYPE.non_commutative;
                   const deptCd = deptMap[editRecord.employeeNumber?.toString()] || null;
                   const empCat = empCatLabelMap[editRecord.employeeNumber?.toString()] || null;
                   return (
@@ -2023,13 +1718,8 @@ if (accessLoading || pageLoading) {
                       <Box sx={{ px: 3.5, py: 3, overflowY: "auto", flexGrow: 1 }}>
                         {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}><Typography sx={{ fontFamily: T.poppins }}>{error}</Typography></Alert>}
 
-                        <Box sx={{ mb: 2.5, p: 2, borderRadius: 2, bgcolor: meta.bg,
-                          border: `1.5px solid ${meta.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <Box>
-                            <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.faint,
-                              textTransform: "uppercase", letterSpacing: "0.07em", mb: 0.4, fontFamily: T.poppins }}>SC Type</Typography>
-                            <SCTypeBadge scType={editRecord.sc_type} size="large" />
-                          </Box>
+                        <Box sx={{ mb: 2.5, p: 2, borderRadius: 2, bgcolor: T.accentFaint,
+                          border: `1.5px solid ${T.accentBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                           <Box sx={{ textAlign: "right" }}>
                             <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.faint,
                               textTransform: "uppercase", letterSpacing: "0.07em", mb: 0.4, fontFamily: T.poppins }}>Period</Typography>
@@ -2041,7 +1731,7 @@ if (accessLoading || pageLoading) {
 
                         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1.5, mb: 2.5 }}>
                           {[
-                            ["Earned",    toNum(editRecord.earned_hours),    meta.color],
+                            ["Earned",    toNum(editRecord.earned_hours),    T.accent],
                             ["Used",      toNum(editRecord.used_hours),      "#ed6c02"],
                             ["Remaining", toNum(editRecord.remaining_hours), getStatusColor(toNum(editRecord.remaining_hours), toNum(editRecord.earned_hours))],
                           ].map(([lbl, val, col]) => (
