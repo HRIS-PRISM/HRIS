@@ -567,19 +567,12 @@ const SCInputColumn = ({
   const [otTypes, setOtTypes] = useState([]);
   const [otValues, setOtValues] = useState({});
   const [otDrafts, setOtDrafts] = useState({});
-  const [scType, setSCType] = useState("auto");
   const [remarks, setRemarks] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const calDays = getCalendarDays(year, month);
   const empCat = employee ? empCatMap[String(employee.employeeNumber)] : null;
-
-  const SC_TYPES = {
-    commutative: { label: "Commutative", color: "#2a5a2a" },
-    non_commutative: { label: "Non-Commutative", color: "#3a2a1a" },
-    tempo: { label: "Leave-Only (Tempo)", color: "#1a3a5a" },
-  };
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -615,7 +608,6 @@ const SCInputColumn = ({
     setOtValues({});
     setOtDrafts({});
     setRemarks("");
-    setSCType("auto");
     setError("");
   }, [employee, year, month]);
 
@@ -630,15 +622,13 @@ const SCInputColumn = ({
     return { totalOT, total: parseFloat(totalSC.toFixed(3)) };
   }, [otValues, otTypes]);
 
-  const derivedSCType = useMemo(() => {
+  /** Stored on `sc_earnings.sc_type` for balance matching — only `tempo` remains distinct; default matches backend. */
+  const payloadScType = useMemo(() => {
     if (!empCat) return "non_commutative";
     const l = (empCat.label || "").toLowerCase();
     if (l.includes("tempo")) return "tempo";
-    if (l.includes("designated") || l.includes("40")) return "commutative";
     return "non_commutative";
   }, [empCat]);
-
-  const effectiveSCType = scType === "auto" ? derivedSCType : scType;
 
   const handleSave = async () => {
     if (!employee) {
@@ -657,7 +647,7 @@ const SCInputColumn = ({
         `${API_BASE_URL}/api/earnings/sc`,
         {
           employeeNumber: employee.employeeNumber,
-          sc_type: effectiveSCType,
+          sc_type: payloadScType,
           ot_hours_regular: toNum(
             otValues["regular"] || otValues[otTypes[0]?.id],
           ),
@@ -785,33 +775,29 @@ const SCInputColumn = ({
             {monthName(month)} {year} — {calDays} days ({calDays * 8}h max)
           </Typography>
         </Box>
-        <Box
-          sx={{
-            mb: 1,
-            p: 0.75,
-            borderRadius: 1.5,
-            border: "1px solid rgba(0,0,0,0.1)",
-            bgcolor: "rgba(0,0,0,0.02)",
-          }}
-        >
-          <Typography
+        {payloadScType === "tempo" && (
+          <Box
             sx={{
-              fontSize: "0.66rem",
-              fontWeight: 700,
-              color: SC_TYPES[effectiveSCType]?.color || "#333",
-              fontFamily: T.poppins,
+              mb: 1,
+              px: 0.75,
+              py: 0.5,
+              borderRadius: 1.5,
+              border: "1px solid rgba(26,58,90,0.25)",
+              bgcolor: "rgba(26,58,90,0.06)",
             }}
           >
-            SC Rule: {SC_TYPES[effectiveSCType]?.label}
-            {scType !== "auto" && (
-              <span
-                style={{ color: "#9a5000", marginLeft: 6, fontSize: "0.6rem" }}
-              >
-                (manual override)
-              </span>
-            )}
-          </Typography>
-        </Box>
+            <Typography
+              sx={{
+                fontSize: "0.64rem",
+                fontWeight: 700,
+                color: "#1a3a5a",
+                fontFamily: T.poppins,
+              }}
+            >
+              Leave-only (Tempo) category — SC follows tempo rules.
+            </Typography>
+          </Box>
+        )}
         <Typography
           sx={{
             fontSize: "0.6rem",

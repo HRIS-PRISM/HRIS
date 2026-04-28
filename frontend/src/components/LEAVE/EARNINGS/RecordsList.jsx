@@ -519,7 +519,9 @@ const EarningRow = ({
                 : ""}
               {record.leave_code && ` · ${record.leave_code}`}
               {record.sc_type &&
-                ` · SC (${record.sc_type.replace("_", "-")})`}
+                record.sc_type !== "commutative" &&
+                record.sc_type !== "non_commutative" &&
+                ` · SC (${String(record.sc_type).replace(/_/g, " ")})`}
               {type === "cto" && !record.sc_type && ` · CTO`}
             </Typography>
             <StatusBadge status={status} />

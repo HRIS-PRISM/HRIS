@@ -311,14 +311,10 @@
         .toString()
         .trim()
         .toLowerCase();
-      const pretty =
-        scType === "non_commutative"
-          ? "Non-commutative"
-          : scType === "commutative"
-            ? "Commutative"
-            : scType
-              ? scType.replace(/_/g, " ")
-              : "";
+      if (scType === "non_commutative" || scType === "commutative") {
+        return { actionSuffix: "", notes: null };
+      }
+      const pretty = scType ? scType.replace(/_/g, " ") : "";
       const suffix = pretty ? ` (${pretty})` : "";
       return { actionSuffix: suffix, notes: pretty ? `SC Type: ${pretty}` : null };
     }
