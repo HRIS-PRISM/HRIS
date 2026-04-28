@@ -216,7 +216,6 @@ const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
   />
 );
 
-// ─── Conversion defaults ──────────────────────────────────────────────────────
 const DEFAULT_HOURS_8 = Array.from({ length: 8 }, (_, i) => ({
   rate_type: "hour",
   day_type: "8hr",
@@ -338,7 +337,6 @@ const AccentButton = styled(Button)({
   "&:active": { transform: "translateY(0)" },
 });
 
-/** Matches LeaveAssignment.jsx — employee gender pill */
 const GenderBadge = ({ gender }) => {
   if (!gender) return null;
   const isMale = String(gender).trim().toLowerCase() === "male";
@@ -401,11 +399,6 @@ const ColHeader = ({ icon: Icon, label, color = T.accent, children }) => (
 const SL_VL_AUTO_CODES = ["SL", "VL"];
 const SL_VL_DEFAULT_HOURS = 1.25 * 8;
 
-/**
- * Leave earning rows use the same registry as Leave Assignment / Leave Table:
- * `GET /leaveRoute/leave_table` → `gender_restriction` (Male/Female/empty) from admins in LeaveTable.jsx.
- * Eligible rows match LeaveAssignment `filteredLeaveTypesForNew` via `isLeaveAllowedForGender`.
- */
 const LeaveInputColumn = ({
   employee,
   deptMap,
@@ -437,7 +430,6 @@ const LeaveInputColumn = ({
     [leaveTypes, employeeGender],
   );
 
-  /** Same “not eligible” set as types excluded from Leave Assignment for this employee. */
   const hiddenLeaveTypesForPrompt = useMemo(() => {
     return leaveTypes
       .filter((lt) => !isLeaveAllowedForGender(lt, employeeGender))
@@ -453,13 +445,13 @@ const LeaveInputColumn = ({
           code: lt.leave_code,
           description: (lt.leave_description || "").trim(),
           who,
+          restriction: r,
         };
       });
   }, [leaveTypes, employeeGender]);
 
   useEffect(() => {
     axios
-      // Leave Table registry — same source as LeaveAssignment.jsx / LeaveTable.jsx (admin gender_restriction)
       .get(`${API_BASE_URL}/leaveRoute/leave_table`)
       .then((r) => setLeaveTypes(Array.isArray(r.data) ? r.data : []))
       .catch(() => {});
@@ -501,7 +493,6 @@ const LeaveInputColumn = ({
         if (e.earn_status === "rejected") continue;
         const code = String(e.leave_code).toUpperCase();
         const prev = map[code];
-        // approved wins over pending
         if (e.earn_status === "approved") map[code] = "approved";
         else if (!prev) map[code] = e.earn_status || "pending";
       }
@@ -688,204 +679,143 @@ const LeaveInputColumn = ({
         )}
       </ColHeader>
 
+      {/* ── Compact employee meta + restrictions bar ── */}
       <Box
         sx={{
           flexShrink: 0,
           px: 1.5,
-          py: 1.15,
+          py: 0.85,
           borderBottom: `1px solid ${T.divider}`,
-          bgcolor: alpha(T.accent, 0.05),
+          bgcolor: alpha(T.accent, 0.03),
+          display: "flex",
+          flexDirection: "column",
+          gap: 0.55,
         }}
       >
-        <Typography
-          sx={{
-            fontSize: "0.6rem",
-            fontWeight: 800,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            color: T.faint,
-            mb: 0.65,
-            fontFamily: T.poppins,
-          }}
-        >
-          Selected employee
-        </Typography>
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            gap: 0.75,
-            flexWrap: "wrap",
-            mb: 0.5,
-          }}
-        >
-          {employeeGender && (
-            <>
-              <Typography
-                variant="caption"
-                sx={{ color: "#888", fontWeight: 700, fontFamily: T.poppins }}
-              >
-                Gender:
-              </Typography>
-              <GenderBadge gender={employeeGender} />
-            </>
-          )}
+        {/* Row 1: gender / dept / category badges */}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, flexWrap: "wrap" }}>
+          {employeeGender && <GenderBadge gender={employeeGender} />}
           {deptMap?.[String(employee.employeeNumber)] && (
-            <>
-              <Typography
-                variant="caption"
-                sx={{
-                  color: "#888",
-                  fontWeight: 700,
-                  fontFamily: T.poppins,
-                  ml: employeeGender ? 1 : 0,
-                }}
-              >
-                Dept:
-              </Typography>
-              <DeptBadge code={deptMap[String(employee.employeeNumber)]} />
-            </>
+            <DeptBadge code={deptMap[String(employee.employeeNumber)]} />
           )}
           {empCatMap?.[String(employee.employeeNumber)]?.label && (
-            <>
-              <Typography
-                variant="caption"
-                sx={{
-                  color: "#888",
-                  fontWeight: 700,
-                  fontFamily: T.poppins,
-                  ml: 1,
-                }}
-              >
-                Category:
+            <EmpCatBadge
+              label={empCatMap[String(employee.employeeNumber)].label}
+              colorHex={empCatMap[String(employee.employeeNumber)].colorHex}
+            />
+          )}
+          {!employeeGender && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.4 }}>
+              <WarningIcon sx={{ fontSize: 11, color: "#e65100" }} />
+              <Typography sx={{ fontSize: "0.58rem", color: "#e65100", fontWeight: 700, fontFamily: T.poppins }}>
+                No gender — restricted types hidden
               </Typography>
-              <EmpCatBadge
-                label={empCatMap[String(employee.employeeNumber)].label}
-                colorHex={empCatMap[String(employee.employeeNumber)].colorHex}
-              />
-            </>
+            </Box>
           )}
         </Box>
-        {!employeeGender && (
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 0.65,
-              mb: leaveTypes.length ? 0.85 : 0,
-            }}
-          >
-            <WarningIcon sx={{ fontSize: 14, color: "#e65100" }} />
-            <Typography
-              variant="caption"
-              sx={{
-                color: "#e65100",
-                fontWeight: 700,
-                fontFamily: T.poppins,
-              }}
-            >
-              No gender on file — gender-restricted leave types are hidden.
-            </Typography>
-          </Box>
-        )}
+
+        {/* Row 2: leave type chips + hidden pill — all in one tight line */}
         {leaveTypes.length > 0 && (
-          <>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, flexWrap: "wrap" }}>
             <Typography
               sx={{
-                fontSize: "0.6rem",
+                fontSize: "0.55rem",
                 fontWeight: 800,
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
                 color: T.faint,
-                mb: 0.45,
-                mt: 0.35,
                 fontFamily: T.poppins,
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                flexShrink: 0,
+                mr: 0.25,
               }}
             >
-              Leave table — restrictions for this employee
+              Leaves:
             </Typography>
-            <Box
-              sx={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 0.45,
-                alignItems: "center",
-              }}
-            >
-              {visibleLeaveTypes.map((lt) => {
-                const r = getLeaveGenderRestriction(lt);
-                const tip = [
-                  lt.leave_description || lt.leave_name || "",
-                  r === "male"
-                    ? "Male only (Leave Table)"
-                    : r === "female"
-                      ? "Female only (Leave Table)"
-                      : "No gender restriction",
-                  "Shown below for earning input.",
-                ]
-                  .filter(Boolean)
-                  .join(" · ");
-                return (
-                  <Tooltip key={lt.leave_code} title={tip} arrow>
-                    <Chip
-                      size="small"
-                      label={lt.leave_code}
-                      icon={
-                        r === "male" ? (
-                          <MaleIcon sx={{ fontSize: 12, color: "#1565C0 !important" }} />
-                        ) : r === "female" ? (
-                          <FemaleIcon sx={{ fontSize: 12, color: "#c2185b !important" }} />
-                        ) : (
-                          <GenderIcon sx={{ fontSize: 11, opacity: 0.45 }} />
-                        )
-                      }
-                      sx={{
-                        height: 22,
-                        fontSize: "0.62rem",
-                        fontWeight: 700,
-                        fontFamily: T.poppins,
-                        bgcolor: "rgba(46,125,50,0.09)",
-                        border: "1px solid rgba(46,125,50,0.28)",
-                        color: "#1b5e20",
-                      }}
-                    />
-                  </Tooltip>
-                );
-              })}
-              {hiddenLeaveTypesForPrompt.map((row) => (
-                <Tooltip
-                  key={`hid-${row.code}`}
-                  title={`${row.description ? `${row.description} · ` : ""}${row.who} · Hidden from input list`}
-                  arrow
-                >
+
+            {visibleLeaveTypes.map((lt) => {
+              const r = getLeaveGenderRestriction(lt);
+              const tip = [
+                lt.leave_description || lt.leave_name || "",
+                r === "male" ? "Male only" : r === "female" ? "Female only" : "No restriction",
+                "Shown in earning input.",
+              ].filter(Boolean).join(" · ");
+              return (
+                <Tooltip key={lt.leave_code} title={tip} arrow>
                   <Chip
                     size="small"
-                    label={row.code}
+                    label={lt.leave_code}
                     icon={
-                      row.who.startsWith("Male") ? (
-                        <MaleIcon sx={{ fontSize: 12, color: "#1565C0 !important" }} />
-                      ) : (
-                        <FemaleIcon sx={{ fontSize: 12, color: "#c2185b !important" }} />
-                      )
+                      r === "male"
+                        ? <MaleIcon sx={{ fontSize: 9, color: "#1565C0 !important" }} />
+                        : r === "female"
+                          ? <FemaleIcon sx={{ fontSize: 9, color: "#c2185b !important" }} />
+                          : undefined
                     }
                     sx={{
-                      height: 22,
-                      fontSize: "0.62rem",
+                      height: 17,
+                      fontSize: "0.57rem",
                       fontWeight: 700,
                       fontFamily: T.poppins,
-                      bgcolor: "rgba(0,0,0,0.06)",
-                      border: "1px dashed rgba(0,0,0,0.22)",
-                      color: T.muted,
-                      opacity: 0.92,
+                      bgcolor: "rgba(46,125,50,0.08)",
+                      border: "1px solid rgba(46,125,50,0.25)",
+                      color: "#1b5e20",
+                      cursor: "default",
+                      "& .MuiChip-label": { px: 0.55 },
+                      "& .MuiChip-icon": { ml: 0.4 },
                     }}
                   />
                 </Tooltip>
-              ))}
-            </Box>
-          </>
+              );
+            })}
+
+            {hiddenLeaveTypesForPrompt.length > 0 && (
+              <Tooltip
+                arrow
+                title={
+                  <Box sx={{ p: 0.25 }}>
+                    <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, mb: 0.6, color: "#fff" }}>
+                      Hidden (gender-restricted):
+                    </Typography>
+                    {hiddenLeaveTypesForPrompt.map((row) => (
+                      <Box key={row.code} sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.3 }}>
+                        {row.restriction === "male"
+                          ? <MaleIcon sx={{ fontSize: 11, color: "#90caf9" }} />
+                          : <FemaleIcon sx={{ fontSize: 11, color: "#f48fb1" }} />
+                        }
+                        <Typography sx={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.9)" }}>
+                          <strong>{row.code}</strong>
+                          {row.description ? ` — ${row.description}` : ""}
+                          <span style={{ opacity: 0.7 }}> ({row.who})</span>
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                }
+              >
+                <Chip
+                  size="small"
+                  label={`+${hiddenLeaveTypesForPrompt.length} hidden`}
+                  icon={<GenderIcon sx={{ fontSize: 10, opacity: 0.55 }} />}
+                  sx={{
+                    height: 17,
+                    fontSize: "0.57rem",
+                    fontWeight: 700,
+                    fontFamily: T.poppins,
+                    bgcolor: "rgba(0,0,0,0.05)",
+                    border: "1px dashed rgba(0,0,0,0.2)",
+                    color: T.muted,
+                    cursor: "help",
+                    "& .MuiChip-label": { px: 0.55 },
+                    "& .MuiChip-icon": { ml: 0.4 },
+                  }}
+                />
+              </Tooltip>
+            )}
+          </Box>
         )}
       </Box>
 
+      {/* ── Scrollable input area ── */}
       <Box
         sx={{
           flex: 1,
@@ -917,94 +847,12 @@ const LeaveInputColumn = ({
             {success}
           </Alert>
         )}
-        {hiddenLeaveTypesForPrompt.length > 0 && (
-          <Alert
-            severity="info"
-            sx={{
-              borderRadius: 2,
-              mb: 1,
-              py: 1,
-              "& .MuiAlert-message": { width: "100%" },
-            }}
-          >
-            <Typography
-              sx={{
-                fontWeight: 800,
-                fontSize: "0.78rem",
-                fontFamily: T.poppins,
-                mb: 0.75,
-                color: "rgba(0,0,0,0.78)",
-              }}
-            >
-              Hidden leave types
-            </Typography>
-            {!employeeGender ? (
-              <Typography
-                sx={{
-                  fontSize: "0.72rem",
-                  fontFamily: T.poppins,
-                  color: T.muted,
-                  mb: 1,
-                  lineHeight: 1.45,
-                }}
-              >
-                Employee gender is not on file. Any leave type that has a Male or Female
-                restriction in the Leave Table is hidden below until gender is set in
-                personnel records.
-              </Typography>
-            ) : (
-              <Typography
-                sx={{
-                  fontSize: "0.72rem",
-                  fontFamily: T.poppins,
-                  color: T.muted,
-                  mb: 1,
-                  lineHeight: 1.45,
-                }}
-              >
-                These types are restricted to a different gender than this employee.
-                They are hidden from the list (restrictions match Leave Table).
-              </Typography>
-            )}
-            <Box
-              component="ul"
-              sx={{
-                m: 0,
-                pl: 2.25,
-                fontSize: "0.72rem",
-                fontFamily: T.poppins,
-                color: T.text,
-                "& li": { mb: 0.35 },
-              }}
-            >
-              {hiddenLeaveTypesForPrompt.map((row) => (
-                <li key={row.code}>
-                  <strong>{row.code}</strong>
-                  {row.description ? ` — ${row.description}` : ""}
-                  <Typography
-                    component="span"
-                    sx={{
-                      fontSize: "0.68rem",
-                      color: T.muted,
-                      fontWeight: 600,
-                    }}
-                  >
-                    {" "}
-                    ({row.who})
-                  </Typography>
-                </li>
-              ))}
-            </Box>
-          </Alert>
-        )}
         {leaveTypes.length > 0 && visibleLeaveTypes.length === 0 && (
           <Alert
             severity="warning"
             sx={{ borderRadius: 2, mb: 0.75, fontSize: "0.75rem", py: 0 }}
           >
-            No leave types are available for this employee — either gender on file is
-            missing and all types are restricted, or none match this employee&apos;s
-            gender. Update Leave Table or personnel gender as needed.
+            No leave types available for this employee — gender missing or none match. Update Leave Table or personnel gender.
           </Alert>
         )}
         <Box
@@ -1249,19 +1097,19 @@ const LeaveInputColumn = ({
                             value={displayVal}
                             disabled={isLocked}
                             onChange={(e) => {
-                          setEarnedDraft((p) => ({
-                            ...p,
-                            [lt.leave_code]: e.target.value,
-                          }));
-                          const n = parseFloat(e.target.value);
-                          setEarnedHours((p) => ({
-                            ...p,
-                            [lt.leave_code]: isNaN(n) ? 0 : toHours(n, unit),
-                          }));
-                          setUserTouched((p) => ({
-                            ...p,
-                            [lt.leave_code]: true,
-                          }));
+                              setEarnedDraft((p) => ({
+                                ...p,
+                                [lt.leave_code]: e.target.value,
+                              }));
+                              const n = parseFloat(e.target.value);
+                              setEarnedHours((p) => ({
+                                ...p,
+                                [lt.leave_code]: isNaN(n) ? 0 : toHours(n, unit),
+                              }));
+                              setUserTouched((p) => ({
+                                ...p,
+                                [lt.leave_code]: true,
+                              }));
                             }}
                             onFocus={() =>
                               setEarnedDraft((p) => ({
@@ -1392,6 +1240,8 @@ const LeaveInputColumn = ({
             })}
         </Box>
       </Box>
+
+      {/* ── Footer: Step 3 summary + save ── */}
       <Box
         sx={{
           flexShrink: 0,
@@ -1539,6 +1389,9 @@ const LeaveInputColumn = ({
               border: `1px solid ${T.divider}`,
               borderRadius: 1.5,
               px: 1.25,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+              minWidth: "fit-content",
             }}
           >
             Clear all
@@ -1581,7 +1434,5 @@ const LeaveInputColumn = ({
     </Box>
   );
 };
-
-// ─── SC Input Column ───────────────────────────────────────────────────────────
 
 export { LeaveInputColumn };
