@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import API_BASE_URL from "../../../apiConfig";
 import {
@@ -378,12 +378,6 @@ const CTOInputColumn = ({
   const calDays = getCalendarDays(year, month);
   const empCat = employee ? empCatMap[String(employee.employeeNumber)] : null;
 
-  const isEligible = useMemo(() => {
-    if (!empCat) return true;
-    const l = (empCat.label || "").toLowerCase();
-    return l.includes("40") || l.includes("designated");
-  }, [empCat]);
-
   useEffect(() => {
     setOtHours(0);
     setOtDraft(null);
@@ -552,21 +546,8 @@ const CTOInputColumn = ({
               fontFamily: T.poppins,
             }}
           >
-            CTO Rule — 40-hr / Designated only
+            CTO — OT hours for this period
           </Typography>
-          {!isEligible && (
-            <Typography
-              sx={{
-                fontSize: "0.6rem",
-                color: "#9a5000",
-                fontWeight: 700,
-                fontFamily: T.poppins,
-                mt: 0.2,
-              }}
-            >
-              ⚠ Not a 40-hr / Designated employee — CTO may not apply
-            </Typography>
-          )}
         </Box>
         <Typography
           sx={{

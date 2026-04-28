@@ -622,13 +622,8 @@ const SCInputColumn = ({
     return { totalOT, total: parseFloat(totalSC.toFixed(3)) };
   }, [otValues, otTypes]);
 
-  /** Stored on `sc_earnings.sc_type` for balance matching — only `tempo` remains distinct; default matches backend. */
-  const payloadScType = useMemo(() => {
-    if (!empCat) return "non_commutative";
-    const l = (empCat.label || "").toLowerCase();
-    if (l.includes("tempo")) return "tempo";
-    return "non_commutative";
-  }, [empCat]);
+  /** Stored on `sc_earnings.sc_type` — same default for all employment categories (no tempo/leave-only split). */
+  const payloadScType = "non_commutative";
 
   const handleSave = async () => {
     if (!employee) {
@@ -775,29 +770,6 @@ const SCInputColumn = ({
             {monthName(month)} {year} — {calDays} days ({calDays * 8}h max)
           </Typography>
         </Box>
-        {payloadScType === "tempo" && (
-          <Box
-            sx={{
-              mb: 1,
-              px: 0.75,
-              py: 0.5,
-              borderRadius: 1.5,
-              border: "1px solid rgba(26,58,90,0.25)",
-              bgcolor: "rgba(26,58,90,0.06)",
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: "0.64rem",
-                fontWeight: 700,
-                color: "#1a3a5a",
-                fontFamily: T.poppins,
-              }}
-            >
-              Leave-only (Tempo) category — SC follows tempo rules.
-            </Typography>
-          </Box>
-        )}
         <Typography
           sx={{
             fontSize: "0.6rem",
