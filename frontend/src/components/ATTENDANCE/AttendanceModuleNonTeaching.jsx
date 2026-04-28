@@ -406,20 +406,23 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
   ];
 
   return (
-    <Paper elevation={12} sx={{
-      borderRadius: '12px',
-      overflow: 'hidden',
-      minWidth: 340,
-      width: 'fit-content',
-      mx: 'auto',
-      boxShadow: `0 8px 40px ${alpha(T.accent, 0.35)}, 0 2px 10px ${alpha(T.accent, 0.12)}`,
-      border: `1.5px solid ${T.accentBorder}`,
-      bgcolor: '#fff',
-      backdropFilter: 'blur(20px)',
-      transition: 'all 0.25s ease',
-      mt: 2,
-      mb: 2,
-    }}>
+    <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+      <Paper elevation={12} sx={{
+        borderRadius: '12px',
+        overflow: 'hidden',
+        minWidth: 340,
+        width: '100%',
+        maxWidth: '100%',
+        boxSizing: 'border-box',
+        mx: 'auto',
+        boxShadow: `0 8px 40px ${alpha(T.accent, 0.35)}, 0 2px 10px ${alpha(T.accent, 0.12)}`,
+        border: `1.5px solid ${T.accentBorder}`,
+        bgcolor: '#fff',
+        backdropFilter: 'blur(20px)',
+        transition: 'all 0.25s ease',
+        mt: 2,
+        mb: 2,
+      }}>
       {/* Bar header */}
       <Box
         onClick={() => setExpanded(p => !p)}
@@ -443,17 +446,57 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
             </Box>
           )}
         </Box>
-        <Box sx={{ color: '#fff', display: 'flex', alignItems: 'center' }}>
+        <Box sx={{ color: '#fff', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!saving) onSave();
+            }}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.8,
+              px: 1.25,
+              py: 0.6,
+              borderRadius: '8px',
+              bgcolor: 'rgba(255,255,255,0.14)',
+              border: '1px solid rgba(255,255,255,0.25)',
+              cursor: saving ? 'not-allowed' : 'pointer',
+              opacity: saving ? 0.6 : 1,
+              transition: 'all 0.18s ease',
+              '&:hover': !saving ? { bgcolor: 'rgba(255,255,255,0.20)' } : {},
+            }}
+          >
+            {saving ? (
+              <CircularProgress size={14} sx={{ color: '#fff' }} />
+            ) : (
+              <SaveAs sx={{ color: '#fff', fontSize: 16 }} />
+            )}
+            <Typography
+              sx={{
+                fontSize: '0.68rem',
+                color: '#fff',
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                lineHeight: 1,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </Typography>
+          </Box>
           {expanded ? <ExpandMore fontSize="small" /> : <ExpandLess fontSize="small" />}
         </Box>
       </Box>
 
       <Collapse in={expanded}>
         <Box sx={{
-          px: 2, py: 1.75,
-          display: 'flex', flexWrap: 'nowrap', gap: 1, alignItems: 'stretch',
-          overflowX: 'auto',
-          '&::-webkit-scrollbar': { height: 4 },
+          px: 1.5, py: 1.25,
+          display: 'flex', flexWrap: 'nowrap', gap: 0.75,
+          alignItems: 'stretch',
+          justifyContent: 'flex-start',
+          overflow: 'hidden',
           '&::-webkit-scrollbar-thumb': { background: T.accentBorder, borderRadius: 2 },
         }}>
           {items.map(({ label, value, group }) => {
@@ -462,7 +505,11 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
             return (
               <Box key={label} sx={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center',
-                minWidth: 82, px: 1, py: 1, borderRadius: '8px',
+                minWidth: 0,
+                flex: '1 1 0',
+                px: 1.2,
+                py: 1.1,
+                borderRadius: '8px',
                 bgcolor: isActive
                   ? (isTard ? 'rgba(153,27,27,0.12)' : T.accentFaint)
                   : (isTard ? 'rgba(153,27,27,0.05)' : T.accentFaint),
@@ -472,49 +519,30 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
                 transition: 'all 0.2s ease',
               }}>
                 <Typography sx={{
-                  fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase',
+                  fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
                   letterSpacing: '0.05em', mb: 0.25, textAlign: 'center', lineHeight: 1.2,
                   color: isActive ? T.accent : T.faint,
                 }}>
                   {label}
                 </Typography>
                 <Typography sx={{
-                  fontSize: isActive ? '0.95rem' : '0.88rem', fontWeight: 800,
+                  fontSize: isActive ? '1.1rem' : '1.02rem', fontWeight: 800,
                   color: isTard ? '#991b1b' : '#166534',
                   fontFamily: 'monospace', letterSpacing: '0.04em',
                   transition: 'all 0.2s',
+                  whiteSpace: 'nowrap',
                 }}>
-                  {value || '00:00:00'}
+                  {label === 'Absent Days'
+                    ? String(Number.isFinite(Number(value)) ? Number(value) : 0)
+                    : value || '00:00:00'}
                 </Typography>
               </Box>
             );
           })}
-
-          {/* Save button */}
-          <Box
-            onClick={!saving ? onSave : undefined}
-            sx={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              minWidth: 120, px: 1.5, py: 1, borderRadius: '8px',
-              bgcolor: T.accent, border: `1px solid ${T.accent}`,
-              cursor: saving ? 'not-allowed' : 'pointer',
-              opacity: saving ? 0.7 : 1,
-              boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}`,
-              flexShrink: 0, transition: 'all 0.18s ease',
-              '&:hover': !saving ? { boxShadow: `0 6px 20px ${alpha(T.accent, 0.5)}`, transform: 'translateY(-1px)' } : {},
-            }}
-          >
-            {saving
-              ? <CircularProgress size={16} sx={{ color: '#fff', mb: 0.3 }} />
-              : <SaveAs sx={{ color: '#fff', fontSize: 16, mb: 0.3 }} />
-            }
-            <Typography sx={{ fontSize: '0.7rem', color: '#fff', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center', lineHeight: 1.2 }}>
-              {saving ? 'Saving…' : 'Save Record'}
-            </Typography>
-          </Box>
         </Box>
       </Collapse>
-    </Paper>
+      </Paper>
+    </Box>
   );
 };
 
