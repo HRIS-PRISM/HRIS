@@ -1,5 +1,7 @@
 import API_BASE_URL from '../../apiConfig';
 import React, { useState, useEffect } from 'react';
+import { useSocket } from '../../contexts/SocketContext';
+import LoadingOverlay from '../LoadingOverlay';
 import {
   Box,
   Typography,
@@ -684,6 +686,7 @@ const LeaveCredits = ({
   primaryColor = '#FEF9E1',
   secondaryColor = '#FFF8E7',
 }) => {
+  const { socket, connected } = useSocket();
   const [rawCredits, setRawCredits] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -735,6 +738,24 @@ const LeaveCredits = ({
     fetchCredits();
   }, [personID]);
 
+  // Realtime refresh when leave requests/assignments change
+  useEffect(() => {
+    if (!socket || !connected) return;
+    let debounceTimer = null;
+    const handler = () => {
+      if (!personID) return;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => fetchCredits(), 200);
+    };
+    socket.on('leaveAssignmentChanged', handler);
+    socket.on('leaveRequestChanged', handler);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      socket.off('leaveAssignmentChanged', handler);
+      socket.off('leaveRequestChanged', handler);
+    };
+  }, [socket, connected, personID]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (compact) {
     return (
       <CompactView
@@ -756,6 +777,7 @@ const LeaveCredits = ({
         height: '100%',
       }}
     >
+      <LoadingOverlay open={loading} message="Loading leave credits…" />
       {/* Header */}
       <Box
         sx={{

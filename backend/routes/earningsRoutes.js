@@ -1,10 +1,21 @@
-  const express = require("express");
+const express = require("express");
   const router = express.Router();
   const db = require("../db");
   const { authenticateToken, requireAdmin, logAudit } = require("../middleware/auth");
   const jwt = require("jsonwebtoken");
 
   const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+
+  const getIo = (req) => {
+    // Primary wiring in backend/index.js: app.locals.io = io
+    if (req?.app?.locals?.io) return req.app.locals.io;
+    // Back-compat if some deployments still use app.set("io", io)
+    try {
+      return req.app.get("io");
+    } catch {
+      return null;
+    }
+  };
 
   const getActorEmployeeNumber = (req, fallback = null) => {
     if (req.user?.employeeNumber) return String(req.user.employeeNumber);
@@ -182,6 +193,39 @@
     );
 
     return target;
+  };
+
+  // When earnings are approved out-of-order (e.g., April approved before January),
+  // we need later period rows to reflect the additional carry-in.
+  // This applies ONLY to rows after the approved earning month within the same year.
+  const propagateEarnedHoursToLaterPeriods = async ({
+    employeeNumber,
+    leaveCode,
+    periodYear,
+    periodMonth,
+    earnedHours,
+  }) => {
+    const y = parseInt(periodYear, 10);
+    const m = parseInt(periodMonth, 10);
+    const hrs = toNum(earnedHours);
+    if (!employeeNumber || !leaveCode || !Number.isFinite(y) || !Number.isFinite(m) || !hrs) return;
+
+    await new Promise((resolve) => {
+      db.query(
+        `UPDATE leave_assignment
+         SET
+           carried_forward_hours = GREATEST(0, carried_forward_hours + ?),
+           total_hours           = GREATEST(0, total_hours + ?),
+           remaining_hours       = GREATEST(0, remaining_hours + ?)
+         WHERE employeeNumber = ?
+           AND TRIM(leave_code) = TRIM(?)
+           AND period_year = ?
+           AND period_semester IS NOT NULL
+           AND CAST(period_semester AS UNSIGNED) > ?`,
+        [hrs, hrs, hrs, employeeNumber, leaveCode, y, m],
+        () => resolve(),
+      );
+    });
   };
 
   const getEmployeeFullName = (employeeNumber) =>
@@ -671,7 +715,7 @@ const stats = {
           // Emit socket event so Attendance Summary module auto-refreshes in real time
           // Works if your express app has io attached via app.set("io", io)
           try {
-            const io = req.app.get("io");
+            const io = getIo(req);
             if (io) {
               io.emit("attendanceChanged", {
                 scope:       "overall_attendance_record",
@@ -732,6 +776,27 @@ const stats = {
     const month = req.query.month || (now.getMonth() + 1);
     const { status, all } = req.query;
 
+    const monthNames = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December",
+    ];
+
+    const respond = (earnings) => {
+      const balQuery = `
+        SELECT * FROM leave_balance_summary
+        WHERE employee_number = ?
+          AND (? IS NULL OR period_year = ?)
+          AND (? IS NULL OR period_month = ?)
+      `;
+      db.query(balQuery, [employeeNumber, year || null, year || null, month || null, month || null], (err2, balances) => {
+        res.json({
+          earnings,
+          balances: err2 ? [] : (balances || []),
+          period: { year: parseInt(year, 10), month: parseInt(month, 10) },
+        });
+      });
+    };
+
     let query = `
       SELECT le.*, lt.leave_description
       FROM leave_earnings le
@@ -750,14 +815,66 @@ const stats = {
     db.query(query, params, (err, earnings) => {
       if (err) return res.status(500).json({ error: "Failed to fetch leave earnings" });
 
-      const balQuery = `
-        SELECT * FROM leave_balance_summary
-        WHERE employee_number = ?
-          AND (? IS NULL OR period_year = ?)
-          AND (? IS NULL OR period_month = ?)
+      // When viewing a calendar month, also surface ADJUSTMENT rows posted in a *different* month
+      // that explicitly cover this month (remarks from LeaveEarnings: "ADJUSTMENT (missed {Month}) …").
+      const yNum = parseInt(year, 10);
+      const mNum = parseInt(month, 10);
+      const shouldMerge =
+        all !== "true" &&
+        Number.isFinite(yNum) &&
+        Number.isFinite(mNum) &&
+        mNum >= 1 &&
+        mNum <= 12;
+      if (!shouldMerge) {
+        return respond(Array.isArray(earnings) ? earnings : []);
+      }
+
+      const missedToken = `ADJUSTMENT (missed ${monthNames[mNum - 1]})`;
+      let q2 = `
+        SELECT le.*, lt.leave_description
+        FROM leave_earnings le
+        LEFT JOIN leave_table lt ON lt.leave_code = le.leave_code
+        WHERE le.employee_number = ?
+          AND le.period_year = ?
+          AND UPPER(IFNULL(le.entry_type, '')) = 'ADJUSTMENT'
+          AND le.earn_status IN ('pending','approved')
+          AND le.period_month IS NOT NULL
+          AND le.period_month <> ?
+          AND le.remarks LIKE ?
       `;
-      db.query(balQuery, [employeeNumber, year || null, year || null, month || null, month || null], (err2, balances) => {
-        res.json({ earnings, balances: err2 ? [] : (balances || []), period: { year: parseInt(year), month: parseInt(month) } });
+      const p2 = [employeeNumber, yNum, mNum, `%${missedToken}%`];
+      if (status) {
+        q2 += ` AND le.earn_status = ?`;
+        p2.push(status);
+      }
+      q2 += ` ORDER BY le.period_year DESC, le.period_month DESC, le.created_at DESC`;
+
+      db.query(q2, p2, (e2, extra) => {
+        const base = Array.isArray(earnings) ? earnings : [];
+        const add = Array.isArray(extra) ? extra : [];
+        if (e2 || !add.length) return respond(base);
+
+        const byId = new Map();
+        base.forEach((r) => {
+          if (r && r.id != null) byId.set(Number(r.id), r);
+        });
+        add.forEach((r) => {
+          if (!r || r.id == null) return;
+          const id = Number(r.id);
+          if (byId.has(id)) return;
+          byId.set(id, {
+            ...r,
+            _covers_month: mNum,
+            _posted_period_month: r.period_month,
+          });
+        });
+        const merged = Array.from(byId.values()).sort((a, b) => {
+          const tb = new Date(b.created_at || b.approved_at || 0).getTime();
+          const ta = new Date(a.created_at || a.approved_at || 0).getTime();
+          if (tb !== ta) return tb - ta;
+          return Number(b.id) - Number(a.id);
+        });
+        respond(merged);
       });
     });
   });
@@ -780,6 +897,10 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
   }
 
   const hrs = toNum(earned_hours);
+  const py = parseInt(period_year, 10);
+  const pm = parseInt(period_month, 10);
+  const normalizedEntry = String(entry_type || "EARNED").toUpperCase();
+  const isAdjustment = normalizedEntry === "ADJUSTMENT";
 
   const isDeduction =
     entry_type === "TARDINESS_DEDUCTION" ||
@@ -796,83 +917,143 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
     });
   }
 
-  const query = `
-    INSERT INTO leave_earnings
-      (employee_number, leave_code, earned_hours, period_year, period_month, entry_type, earn_status, remarks, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
-  `;
+  const doInsert = () => {
+    const query = `
+      INSERT INTO leave_earnings
+        (employee_number, leave_code, earned_hours, period_year, period_month, entry_type, earn_status, remarks, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+    `;
 
-  db.query(
-    query,
-    [
-      employeeNumber,
-      leave_code,
-      hrs,
-      period_year,
-      parseInt(period_month),
-      entry_type,
-      remarks || null,
-      req.user?.username || null,
-    ],
-    (err, result) => {
-      if (err) {
-        console.error("Leave earning insert error:", err);
-        return res.status(500).json({ error: "Failed to create leave earning" });
-      }
-
-      const earningPayload = {
+    db.query(
+      query,
+      [
         employeeNumber,
         leave_code,
-        earned_hours: hrs,
-        entry_type,
+        hrs,
         period_year,
-        period_month: parseInt(period_month),
-        remarks: remarks || null,
-      };
-      auditEarning(
-        req,
-        "created leave earnings",
-        "leave",
-        result.insertId,
-        null,
-        "pending",
-        earningPayload,
-      );
+        parseInt(period_month),
+        normalizedEntry,
+        remarks || null,
+        req.user?.username || null,
+      ],
+      (err, result) => {
+        if (err) {
+          console.error("Leave earning insert error:", err);
+          return res.status(500).json({ error: "Failed to create leave earning" });
+        }
 
-      (async () => {
-        const actorEmpNum = getActorEmployeeNumber(req);
-        const [actorName, targetName] = await Promise.all([
-          getEmployeeFullName(actorEmpNum),
-          getEmployeeFullName(employeeNumber),
-        ]);
-        const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
-        const targetDisplay = formatUserDisplayName(employeeNumber, targetName);
-        const txMessage = buildEarningsTransactionMessage({
-          actionLabel: "created",
-          actorDisplay,
-          targetDisplay,
-          earningTypeLabel: "leave earnings",
-          hoursValue: hrs,
-          leaveCode: leave_code,
-          periodYear: period_year,
-          periodMonth: parseInt(period_month),
+        const earningPayload = {
+          employeeNumber,
+          leave_code,
+          earned_hours: hrs,
+          entry_type: normalizedEntry,
+          period_year,
+          period_month: parseInt(period_month),
+          remarks: remarks || null,
+        };
+        auditEarning(
+          req,
+          "created leave earnings",
+          "leave",
+          result.insertId,
+          null,
+          "pending",
+          earningPayload,
+        );
+
+        (async () => {
+          const actorEmpNum = getActorEmployeeNumber(req);
+          const [actorName, targetName] = await Promise.all([
+            getEmployeeFullName(actorEmpNum),
+            getEmployeeFullName(employeeNumber),
+          ]);
+          const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+          const targetDisplay = formatUserDisplayName(employeeNumber, targetName);
+          const txMessage = buildEarningsTransactionMessage({
+            actionLabel: "created",
+            actorDisplay,
+            targetDisplay,
+            earningTypeLabel: "leave earnings",
+            hoursValue: hrs,
+            leaveCode: leave_code,
+            periodYear: period_year,
+            periodMonth: parseInt(period_month),
+          });
+          await insertTransactionLog(employeeNumber, txMessage, actorEmpNum);
+        })();
+
+        res.status(201).json({
+          id: result.insertId,
+          employee_number: employeeNumber,
+          leave_code,
+          earned_hours: hrs,
+          period_year,
+          period_month: parseInt(period_month),
+          entry_type: normalizedEntry,
+          earn_status: "pending",
+          remarks: remarks || null,
         });
-        await insertTransactionLog(employeeNumber, txMessage, actorEmpNum);
-      })();
+      },
+    );
+  };
 
-      res.status(201).json({
-        id: result.insertId,
-        employee_number: employeeNumber,
-        leave_code,
-        earned_hours: hrs,
-        period_year,
-        period_month: parseInt(period_month),
-        entry_type,
-        earn_status: "pending",
-        remarks: remarks || null,
-      });
-    }
-  );
+  // Rule 1 (Production): No backdated insert if later period exists.
+  // If an admin needs to record a missed earning for a closed month, use ADJUSTMENT in the current period.
+  if (!isDeduction && !isAdjustment && Number.isFinite(py) && Number.isFinite(pm)) {
+    db.query(
+      `SELECT
+         MAX(CAST(period_semester AS UNSIGNED)) AS max_month
+       FROM leave_assignment
+       WHERE employeeNumber = ?
+         AND TRIM(leave_code) = TRIM(?)
+         AND period_year = ?
+         AND period_semester IS NOT NULL`,
+      [employeeNumber, leave_code, py],
+      (mxErr, mxRows) => {
+        const maxMonth = !mxErr && mxRows && mxRows[0] ? parseInt(mxRows[0].max_month, 10) : null;
+        if (Number.isFinite(maxMonth) && maxMonth > pm) {
+          // Suggest the month where earnings "stopped" (latest existing earning month),
+          // falling back to the latest assignment month when no earnings exist.
+          db.query(
+            `SELECT MAX(period_month) AS last_earn_month
+             FROM leave_earnings
+             WHERE employee_number = ?
+               AND TRIM(leave_code) = TRIM(?)
+               AND period_year = ?
+               AND period_month IS NOT NULL
+               AND earn_status IN ('pending','approved')
+               AND entry_type IN ('EARNED','ADJUSTMENT')`,
+            [employeeNumber, leave_code, py],
+            (e2, r2) => {
+              const lastEarnMonth =
+                !e2 && r2 && r2[0] && r2[0].last_earn_month != null
+                  ? parseInt(r2[0].last_earn_month, 10)
+                  : null;
+              const suggested =
+                Number.isFinite(lastEarnMonth) && lastEarnMonth >= pm
+                  ? lastEarnMonth
+                  : maxMonth;
+              return res.status(409).json({
+                code: "PERIOD_CLOSED",
+                error:
+                  "This period is already closed. Please add the missed earning as an adjustment in the month where earnings stopped.",
+                period_year: py,
+                requested_month: pm,
+                suggested_month: suggested,
+              });
+            },
+          );
+          return;
+        }
+
+        return doInsert();
+      }
+    );
+    return;
+  }
+
+  // Non-backdated case: insert immediately
+  return doInsert();
 });
 
   router.patch("/leave/:id/approve", authenticateToken, requireAdmin, (req, res) => {
@@ -917,8 +1098,39 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
               );
             });
 
-            const afterUpdate = () => {
+            const afterUpdate = async () => {
+              // If a later period (e.g. April) already exists, make it reflect this newly-approved earlier month.
+              // This is what prevents "separate 10 hours record" from looking like it didn't add to the later running balance.
+              if (periodMonth) {
+                await propagateEarnedHoursToLaterPeriods({
+                  employeeNumber: rec.employee_number,
+                  leaveCode: rec.leave_code,
+                  periodYear: rec.period_year,
+                  periodMonth,
+                  earnedHours: earnedHrs,
+                });
+              }
+
               auditEarning(req, "approved leave earnings", "leave", parseInt(id), rec.earn_status, "approved", rec);
+
+              // Notify clients (LeaveAssignment listens to this) so totals refresh immediately.
+              try {
+                const io = getIo(req);
+                if (io) {
+                  io.emit("leaveAssignmentChanged", {
+                    scope: "leave_assignment",
+                    action: "updated-from-earnings-approval",
+                    employeeNumber: rec.employee_number,
+                    leave_code: rec.leave_code,
+                    period_year: rec.period_year,
+                    period_month: rec.period_month,
+                    earning_id: parseInt(id, 10),
+                  });
+                }
+              } catch (emitErr) {
+                // non-fatal
+              }
+
               (async () => {
                 const actorEmpNum = getActorEmployeeNumber(req);
                 const [actorName, targetName] = await Promise.all([
@@ -951,7 +1163,7 @@ SET
   allocated_hours = GREATEST(0, allocated_hours + ?)
 WHERE id = ?`,
                 [earnedHrs, earnedHrs, earnedHrs, matched.id],
-                afterUpdate,
+                () => { afterUpdate(); },
               );
             } else {
               db.query(
@@ -966,7 +1178,7 @@ WHERE id = ?`,
                   rec.period_year,
                   periodMonth ? String(periodMonth) : null,
                 ],
-                afterUpdate,
+                () => { afterUpdate(); },
               );
             }
           })().catch((e) => {

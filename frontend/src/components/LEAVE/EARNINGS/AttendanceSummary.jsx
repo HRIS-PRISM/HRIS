@@ -69,6 +69,7 @@ import {
   RemoveCircleOutline as DeductIcon,
   Receipt as ReceiptIcon,
 } from "@mui/icons-material";
+import { useOfficialAttendanceMetrics } from "./useOfficialAttendanceMetrics";
 
 const T = {
   accent: "#6d2323",
@@ -493,6 +494,14 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
 
   const raw = attendanceData?.summary;
   const calDays = getCalendarDays(year, month);
+  const officialStart = raw?.startDate;
+  const officialEnd = raw?.endDate;
+  const { absentDays: absentDaysOfficial, lateHrs: lateHrsOfficial } =
+    useOfficialAttendanceMetrics({
+      employeeNumber: employee?.employeeNumber,
+      startDate: officialStart,
+      endDate: officialEnd,
+    });
 
   const ATTEND_FIELDS = [
     { key: "overallRenderedOfficialTime", label: "Overall Rendered" },
@@ -582,12 +591,18 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     );
 
   const overallHrs = raw ? parseHHMM(raw.overallRenderedOfficialTime) : 0;
-  const tardHrs = raw ? parseHHMM(raw.overallRenderedOfficialTimeTardiness) : 0;
+
+  const tardHrs = lateHrsOfficial > 0
+    ? lateHrsOfficial
+    : (raw ? parseHHMM(raw.overallRenderedOfficialTimeTardiness) : 0);
   const stats = attendanceData?.stats || {};
   const lateDays = toNum(stats.late_days);
-  const absentDays = toNum(stats.absent_days);
+  const absentDays = absentDaysOfficial > 0
+    ? absentDaysOfficial
+    : toNum(stats.absent_days);
   const presentDays = toNum(stats.present_days);
-  const hasWarning = absentDays > 0 || tardHrs > 0;
+  const totalAbsentDays = absentDays;
+  const totalAbsentHrs = totalAbsentDays * 8;
 
   const editOverallHrs = toNum(
     fields.overallRenderedOfficialTime ?? overallHrs,
@@ -595,6 +610,11 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
   const editTardHrs = toNum(
     fields.overallRenderedOfficialTimeTardiness ?? tardHrs,
   );
+
+  // While editing, show the edited values in the summary cards immediately.
+  const renderedHrsDisplay = editing ? editOverallHrs : overallHrs;
+  const tardHrsDisplay = editing ? editTardHrs : tardHrs;
+  const hasWarning = absentDays > 0 || tardHrsDisplay > 0;
 
   const half = Math.ceil(ATTEND_FIELDS.length / 2);
   const col1 = ATTEND_FIELDS.slice(0, half);
@@ -769,193 +789,148 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     {raw.startDate} → {raw.endDate} · <strong>{calDays} cal. days</strong>
   </Typography>
 </Box>
-            
 
-          {/* ── Summary card (compact) ── */}
-<Box
-  sx={{
-    borderRadius: 1.5,
-    border: `1px solid rgba(0,0,0,0.1)`,
-    overflow: "hidden",
-    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-    flexShrink: 0,
-    position: "relative",
-  }}
->
-              <Box sx={{ display: "flex", alignItems: "stretch" }}>
-                {/* Month pill */}
-                <Box
-                  sx={{
-                    px: 1,
-                    py: 0.6,
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    minWidth: 44,
-                    flexShrink: 0,
-                    borderRight: "1px solid rgba(0,0,0,0.07)",
-                    bgcolor: hasWarning ? "#fdf6f6" : "#f7faf7",
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: "0.72rem",
-                      fontWeight: 800,
-                      color: hasWarning ? T.accent : "#2e7d32",
-                      fontFamily: T.poppins,
-                      letterSpacing: "0.06em",
-                      lineHeight: 1,
-                    }}
-                  >
-                    {monthShort(month)}
-                  </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: "0.54rem",
-                      color: T.faint,
-                      fontFamily: T.poppins,
-                      mt: 0.2,
-                      fontWeight: 500,
-                    }}
-                  >
-                    {year}
-                  </Typography>
-                </Box>
+          {/* ── Summary strip (month + rendered + totals aligned) ── */}
+          <Box
+            sx={{
+              borderRadius: 1.5,
+              border: `1px solid rgba(0,0,0,0.1)`,
+              overflow: "hidden",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+              bgcolor: "#fff",
+              display: "grid",
+              gridTemplateColumns: "56px 1fr 1fr 1fr 1fr",
+              alignItems: "stretch",
+            }}
+          >
+            {/* Month pill */}
+            <Box
+              sx={{
+                px: 1,
+                py: 0.6,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRight: "1px solid rgba(0,0,0,0.07)",
+                bgcolor: hasWarning ? "#fdf6f6" : "#f7faf7",
+              }}
+            >
+              <Typography
+                sx={{
+                  fontSize: "0.72rem",
+                  fontWeight: 800,
+                  color: hasWarning ? T.accent : "#2e7d32",
+                  fontFamily: T.poppins,
+                  letterSpacing: "0.06em",
+                  lineHeight: 1,
+                }}
+              >
+                {monthShort(month)}
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: "0.54rem",
+                  color: T.faint,
+                  fontFamily: T.poppins,
+                  mt: 0.2,
+                  fontWeight: 500,
+                }}
+              >
+                {year}
+              </Typography>
+            </Box>
 
-                {/* Rendered */}
-                <Box
-                  sx={{
-                    px: 1.25,
-                    py: 0.6,
-                    borderRight: "1px solid rgba(0,0,0,0.07)",
-                    display: "flex",
-                    flexDirection: "column",
-                    justifyContent: "center",
-                    minWidth: 80,
-                    bgcolor: "#fff",
-                  }}
-                >
+            {[
+              {
+                label: "Rendered",
+                Icon: DayIcon,
+                color: "#111",
+                primary: `${(renderedHrsDisplay / 8).toFixed(3)} d`,
+                secondary: hrsToHMS(renderedHrsDisplay),
+              },
+              {
+                label: "Total Tardiness",
+                Icon: LateIcon,
+                color: "#c62828",
+                primary: `${(tardHrsDisplay / 8).toFixed(3)} d`,
+                secondary: tardHrsDisplay > 0 ? hrsToHMS(tardHrsDisplay) : "—",
+              },
+              {
+                label: "Total Absent",
+                Icon: AbsentIcon,
+                color: "#6a1b9a",
+                primary: `${totalAbsentDays.toFixed(3)} d`,
+                secondary:
+                  totalAbsentDays > 0 ? `${totalAbsentHrs.toFixed(3)} hrs` : "—",
+              },
+              {
+                label: "Total Present",
+                Icon: PresentIcon,
+                color: "#2e7d32",
+                primary: `${presentDays.toFixed(0)} d`,
+                secondary: presentDays > 0 ? hrsToHMS(presentDays * 8) : "—",
+              },
+            ].map(({ label, Icon, color, primary, secondary }, idx) => (
+              <Box
+                key={label}
+                sx={{
+                  px: 1,
+                  py: 0.7,
+                  borderRight:
+                    idx < 3 ? "1px solid rgba(0,0,0,0.08)" : "none",
+                  bgcolor: "rgba(0,0,0,0.01)",
+                  minWidth: 0,
+                }}
+              >
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <Icon sx={{ fontSize: 12, color, opacity: 0.75 }} />
                   <Typography
                     sx={{
-                      fontSize: "0.52rem",
-                      fontWeight: 700,
-                      color: T.faint,
+                      fontSize: "0.56rem",
+                      fontWeight: 900,
+                      color,
                       fontFamily: T.poppins,
                       textTransform: "uppercase",
-                      letterSpacing: "0.09em",
-                      mb: 0.2,
+                      letterSpacing: "0.07em",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
                     }}
                   >
-                    Rendered
-                  </Typography>
-                  <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.3 }}>
-                    <Typography
-                      sx={{
-                        fontSize: "0.92rem",
-                        fontWeight: 800,
-                        color: "#111",
-                        fontFamily: T.poppins,
-                        lineHeight: 1,
-                      }}
-                    >
-                      {(overallHrs / 8).toFixed(3)}
-                    </Typography>
-                    <Typography
-                      sx={{ fontSize: "0.56rem", fontWeight: 600, color: T.faint, fontFamily: T.poppins }}
-                    >
-                      d
-                    </Typography>
-                  </Box>
-                  <Typography
-                    sx={{ fontSize: "0.58rem", color: "#1565c0", fontFamily: T.poppins, fontWeight: 700, mt: 0.1, letterSpacing: "0.02em" }}
-                  >
-                    {hrsToHMS(overallHrs)}
+                    {label}
                   </Typography>
                 </Box>
-
-                {/* Stats */}
-                <Box sx={{ flex: 1, display: "flex", alignItems: "stretch" }}>
-                  {[
-                    presentDays > 0 && {
-                      count: presentDays,
-                      sub: hrsToHMS(presentDays * 8),
-                      label: "Present",
-                      Icon: PresentIcon,
-                      accent: "#2e7d32",
-                      bg: "#f7faf7",
-                      border: "rgba(46,125,50,0.18)",
-                    },
-                    tardHrs > 0 && {
-                      count: (tardHrs / 8).toFixed(3),
-                      sub: hrsToHMS(tardHrs),
-                      label: "Late",
-                      Icon: LateIcon,
-                      accent: "#c62828",
-                      bg: "#fdf6f6",
-                      border: "rgba(198,40,40,0.18)",
-                    },
-                    absentDays > 0 && {
-                      count: absentDays,
-                      sub: hrsToHMS(absentDays * 8),
-                      label: "Absent",
-                      Icon: AbsentIcon,
-                      accent: "#6a1b9a",
-                      bg: "#faf5fd",
-                      border: "rgba(106,27,154,0.18)",
-                    },
-                  ]
-                    .filter(Boolean)
-                    .map(({ count, sub, label, Icon, accent, bg, border }) => (
-                      <Box
-                        key={label}
-                        sx={{
-                          flex: 1,
-                          py: 0.55,
-                          px: 0.5,
-                          display: "flex",
-                          flexDirection: "column",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          bgcolor: bg,
-                          borderRight: `1px solid ${border}`,
-                          borderLeft: `1px solid ${border}`,
-                        }}
-                      >
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.3, mb: 0.25 }}>
-                          <Icon sx={{ fontSize: 9, color: accent, opacity: 0.7 }} />
-                          <Typography
-                            sx={{
-                              fontSize: "0.5rem", fontWeight: 700, color: accent,
-                              fontFamily: T.poppins, textTransform: "uppercase",
-                              letterSpacing: "0.09em", opacity: 0.85,
-                            }}
-                          >
-                            {label}
-                          </Typography>
-                        </Box>
-                        <Typography
-                          sx={{ fontSize: "0.98rem", fontWeight: 800, color: accent, fontFamily: T.poppins, lineHeight: 1 }}
-                        >
-                          {count}
-                        </Typography>
-                        <Typography
-                          sx={{ fontSize: "0.54rem", color: "#1565c0", fontFamily: T.poppins, fontWeight: 700, mt: 0.2, letterSpacing: "0.02em" }}
-                        >
-                          {sub}
-                        </Typography>
-                      </Box>
-                    ))}
-                  {presentDays === 0 && absentDays === 0 && tardHrs === 0 && (
-                    <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, fontStyle: "italic" }}>
-                        No stats
-                      </Typography>
-                    </Box>
-                  )}
-                </Box>
+                <Typography
+                  sx={{
+                    mt: 0.3,
+                    fontSize: "0.92rem",
+                    fontWeight: 900,
+                    color: primary.includes("0.000") ? T.faint : color,
+                    fontFamily: T.poppins,
+                    lineHeight: 1,
+                  }}
+                >
+                  {primary}
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.58rem",
+                    color: "#1565c0",
+                    fontFamily: T.poppins,
+                    fontWeight: 700,
+                    mt: 0.15,
+                    letterSpacing: "0.02em",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {secondary}
+                </Typography>
               </Box>
-            </Box>
+            ))}
+          </Box>
 
 {/* ── Edit fields (shown only when editing) ── */}
 {editing && (

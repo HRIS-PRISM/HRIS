@@ -406,6 +406,7 @@ const LeaveInputColumn = ({
   unit,
   year,
   month,
+  onRedirectMonth,
   onBalanceChanged,
   refreshKey: externalRefreshKey,
   onRecordsRefresh,
@@ -420,6 +421,7 @@ const LeaveInputColumn = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [periodClosed, setPeriodClosed] = useState(null); // { requestedMonth, suggestedMonth }
   const [refreshKey, setRefreshKey] = useState(0);
   const calDays = getCalendarDays(year, month);
   const employeeGender = employee?.sex || employee?.gender || null;
@@ -489,7 +491,8 @@ const LeaveInputColumn = ({
       const map = {};
       for (const e of rows) {
         if (!e?.leave_code) continue;
-        if (e.entry_type !== "EARNED") continue;
+        const et = String(e.entry_type || "EARNED").toUpperCase();
+        if (et !== "EARNED" && et !== "ADJUSTMENT") continue;
         if (e.earn_status === "rejected") continue;
         const code = String(e.leave_code).toUpperCase();
         const prev = map[code];
@@ -564,6 +567,7 @@ const LeaveInputColumn = ({
     }
     setLoading(true);
     setError("");
+    setPeriodClosed(null);
     const token = localStorage.getItem("token");
     let created = 0;
     for (const lt of activeLeaves) {
@@ -584,7 +588,17 @@ const LeaveInputColumn = ({
           { headers: { Authorization: `Bearer ${token}` } },
         );
         created++;
-      } catch {}
+      } catch (e) {
+        const d = e?.response?.data;
+        if (d?.code === "PERIOD_CLOSED") {
+          setPeriodClosed({
+            requestedMonth: d.requested_month,
+            suggestedMonth: d.suggested_month,
+          });
+          setError(d.error || "This period is already closed.");
+          break;
+        }
+      }
     }
     setLoading(false);
     if (created > 0) {
@@ -604,7 +618,53 @@ const LeaveInputColumn = ({
       if (onRecordsRefresh) onRecordsRefresh();
       setTimeout(() => setSuccess(""), 3500);
     } else {
-      setError("All selected leave earnings are already submitted (pending/approved).");
+      if (!periodClosed) {
+        setError("All selected leave earnings are already submitted (pending/approved).");
+      }
+    }
+  };
+
+  const applyAsAdjustment = async () => {
+    if (!employee || !periodClosed?.suggestedMonth) return;
+    const token = localStorage.getItem("token");
+    const fromLabel = monthName(periodClosed.requestedMonth);
+    const toLabel = monthName(periodClosed.suggestedMonth);
+    setLoading(true);
+    setError("");
+    try {
+      let created = 0;
+      for (const lt of activeLeaves) {
+        const status = existingEarnedByCode[String(lt.leave_code).toUpperCase()];
+        if (status === "approved" || status === "pending") continue;
+        await axios.post(
+          `${API_BASE_URL}/api/earnings/leave`,
+          {
+            employeeNumber: employee.employeeNumber,
+            leave_code: lt.leave_code,
+            earned_hours: toNum(earnedHours[lt.leave_code]),
+            period_year: parseInt(year, 10) || new Date().getFullYear(),
+            period_month: parseInt(periodClosed.suggestedMonth, 10),
+            entry_type: "ADJUSTMENT",
+            remarks: remarks
+              ? `ADJUSTMENT (missed ${fromLabel}) • ${remarks}`
+              : `ADJUSTMENT (missed ${fromLabel}) • posted to ${toLabel}`,
+          },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        created++;
+      }
+      if (typeof onRedirectMonth === "function") {
+        onRedirectMonth(periodClosed.suggestedMonth);
+      }
+      setPeriodClosed(null);
+      setSuccess(`${created} adjustment(s) submitted for ${toLabel} ${year}.`);
+      setRefreshKey((k) => k + 1);
+      if (onRecordsRefresh) onRecordsRefresh();
+      setTimeout(() => setSuccess(""), 3500);
+    } catch (e) {
+      setError(e?.response?.data?.error || "Failed to submit adjustment.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -692,6 +752,167 @@ const LeaveInputColumn = ({
           gap: 0.55,
         }}
       >
+        <Dialog
+          open={!!periodClosed}
+          onClose={() => setPeriodClosed(null)}
+          maxWidth="xs"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: 3,
+              overflow: "hidden",
+              border: `1px solid rgba(109,35,35,0.12)`,
+              boxShadow: "0 18px 60px rgba(0,0,0,0.18), 0 2px 10px rgba(0,0,0,0.08)",
+            },
+          }}
+        >
+          <DialogTitle
+            sx={{
+              fontFamily: T.poppins,
+              fontWeight: 800,
+              fontSize: "0.95rem",
+              color: T.accent,
+              pb: 1.25,
+              pt: 1.6,
+              px: 2.5,
+              bgcolor: "#fff",
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              borderBottom: "1px solid rgba(0,0,0,0.08)",
+            }}
+          >
+            <Box
+              sx={{
+                width: 28,
+                height: 28,
+                borderRadius: 2,
+                bgcolor: "rgba(109,35,35,0.08)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <WarnIcon sx={{ fontSize: 16, color: T.accent }} />
+            </Box>
+            Period closed
+          </DialogTitle>
+          <DialogContent sx={{ px: 2.25, pt: 2, pb: 0 }}>
+            <Typography
+              sx={{
+                fontSize: "0.82rem",
+                lineHeight: 1.6,
+                color: "#333",
+                fontFamily: T.poppins,
+                mb: 1.25,
+              }}
+            >
+              This payroll period is already closed. To keep balances correct, please post the
+              missed earning as an <strong>adjustment</strong> in the suggested period.
+            </Typography>
+
+            {periodClosed?.suggestedMonth && (
+              <Box
+                sx={{
+                  borderRadius: 2,
+                  border: "1px solid rgba(0,0,0,0.10)",
+                  bgcolor: "rgba(0,0,0,0.015)",
+                  overflow: "hidden",
+                  mb: 0.5,
+                }}
+              >
+                <Box
+                  sx={{
+                    px: 1.75,
+                    py: 1.05,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 1.25,
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      fontSize: "0.7rem",
+                      fontWeight: 800,
+                      color: T.muted,
+                      fontFamily: T.poppins,
+                    }}
+                  >
+                    Suggested period
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: "0.78rem",
+                      fontWeight: 900,
+                      color: T.accent,
+                      fontFamily: T.poppins,
+                    }}
+                  >
+                    {monthName(periodClosed.suggestedMonth)} {year}
+                  </Typography>
+                </Box>
+                <Box
+                  sx={{
+                    px: 1.75,
+                    py: 1,
+                    borderTop: "1px solid rgba(0,0,0,0.06)",
+                    bgcolor: "#fff",
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      fontSize: "0.72rem",
+                      color: T.muted,
+                      fontFamily: T.poppins,
+                    }}
+                  >
+                    This will be saved as <strong>ADJUSTMENT</strong>.
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+          </DialogContent>
+          <DialogActions
+            sx={{
+              px: 2.5,
+              pb: 2.25,
+              pt: 1.75,
+              gap: 1,
+              bgcolor: "#fff",
+            }}
+          >
+            <Button
+              onClick={() => setPeriodClosed(null)}
+              sx={{
+                textTransform: "none",
+                color: T.muted,
+                fontFamily: T.poppins,
+                fontWeight: 700,
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={applyAsAdjustment}
+              variant="contained"
+              disabled={!periodClosed?.suggestedMonth}
+              sx={{
+                bgcolor: T.accent,
+                textTransform: "none",
+                fontFamily: T.poppins,
+                fontWeight: 700,
+                borderRadius: 2,
+                px: 2,
+                "&:hover": { bgcolor: T.accentDark },
+              }}
+            >
+              Add as Adjustment to {periodClosed?.suggestedMonth ? `${monthName(periodClosed.suggestedMonth)} ${year}` : "current period"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
         {/* Row 1: gender / dept / category badges */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, flexWrap: "wrap" }}>
           {employeeGender && <GenderBadge gender={employeeGender} />}

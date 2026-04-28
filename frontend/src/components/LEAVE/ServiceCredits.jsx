@@ -788,6 +788,12 @@ const ServiceCredit = () => {
     });
   }, [scRecords, searchTerm, deptFilter, empCatFilter, deptMap, empCatLabelMap]);
 
+  const filteredTotals = useMemo(() => {
+    const remaining = filteredRecords.reduce((s, r) => s + toNum(r.remaining_hours), 0);
+    const earned = filteredRecords.reduce((s, r) => s + toNum(r.earned_hours), 0);
+    return { remaining, earned };
+  }, [filteredRecords]);
+
   const getEmployeeInfo = useCallback(
     (num) => employees.find((e) => e.employeeNumber?.toString() === num?.toString()) ||
       { fullName: num || "Unknown" },
@@ -1226,6 +1232,11 @@ if (accessLoading || pageLoading) {
                           {groupedByEmployee.length} employees · {filteredRecords.length} records
                         </Typography>
                       </Box>
+                      <Box sx={{ px: 1.5, py: 0.4, borderRadius: 6, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${alpha(T.accent, 0.15)}` }}>
+                        <Typography sx={{ fontSize: "0.72rem", color: T.accent, fontWeight: 700, fontFamily: T.poppins }}>
+                          Total: {fmtHrs(filteredTotals.remaining, unit)}
+                        </Typography>
+                      </Box>
                       <ToggleButtonGroup value={viewMode} exclusive onChange={(_, v) => v && setViewMode(v)} size="small"
                         sx={{ "& .MuiToggleButton-root": { px: 1, py: 0.35, border: `1px solid ${T.accentBorder}`,
                           color: T.muted, "&.Mui-selected": { bgcolor: T.accentFaint, color: T.accent } } }}>
@@ -1318,29 +1329,6 @@ if (accessLoading || pageLoading) {
                                     {empCat && <EmpCatBadge label={empCat.label} colorHex={empCat.colorHex} />}
                                   </Box>
                                 </Box>
-                              </Box>
-                              {/* SC type chips removed */}
-                              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.75 }}>
-                                {grp.records.slice(0, 3).map((r) => {
-                                  const sc = getStatusColor(r.remaining_hours, r.earned_hours);
-                                  return (
-                                    <Box key={r.id} sx={{ px: 0.75, py: 0.2, borderRadius: "4px",
-                                      bgcolor: `${sc}12`, border: `1px solid ${sc}30` }}>
-                                      <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: sc,
-                                        whiteSpace: "nowrap", fontFamily: T.poppins }}>
-                                        {r.period_year}{r.period_month ? `-${monthName(r.period_month).slice(0,3)}` : ""} · {fmtHrs(r.remaining_hours, unit)}
-                                      </Typography>
-                                    </Box>
-                                  );
-                                })}
-                                {grp.records.length > 3 && (
-                                  <Box sx={{ px: 0.75, py: 0.2, borderRadius: "4px",
-                                    bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-                                    <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins }}>
-                                      +{grp.records.length - 3}
-                                    </Typography>
-                                  </Box>
-                                )}
                               </Box>
                               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center",
                                 pt: 0.75, borderTop: `1px solid ${T.divider}` }}>
@@ -1442,6 +1430,7 @@ if (accessLoading || pageLoading) {
                     if (b.period_year !== a.period_year) return b.period_year - a.period_year;
                     return (toNum(b.period_month) || 0) - (toNum(a.period_month) || 0);
                   });
+                  const totalRemModal = sortedRecords.reduce((s, r) => s + toNum(r.remaining_hours), 0);
                   return (
                     <>
                       <Box sx={{ px: 3.5, py: 2, background: T.headerGrad,
@@ -1482,8 +1471,16 @@ if (accessLoading || pageLoading) {
                         <Box sx={{ width: 220, flexShrink: 0, borderRight: `1px solid ${T.divider}`,
                           display: "flex", flexDirection: "column", bgcolor: "#fafafa" }}>
                           <Box sx={{ px: 2, py: 1.25, borderBottom: `1px solid ${T.divider}` }}>
-                            <Typography sx={{ fontSize: "0.63rem", fontWeight: 700, color: T.faint,
-                              textTransform: "uppercase", letterSpacing: "0.09em", fontFamily: T.poppins }}>SC Records</Typography>
+                            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+                              <Typography sx={{ fontSize: "0.63rem", fontWeight: 700, color: T.faint,
+                                textTransform: "uppercase", letterSpacing: "0.09em", fontFamily: T.poppins }}>
+                                SC Records
+                              </Typography>
+                              <Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: T.accent,
+                                fontFamily: T.poppins, whiteSpace: "nowrap" }}>
+                                Total: {fmtHrs(totalRemModal, unit)}
+                              </Typography>
+                            </Box>
                           </Box>
                           <Box sx={{ flex: 1, overflowY: "auto" }}>
                             {sortedRecords.map((r) => {

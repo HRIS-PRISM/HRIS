@@ -56,6 +56,8 @@ import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import LoadingOverlay from '../LoadingOverlay';
+import { computeAbsentDays } from './attendanceMetrics';
 import { getAuthHeaders } from '../../utils/auth';
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────
@@ -796,6 +798,7 @@ const FloatingTotalsBar = ({
   if (!visible) return null;
 
   const items = [
+    { label: 'Absent Days', value: totals.absentDays, group: 'regular' },
     { label: 'AM Rendered', value: totals.morningRendered, group: 'regular' },
     { label: 'AM Tardiness', value: totals.morningTardiness, group: 'regular' },
     { label: 'PM Rendered', value: totals.afternoonRendered, group: 'regular' },
@@ -1462,6 +1465,29 @@ const AttendanceModuleFacultyDesignated = () => {
   const resultsRef = useRef(null);
   const tableBodyRef = useRef(null);
 
+  // ── Virtualized row rendering (keeps the DOM light for large ranges) ──
+  const ROW_HEIGHT = 44;
+  const OVERSCAN_ROWS = 10;
+  const rafScrollRef = useRef(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(500);
+
+  const onTableScroll = useCallback((e) => {
+    const nextTop = e.currentTarget.scrollTop || 0;
+    if (rafScrollRef.current) cancelAnimationFrame(rafScrollRef.current);
+    rafScrollRef.current = requestAnimationFrame(() => setScrollTop(nextTop));
+  }, []);
+
+  useEffect(() => {
+    const el = tableBodyRef.current;
+    if (!el) return;
+    const update = () => setViewportHeight(el.clientHeight || 500);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tableBodyRef]);
+
   const { hasAccess, loading: accessLoading } = usePageAccess(
     'attendance-module-faculty-40hrs',
   );
@@ -1884,6 +1910,7 @@ const AttendanceModuleFacultyDesignated = () => {
 
   const totals = React.useMemo(() => {
     if (!attendanceData.length) return {};
+    const absentDays = computeAbsentDays(attendanceData);
     const morningRendered = sumTime(
       attendanceData.map((r) =>
         getCellValue(
@@ -1953,6 +1980,7 @@ const AttendanceModuleFacultyDesignated = () => {
       ),
     );
     return {
+      absentDays,
       morningRendered,
       morningTardiness,
       afternoonRendered,
@@ -2341,6 +2369,8 @@ const AttendanceModuleFacultyDesignated = () => {
           </Alert>
         </Snackbar>
 
+        <LoadingOverlay open={loading} message="Fetching attendance records…" />
+
         {/* Page Header */}
         <SectionCard sx={{ mb: 2 }}>
           <Box
@@ -2711,17 +2741,6 @@ const AttendanceModuleFacultyDesignated = () => {
           </Box>
         </SectionCard>
 
-        {loading && (
-          <Box
-            sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}
-          >
-            <CircularProgress size={16} sx={{ color: T.accent }} />
-            <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>
-              Fetching attendance records…
-            </Typography>
-          </Box>
-        )}
-
         {/* Results Card */}
         {attendanceData.length > 0 && (
           <Fade in={!loading} timeout={400}>
@@ -2821,6 +2840,7 @@ const AttendanceModuleFacultyDesignated = () => {
                 >
                   <Box
                     ref={tableBodyRef}
+                    onScroll={onTableScroll}
                     sx={{
                       overflowX: 'auto',
                       overflowY: 'auto',
@@ -2848,97 +2868,144 @@ const AttendanceModuleFacultyDesignated = () => {
                     >
                       {buildTwoRowHead(columns)}
                       <TableBody>
-                        {attendanceData.map((row, ri) => {
-                          const statusLabel = getStatusLabelForDate(row.date);
-                          const isFurlough = Boolean(statusLabel);
-                          const isEven = ri % 2 === 0;
-                          return (
-                            <TableRow
-                              key={ri}
-                              sx={{
-                                '&:hover td': {
-                                  bgcolor: `${T.rowHover} !important`,
-                                },
-                              }}
-                            >
-                              {columns.map(
-                                ({ key, group, dividerBefore: db }) => {
-                                  if (key === 'date') {
-                                    return (
-                                      <TableCell
-                                        key={key}
-                                        sx={{
-                                          fontSize: '0.8rem',
-                                          fontWeight: 600,
-                                          color: T.text,
-                                          bgcolor: isEven ? '#fff' : T.rowOdd,
-                                          borderBottom: `1px solid ${T.divider}`,
-                                          px: 1.75,
-                                          py: 1,
-                                          whiteSpace: 'nowrap',
-                                          textAlign: 'center',
-                                          transition: 'background-color 0.12s',
-                                        }}
-                                      >
-                                        <Box
-                                          sx={{
-                                            display: 'flex',
-                                            flexDirection: 'column',
-                                            alignItems: 'center',
-                                            gap: 0.3,
-                                          }}
-                                        >
-                                          <span>{row.date}</span>
-                                          {statusLabel && (
-                                            <Chip
-                                              size="small"
-                                              label={statusLabel}
-                                              sx={{
-                                                fontWeight: 700,
-                                                fontSize: '0.62rem',
-                                                height: 16,
-                                                ...getStatusStyle(statusLabel),
-                                              }}
-                                            />
-                                          )}
-                                        </Box>
-                                      </TableCell>
-                                    );
-                                  }
-                                  if (key === 'day') {
-                                    return (
-                                      <TableCell
-                                        key={key}
-                                        sx={{
-                                          fontSize: '0.8rem',
-                                          color: T.muted,
-                                          bgcolor: isEven ? '#fff' : T.rowOdd,
-                                          borderBottom: `1px solid ${T.divider}`,
-                                          px: 1.75,
-                                          py: 1,
-                                          textAlign: 'center',
-                                          transition: 'background-color 0.12s',
-                                        }}
-                                      >
-                                        {row.day}
-                                      </TableCell>
-                                    );
-                                  }
-                                  return (
-                                    <React.Fragment key={key}>
-                                      {buildCell(
-                                        getCellValue(row, key, isFurlough),
-                                        group,
-                                        isEven,
-                                        db,
-                                      )}
-                                    </React.Fragment>
-                                  );
-                                },
-                              )}
-                            </TableRow>
+                        {(() => {
+                          const total = attendanceData.length;
+                          const start = Math.max(
+                            0,
+                            Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN_ROWS,
                           );
-                        })}
+                          const end = Math.min(
+                            total,
+                            Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) +
+                              OVERSCAN_ROWS,
+                          );
+                          const topH = start * ROW_HEIGHT;
+                          const bottomH = (total - end) * ROW_HEIGHT;
+                          const visible = attendanceData.slice(start, end);
+
+                          return (
+                            <>
+                              {topH > 0 && (
+                                <TableRow>
+                                  <TableCell
+                                    colSpan={columns.length}
+                                    sx={{
+                                      p: 0,
+                                      borderBottom: 'none',
+                                      height: topH,
+                                    }}
+                                  />
+                                </TableRow>
+                              )}
+
+                              {visible.map((row, vi) => {
+                                const ri = start + vi;
+                                const statusLabel = getStatusLabelForDate(row.date);
+                                const isFurlough = Boolean(statusLabel);
+                                const isEven = ri % 2 === 0;
+                                return (
+                                  <TableRow
+                                    key={row.date || ri}
+                                    sx={{
+                                      '&:hover td': {
+                                        bgcolor: `${T.rowHover} !important`,
+                                      },
+                                    }}
+                                  >
+                                    {columns.map(
+                                      ({ key, group, dividerBefore: db }) => {
+                                        if (key === 'date') {
+                                          return (
+                                            <TableCell
+                                              key={key}
+                                              sx={{
+                                                fontSize: '0.8rem',
+                                                fontWeight: 600,
+                                                color: T.text,
+                                                bgcolor: isEven ? '#fff' : T.rowOdd,
+                                                borderBottom: `1px solid ${T.divider}`,
+                                                px: 1.75,
+                                                py: 1,
+                                                whiteSpace: 'nowrap',
+                                                textAlign: 'center',
+                                                transition: 'background-color 0.12s',
+                                              }}
+                                            >
+                                              <Box
+                                                sx={{
+                                                  display: 'flex',
+                                                  flexDirection: 'column',
+                                                  alignItems: 'center',
+                                                  gap: 0.3,
+                                                }}
+                                              >
+                                                <span>{row.date}</span>
+                                                {statusLabel && (
+                                                  <Chip
+                                                    size="small"
+                                                    label={statusLabel}
+                                                    sx={{
+                                                      fontWeight: 700,
+                                                      fontSize: '0.62rem',
+                                                      height: 16,
+                                                      ...getStatusStyle(statusLabel),
+                                                    }}
+                                                  />
+                                                )}
+                                              </Box>
+                                            </TableCell>
+                                          );
+                                        }
+                                        if (key === 'day') {
+                                          return (
+                                            <TableCell
+                                              key={key}
+                                              sx={{
+                                                fontSize: '0.8rem',
+                                                color: T.muted,
+                                                bgcolor: isEven ? '#fff' : T.rowOdd,
+                                                borderBottom: `1px solid ${T.divider}`,
+                                                px: 1.75,
+                                                py: 1,
+                                                textAlign: 'center',
+                                                transition: 'background-color 0.12s',
+                                              }}
+                                            >
+                                              {row.day}
+                                            </TableCell>
+                                          );
+                                        }
+                                        return (
+                                          <React.Fragment key={key}>
+                                            {buildCell(
+                                              getCellValue(row, key, isFurlough),
+                                              group,
+                                              isEven,
+                                              db,
+                                            )}
+                                          </React.Fragment>
+                                        );
+                                      },
+                                    )}
+                                  </TableRow>
+                                );
+                              })}
+
+                              {bottomH > 0 && (
+                                <TableRow>
+                                  <TableCell
+                                    colSpan={columns.length}
+                                    sx={{
+                                      p: 0,
+                                      borderBottom: 'none',
+                                      height: bottomH,
+                                    }}
+                                  />
+                                </TableRow>
+                              )}
+                            </>
+                          );
+                        })()}
 
                         <TableRow
                           sx={{

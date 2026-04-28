@@ -2,6 +2,7 @@ import API_BASE_URL from '../../apiConfig';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useSocket } from '../../contexts/SocketContext';
+import LoadingOverlay from '../LoadingOverlay';
 import {
   Box,
   Typography,
@@ -794,69 +795,6 @@ const EmployeeSearchField = ({
   );
 };
 
-// ─── Loading overlay ───────────────────────────────────────────────────────
-const LoadingOverlay = ({ title, message }) => (
-  <Box
-    sx={{
-      position: 'absolute',
-      inset: 0,
-      zIndex: 5,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      px: 2,
-      width: '100%',
-      pointerEvents: 'none',
-      bgcolor: 'rgba(255,255,255,0.78)',
-      backdropFilter: 'blur(4px)',
-    }}
-  >
-    <Paper
-      elevation={0}
-      sx={{
-        width: '100%',
-        maxWidth: 360,
-        mt: -2,
-        borderRadius: 4,
-        bgcolor: '#fff',
-        boxShadow: '0 12px 40px rgba(0,0,0,0.12)',
-        p: 3,
-        pointerEvents: 'auto',
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-        <CircularProgress size={22} sx={{ color: T.accent }} />
-        <Box>
-          <Typography
-            sx={{
-              fontSize: '0.92rem',
-              fontWeight: 800,
-              color: T.text,
-              lineHeight: 1.2,
-            }}
-          >
-            {title}
-          </Typography>
-          <Typography sx={{ fontSize: '0.76rem', color: T.muted, mt: 0.2 }}>
-            {message}
-          </Typography>
-        </Box>
-      </Box>
-      <LinearProgress
-        sx={{
-          height: 5,
-          borderRadius: 3,
-          backgroundColor: alpha(T.accent, 0.1),
-          '& .MuiLinearProgress-bar': {
-            borderRadius: 3,
-            backgroundColor: T.accent,
-          },
-        }}
-      />
-    </Paper>
-  </Box>
-);
-
 // ─── Main Component ────────────────────────────────────────────────────────
 const ViewAttendanceRecord = () => {
   const { socket, connected } = useSocket();
@@ -1222,7 +1160,7 @@ const ViewAttendanceRecord = () => {
       }
       if (!startDate || !endDate || allUsersDTR.length === 0) return;
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => fetchAllUsersDTRRef.current?.(), 300);
+      debounceTimer = setTimeout(() => fetchAllUsersDTRRef.current?.(), 150);
     };
     socket.on('attendanceChanged', handleAttendanceChanged);
     return () => {
@@ -2189,27 +2127,16 @@ const ViewAttendanceRecord = () => {
                   position: 'relative',
                 }}
               >
-                {/* Loading overlay */}
-                {loading && (
-                  <LoadingOverlay
-                    title="Loading attendance records"
-                    message={
-                      personName
-                        ? `Fetching records for ${personName}…`
-                        : 'Fetching records…'
-                    }
-                  />
-                )}
-                {loadingAllUsers && (
-                  <LoadingOverlay
-                    title="Loading all users"
-                    message={
-                      progressTotal > 0
-                        ? `${progressDone} / ${progressTotal} processed`
-                        : loadPhase || 'Please wait…'
-                    }
-                  />
-                )}
+                <LoadingOverlay
+                  open={loading || loadingAllUsers}
+                  message={
+                    loadingAllUsers
+                      ? (progressTotal > 0
+                        ? `Loading all users — ${progressDone} / ${progressTotal}`
+                        : `Loading all users — ${loadPhase || 'Please wait…'}`)
+                      : (personName ? `Loading attendance — ${personName}…` : 'Loading attendance — Fetching records…')
+                  }
+                />
 
                 {/* ── SINGLE USER VIEW ── */}
                 {viewMode === 'single' && (

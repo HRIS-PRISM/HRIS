@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "axios";
 import API_BASE_URL from "../../apiConfig";
+import { useSocket } from "../../contexts/SocketContext";
 import {
   Box,
   Typography,
@@ -1651,6 +1652,7 @@ const TABS = [
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 const EarningsManagement = () => {
+  const { socket, connected } = useSocket();
   const now = new Date();
   const [activeTab, setActiveTab] = useState(0);
   const [employees, setEmployees] = useState([]);
@@ -1706,6 +1708,28 @@ const EarningsManagement = () => {
   useEffect(() => {
     fetchAttendance();
   }, [fetchAttendance]);
+
+  // Realtime refresh for leave changes affecting balances/earnings
+  useEffect(() => {
+    if (!socket || !connected) return;
+    let debounceTimer = null;
+    const handler = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        setBalanceKey((k) => k + 1);
+        setRecordsRefreshKey((k) => k + 1);
+        setVlReceiptRefreshKey((k) => k + 1);
+        fetchAttendance();
+      }, 250);
+    };
+    socket.on("leaveAssignmentChanged", handler);
+    socket.on("leaveRequestChanged", handler);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      socket.off("leaveAssignmentChanged", handler);
+      socket.off("leaveRequestChanged", handler);
+    };
+  }, [socket, connected, fetchAttendance]);
 
   useEffect(() => {
     (async () => {
@@ -1882,6 +1906,10 @@ if (pageLoading) return <EarningsWireframe />;
     unit,
     year: periodYear,
     month: periodMonth,
+    onRedirectMonth: (m) => {
+      const n = parseInt(m, 10);
+      if (Number.isFinite(n) && n >= 1 && n <= 12) setPeriodMonth(n);
+    },
   };
 
   return (

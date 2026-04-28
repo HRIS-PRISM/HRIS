@@ -479,6 +479,11 @@ const EarningRow = ({
   const earnH = toNum(record.earned_hours ?? record.total_hours);
   const status = record.earn_status || "pending";
   const isTardinessDeduction = record.entry_type === "TARDINESS_DEDUCTION";
+  const isCrossMonthAdjustment =
+    type === "leave" &&
+    record._covers_month != null &&
+    record._posted_period_month != null &&
+    Number(record._covers_month) !== Number(record.period_month);
   return (
     <Box
       sx={{
@@ -541,6 +546,22 @@ const EarningRow = ({
               />
             )}
           </Box>
+          {isCrossMonthAdjustment && (
+            <Typography
+              sx={{
+                fontSize: "0.62rem",
+                color: T.muted,
+                fontFamily: T.poppins,
+                mb: 0.35,
+                lineHeight: 1.35,
+              }}
+            >
+              Missed-month adjustment for <b>{monthName(record._covers_month)}</b> — recorded in{" "}
+              <b>
+                {monthName(record._posted_period_month)} {record.period_year}
+              </b>
+            </Typography>
+          )}
           <Box
             sx={{ display: "flex", alignItems: "baseline", gap: 0.4, mb: 0.25 }}
           >

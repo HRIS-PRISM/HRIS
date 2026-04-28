@@ -15,7 +15,6 @@ import {
   Collapse,
   Chip,
   CircularProgress,
-  LinearProgress,
   Fade,
   FormControl,
   InputLabel,
@@ -72,6 +71,7 @@ import {
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import LoadingOverlay from '../LoadingOverlay';
 
 // ─── Poppins font import ───────────────────────────────────────────────────
 const poppinsImport = `@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');`;
@@ -2672,17 +2672,6 @@ const AttendanceSearch = () => {
           )}
         </Box>
 
-        {/* Loading bar */}
-        {loading && (
-          <LinearProgress
-            sx={{
-              height: 2,
-              bgcolor: alpha(T.accent, 0.08),
-              '& .MuiLinearProgress-bar': { bgcolor: T.accent },
-            }}
-          />
-        )}
-
         {/* Records-only tab */}
         {activeTab === 'records' && (
           <Box
@@ -3335,20 +3324,7 @@ const AttendanceSearch = () => {
   // ─── Render ────────────────────────────────────────────────────────────
   return (
     <Fade in timeout={400}>
-      <Box
-        sx={{
-          py: { xs: 1, md: 2 },
-          mt: { xs: 0, md: -2 },
-          mb: { xs: 1, md: 2 },
-          width: '100vw',
-          maxWidth: '100%',
-          position: 'relative',
-          left: '63%',
-          transform: 'translateX(-61%)',
-          px: { xs: 2, sm: 3, md: 6 },
-          fontFamily: T.font,
-        }}
-      >
+      <Box sx={{ fontFamily: T.font }}>
         <style>{shimmerKf}</style>
 
         <AuthorizationDialog
@@ -3405,6 +3381,29 @@ const AttendanceSearch = () => {
             </Box>
           </Alert>
         </Snackbar>
+
+        <LoadingOverlay
+          open={loading}
+          message={
+            activeTab === 'fullMonth'
+              ? 'Loading full month attendance…'
+              : 'Loading attendance records…'
+          }
+        />
+
+        <Box
+          sx={{
+            py: { xs: 1, md: 2 },
+            mt: { xs: 0, md: -2 },
+            mb: { xs: 1, md: 2 },
+            width: '100vw',
+            maxWidth: '100%',
+            position: 'relative',
+            left: '63%',
+            transform: 'translateX(-61%)',
+            px: { xs: 2, sm: 3, md: 6 },
+          }}
+        >
 
         {/* ── Page Header ── */}
         <SectionCard sx={{ mb: 2 }}>
@@ -3606,6 +3605,8 @@ const AttendanceSearch = () => {
             </SectionCard>
           </Grid>
         </Grid>
+
+        </Box>
 
         <Zoom in={showScrollTop}>
           <Fab

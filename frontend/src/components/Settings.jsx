@@ -7,7 +7,7 @@ import {
   Alert, TextField, Button, Box, Typography, InputAdornment, IconButton, Rating,
   Checkbox, FormControlLabel, Switch, Accordion, AccordionSummary, AccordionDetails,
   Chip, Grid, Dialog, DialogContent, DialogActions, Select, MenuItem, FormControl,
-  alpha, Backdrop, Avatar, Card, CardContent, Tooltip, Fade, Divider,
+  alpha, Avatar, Card, CardContent, Tooltip, Fade, Divider,
 } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import {
@@ -811,7 +811,7 @@ const handleRequestCode = async (e) => {
       <style>{GLOBAL_CSS}</style>
 
       {/* Loading overlay */}
-      <Backdrop open={loading} sx={{ zIndex: t => t.zIndex.drawer + 1, bgcolor: "rgba(15,23,42,0.45)" }}>
+      <Backdrop open={loading} sx={{ zIndex: (t) => t.zIndex.modal, position: "fixed", inset: 0, bgcolor: "rgba(15,23,42,0.45)" }}>
         <Box sx={{ textAlign: "center" }}>
           <Box sx={{ width: 36, height: 36, border: `2px solid ${alpha(T.accent, 0.2)}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.7s linear infinite", mx: "auto" }} />
           <Typography sx={{ mt: 2, color: "#fff", fontSize: "0.8rem", fontWeight: 500 }}>Processing…</Typography>

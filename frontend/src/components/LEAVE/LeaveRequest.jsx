@@ -826,6 +826,7 @@ const LeaveRequest = () => {
   const [successAction, setSuccessAction]   = useState('');
   const [dateModalOpen, setDateModalOpen]   = useState(false);
   const [selectedDates, setSelectedDates]   = useState([]);
+  const [leaveBalance, setLeaveBalance]     = useState({ loading: false, availableHours: null, error: '' });
   const [page, setPage]                     = useState(0);
   const [rowsPerPage, setRowsPerPage]       = useState(12);
   const [statusFilter, setStatusFilter]     = useState('all');
@@ -881,6 +882,50 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
     socket.on('leaveRequestChanged', handler);
     return () => socket.off('leaveRequestChanged', handler);
   }, [socket, connected]);
+
+  // ── Leave balance preview (admin submit form) ────────────────────────────────
+  useEffect(() => {
+    let alive = true;
+    const run = async () => {
+      if (!newRequest.employeeNumber || !newRequest.leave_code) {
+        setLeaveBalance({ loading: false, availableHours: null, error: '' });
+        return;
+      }
+      setLeaveBalance((p) => ({ ...p, loading: true, error: '' }));
+      try {
+        const creditsRes = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, getAuthHeaders());
+        const assignment = Array.isArray(creditsRes.data)
+          ? creditsRes.data
+          : (creditsRes.data?.assignments || []);
+
+        const matches = assignment.filter(
+          (a) =>
+            a.employeeNumber?.toString() === newRequest.employeeNumber?.toString() &&
+            a.leave_code === newRequest.leave_code,
+        );
+
+        const available = matches.reduce((sum, row) => {
+          const rowAvail =
+            parseFloat(
+              row.remaining_hours ??
+                ((parseFloat(row.allocated_hours) || 0) - (parseFloat(row.used_hours) || 0)),
+            ) || 0;
+          return sum + rowAvail;
+        }, 0);
+
+        if (!alive) return;
+        setLeaveBalance({ loading: false, availableHours: available, error: '' });
+      } catch (e) {
+        if (!alive) return;
+        setLeaveBalance({ loading: false, availableHours: null, error: 'Failed to load leave balance preview.' });
+      }
+    };
+
+    run();
+    return () => {
+      alive = false;
+    };
+  }, [newRequest.employeeNumber, newRequest.leave_code]);
 
   const fetchAll = async () => {
     try {
@@ -971,16 +1016,21 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
       const assignment = Array.isArray(creditsRes.data)
         ? creditsRes.data
         : (creditsRes.data?.assignments || []);
-      const la = assignment.find(
+      // Same employee + leave_code can have multiple leave_assignment rows (e.g. per period_year).
+      // Backend POST uses total remaining across all rows (getTotalRemainingHours); match that here
+      // instead of assignment.find(), which would only use the first row (often an older period with 0 remaining).
+      const matches = assignment.filter(
         (a) => a.employeeNumber?.toString() === newRequest.employeeNumber?.toString() && a.leave_code === newRequest.leave_code,
       );
-      if (!la) {
+      if (!matches.length) {
         creditsOk = false;
         creditMsg = `No leave assignment found for Employee #${newRequest.employeeNumber} under leave code "${newRequest.leave_code}".\n\nPlease assign leave credits first.`;
       } else {
-        // Prefer remaining_hours (server-authoritative) over allocated-used math.
-        // Some rows/periods have allocated/used values that don't reflect the current available balance.
-        const available = parseFloat(la.remaining_hours ?? ((parseFloat(la.allocated_hours) || 0) - (parseFloat(la.used_hours) || 0))) || 0;
+        // Prefer remaining_hours (server-authoritative) per row; sum across periods like the API balance check.
+        const available = matches.reduce((sum, row) => {
+          const rowAvail = parseFloat(row.remaining_hours ?? ((parseFloat(row.allocated_hours) || 0) - (parseFloat(row.used_hours) || 0))) || 0;
+          return sum + rowAvail;
+        }, 0);
         if (available < hoursRequested) {
           creditsOk = false;
           creditMsg = `Insufficient leave balance for this request.\n\nRequested: ${(hoursRequested / 8).toFixed(3)} day(s) (${hoursRequested} hrs)\nAvailable: ${(available / 8).toFixed(3)} day(s) (${available.toFixed(3)} hrs)\n\nPlease select fewer dates or choose a different leave type.`;
@@ -1241,7 +1291,41 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
     return `${fmt(sorted[0])} – ${fmt(sorted[sorted.length - 1])}`;
   };
 
-  const canAdd = !loading && newRequest.employeeNumber && newRequest.leave_code && newRequest.leave_date;
+  const leaveDatesForNew = useMemo(() => {
+    const raw = newRequest.leave_date;
+    const dates = Array.isArray(raw)
+      ? raw
+      : String(raw || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    return dates.length ? dates : selectedDates;
+  }, [newRequest.leave_date, selectedDates]);
+
+  const hoursRequested = useMemo(() => leaveDatesForNew.length * 8, [leaveDatesForNew.length]);
+  const balanceAvailableHours = leaveBalance.availableHours ?? null;
+  const noBalance =
+    balanceAvailableHours !== null &&
+    !leaveBalance.loading &&
+    newRequest.employeeNumber &&
+    newRequest.leave_code &&
+    balanceAvailableHours <= 0;
+  const isOverBalance =
+    balanceAvailableHours !== null &&
+    !leaveBalance.loading &&
+    newRequest.employeeNumber &&
+    newRequest.leave_code &&
+    hoursRequested > 0 &&
+    balanceAvailableHours < hoursRequested;
+
+  const canAdd =
+    !loading &&
+    newRequest.employeeNumber &&
+    newRequest.leave_code &&
+    newRequest.leave_date &&
+    !leaveBalance.loading &&
+    !noBalance &&
+    !isOverBalance;
 
   // ── Tx log helpers ─────────────────────────────────────────────────────────────
   const buildTxSentence = (log) => {
@@ -1673,6 +1757,36 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
                   />
                 </Box>
 
+                {/* Balance warning (like LeaveRequestUser.jsx) */}
+                {(newRequest.employeeNumber && newRequest.leave_code) && (
+                  <Box sx={{ mb: 2 }}>
+                    {leaveBalance.loading ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <CircularProgress size={14} />
+                        <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                          Checking leave balance…
+                        </Typography>
+                      </Box>
+                    ) : leaveBalance.error ? (
+                      <Alert severity="warning" sx={{ py: 0.5, px: 1, fontSize: '0.75rem' }}>
+                        {leaveBalance.error}
+                      </Alert>
+                    ) : (leaveBalance.availableHours !== null) ? (
+                      (noBalance || isOverBalance) ? (
+                        <Alert severity="error" sx={{ py: 0.5, px: 1, fontSize: '0.75rem' }}>
+                          {noBalance
+                            ? `No Balance — Cannot Submit (${(leaveBalance.availableHours / 8).toFixed(3)} day(s) available)`
+                            : `Insufficient Balance — Requested ${(hoursRequested / 8).toFixed(3)} day(s), Available ${(leaveBalance.availableHours / 8).toFixed(3)} day(s)`}
+                        </Alert>
+                      ) : (
+                        <Alert severity="success" sx={{ py: 0.5, px: 1, fontSize: '0.75rem' }}>
+                          {`Balance OK — ${(leaveBalance.availableHours / 8).toFixed(3)} day(s) available`}
+                        </Alert>
+                      )
+                    ) : null}
+                  </Box>
+                )}
+
 
                 {/* Submit */}
                 <Box sx={{ mt: 'auto' }}>
@@ -1689,7 +1803,13 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
                       '&:disabled': { bgcolor: '#d0d0d0 !important', color: '#888 !important', boxShadow: 'none !important', transform: 'none !important' },
                     }}
                   >
-                    {loading ? 'Submitting…' : 'Add Leave Request'}
+                    {loading
+                      ? 'Submitting…'
+                      : noBalance
+                        ? 'No Balance — Cannot Submit'
+                        : isOverBalance
+                          ? 'Insufficient Balance'
+                          : 'Add Leave Request'}
                   </AccentButton>
                 </Box>
               </Box>

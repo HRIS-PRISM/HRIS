@@ -62,6 +62,8 @@ import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import LoadingOverlay from '../LoadingOverlay';
+import { computeAbsentDays } from './attendanceMetrics';
 import { getAuthHeaders } from '../../utils/auth';
 
 // ─── Theme tokens (unified with ViewAttendanceRecord) ──────────────────────
@@ -401,14 +403,14 @@ const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
     style={{
       background: 'transparent',
       border: `1px solid ${color}40`,
-      borderRadius: '6px',
-      padding: '4px 10px',
+      borderRadius: '8px',
+      padding: '9px 18px',
       cursor: disabled ? 'default' : 'pointer',
       color,
       display: 'flex',
       alignItems: 'center',
       gap: '4px',
-      fontSize: '0.72rem',
+      fontSize: '0.85rem',
       fontWeight: 700,
       fontFamily: 'inherit',
       transition: 'background-color 0.15s, border-color 0.15s',
@@ -747,6 +749,11 @@ const FloatingTotalsBar = ({
       group: 'regular',
     },
     {
+      label: 'Absent Days',
+      value: totals.absentDays,
+      group: 'regular',
+    },
+    {
       label: 'Regular Tardiness',
       value: totals.regularTardiness,
       group: 'regular',
@@ -767,20 +774,18 @@ const FloatingTotalsBar = ({
     <Paper
       elevation={12}
       sx={{
-        position: 'fixed',
-        bottom: 24,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 1300,
         borderRadius: '12px',
         overflow: 'hidden',
         minWidth: 340,
-        maxWidth: 'calc(100vw - 48px)',
+        width: 'fit-content',
+        mx: 'auto',
         boxShadow: `0 8px 40px ${alpha(T.accent, 0.35)}, 0 2px 10px ${alpha(T.accent, 0.12)}`,
         border: `1.5px solid ${T.accentBorder}`,
         bgcolor: '#fff',
         backdropFilter: 'blur(20px)',
         transition: 'all 0.25s ease',
+        mt: 2,
+        mb: 2,
       }}
     >
       {/* Bar header */}
@@ -1405,6 +1410,29 @@ const AttendanceModuleFaculty = () => {
   const resultsRef = useRef(null);
   const tableBodyRef = useRef(null);
 
+  // ── Virtualized row rendering (keeps the DOM light for large ranges) ──
+  const ROW_HEIGHT = 44;
+  const OVERSCAN_ROWS = 10;
+  const rafScrollRef = useRef(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(500);
+
+  const onTableScroll = useCallback((e) => {
+    const nextTop = e.currentTarget.scrollTop || 0;
+    if (rafScrollRef.current) cancelAnimationFrame(rafScrollRef.current);
+    rafScrollRef.current = requestAnimationFrame(() => setScrollTop(nextTop));
+  }, []);
+
+  useEffect(() => {
+    const el = tableBodyRef.current;
+    if (!el) return;
+    const update = () => setViewportHeight(el.clientHeight || 500);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tableBodyRef]);
+
   const { hasAccess, loading: accessLoading } = usePageAccess(
     'attendance-module-faculty',
   );
@@ -1814,6 +1842,7 @@ const AttendanceModuleFaculty = () => {
 
   const totals = React.useMemo(() => {
     if (!attendanceData.length) return {};
+    const absentDays = computeAbsentDays(attendanceData);
     const regularRendered = sumTimeRows(attendanceData, (row) => {
       const isFurlough = Boolean(getStatusLabelForDate(row.date));
       if (isFurlough)
@@ -1899,6 +1928,7 @@ const AttendanceModuleFaculty = () => {
         : row.formattedfinalcalcFacultyOT;
     });
     return {
+      absentDays,
       regularRendered,
       regularTardiness,
       hnRendered,
@@ -2268,6 +2298,8 @@ const AttendanceModuleFaculty = () => {
             </Box>
           </Alert>
         </Snackbar>
+
+        <LoadingOverlay open={loading} message="Fetching attendance records…" />
 
         {/* ── Page Header ── */}
         <SectionCard sx={{ mb: 2 }}>
@@ -2671,18 +2703,6 @@ const AttendanceModuleFaculty = () => {
           </Box>
         </SectionCard>
 
-        {/* ── Loading indicator ── */}
-        {loading && (
-          <Box
-            sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}
-          >
-            <CircularProgress size={16} sx={{ color: T.accent }} />
-            <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>
-              Fetching attendance records…
-            </Typography>
-          </Box>
-        )}
-
         {/* ── Results Card ── */}
         {attendanceData.length > 0 && (
           <Fade in={!loading} timeout={400}>
@@ -2784,6 +2804,7 @@ const AttendanceModuleFaculty = () => {
                 >
                   <Box
                     ref={tableBodyRef}
+                    onScroll={onTableScroll}
                     sx={{
                       overflowX: 'auto',
                       overflowY: 'auto',
@@ -2813,124 +2834,167 @@ const AttendanceModuleFaculty = () => {
                       >
                         {buildTwoRowHead(REGULAR_COLS)}
                         <TableBody>
-                          {attendanceData.map((row, index) => {
-                            const statusLabel = getStatusLabelForDate(row.date);
-                            const isFurlough = Boolean(statusLabel);
-                            const isEven = index % 2 === 0;
-                            return (
-                              <TableRow
-                                key={index}
-                                sx={{
-                                  '&:hover td': {
-                                    bgcolor: `${T.rowHover} !important`,
-                                  },
-                                }}
-                              >
-                                <TableCell
-                                  sx={{
-                                    fontSize: '0.8rem',
-                                    fontWeight: 600,
-                                    color: T.text,
-                                    bgcolor: isEven ? '#fff' : T.rowOdd,
-                                    borderBottom: `1px solid ${T.divider}`,
-                                    px: 1.75,
-                                    py: 1,
-                                    whiteSpace: 'nowrap',
-                                    textAlign: 'center',
-                                    transition: 'background-color 0.12s',
-                                  }}
-                                >
-                                  <Box
-                                    sx={{
-                                      display: 'flex',
-                                      flexDirection: 'column',
-                                      alignItems: 'center',
-                                      gap: 0.3,
-                                    }}
-                                  >
-                                    <span>{row.date}</span>
-                                    {statusLabel && (
-                                      <Chip
-                                        size="small"
-                                        label={statusLabel}
-                                        sx={{
-                                          fontWeight: 700,
-                                          fontSize: '0.62rem',
-                                          height: 16,
-                                          ...getStatusStyle(statusLabel),
-                                        }}
-                                      />
-                                    )}
-                                  </Box>
-                                </TableCell>
-                                <TableCell
-                                  sx={{
-                                    fontSize: '0.8rem',
-                                    color: T.muted,
-                                    bgcolor: isEven ? '#fff' : T.rowOdd,
-                                    borderBottom: `1px solid ${T.divider}`,
-                                    px: 1.75,
-                                    py: 1,
-                                    textAlign: 'center',
-                                    transition: 'background-color 0.12s',
-                                  }}
-                                >
-                                  {row.day}
-                                </TableCell>
-                                {buildCell(
-                                  row.timeIN || '—',
-                                  'actual',
-                                  isEven,
-                                  true,
-                                )}
-                                {buildCell(
-                                  row.timeOUT || '—',
-                                  'actual',
-                                  isEven,
-                                )}
-                                {buildCell(
-                                  row.officialTimeIN || '—',
-                                  'official',
-                                  isEven,
-                                  true,
-                                )}
-                                {buildCell(
-                                  row.officialTimeOUT || '—',
-                                  'official',
-                                  isEven,
-                                )}
-                                {buildCell(
-                                  isFurlough
-                                    ? !row.formattedFacultyMaxRenderedTime ||
-                                      row.formattedFacultyMaxRenderedTime ===
-                                        'NaN:NaN:NaN'
-                                      ? '00:00:00'
-                                      : row.formattedFacultyMaxRenderedTime
-                                    : !row.officialTimeIN ||
-                                        !row.timeOUT ||
-                                        row.formattedFacultyRenderedTime ===
-                                          'NaN:NaN:NaN'
-                                      ? '00:00:00'
-                                      : row.formattedFacultyRenderedTime,
-                                  'calc',
-                                  isEven,
-                                  true,
-                                )}
-                                {buildCell(
-                                  isFurlough
-                                    ? '00:00:00'
-                                    : !row.officialTimeIN ||
-                                        !row.timeOUT ||
-                                        row.formattedfinalcalcFaculty ===
-                                          'NaN:NaN:NaN'
-                                      ? row.formattedFacultyMaxRenderedTime
-                                      : row.formattedfinalcalcFaculty,
-                                  'tard',
-                                  isEven,
-                                )}
-                              </TableRow>
+                          {(() => {
+                            const total = attendanceData.length;
+                            const start = Math.max(
+                              0,
+                              Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN_ROWS,
                             );
-                          })}
+                            const end = Math.min(
+                              total,
+                              Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) +
+                                OVERSCAN_ROWS,
+                            );
+                            const topH = start * ROW_HEIGHT;
+                            const bottomH = (total - end) * ROW_HEIGHT;
+                            const visible = attendanceData.slice(start, end);
+
+                            return (
+                              <>
+                                {topH > 0 && (
+                                  <TableRow>
+                                    <TableCell
+                                      colSpan={8}
+                                      sx={{
+                                        p: 0,
+                                        borderBottom: 'none',
+                                        height: topH,
+                                      }}
+                                    />
+                                  </TableRow>
+                                )}
+
+                                {visible.map((row, vi) => {
+                                  const index = start + vi;
+                                  const statusLabel = getStatusLabelForDate(row.date);
+                                  const isFurlough = Boolean(statusLabel);
+                                  const isEven = index % 2 === 0;
+                                  return (
+                                    <TableRow
+                                      key={row.date || index}
+                                      sx={{
+                                        '&:hover td': {
+                                          bgcolor: `${T.rowHover} !important`,
+                                        },
+                                      }}
+                                    >
+                                      <TableCell
+                                        sx={{
+                                          fontSize: '0.8rem',
+                                          fontWeight: 600,
+                                          color: T.text,
+                                          bgcolor: isEven ? '#fff' : T.rowOdd,
+                                          borderBottom: `1px solid ${T.divider}`,
+                                          px: 1.75,
+                                          py: 1,
+                                          whiteSpace: 'nowrap',
+                                          textAlign: 'center',
+                                          transition: 'background-color 0.12s',
+                                        }}
+                                      >
+                                        <Box
+                                          sx={{
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'center',
+                                            gap: 0.3,
+                                          }}
+                                        >
+                                          <span>{row.date}</span>
+                                          {statusLabel && (
+                                            <Chip
+                                              size="small"
+                                              label={statusLabel}
+                                              sx={{
+                                                fontWeight: 700,
+                                                fontSize: '0.62rem',
+                                                height: 16,
+                                                ...getStatusStyle(statusLabel),
+                                              }}
+                                            />
+                                          )}
+                                        </Box>
+                                      </TableCell>
+                                      <TableCell
+                                        sx={{
+                                          fontSize: '0.8rem',
+                                          color: T.muted,
+                                          bgcolor: isEven ? '#fff' : T.rowOdd,
+                                          borderBottom: `1px solid ${T.divider}`,
+                                          px: 1.75,
+                                          py: 1,
+                                          textAlign: 'center',
+                                          transition: 'background-color 0.12s',
+                                        }}
+                                      >
+                                        {row.day}
+                                      </TableCell>
+                                      {buildCell(
+                                        row.timeIN || '—',
+                                        'actual',
+                                        isEven,
+                                        true,
+                                      )}
+                                      {buildCell(row.timeOUT || '—', 'actual', isEven)}
+                                      {buildCell(
+                                        row.officialTimeIN || '—',
+                                        'official',
+                                        isEven,
+                                        true,
+                                      )}
+                                      {buildCell(
+                                        row.officialTimeOUT || '—',
+                                        'official',
+                                        isEven,
+                                      )}
+                                      {buildCell(
+                                        isFurlough
+                                          ? !row.formattedFacultyMaxRenderedTime ||
+                                            row.formattedFacultyMaxRenderedTime ===
+                                              'NaN:NaN:NaN'
+                                            ? '00:00:00'
+                                            : row.formattedFacultyMaxRenderedTime
+                                          : !row.officialTimeIN ||
+                                              !row.timeOUT ||
+                                              row.formattedFacultyRenderedTime ===
+                                                'NaN:NaN:NaN'
+                                            ? '00:00:00'
+                                            : row.formattedFacultyRenderedTime,
+                                        'calc',
+                                        isEven,
+                                        true,
+                                      )}
+                                      {buildCell(
+                                        isFurlough
+                                          ? '00:00:00'
+                                          : !row.officialTimeIN ||
+                                              !row.timeOUT ||
+                                              row.formattedfinalcalcFaculty ===
+                                                'NaN:NaN:NaN'
+                                            ? row.formattedFacultyMaxRenderedTime
+                                            : row.formattedfinalcalcFaculty,
+                                        'tard',
+                                        isEven,
+                                      )}
+                                    </TableRow>
+                                  );
+                                })}
+
+                                {bottomH > 0 && (
+                                  <TableRow>
+                                    <TableCell
+                                      colSpan={8}
+                                      sx={{
+                                        p: 0,
+                                        borderBottom: 'none',
+                                        height: bottomH,
+                                      }}
+                                    />
+                                  </TableRow>
+                                )}
+                              </>
+                            );
+                          })()}
                           {/* Totals row */}
                           <TableRow
                             sx={{
@@ -3001,105 +3065,150 @@ const AttendanceModuleFaculty = () => {
                       >
                         {buildTwoRowHead(columns)}
                         <TableBody>
-                          {attendanceData.map((row, ri) => {
-                            const isFurlough = Boolean(
-                              getStatusLabelForDate(row.date),
+                          {(() => {
+                            const total = attendanceData.length;
+                            const start = Math.max(
+                              0,
+                              Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN_ROWS,
                             );
-                            const isEven = ri % 2 === 0;
+                            const end = Math.min(
+                              total,
+                              Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) +
+                                OVERSCAN_ROWS,
+                            );
+                            const topH = start * ROW_HEIGHT;
+                            const bottomH = (total - end) * ROW_HEIGHT;
+                            const visible = attendanceData.slice(start, end);
+
                             return (
-                              <TableRow
-                                key={ri}
-                                sx={{
-                                  '&:hover td': {
-                                    bgcolor: `${T.rowHover} !important`,
-                                  },
-                                }}
-                              >
-                                {columns.map(
-                                  ({ key, group, dividerBefore: db }) => {
-                                    if (key === 'date') {
-                                      const statusLabel = getStatusLabelForDate(
-                                        row.date,
-                                      );
-                                      return (
-                                        <TableCell
-                                          key={key}
-                                          sx={{
-                                            fontSize: '0.8rem',
-                                            fontWeight: 600,
-                                            color: T.text,
-                                            bgcolor: isEven ? '#fff' : T.rowOdd,
-                                            borderBottom: `1px solid ${T.divider}`,
-                                            px: 1.75,
-                                            py: 1,
-                                            whiteSpace: 'nowrap',
-                                            textAlign: 'center',
-                                            transition:
-                                              'background-color 0.12s',
-                                          }}
-                                        >
-                                          <Box
-                                            sx={{
-                                              display: 'flex',
-                                              flexDirection: 'column',
-                                              alignItems: 'center',
-                                              gap: 0.3,
-                                            }}
-                                          >
-                                            <span>{row.date}</span>
-                                            {statusLabel && (
-                                              <Chip
-                                                size="small"
-                                                label={statusLabel}
-                                                sx={{
-                                                  fontWeight: 700,
-                                                  fontSize: '0.62rem',
-                                                  height: 16,
-                                                  ...getStatusStyle(
-                                                    statusLabel,
-                                                  ),
-                                                }}
-                                              />
-                                            )}
-                                          </Box>
-                                        </TableCell>
-                                      );
-                                    }
-                                    if (key === 'day') {
-                                      return (
-                                        <TableCell
-                                          key={key}
-                                          sx={{
-                                            fontSize: '0.8rem',
-                                            color: T.muted,
-                                            bgcolor: isEven ? '#fff' : T.rowOdd,
-                                            borderBottom: `1px solid ${T.divider}`,
-                                            px: 1.75,
-                                            py: 1,
-                                            textAlign: 'center',
-                                            transition:
-                                              'background-color 0.12s',
-                                          }}
-                                        >
-                                          {row.day}
-                                        </TableCell>
-                                      );
-                                    }
-                                    return (
-                                      <React.Fragment key={key}>
-                                        {buildCell(
-                                          getCellValue(row, key, isFurlough),
-                                          group,
-                                          isEven,
-                                          db,
-                                        )}
-                                      </React.Fragment>
-                                    );
-                                  },
+                              <>
+                                {topH > 0 && (
+                                  <TableRow>
+                                    <TableCell
+                                      colSpan={columns.length}
+                                      sx={{
+                                        p: 0,
+                                        borderBottom: 'none',
+                                        height: topH,
+                                      }}
+                                    />
+                                  </TableRow>
                                 )}
-                              </TableRow>
+
+                                {visible.map((row, vi) => {
+                                  const ri = start + vi;
+                                  const isFurlough = Boolean(
+                                    getStatusLabelForDate(row.date),
+                                  );
+                                  const isEven = ri % 2 === 0;
+                                  return (
+                                    <TableRow
+                                      key={row.date || ri}
+                                      sx={{
+                                        '&:hover td': {
+                                          bgcolor: `${T.rowHover} !important`,
+                                        },
+                                      }}
+                                    >
+                                      {columns.map(
+                                        ({ key, group, dividerBefore: db }) => {
+                                          if (key === 'date') {
+                                            const statusLabel = getStatusLabelForDate(
+                                              row.date,
+                                            );
+                                            return (
+                                              <TableCell
+                                                key={key}
+                                                sx={{
+                                                  fontSize: '0.8rem',
+                                                  fontWeight: 600,
+                                                  color: T.text,
+                                                  bgcolor: isEven ? '#fff' : T.rowOdd,
+                                                  borderBottom: `1px solid ${T.divider}`,
+                                                  px: 1.75,
+                                                  py: 1,
+                                                  whiteSpace: 'nowrap',
+                                                  textAlign: 'center',
+                                                  transition:
+                                                    'background-color 0.12s',
+                                                }}
+                                              >
+                                                <Box
+                                                  sx={{
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    alignItems: 'center',
+                                                    gap: 0.3,
+                                                  }}
+                                                >
+                                                  <span>{row.date}</span>
+                                                  {statusLabel && (
+                                                    <Chip
+                                                      size="small"
+                                                      label={statusLabel}
+                                                      sx={{
+                                                        fontWeight: 700,
+                                                        fontSize: '0.62rem',
+                                                        height: 16,
+                                                        ...getStatusStyle(statusLabel),
+                                                      }}
+                                                    />
+                                                  )}
+                                                </Box>
+                                              </TableCell>
+                                            );
+                                          }
+                                          if (key === 'day') {
+                                            return (
+                                              <TableCell
+                                                key={key}
+                                                sx={{
+                                                  fontSize: '0.8rem',
+                                                  color: T.muted,
+                                                  bgcolor: isEven ? '#fff' : T.rowOdd,
+                                                  borderBottom: `1px solid ${T.divider}`,
+                                                  px: 1.75,
+                                                  py: 1,
+                                                  textAlign: 'center',
+                                                  transition:
+                                                    'background-color 0.12s',
+                                                }}
+                                              >
+                                                {row.day}
+                                              </TableCell>
+                                            );
+                                          }
+                                          return (
+                                            <React.Fragment key={key}>
+                                              {buildCell(
+                                                getCellValue(row, key, isFurlough),
+                                                group,
+                                                isEven,
+                                                db,
+                                              )}
+                                            </React.Fragment>
+                                          );
+                                        },
+                                      )}
+                                    </TableRow>
+                                  );
+                                })}
+
+                                {bottomH > 0 && (
+                                  <TableRow>
+                                    <TableCell
+                                      colSpan={columns.length}
+                                      sx={{
+                                        p: 0,
+                                        borderBottom: 'none',
+                                        height: bottomH,
+                                      }}
+                                    />
+                                  </TableRow>
+                                )}
+                              </>
                             );
-                          })}
+                          })()}
                           {/* Totals row */}
                           <TableRow
                             sx={{

@@ -30,6 +30,7 @@ import {
 } from "@mui/icons-material";
 import LoadingOverlay from "../LoadingOverlay";
 import SuccessfulOverlay from "../SuccessfulOverlay";
+import { useSocket } from "../../contexts/SocketContext";
 import usePageAccess from "../../hooks/usePageAccess";
 import AccessDenied from "../AccessDenied";
 import { getLeaveGenderRestriction, isLeaveAllowedForGender } from "./leaveGenderUtils";
@@ -390,6 +391,17 @@ const MONTH_NAMES = {
 };
 
 const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+const normalizeMonth = (v) => {
+  if (v === undefined || v === null || v === "") return null;
+  const n = parseInt(String(v), 10);
+  return Number.isFinite(n) ? n : null;
+};
+const sameMonth = (a, b) => {
+  const na = normalizeMonth(a);
+  const nb = normalizeMonth(b);
+  if (na === null || nb === null) return false;
+  return na === nb;
+};
 const semOrder = (s) => { if (!s) return 0; const l = String(s).toLowerCase(); if (l.includes("2nd")) return 2; if (l.includes("1st")) return 1; return 0; };
 
 const periodLabel = (year, sem) => {
@@ -1689,6 +1701,7 @@ function FloatingConversionWidget({ onNavigateToModule }) {
 // ─── MAIN COMPONENT ────────────────────────────────────────────────────────────
 const LeaveAssignment = () => {
   const { hasAccess, loading: accessLoading } = usePageAccess("leave-assignment");
+  const { socket, connected } = useSocket();
 
   const [assignments,       setAssignments]       = useState([]);
   const [leaveTypes,        setLeaveTypes]        = useState([]);
@@ -1746,6 +1759,25 @@ const LeaveAssignment = () => {
     };
     init();
   }, []);
+
+  // ── Realtime refresh (Socket.IO) ─────────────────────────────────────────
+  useEffect(() => {
+    if (!socket || !connected) return;
+    let debounceTimer = null;
+    const handler = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        fetchAssignments();
+      }, 200);
+    };
+    socket.on("leaveAssignmentChanged", handler);
+    socket.on("leaveRequestChanged", handler);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      socket.off("leaveAssignmentChanged", handler);
+      socket.off("leaveRequestChanged", handler);
+    };
+  }, [socket, connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { setRecordsPage(0); }, [searchTerm, deptFilter]);
 
@@ -1826,7 +1858,7 @@ const LeaveAssignment = () => {
       assignments.filter((a) => {
         if (a.employeeNumber?.toString() !== empNum) return false;
         if (a.period_year?.toString() !== periodYear) return false;
-        if (periodMonth) return a.period_month?.toString() === periodMonth || a.period_semester?.toString() === periodMonth;
+        if (periodMonth) return sameMonth(a.period_month, periodMonth) || sameMonth(a.period_semester, periodMonth);
         return true;
       }).map((a) => a.leave_code),
     );
@@ -1881,7 +1913,7 @@ const LeaveAssignment = () => {
       if (a.employeeNumber?.toString() !== empNum.toString()) return false;
       if (a.leave_code !== leaveCode) return false;
       if (a.period_year?.toString() !== py) return false;
-      if (month) return a.period_month?.toString() === month || a.period_semester?.toString() === month;
+      if (month) return sameMonth(a.period_month, month) || sameMonth(a.period_semester, month);
       return true;
     });
   };
@@ -1900,10 +1932,11 @@ const LeaveAssignment = () => {
     for (const lt of toSubmit) {
       const allocHrs = toNum(bulkCredits[lt.leave_code]);
       const carryHrs = toNum(carryOverMap[lt.leave_code]);
+      const periodMonthInt = normalizeMonth(periodMonth);
       try {
         await axios.post(
           `${API_BASE_URL}/leaveRoute/leave_assignment`,
-          { leave_code: lt.leave_code, employeeNumber: empNum, total_hours: allocHrs, carried_forward_hours: carryHrs, allocated_hours: allocHrs, period_year: parseInt(periodYear, 10) || new Date().getFullYear(), period_semester: periodMonth || null, period_month: periodMonth || null },
+          { leave_code: lt.leave_code, employeeNumber: empNum, total_hours: allocHrs, carried_forward_hours: carryHrs, allocated_hours: allocHrs, period_year: parseInt(periodYear, 10) || new Date().getFullYear(), period_semester: periodMonthInt ?? null, period_month: periodMonthInt ?? null },
           { headers: { Authorization: `Bearer ${token}` } },
         );
         created++;
@@ -1926,7 +1959,17 @@ const LeaveAssignment = () => {
     try {
       await axios.put(
         `${API_BASE_URL}/leaveRoute/leave_assignment/${id}`,
-        { leave_code: lc, employeeNumber: empNum, total_hours: editAllocatedHours, remaining_hours: remHrs, carried_forward_hours: editCarriedHours, allocated_hours: editAllocatedHours, period_year: parseInt(editAssignment.period_year, 10) || new Date().getFullYear(), period_semester: null },
+        {
+          leave_code: lc,
+          employeeNumber: empNum,
+          total_hours: editAllocatedHours,
+          remaining_hours: remHrs,
+          carried_forward_hours: editCarriedHours,
+          allocated_hours: editAllocatedHours,
+          period_year: parseInt(editAssignment.period_year, 10) || new Date().getFullYear(),
+          period_semester: normalizeMonth(editAssignment?.period_semester ?? editAssignment?.period_month) ?? null,
+          period_month: normalizeMonth(editAssignment?.period_month ?? editAssignment?.period_semester) ?? null,
+        },
         { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
       );
       setEditAssignment(null); setOriginalAssignment(null); setIsEditing(false); setError("");

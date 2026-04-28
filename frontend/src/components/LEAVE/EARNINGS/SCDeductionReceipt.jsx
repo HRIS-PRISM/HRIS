@@ -69,6 +69,7 @@ import {
   RemoveCircleOutline as DeductIcon,
   Receipt as ReceiptIcon,
 } from "@mui/icons-material";
+import { useOfficialAttendanceMetrics } from "./useOfficialAttendanceMetrics";
 
 const T = {
   accent: "#6d2323",
@@ -396,12 +397,24 @@ const SCDeductionReceipt = ({
     fetchExistingDeductions();
   }, [fetchBalance, fetchExistingDeductions, refreshKey]);
 
-  const tardHrs = attendanceData?.summary
-    ? parseHHMM(attendanceData.summary.overallRenderedOfficialTimeTardiness)
-    : 0;
-  const absentDays = toNum(attendanceData?.stats?.absent_days);
+  const officialStart = attendanceData?.summary?.startDate || attendanceData?.period?.start;
+  const officialEnd = attendanceData?.summary?.endDate || attendanceData?.period?.end;
+  const { absentDays: absentDaysOfficial, lateHrs: lateHrsOfficial } =
+    useOfficialAttendanceMetrics({
+      employeeNumber: employee?.employeeNumber,
+      startDate: officialStart,
+      endDate: officialEnd,
+    });
 
-  // Total to deduct: absences (in days) + tardiness (converted to days)
+  const absentDays = absentDaysOfficial || toNum(attendanceData?.stats?.absent_days);
+
+  // Total to deduct: absences (in days) + late-only deficit (converted to days)
+  const tardHrs = lateHrsOfficial > 0 ? lateHrsOfficial : (() => {
+    const tardHrsRaw = attendanceData?.summary
+      ? parseHHMM(attendanceData.summary.overallRenderedOfficialTimeTardiness)
+      : 0;
+    return Math.max(0, tardHrsRaw - absentDays * 8);
+  })();
   const tardDays = tardHrs / 8;
   const totalDeductDays = Number((absentDays + tardDays).toFixed(3));
 

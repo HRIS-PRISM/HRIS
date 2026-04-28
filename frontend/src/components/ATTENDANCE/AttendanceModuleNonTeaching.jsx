@@ -57,6 +57,8 @@ import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import LoadingOverlay from '../LoadingOverlay';
+import { computeAbsentDays } from './attendanceMetrics';
 
 // ─── Theme tokens (unified with AttendanceModuleFaculty) ──────────────────
 const T = {
@@ -213,12 +215,12 @@ const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
     style={{
       background: 'transparent',
       border: `1px solid ${color}40`,
-      borderRadius: '6px',
-      padding: '4px 10px',
+      borderRadius: '8px',
+      padding: '9px 18px',
       cursor: disabled ? 'default' : 'pointer',
       color,
       display: 'flex', alignItems: 'center', gap: '4px',
-      fontSize: '0.72rem', fontWeight: 700,
+      fontSize: '0.85rem', fontWeight: 700,
       fontFamily: 'inherit',
       transition: 'background-color 0.15s, border-color 0.15s',
       whiteSpace: 'nowrap',
@@ -388,6 +390,7 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
   if (!visible) return null;
 
   const items = [
+    { label: 'Absent Days',   value: totals.absentDays,         group: 'regular' },
     { label: 'AM Rendered',   value: totals.morningRendered,    group: 'regular' },
     { label: 'AM Tardiness',  value: totals.morningTardiness,   group: 'regular' },
     { label: 'PM Rendered',   value: totals.afternoonRendered,  group: 'regular' },
@@ -404,14 +407,18 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
 
   return (
     <Paper elevation={12} sx={{
-      position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-      zIndex: 1300, borderRadius: '12px', overflow: 'hidden',
-      minWidth: 340, maxWidth: 'calc(100vw - 48px)',
+      borderRadius: '12px',
+      overflow: 'hidden',
+      minWidth: 340,
+      width: 'fit-content',
+      mx: 'auto',
       boxShadow: `0 8px 40px ${alpha(T.accent, 0.35)}, 0 2px 10px ${alpha(T.accent, 0.12)}`,
       border: `1.5px solid ${T.accentBorder}`,
       bgcolor: '#fff',
       backdropFilter: 'blur(20px)',
       transition: 'all 0.25s ease',
+      mt: 2,
+      mb: 2,
     }}>
       {/* Bar header */}
       <Box
@@ -651,6 +658,29 @@ const AttendanceModuleNonTeachingStaff = () => {
   const resultsRef   = useRef(null);
   const tableBodyRef = useRef(null);
 
+  // ── Virtualized row rendering (keeps the DOM light for large ranges) ──
+  const ROW_HEIGHT = 44;
+  const OVERSCAN_ROWS = 10;
+  const rafScrollRef = useRef(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(500);
+
+  const onTableScroll = useCallback((e) => {
+    const nextTop = e.currentTarget.scrollTop || 0;
+    if (rafScrollRef.current) cancelAnimationFrame(rafScrollRef.current);
+    rafScrollRef.current = requestAnimationFrame(() => setScrollTop(nextTop));
+  }, []);
+
+  useEffect(() => {
+    const el = tableBodyRef.current;
+    if (!el) return;
+    const update = () => setViewportHeight(el.clientHeight || 500);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tableBodyRef]);
+
   const { hasAccess, loading: accessLoading } = usePageAccess('attendance-module');
 
   const currentYear = new Date().getFullYear();
@@ -841,6 +871,7 @@ const AttendanceModuleNonTeachingStaff = () => {
 
   const totals = React.useMemo(() => {
     if (!attendanceData.length) return {};
+    const absentDays = computeAbsentDays(attendanceData);
     const morningRendered    = sumTime(attendanceData.map(r => getCellValue(r, '_morningRendered',   Boolean(getStatusLabelForDate(r.date)))));
     const morningTardiness   = sumTime(attendanceData.map(r => getCellValue(r, '_morningTardiness',  Boolean(getStatusLabelForDate(r.date)))));
     const afternoonRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_afternoonRendered', Boolean(getStatusLabelForDate(r.date)))));
@@ -853,7 +884,7 @@ const AttendanceModuleNonTeachingStaff = () => {
     const scTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_scTardiness', Boolean(getStatusLabelForDate(r.date)))));
     const otRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_otRendered',  Boolean(getStatusLabelForDate(r.date)))));
     const otTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_otTardiness', Boolean(getStatusLabelForDate(r.date)))));
-    return { morningRendered, morningTardiness, afternoonRendered, afternoonTardiness, overallRendered, overallTardiness, hnRendered, hnTardiness, scRendered, scTardiness, otRendered, otTardiness };
+    return { absentDays, morningRendered, morningTardiness, afternoonRendered, afternoonTardiness, overallRendered, overallTardiness, hnRendered, hnTardiness, scRendered, scTardiness, otRendered, otTardiness };
   }, [attendanceData, sumTime, addTimes, getStatusLabelForDate]);
 
   // ── Save ───────────────────────────────────────────────────────────────
@@ -1056,6 +1087,8 @@ const AttendanceModuleNonTeachingStaff = () => {
           </Alert>
         </Snackbar>
 
+        <LoadingOverlay open={loading} message="Fetching attendance records…" />
+
         {/* ── Page Header ── */}
         <SectionCard sx={{ mb: 2 }}>
           <Box sx={{
@@ -1229,14 +1262,6 @@ const AttendanceModuleNonTeachingStaff = () => {
           </Box>
         </SectionCard>
 
-        {/* ── Loading indicator ── */}
-        {loading && (
-          <Box sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <CircularProgress size={16} sx={{ color: T.accent }} />
-            <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>Fetching attendance records…</Typography>
-          </Box>
-        )}
-
         {/* ── Results Card ── */}
         {attendanceData.length > 0 && (
           <Fade in={!loading} timeout={400}>
@@ -1291,6 +1316,7 @@ const AttendanceModuleNonTeachingStaff = () => {
                 <Box sx={{ position: 'relative', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, overflow: 'hidden' }}>
                   <Box
                     ref={tableBodyRef}
+                    onScroll={onTableScroll}
                     sx={{
                       overflowX: 'auto', overflowY: 'auto', maxHeight: 500,
                       scrollbarWidth: 'thin',
@@ -1302,39 +1328,68 @@ const AttendanceModuleNonTeachingStaff = () => {
                     <Table sx={{ minWidth: columns.reduce((s, c) => s + (c.minWidth || 120), 0), borderCollapse: 'collapse' }}>
                       {buildTwoRowHead(columns)}
                       <TableBody>
-                        {attendanceData.map((row, index) => {
-                          const statusLabel = getStatusLabelForDate(row.date);
-                          const isFurlough  = Boolean(statusLabel);
-                          const isEven      = index % 2 === 0;
+                        {(() => {
+                          const total = attendanceData.length;
+                          const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN_ROWS);
+                          const end = Math.min(
+                            total,
+                            Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN_ROWS,
+                          );
+                          const topH = start * ROW_HEIGHT;
+                          const bottomH = (total - end) * ROW_HEIGHT;
+                          const visible = attendanceData.slice(start, end);
+
                           return (
-                            <TableRow key={index} sx={{ '&:hover td': { bgcolor: `${T.rowHover} !important` } }}>
-                              {columns.map(({ key, group, dividerBefore: db }) => {
-                                if (key === 'date') {
-                                  return (
-                                    <TableCell key={key} sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text, bgcolor: isEven ? '#fff' : T.rowOdd, borderBottom: `1px solid ${T.divider}`, px: 1.75, py: 1, whiteSpace: 'nowrap', textAlign: 'center', transition: 'background-color 0.12s' }}>
-                                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.3 }}>
-                                        <span>{row.date}</span>
-                                        {statusLabel && <Chip size="small" label={statusLabel} sx={{ fontWeight: 700, fontSize: '0.62rem', height: 16, ...getStatusStyle(statusLabel) }} />}
-                                      </Box>
-                                    </TableCell>
-                                  );
-                                }
-                                if (key === 'day') {
-                                  return (
-                                    <TableCell key={key} sx={{ fontSize: '0.8rem', color: T.muted, bgcolor: isEven ? '#fff' : T.rowOdd, borderBottom: `1px solid ${T.divider}`, px: 1.75, py: 1, textAlign: 'center', transition: 'background-color 0.12s' }}>
-                                      {row.day}
-                                    </TableCell>
-                                  );
-                                }
+                            <>
+                              {topH > 0 && (
+                                <TableRow>
+                                  <TableCell colSpan={columns.length} sx={{ p: 0, borderBottom: 'none', height: topH }} />
+                                </TableRow>
+                              )}
+
+                              {visible.map((row, vi) => {
+                                const index = start + vi;
+                                const statusLabel = getStatusLabelForDate(row.date);
+                                const isFurlough  = Boolean(statusLabel);
+                                const isEven      = index % 2 === 0;
                                 return (
-                                  <React.Fragment key={key}>
-                                    {buildCell(getCellValue(row, key, isFurlough), group, isEven, db)}
-                                  </React.Fragment>
+                                  <TableRow key={row.date || index} sx={{ '&:hover td': { bgcolor: `${T.rowHover} !important` } }}>
+                                    {columns.map(({ key, group, dividerBefore: db }) => {
+                                      if (key === 'date') {
+                                        return (
+                                          <TableCell key={key} sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text, bgcolor: isEven ? '#fff' : T.rowOdd, borderBottom: `1px solid ${T.divider}`, px: 1.75, py: 1, whiteSpace: 'nowrap', textAlign: 'center', transition: 'background-color 0.12s' }}>
+                                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.3 }}>
+                                              <span>{row.date}</span>
+                                              {statusLabel && <Chip size="small" label={statusLabel} sx={{ fontWeight: 700, fontSize: '0.62rem', height: 16, ...getStatusStyle(statusLabel) }} />}
+                                            </Box>
+                                          </TableCell>
+                                        );
+                                      }
+                                      if (key === 'day') {
+                                        return (
+                                          <TableCell key={key} sx={{ fontSize: '0.8rem', color: T.muted, bgcolor: isEven ? '#fff' : T.rowOdd, borderBottom: `1px solid ${T.divider}`, px: 1.75, py: 1, textAlign: 'center', transition: 'background-color 0.12s' }}>
+                                            {row.day}
+                                          </TableCell>
+                                        );
+                                      }
+                                      return (
+                                        <React.Fragment key={key}>
+                                          {buildCell(getCellValue(row, key, isFurlough), group, isEven, db)}
+                                        </React.Fragment>
+                                      );
+                                    })}
+                                  </TableRow>
                                 );
                               })}
-                            </TableRow>
+
+                              {bottomH > 0 && (
+                                <TableRow>
+                                  <TableCell colSpan={columns.length} sx={{ p: 0, borderBottom: 'none', height: bottomH }} />
+                                </TableRow>
+                              )}
+                            </>
                           );
-                        })}
+                        })()}
 
                         {/* Regular tab: AM totals, PM totals, Overall row */}
                         {activeTab === 'regular' && <>

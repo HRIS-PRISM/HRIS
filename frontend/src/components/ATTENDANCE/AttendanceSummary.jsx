@@ -493,6 +493,102 @@ const OverallAttendance = () => {
     return { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } };
   };
 
+  const parseTimeToSeconds = (timeStr) => {
+    if (!timeStr) return null;
+    const trimmed = String(timeStr).trim();
+    if (!trimmed) return null;
+    const m = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?$/i);
+    if (!m) return null;
+    let hh = Number(m[1]);
+    const mm = Number(m[2]);
+    const ss = Number(m[3] ?? 0);
+    const mer = (m[4] || '').toUpperCase();
+    if ([hh, mm, ss].some(Number.isNaN)) return null;
+    if (mer) {
+      if (hh === 12) hh = 0;
+      if (mer === 'PM') hh += 12;
+    }
+    return hh * 3600 + mm * 60 + ss;
+  };
+
+  const formatSeconds = (secs) => {
+    const safe = Math.max(0, Number(secs) || 0);
+    const h = Math.floor(safe / 3600);
+    const m = Math.floor((safe % 3600) / 60);
+    const s = safe % 60;
+    return [h, m, s].map((x) => String(x).padStart(2, '0')).join(':');
+  };
+
+  const computeOfficialAwareAbsenceAndLate = (rows) => {
+    const empty = (v) => !v || String(v).trim() === '';
+    const isScheduled = (row) => {
+      const offIn = row?.officialTimeIN;
+      const offOut = row?.officialTimeOUT;
+      return (
+        !empty(offIn) &&
+        !empty(offOut) &&
+        String(offIn).trim() !== '00:00:00 AM' &&
+        String(offOut).trim() !== '00:00:00 PM'
+      );
+    };
+    const hasNoPunches = (row) => {
+      const ti = row?.timeIN;
+      const bi = row?.breaktimeIN;
+      const bo = row?.breaktimeOUT;
+      const to = row?.timeOUT;
+      return empty(ti) && empty(bi) && empty(bo) && empty(to);
+    };
+
+    let absentDays = 0;
+    let lateDeficitSecTotal = 0;
+
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      if (!isScheduled(row)) return;
+      if (hasNoPunches(row)) {
+        absentDays += 1;
+        return;
+      }
+
+      // Late/Tardiness (late-only) as schedule deficit for days with punches
+      const offInSec = parseTimeToSeconds(row?.officialTimeIN);
+      const offOutSec = parseTimeToSeconds(row?.officialTimeOUT);
+      if (offInSec == null || offOutSec == null) return;
+      const schedTotal = Math.max(0, offOutSec - offInSec);
+
+      const offBreakInSec = parseTimeToSeconds(row?.officialBreaktimeIN);
+      const offBreakOutSec = parseTimeToSeconds(row?.officialBreaktimeOUT);
+      const breakSec =
+        offBreakInSec != null && offBreakOutSec != null
+          ? Math.max(0, offBreakOutSec - offBreakInSec)
+          : 0;
+      const schedWorkSec = Math.max(0, schedTotal - breakSec);
+
+      const inSec = parseTimeToSeconds(row?.timeIN);
+      const outSec = parseTimeToSeconds(row?.timeOUT);
+      const breakInSec = parseTimeToSeconds(row?.breaktimeIN);
+      const breakOutSec = parseTimeToSeconds(row?.breaktimeOUT);
+
+      let renderedSec = 0;
+      if (inSec != null && outSec != null) {
+        if (breakInSec != null && breakOutSec != null && breakOutSec >= breakInSec) {
+          renderedSec = Math.max(0, breakInSec - inSec) + Math.max(0, outSec - breakOutSec);
+        } else {
+          renderedSec = Math.max(0, outSec - inSec);
+        }
+      } else {
+        // partial punches -> treat as 0 rendered (still scheduled, but not absent)
+        renderedSec = 0;
+      }
+
+      lateDeficitSecTotal += Math.max(0, schedWorkSec - renderedSec);
+    });
+
+    return {
+      absentDays,
+      lateDeficit: formatSeconds(lateDeficitSecTotal),
+    };
+  };
+
   // Restore persisted inputs
   useEffect(() => {
     const en = localStorage.getItem('employeeNumber');
@@ -522,7 +618,32 @@ const OverallAttendance = () => {
         { params: { personID: employeeNumber, startDate, endDate }, ...getAuthHeaders() },
       );
       if (response.status === 200) {
-        setAttendanceData(response.data.data);
+        const overallRows = response.data.data;
+
+        // Derive absent + late (official-time-aware) from daily rows
+        let absent = null;
+        let lateDeficit = null;
+        try {
+          const d = await axios.get(`${API_BASE_URL}/attendance/api/attendance`, {
+            params: { personId: employeeNumber, startDate, endDate },
+            ...getAuthHeaders(),
+          });
+          const dailyRows = Array.isArray(d.data) ? d.data : (d.data?.data || []);
+          const computed = computeOfficialAwareAbsenceAndLate(dailyRows);
+          absent = computed.absentDays;
+          lateDeficit = computed.lateDeficit;
+        } catch {
+          absent = null;
+          lateDeficit = null;
+        }
+
+        setAttendanceData(
+          (Array.isArray(overallRows) ? overallRows : []).map((r) => ({
+            ...r,
+            _absentTotalDays: absent,
+            _lateTotal: lateDeficit,
+          })),
+        );
         setTimeout(() => {
           resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 150);
@@ -891,11 +1012,14 @@ const OverallAttendance = () => {
     { label: 'OT Tardiness',         key: 'totalRenderedOvertimeTardiness',      group: 'tardiness' },
     { label: 'Overall Rendered',     key: 'overallRenderedOfficialTime',         group: 'overall' },
     { label: 'Overall Tardiness',    key: 'overallRenderedOfficialTimeTardiness',group: 'overallTard' },
+    { label: 'Late Total',          key: '_lateTotal',                           group: 'tardiness' },
+    { label: 'Absent Total',         key: '_absentTotalDays',                    group: 'absent' },
   ];
 
   const getCellColor = (group) => {
     if (group === 'rendered')     return '#166534';
     if (group === 'tardiness')    return '#991b1b';
+    if (group === 'absent')       return '#6a1b9a';
     if (group === 'overall')      return '#166534';
     if (group === 'overallTard')  return '#991b1b';
     return T.text;
@@ -904,6 +1028,7 @@ const OverallAttendance = () => {
   const getCellBg = (group, isEven) => {
     if (group === 'rendered')    return isEven ? 'rgba(21,128,61,0.05)' : 'rgba(21,128,61,0.09)';
     if (group === 'tardiness')   return isEven ? 'rgba(153,27,27,0.04)' : 'rgba(153,27,27,0.08)';
+    if (group === 'absent')      return isEven ? 'rgba(106,27,154,0.05)' : 'rgba(106,27,154,0.09)';
     if (group === 'overall')     return isEven ? 'rgba(21,128,61,0.09)' : 'rgba(21,128,61,0.14)';
     if (group === 'overallTard') return isEven ? 'rgba(153,27,27,0.09)' : 'rgba(153,27,27,0.14)';
     return isEven ? '#fff' : T.rowOdd;
@@ -912,6 +1037,7 @@ const OverallAttendance = () => {
   const getHeaderBg = (group) => {
     if (group === 'rendered')    return '#166534';
     if (group === 'tardiness')   return '#991b1b';
+    if (group === 'absent')      return '#6a1b9a';
     if (group === 'overall')     return '#0f4a26';
     if (group === 'overallTard') return '#6b0f0f';
     return T.accentDark;
@@ -1150,12 +1276,13 @@ const OverallAttendance = () => {
                           ))}
                           <TableCell sx={{
                             minWidth: 160, textAlign: 'center',
-                            position: 'sticky', top: 0, zIndex: 2,
+                            position: 'sticky', top: 0, right: 0, zIndex: 4,
                             fontSize: '0.65rem', fontWeight: 700,
                             py: 0.9, px: 1.75, whiteSpace: 'nowrap',
                             letterSpacing: '0.06em', textTransform: 'uppercase',
                             borderBottom: `2px solid ${alpha(T.accent, 0.25)}`,
                             color: '#fff', background: T.accentDark,
+                            boxShadow: `-10px 0 12px -12px ${alpha('#000', 0.5)}`,
                           }}>Actions</TableCell>
                         </TableRow>
                       </TableHead>
@@ -1164,7 +1291,12 @@ const OverallAttendance = () => {
                         {attendanceData.map((record, index) => {
                           const isEven = index % 2 === 0;
                           return (
-                            <TableRow key={index} sx={{ '&:hover td': { bgcolor: `${T.rowHover} !important` } }}>
+                            <TableRow
+                              key={index}
+                              sx={{
+                                '&:hover td:not(.actions-col)': { bgcolor: `${T.rowHover} !important` },
+                              }}
+                            >
                               {TABLE_COLUMNS.map(({ key, group }) => (
                                 <TableCell key={key} sx={{
                                   fontSize: '0.8rem', fontFamily: group ? 'monospace' : 'inherit',
@@ -1175,7 +1307,7 @@ const OverallAttendance = () => {
                                   bgcolor: getCellBg(group, isEven),
                                   transition: 'background-color 0.12s',
                                 }}>
-                                  {editRecord && editRecord.id === record.id && key !== 'code' ? (
+                                  {editRecord && editRecord.id === record.id && key !== 'code' && !String(key).startsWith('_') ? (
                                     <input
                                       value={editRecord[key] ?? ''}
                                       onChange={e => setEditRecord({ ...editRecord, [key]: e.target.value })}
@@ -1195,7 +1327,21 @@ const OverallAttendance = () => {
                               ))}
 
                               {/* Actions cell */}
-                              <TableCell sx={{ borderBottom: `1px solid ${T.divider}`, px: 1.5, py: 0.75, bgcolor: isEven ? '#fff' : T.rowOdd, transition: 'background-color 0.12s' }}>
+                              <TableCell
+                                className="actions-col"
+                                sx={{
+                                  position: 'sticky',
+                                  right: 0,
+                                  zIndex: 3,
+                                  borderBottom: `1px solid ${T.divider}`,
+                                  px: 1.5,
+                                  py: 0.75,
+                                  // Opaque background prevents underlying columns bleeding through (sticky column overlay).
+                                  bgcolor: '#fff !important',
+                                  transition: 'background-color 0.12s',
+                                  boxShadow: `-10px 0 12px -12px ${alpha('#000', 0.35)}`,
+                                }}
+                              >
                                 {editRecord && editRecord.id === record.id ? (
                                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'center' }}>
                                     <RowBtn
@@ -1245,6 +1391,7 @@ const OverallAttendance = () => {
                   {[
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(21,128,61,0.1)', border: '1px solid rgba(21,128,61,0.3)' }} />, label: 'Rendered time' },
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(153,27,27,0.08)', border: '1px solid rgba(153,27,27,0.3)' }} />, label: 'Tardiness' },
+                    { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(106,27,154,0.10)', border: '1px solid rgba(106,27,154,0.30)' }} />, label: 'Absences' },
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(21,128,61,0.14)', border: '1px solid rgba(21,128,61,0.4)' }} />, label: 'Overall rendered' },
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(153,27,27,0.14)', border: '1px solid rgba(153,27,27,0.4)' }} />, label: 'Overall tardiness' },
                   ].map((item, i) => (

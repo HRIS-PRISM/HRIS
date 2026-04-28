@@ -553,11 +553,16 @@ router.post("/leave_assignment", (req, res) => {
         total_hours !== "";
 
       if (customHoursProvided) {
-        const customHours = Number(total_hours);
-        const carriedForward = Number(carried_forward_hours) || 0;
-        const allocated = Number(allocated_hours) || customHours;
+        // If UI sends total_hours, treat it as the intended ALLOCATED amount for the period
+        // (carry-forward is stored separately and must be included in total/remaining).
+        const customHours = parseDbHours(total_hours);
+        const carriedForward = parseDbHours(carried_forward_hours) || 0;
+        const allocated = allocated_hours !== undefined && allocated_hours !== null && allocated_hours !== ''
+          ? parseDbHours(allocated_hours)
+          : customHours;
         const currentYear = period_year || new Date().getFullYear();
         const semester = period_semester || null;
+        const computedTotal = Math.max(0, carriedForward + allocated);
 
         const insertQuery = `INSERT INTO leave_assignment (leave_code, employeeNumber, total_hours, remaining_hours, used_hours, approve_date, carried_forward_hours, allocated_hours, period_year, period_semester) VALUES (?, ?, ?, ?, 0, NULL, ?, ?, ?, ?)`;
         db.query(
@@ -565,8 +570,8 @@ router.post("/leave_assignment", (req, res) => {
           [
             leave_code,
             employeeNumber,
-            customHours,
-            customHours,
+            computedTotal,
+            computedTotal,
             carriedForward,
             allocated,
             currentYear,
@@ -606,8 +611,8 @@ router.post("/leave_assignment", (req, res) => {
               id: result.insertId,
               leave_code,
               employeeNumber,
-              total_hours: customHours,
-              remaining_hours: customHours,
+              total_hours: computedTotal,
+              remaining_hours: computedTotal,
               used_hours: 0,
               approved_date: null,
               carried_forward_hours: carriedForward,
@@ -627,10 +632,14 @@ router.post("/leave_assignment", (req, res) => {
                 .status(500)
                 .json({ error: "Failed to fetch leave type" });
             const defaultHours = leaveType[0]?.leave_hours || 0;
-            const carriedForward = Number(carried_forward_hours) || 0;
-            const allocated = Number(allocated_hours) || defaultHours;
+            const carriedForward = parseDbHours(carried_forward_hours) || 0;
+            const allocated =
+              allocated_hours !== undefined && allocated_hours !== null && allocated_hours !== ''
+                ? parseDbHours(allocated_hours)
+                : (parseDbHours(defaultHours) || 0);
             const currentYear = period_year || new Date().getFullYear();
             const semester = period_semester || null;
+            const computedTotal = Math.max(0, carriedForward + allocated);
 
             const insertQuery = `INSERT INTO leave_assignment (leave_code, employeeNumber, total_hours, remaining_hours, used_hours, approve_date, carried_forward_hours, allocated_hours, period_year, period_semester) VALUES (?, ?, ?, ?, 0, NULL, ?, ?, ?, ?)`;
             db.query(
@@ -638,8 +647,8 @@ router.post("/leave_assignment", (req, res) => {
               [
                 leave_code,
                 employeeNumber,
-                defaultHours,
-                defaultHours,
+                computedTotal,
+                computedTotal,
                 carriedForward,
                 allocated,
                 currentYear,
@@ -676,8 +685,8 @@ router.post("/leave_assignment", (req, res) => {
                   id: result.insertId,
                   leave_code,
                   employeeNumber,
-                  total_hours: defaultHours,
-                  remaining_hours: defaultHours,
+                  total_hours: computedTotal,
+                  remaining_hours: computedTotal,
                   used_hours: 0,
                   approved_date: null,
                   carried_forward_hours: carriedForward,
@@ -720,18 +729,7 @@ router.put("/leave_assignment/:id", (req, res) => {
       const currentTotal = parseDbHours(current[0].total_hours) || 0;
       const currentCarried = parseDbHours(current[0].carried_forward_hours) || 0;
       const currentAllocated = parseDbHours(current[0].allocated_hours) || currentTotal;
-
-      const newTotal =
-        total_hours !== undefined && total_hours !== ''
-          ? parseDbHours(total_hours)
-          : currentTotal;
-
-      const newRemaining =
-        remaining_hours !== undefined && remaining_hours !== ''
-          ? parseDbHours(remaining_hours)
-          : (parseDbHours(current[0].remaining_hours) || 0);
-
-      const newUsed = Math.max(0, newTotal - newRemaining);
+      const currentUsed = parseDbHours(current[0].used_hours) || 0;
 
       const newCarriedForward =
         carried_forward_hours !== undefined && carried_forward_hours !== ''
@@ -742,6 +740,23 @@ router.put("/leave_assignment/:id", (req, res) => {
         allocated_hours !== undefined && allocated_hours !== ''
           ? parseDbHours(allocated_hours)
           : currentAllocated;
+
+      // Enforce table invariant:
+      // total_hours = carried_forward_hours + allocated_hours
+      const computedTotal = Math.max(0, newCarriedForward + newAllocated);
+
+      // If remaining_hours is provided, treat it as the desired balance and derive used.
+      // Otherwise keep existing used_hours and recompute remaining from computed total.
+      const newRemaining =
+        remaining_hours !== undefined && remaining_hours !== ''
+          ? Math.min(computedTotal, Math.max(0, parseDbHours(remaining_hours)))
+          : Math.max(0, computedTotal - currentUsed);
+
+      const newUsed = Math.max(0, computedTotal - newRemaining);
+
+      // If caller provided total_hours, ignore it (it must be derived from carried+allocated).
+      // This prevents "total resets to 8" when carry-forward exists.
+      const newTotal = computedTotal;
       const newYear =
         period_year !== undefined ? period_year : current[0].period_year;
       const newSemester =

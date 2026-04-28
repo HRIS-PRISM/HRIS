@@ -1,6 +1,8 @@
 import API_BASE_URL from '../../apiConfig';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import axios from 'axios';
+import { useSocket } from '../../contexts/SocketContext';
+import LoadingOverlay from '../LoadingOverlay';
 import { jwtDecode } from 'jwt-decode';
 import { AccessTime, CalendarToday } from '@mui/icons-material';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
@@ -11,7 +13,6 @@ import {
   Card,
   Fade,
   IconButton,
-  LinearProgress,
   Paper,
   styled,
   Tooltip,
@@ -156,61 +157,10 @@ const DTRWireframe = () => (
   </>
 );
 
-const DTRLoadingOverlay = ({ title, message }) => (
-  <Box
-    sx={{
-      position: 'absolute',
-      inset: 0,
-      zIndex: 5,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      px: 2,
-      width: '100%',
-      pointerEvents: 'none',
-      bgcolor: 'rgba(255,255,255,0.78)',
-      backdropFilter: 'blur(4px)',
-    }}
-  >
-    <Paper
-      elevation={0}
-      sx={{
-        width: '100%',
-        maxWidth: 360,
-        mt: -2,
-        borderRadius: 4,
-        bgcolor: '#fff',
-        boxShadow: '0 12px 40px rgba(0,0,0,0.12)',
-        p: 3,
-        pointerEvents: 'auto',
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-        <MCircularProgress size={22} sx={{ color: T.accent }} />
-        <Box>
-          <Typography sx={{ fontSize: '0.92rem', fontWeight: 800, color: T.text, lineHeight: 1.2 }}>
-            {title}
-          </Typography>
-          <Typography sx={{ fontSize: '0.76rem', color: T.muted, mt: 0.2 }}>
-            {message}
-          </Typography>
-        </Box>
-      </Box>
-      <LinearProgress
-        sx={{
-          height: 5,
-          borderRadius: 3,
-          backgroundColor: alpha(T.accent, 0.1),
-          '& .MuiLinearProgress-bar': { borderRadius: 3, backgroundColor: T.accent },
-        }}
-      />
-    </Paper>
-  </Box>
-);
-
 // ─── COMPONENT ────────────────────────────────────────────────────────────────
 
 const DailyTimeRecordHonorarium = () => {
+  const { socket, connected } = useSocket();
   const { settings } = useSystemSettings();
 
   // ── Core state ─────────────────────────────────────────────────────────────
@@ -374,6 +324,35 @@ const DailyTimeRecordHonorarium = () => {
     if (personID && startDate && endDate) fetchRecords();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personID, startDate, endDate]);
+
+  const fetchRecordsRef = useRef(fetchRecords);
+  fetchRecordsRef.current = fetchRecords;
+
+  useEffect(() => {
+    if (!socket || !connected) return;
+    let debounceTimer = null;
+    const handleAttendanceChanged = (payload) => {
+      if (payload?.action === 'dtr-printed') return;
+      const scope = payload?.scope;
+      if (scope === 'suspensions' || scope === 'leaves' || scope === 'holiday') return;
+      const changedIDs = Array.isArray(payload?.personIDs)
+        ? payload.personIDs
+        : payload?.personID != null
+          ? [payload.personID]
+          : [];
+      const isBulk = payload?.action === 'bulk-auto-sync';
+      if (changedIDs.length === 0 && !isBulk) return;
+      if (personID && changedIDs.length > 0 && !changedIDs.some((id) => String(id) === String(personID))) return;
+      if (!personID || !startDate || !endDate) return;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => fetchRecordsRef.current?.(), 120);
+    };
+    socket.on('attendanceChanged', handleAttendanceChanged);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      socket.off('attendanceChanged', handleAttendanceChanged);
+    };
+  }, [socket, connected, personID, startDate, endDate]);
 
   // ── Capture helpers ────────────────────────────────────────────────────────
   const ensureCaptureStyles = (el) => {
@@ -662,6 +641,15 @@ const DailyTimeRecordHonorarium = () => {
           <Alert onClose={() => setSnackbar((s) => ({ ...s, open: false }))} severity={snackbar.severity} variant="filled" sx={{ width: '100%', fontWeight: 600 }}>{snackbar.message}</Alert>
         </Snackbar>
 
+        <LoadingOverlay
+          open={monthLoading}
+          message={selectedMonth !== null ? `Honorarium DTR — ${monthsShort[selectedMonth]}…` : 'Honorarium DTR — Fetching records…'}
+        />
+        <LoadingOverlay
+          open={singlePrintLoading}
+          message={singlePrintStatus ? `DTR — ${singlePrintStatus}` : 'DTR — Capturing preview…'}
+        />
+
         <Box sx={{ py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 }, width: '100vw', maxWidth: '100%', position: 'relative', left: '63%', transform: 'translateX(-61%)', px: { xs: 2, sm: 3, md: 6 } }}>
 
           {/* ── Page Header ── */}
@@ -804,18 +792,6 @@ const DailyTimeRecordHonorarium = () => {
             {/* RIGHT: DTR preview panel */}
             <Grid item xs={12} lg={9}>
               <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-                {monthLoading && (
-                  <DTRLoadingOverlay
-                    title="Loading DTR records"
-                    message={selectedMonth !== null ? `Fetching ${monthsShort[selectedMonth]} honorarium data...` : 'Fetching records...'}
-                  />
-                )}
-                {singlePrintLoading && (
-                  <DTRLoadingOverlay
-                    title={singlePrintStatus || 'Preparing DTR...'}
-                    message="Your DTR is being captured and compiled. Please wait."
-                  />
-                )}
 
                 {/* Toolbar */}
                 <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }} className="no-print">

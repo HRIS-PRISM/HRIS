@@ -73,6 +73,7 @@ import {
    KeyboardArrowDown as ArrowDownIcon, 
    Policy as PolicyIcon
 } from "@mui/icons-material";
+import { useOfficialAttendanceMetrics } from "./useOfficialAttendanceMetrics";
 
 const T = {
   accent: "#6d2323",
@@ -434,11 +435,24 @@ const CTODeductionReceipt = ({
   }, [fetchBalances, fetchExistingDeductions, refreshKey]);
  
   // ── Derived numbers ─────────────────────────────────────────────────────────
-  const tardHrs = attendanceData?.summary
-    ? parseHHMM(attendanceData.summary.overallRenderedOfficialTimeTardiness)
-    : 0;
+  const officialStart = attendanceData?.summary?.startDate || attendanceData?.period?.start;
+  const officialEnd = attendanceData?.summary?.endDate || attendanceData?.period?.end;
+  const { absentDays: absentDaysOfficial, lateHrs: lateHrsOfficial } =
+    useOfficialAttendanceMetrics({
+      employeeNumber: employee?.employeeNumber,
+      startDate: officialStart,
+      endDate: officialEnd,
+    });
+
+  // Fallbacks if daily rows are unavailable
+  const absentDays = absentDaysOfficial || toNum(attendanceData?.stats?.absent_days);
+  const tardHrs = lateHrsOfficial > 0 ? lateHrsOfficial : (() => {
+    const tardHrsRaw = attendanceData?.summary
+      ? parseHHMM(attendanceData.summary.overallRenderedOfficialTimeTardiness)
+      : 0;
+    return Math.max(0, tardHrsRaw - absentDays * 8);
+  })();
   const tardDays = tardHrs / 8;
-  const absentDays = toNum(attendanceData?.stats?.absent_days);
  
   // Use ACTUAL posted deductions, NOT the available balance, for coverage logic
   const alreadyScDeducted = existingScDeductions.reduce((s, e) => s + Math.abs(toNum(e.earned_hours)) / 8, 0);
