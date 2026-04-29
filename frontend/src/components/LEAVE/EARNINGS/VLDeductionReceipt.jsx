@@ -918,22 +918,6 @@ const VLDeductionReceipt = ({
                   tardiness from VL balance
                 </Typography>
               </Box>
-              {deductError && (
-                <Alert
-                  severity="error"
-                  sx={{ mb: 0.5, py: 0, fontSize: "0.65rem", borderRadius: 1 }}
-                >
-                  {deductError}
-                </Alert>
-              )}
-              {deductSuccess && (
-                <Alert
-                  severity="success"
-                  sx={{ mb: 0.5, py: 0, fontSize: "0.65rem", borderRadius: 1 }}
-                >
-                  {deductSuccess}
-                </Alert>
-              )}
               <Button
                 fullWidth
                 variant="contained"
@@ -965,6 +949,35 @@ const VLDeductionReceipt = ({
               >
                 Deduct to VL
               </Button>
+
+              {deductError && (
+                <Alert
+                  severity="error"
+                  sx={{
+                    mt: 0.5,
+                    mb: 0.5,
+                    py: 0,
+                    fontSize: "0.65rem",
+                    borderRadius: 1,
+                  }}
+                >
+                  {deductError}
+                </Alert>
+              )}
+              {deductSuccess && (
+                <Alert
+                  severity="success"
+                  sx={{
+                    mt: 0.5,
+                    mb: 0.5,
+                    py: 0,
+                    fontSize: "0.65rem",
+                    borderRadius: 1,
+                  }}
+                >
+                  {deductSuccess}
+                </Alert>
+              )}
             </Box>
           )}
           {deductSuccess && hasFullyDeducted && (
@@ -995,7 +1008,7 @@ const VLDeductionReceipt = ({
             pb: 0.5,
           }}
         >
-          Confirm VL Deduction
+          Confirm deduct {remainingToDeductDec.toFixed(3)}d tardiness from VL
         </DialogTitle>
         <DialogContent>
           <Box sx={{ py: 0.5 }}>
@@ -1007,7 +1020,9 @@ const VLDeductionReceipt = ({
                 mb: 1,
               }}
             >
-              Deduct tardiness from VL for{" "}
+              You are about to deduct{" "}
+              <strong>{remainingToDeductDec.toFixed(3)}d</strong> tardiness
+              from the employee&apos;s <strong>VL</strong> balance for{" "}
               <strong>
                 {monthName(month)} {year}
               </strong>
@@ -1210,6 +1225,37 @@ const VLDeductionReceipt = ({
               This deduction is <strong>auto-approved</strong> — the balance
               will update immediately.
             </Typography>
+
+            {/* Certify checkbox + confirm action (same UX as "Deduct to VL") */}
+            <Box sx={{ mt: 1, display: "flex", flexDirection: "column", gap: 1 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Checkbox checked={checked} disabled size="small" />
+                <Typography sx={{ fontSize: "0.78rem", color: T.muted }}>
+                  I certify this is correct
+                </Typography>
+              </Box>
+              <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+                <AccentButton
+                  variant="contained"
+                  onClick={handleDeduct}
+                  disabled={deducting}
+                  sx={{
+                    bgcolor: T.accent,
+                    "&:hover": { bgcolor: T.accentDark },
+                  }}
+                >
+                  {deducting ? (
+                    <CircularProgress
+                      size={14}
+                      sx={{ color: "#fff" }}
+                    />
+                  ) : (
+                    "Confirm Deduction"
+                  )}
+                </AccentButton>
+              </Box>
+            </Box>
+
             {deductError && (
               <Alert
                 severity="error"
@@ -1232,18 +1278,6 @@ const VLDeductionReceipt = ({
           >
             Cancel
           </Button>
-          <AccentButton
-            variant="contained"
-            onClick={handleDeduct}
-            disabled={deducting}
-            sx={{ bgcolor: T.accent, "&:hover": { bgcolor: T.accentDark } }}
-          >
-            {deducting ? (
-              <CircularProgress size={14} sx={{ color: "#fff" }} />
-            ) : (
-              "Confirm Deduction"
-            )}
-          </AccentButton>
         </DialogActions>
       </Dialog>
     </>

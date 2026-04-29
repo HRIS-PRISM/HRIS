@@ -1650,6 +1650,615 @@ const TABS = [
   },
 ];
 
+/**
+ * DeductHalfDayVLModal
+ *
+ * Props:
+ *   open      {boolean}  – controls dialog visibility
+ *   onClose   {function}  – called when user cancels / closes
+ *   onConfirm {function}  – async ({ remark: string, rateDecimal: number }) => void
+ *   employee  {object}    – { employeeNumber, fullName, category/empCat }
+ *   date      {string}    – ISO date string "YYYY-MM-DD"
+ *   vlBalance {number}    – current VL balance in 8-hr-equivalent DAYS (before deduction)
+ *   suggestedRateDecimal {string|number} – suggested half-day rate decimal (relative to `hoursPerDay`)
+ *   hoursPerDay {number}               – normalized clock-hours per day for this VL policy
+ */
+const DeductHalfDayVLModal = ({
+  open,
+  onClose,
+  onConfirm,
+  employee,
+  date,
+  vlBalance,
+  suggestedRateDecimal,
+  hoursPerDay = 8,
+}) => {
+  const [remark, setRemark] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const BASE_HOURS_PER_DAY = 8;
+  const effectiveHoursPerDay =
+    Number.isFinite(hoursPerDay) && hoursPerDay > 0 ? hoursPerDay : BASE_HOURS_PER_DAY;
+  const initPolicyRate = toNum(suggestedRateDecimal) > 0 ? toNum(suggestedRateDecimal) : 0.5;
+  const initDisplayDays = (initPolicyRate * effectiveHoursPerDay) / BASE_HOURS_PER_DAY;
+
+  // Display + editing are always in "8-hr-equivalent days" to match the VL balance elsewhere in UI.
+  const [deductDaysRaw, setDeductDaysRaw] = useState(String(initDisplayDays));
+
+  const MODAL_T = {
+    accent: "#6d2323",
+    accentDark: "#5a1d1d",
+    accentFaint: "rgba(109,35,35,0.05)",
+    accentBorder: "rgba(109,35,35,0.12)",
+    divider: "rgba(0,0,0,0.08)",
+    surface: "#ffffff",
+    text: "#1a1a1a",
+    muted: "#555555",
+    faint: "#888888",
+    poppins: "'Poppins', sans-serif",
+  };
+
+  const fmtDate = (dateStr) => {
+    if (!dateStr) return "—";
+    try {
+      return new Date(dateStr + "T00:00:00").toLocaleDateString("en-PH", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const getInitials = (name = "") =>
+    name
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((n) => n[0].toUpperCase())
+      .join("");
+
+  const balanceBefore = Number(vlBalance) || 0;
+  const deductDaysNum = toNum(deductDaysRaw); // display days (8-hr-equivalent)
+  const deductionHours = deductDaysNum * BASE_HOURS_PER_DAY;
+  const balanceAfter = balanceBefore - deductDaysNum;
+
+  useEffect(() => {
+    if (!open) return;
+    const initPolicyRate = toNum(suggestedRateDecimal) > 0 ? toNum(suggestedRateDecimal) : 0.5;
+    const initDisplayDays = (initPolicyRate * effectiveHoursPerDay) / BASE_HOURS_PER_DAY;
+    setDeductDaysRaw(String(initDisplayDays));
+    setRemark("");
+    setError("");
+  }, [open, suggestedRateDecimal, effectiveHoursPerDay]);
+
+  const handleConfirm = async () => {
+    try {
+      const displayDaysNum = toNum(deductDaysRaw);
+      if (!(displayDaysNum > 0)) {
+        setError("Enter a valid deduction amount (days).");
+        return;
+      }
+      // Backend half-day policy expects rate_decimal relative to `hours_per_day`.
+      // We convert the user's "8-hr-equivalent days" back into that rate.
+      const deductionHours = displayDaysNum * BASE_HOURS_PER_DAY;
+      const rateDecimalNum =
+        effectiveHoursPerDay > 0 ? deductionHours / effectiveHoursPerDay : 0;
+      if (!(rateDecimalNum > 0)) {
+        setError("Deduction amount could not be converted for policy apply.");
+        return;
+      }
+      setSaving(true);
+      setError("");
+
+      await onConfirm({ remark: remark.trim(), rateDecimal: rateDecimalNum });
+      setRemark("");
+      onClose();
+    } catch (err) {
+      setError(
+        "Deduction failed: " +
+          (err?.response?.data?.message ||
+            err?.message ||
+            "Unknown error"),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClose = () => {
+    if (saving) return;
+    setRemark("");
+    setError("");
+    onClose();
+  };
+
+  const empName = employee?.fullName || employee?.full_name || "—";
+  const empNum = employee?.employeeNumber || employee?.employee_number || "—";
+  const empCat = employee?.category || employee?.empCat || "";
+
+  return (
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="xs"
+      fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: 2.5,
+          overflow: "hidden",
+          fontFamily: MODAL_T.poppins,
+          boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+        },
+      }}
+    >
+      {/* ── Header ── */}
+      <Box
+        sx={{
+          background: MODAL_T.accent,
+          px: 2,
+          py: 1.5,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+          <Box
+            sx={{
+              width: 30,
+              height: 30,
+              borderRadius: "50%",
+              bgcolor: "rgba(255,255,255,0.15)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <DeductIcon sx={{ fontSize: 15, color: "#fff" }} />
+          </Box>
+          <Box>
+            <Typography
+              sx={{
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                color: "#fff",
+                fontFamily: MODAL_T.poppins,
+                lineHeight: 1.2,
+              }}
+            >
+              Deduct Half Day to VL
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: "0.62rem",
+                color: "rgba(255,255,255,0.65)",
+                fontFamily: MODAL_T.poppins,
+              }}
+            >
+              Vacation Leave deduction
+            </Typography>
+          </Box>
+        </Box>
+        <IconButton
+          size="small"
+          onClick={handleClose}
+          disabled={saving}
+          sx={{
+            color: "#fff",
+            bgcolor: "rgba(255,255,255,0.12)",
+            borderRadius: 1,
+            p: 0.5,
+            "&:hover": { bgcolor: "rgba(255,255,255,0.22)" },
+          }}
+        >
+          <Close sx={{ fontSize: 14 }} />
+        </IconButton>
+      </Box>
+
+      <DialogContent sx={{ p: 0 }}>
+        <Box sx={{ px: 2, py: 1.75, display: "flex", flexDirection: "column", gap: 1.25 }}>
+          {/* ── Employee strip ── */}
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1.25,
+              bgcolor: "rgba(0,0,0,0.03)",
+              borderRadius: 1.75,
+              border: "0.5px solid rgba(0,0,0,0.09)",
+              px: 1.5,
+              py: 1,
+            }}
+          >
+            <Avatar
+              sx={{
+                width: 36,
+                height: 36,
+                bgcolor: MODAL_T.accent,
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                fontFamily: MODAL_T.poppins,
+                flexShrink: 0,
+              }}
+            >
+              {getInitials(empName)}
+            </Avatar>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography
+                sx={{
+                  fontSize: "0.8rem",
+                  fontWeight: 700,
+                  color: MODAL_T.text,
+                  fontFamily: MODAL_T.poppins,
+                  lineHeight: 1.2,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {empName}
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: "0.62rem",
+                  color: MODAL_T.faint,
+                  fontFamily: MODAL_T.poppins,
+                }}
+              >
+                {empNum}
+                {empCat ? ` · ${empCat}` : ""}
+              </Typography>
+            </Box>
+            <Box sx={{ textAlign: "right", flexShrink: 0 }}>
+              <Typography
+                sx={{
+                  fontSize: "0.58rem",
+                  color: MODAL_T.faint,
+                  fontFamily: MODAL_T.poppins,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                }}
+              >
+                VL Balance
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: "0.95rem",
+                  fontWeight: 800,
+                  color: MODAL_T.accent,
+                  fontFamily: MODAL_T.poppins,
+                  lineHeight: 1.1,
+                }}
+              >
+                {balanceBefore.toFixed(3)} d
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* ── Date being deducted ── */}
+          <Box>
+            <Typography
+              sx={{
+                fontSize: "0.58rem",
+                fontWeight: 700,
+                color: MODAL_T.muted,
+                fontFamily: MODAL_T.poppins,
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                mb: 0.5,
+              }}
+            >
+              Half day date to deduct
+            </Typography>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                bgcolor: "rgba(0,0,0,0.03)",
+                borderRadius: 1.5,
+                border: "0.5px solid rgba(0,0,0,0.12)",
+                px: 1.25,
+                py: 0.85,
+              }}
+            >
+              <CalIcon sx={{ fontSize: 14, color: MODAL_T.accent, flexShrink: 0 }} />
+              <Typography
+                sx={{
+                  fontSize: "0.8rem",
+                  fontWeight: 700,
+                  color: MODAL_T.text,
+                  fontFamily: MODAL_T.poppins,
+                  flex: 1,
+                }}
+              >
+                {fmtDate(date)}
+              </Typography>
+              <Box
+                sx={{
+                  bgcolor: "rgba(139,94,0,0.1)",
+                  color: "#8B5E00",
+                  border: "0.5px solid rgba(139,94,0,0.25)",
+                  borderRadius: 1,
+                  px: 0.75,
+                  py: 0.2,
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: "0.58rem",
+                    fontWeight: 700,
+                    fontFamily: MODAL_T.poppins,
+                  }}
+                >
+                  Half day detected
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+
+          {/* ── Deduction breakdown ── */}
+          <Box
+            sx={{
+              borderRadius: 1.5,
+              border: "0.5px solid rgba(0,0,0,0.09)",
+              overflow: "hidden",
+            }}
+          >
+            <Box
+              sx={{
+                px: 1.25,
+                py: 0.6,
+                bgcolor: "rgba(0,0,0,0.03)",
+                borderBottom: "0.5px solid rgba(0,0,0,0.08)",
+                display: "flex",
+                alignItems: "center",
+                gap: 0.5,
+              }}
+            >
+              <LeaveIcon sx={{ fontSize: 10, color: MODAL_T.muted }} />
+              <Typography
+                sx={{
+                  fontSize: "0.58rem",
+                  fontWeight: 800,
+                  color: MODAL_T.muted,
+                  fontFamily: MODAL_T.poppins,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.07em",
+                }}
+              >
+                Deduction breakdown
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                px: 1.25,
+                py: 0.85,
+                display: "flex",
+                flexDirection: "column",
+                gap: 0.6,
+              }}
+            >
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1 }}>
+                <Typography
+                  sx={{
+                    fontSize: "0.7rem",
+                    color: MODAL_T.muted,
+                    fontFamily: MODAL_T.poppins,
+                    pr: 1,
+                  }}
+                >
+                  Deduction amount
+                </Typography>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <TextField
+                    size="small"
+                    type="number"
+                    inputProps={{ min: 0.001, step: 0.001 }}
+                    value={deductDaysRaw}
+                    onChange={(e) => setDeductDaysRaw(e.target.value)}
+                    disabled={saving}
+                    sx={{
+                      width: 110,
+                      "& .MuiOutlinedInput-root": {
+                        borderRadius: 1.25,
+                        bgcolor: "#fff",
+                        "& fieldset": { borderColor: "rgba(0,0,0,0.12)" },
+                        "&:hover fieldset": { borderColor: MODAL_T.accent },
+                        "&.Mui-focused fieldset": { borderColor: MODAL_T.accent, borderWidth: 1.5 },
+                      },
+                      "& input": {
+                        textAlign: "right",
+                        fontFamily: MODAL_T.poppins,
+                        fontSize: "0.78rem",
+                        fontWeight: 700,
+                        pr: 0.5,
+                      },
+                    }}
+                  />
+                  <Typography
+                    sx={{
+                      fontSize: "0.72rem",
+                      color: MODAL_T.text,
+                      fontFamily: MODAL_T.poppins,
+                      fontWeight: 800,
+                    }}
+                  >
+                    d
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography sx={{ fontSize: "0.7rem", color: MODAL_T.muted, fontFamily: MODAL_T.poppins }}>
+                  Equivalent hours
+                </Typography>
+                <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: MODAL_T.text, fontFamily: MODAL_T.poppins }}>
+                  {deductionHours.toFixed(3)} hrs
+                </Typography>
+              </Box>
+
+              <Box sx={{ height: "0.5px", bgcolor: "rgba(0,0,0,0.07)", my: 0.25 }} />
+
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography sx={{ fontSize: "0.7rem", color: MODAL_T.muted, fontFamily: MODAL_T.poppins }}>
+                  VL balance before
+                </Typography>
+                <Typography sx={{ fontSize: "0.72rem", color: MODAL_T.muted, fontFamily: MODAL_T.poppins }}>
+                  {balanceBefore.toFixed(3)} d
+                </Typography>
+              </Box>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography sx={{ fontSize: "0.7rem", color: MODAL_T.muted, fontFamily: MODAL_T.poppins }}>
+                  VL balance after
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.82rem",
+                    fontWeight: 800,
+                    color: balanceAfter < 0 ? "#c62828" : MODAL_T.accent,
+                    fontFamily: MODAL_T.poppins,
+                  }}
+                >
+                  {balanceAfter.toFixed(3)} d
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+
+          {/* ── Remark ── */}
+          <Box>
+            <Typography
+              sx={{
+                fontSize: "0.58rem",
+                fontWeight: 700,
+                color: MODAL_T.muted,
+                fontFamily: MODAL_T.poppins,
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                mb: 0.5,
+              }}
+            >
+              Remark{" "}
+              <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span>
+            </Typography>
+            <TextField
+              multiline
+              rows={2}
+              fullWidth
+              placeholder="Add a note for this deduction…"
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+              disabled={saving}
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: 1.5,
+                  fontSize: "0.78rem",
+                  fontFamily: MODAL_T.poppins,
+                  bgcolor: "#fff",
+                  "& fieldset": { borderColor: "rgba(0,0,0,0.12)" },
+                  "&:hover fieldset": { borderColor: MODAL_T.accent },
+                  "&.Mui-focused fieldset": { borderColor: MODAL_T.accent, borderWidth: 1.5 },
+                },
+              }}
+            />
+          </Box>
+
+          {/* ── Warning ── */}
+          <Box
+            sx={{
+              bgcolor: "rgba(198,40,40,0.05)",
+              border: "0.5px solid rgba(198,40,40,0.2)",
+              borderRadius: 1.5,
+              px: 1.25,
+              py: 0.85,
+              display: "flex",
+              gap: 0.75,
+              alignItems: "flex-start",
+            }}
+          >
+            <WarnIcon sx={{ fontSize: 13, color: "#c62828", flexShrink: 0, mt: 0.15 }} />
+            <Typography sx={{ fontSize: "0.65rem", color: "#7b1a1a", fontFamily: MODAL_T.poppins, lineHeight: 1.55 }}>
+              This will permanently deduct{" "}
+              <strong>{(deductDaysNum > 0 ? deductDaysNum : 0).toFixed(3)} days</strong>{" "}
+              from the employee's VL balance.
+              This action cannot be undone without manual adjustment.
+            </Typography>
+          </Box>
+
+          {/* ── Error ── */}
+          {error && (
+            <Alert severity="error" sx={{ py: 0.25, px: 1, fontSize: "0.65rem", borderRadius: 1.25 }}>
+              {error}
+            </Alert>
+          )}
+        </Box>
+
+        {/* ── Footer ── */}
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 1,
+            px: 2,
+            py: 1.25,
+            borderTop: `1px solid ${MODAL_T.divider}`,
+            bgcolor: "rgba(0,0,0,0.02)",
+          }}
+        >
+          <Button
+            size="small"
+            onClick={handleClose}
+            disabled={saving}
+            sx={{
+              fontSize: "0.72rem",
+              fontWeight: 600,
+              textTransform: "none",
+              fontFamily: MODAL_T.poppins,
+              color: MODAL_T.muted,
+              borderRadius: 1.25,
+              px: 1.5,
+              border: "0.5px solid rgba(0,0,0,0.15)",
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="small"
+            variant="contained"
+            onClick={handleConfirm}
+            disabled={saving}
+            startIcon={
+              saving ? (
+                <CircularProgress size={11} sx={{ color: "#fff" }} />
+              ) : (
+                <SaveIcon sx={{ fontSize: "13px !important" }} />
+              )
+            }
+            sx={{
+              fontSize: "0.72rem",
+              fontWeight: 700,
+              textTransform: "none",
+              fontFamily: MODAL_T.poppins,
+              bgcolor: MODAL_T.accent,
+              borderRadius: 1.25,
+              px: 1.75,
+              boxShadow: "none",
+              "&:hover": { bgcolor: MODAL_T.accentDark, boxShadow: "none" },
+              "&.Mui-disabled": { bgcolor: "rgba(109,35,35,0.4)", color: "#fff" },
+            }}
+          >
+            {saving ? "Saving…" : "Confirm deduction"}
+          </Button>
+        </Box>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // ─── Main Component ────────────────────────────────────────────────────────────
 const EarningsManagement = () => {
   const { socket, connected } = useSocket();
@@ -1673,6 +2282,16 @@ const EarningsManagement = () => {
   const [attendanceData, setAttendanceData] = useState(null);
   const [attendanceLoading, setAttLoading] = useState(false);
   const [vlReceiptRefreshKey, setVlReceiptRefreshKey] = useState(0);
+
+  // ── VL Half-Day Deduction (parent-owned to control placement) ─────────────────
+  const [deductedVlHalfDates, setDeductedVlHalfDates] = useState([]);
+  const [vlHalfModalOpen, setVlHalfModalOpen] = useState(false);
+  const [vlHalfModalLoading, setVlHalfModalLoading] = useState(false);
+  const [vlHalfCertify, setVlHalfCertify] = useState(false);
+  const [vlHalfRateDecimal, setVlHalfRateDecimal] = useState("0.5");
+  const [vlHalfSuggestion, setVlHalfSuggestion] = useState(null);
+  const [vlHalfSelectedDate, setVlHalfSelectedDate] = useState("");
+  const [vlHalfError, setVlHalfError] = useState("");
 
   const handleMonthChange = useCallback((y, m) => {
     setPeriodYear(y);
@@ -1705,9 +2324,184 @@ const EarningsManagement = () => {
     setAttLoading(false);
   }, [selectedEmployee, periodYear, periodMonth]);
 
+  const fetchDeductedVlHalfDates = useCallback(async () => {
+    if (!selectedEmployee?.employeeNumber) {
+      setDeductedVlHalfDates([]);
+      return;
+    }
+
+    const y = parseInt(periodYear, 10);
+    const m = parseInt(periodMonth, 10);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+      setDeductedVlHalfDates([]);
+      return;
+    }
+
+    const startDate = `${y}-${String(m).padStart(2, "0")}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const endDate = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+
+    setDeductedVlHalfDates([]);
+    const token = localStorage.getItem("token");
+
+    try {
+      const r = await axios.post(
+        `${API_BASE_URL}/leaveRoute/leave_request/halfday-deduction-applied-dates`,
+        {
+          employeeNumber: selectedEmployee.employeeNumber,
+          leave_code: "VL",
+          startDate,
+          endDate,
+        },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const dates = Array.isArray(r.data?.dates) ? r.data.dates : [];
+      setDeductedVlHalfDates(dates);
+    } catch (e) {
+      setDeductedVlHalfDates([]);
+    }
+  }, [selectedEmployee, periodYear, periodMonth]);
+
+  const openVlHalfModalForDate = useCallback(
+    async (dateVal) => {
+      const targetDate = String(dateVal || "");
+      if (!selectedEmployee?.employeeNumber || !targetDate) return;
+
+      setVlHalfSelectedDate(targetDate);
+      setVlHalfCertify(false);
+      setVlHalfRateDecimal("0.5");
+      setVlHalfSuggestion(null);
+      setVlHalfError("");
+      setVlHalfModalOpen(true);
+      setVlHalfModalLoading(true);
+
+      try {
+        const token = localStorage.getItem("token");
+        const r = await axios.post(
+          `${API_BASE_URL}/leaveRoute/leave_request/halfday-deduction-suggestion`,
+          {
+            employeeNumber: selectedEmployee.employeeNumber,
+            leave_date: targetDate,
+            preferred_charge_to: "VL",
+          },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        const suggestion = r.data || null;
+        setVlHalfSuggestion(suggestion);
+
+        const recRate = parseFloat(suggestion?.recommended_rate_decimal);
+        setVlHalfRateDecimal(
+          Number.isFinite(recRate) && recRate > 0 ? String(recRate) : "0.5",
+        );
+      } catch (e) {
+        setVlHalfError(
+          e.response?.data?.error ||
+            e.message ||
+            "Failed to load VL deduction suggestion.",
+        );
+      } finally {
+        setVlHalfModalLoading(false);
+      }
+    },
+    [selectedEmployee],
+  );
+
+  const applyVlHalfDeduction = useCallback(
+    async ({ remark = "", rateDecimal } = {}) => {
+      if (!selectedEmployee?.employeeNumber || !vlHalfSelectedDate) return;
+
+      const rateDecimalNum = toNum(rateDecimal);
+      if (!(rateDecimalNum > 0)) {
+        const msg = "Enter a valid deduction amount (days).";
+        setVlHalfError(msg);
+        throw new Error(msg);
+      }
+
+      const rawHoursPerDayForPolicy =
+        toNum(vlHalfSuggestion?.hours_per_day) || 8;
+      // Some leave_table.leave_hours values come back as "policy hours" (e.g. weekly totals).
+      // Normalize into clock-hours-per-day so deduction_hours matches how VL balances are stored (hours).
+      const clockHoursPerDay =
+        rawHoursPerDayForPolicy > 12 ? rawHoursPerDayForPolicy / 4 : rawHoursPerDayForPolicy;
+      const deductHours = rateDecimalNum * clockHoursPerDay;
+
+      if (deductedVlHalfDates.includes(vlHalfSelectedDate)) {
+        throw new Error("This half-day is already deducted.");
+      }
+
+      setVlHalfModalLoading(true);
+      setVlHalfError("");
+
+      try {
+        const token = localStorage.getItem("token");
+        await axios.post(
+          `${API_BASE_URL}/leaveRoute/leave_request/halfday-deduction-apply`,
+          {
+            employeeNumber: selectedEmployee.employeeNumber,
+            leave_date: vlHalfSelectedDate,
+            chosen_charge_to: "VL",
+            rate_decimal: rateDecimalNum,
+            deduction_hours: deductHours,
+            decision_context: {
+              override_reason: String(remark || "").trim() || null,
+              system_recommendation: vlHalfSuggestion,
+            },
+          },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+
+        // Prevent duplicates in the UI.
+        setDeductedVlHalfDates((prev) =>
+          Array.from(new Set([...prev, vlHalfSelectedDate])),
+        );
+
+        setVlHalfModalOpen(false);
+        setVlHalfCertify(false);
+        setVlHalfSuggestion(null);
+        setVlHalfError("");
+
+        // Keep AttendanceSummary in sync with updated official metrics/balances.
+        await fetchAttendance();
+        handleBalanceChanged();
+        handleRecordsRefresh();
+        await fetchDeductedVlHalfDates();
+      } catch (e) {
+        const msg =
+          e.response?.data?.error ||
+          e.response?.data?.message ||
+          e.message ||
+          "Failed to deduct half-day to VL.";
+        setVlHalfError(msg);
+        throw new Error(msg);
+      } finally {
+        setVlHalfModalLoading(false);
+      }
+    },
+    [
+      selectedEmployee,
+      vlHalfSelectedDate,
+      vlHalfSuggestion,
+      deductedVlHalfDates,
+      fetchAttendance,
+      handleBalanceChanged,
+      handleRecordsRefresh,
+      fetchDeductedVlHalfDates,
+    ],
+  );
+
   useEffect(() => {
     fetchAttendance();
   }, [fetchAttendance]);
+
+  // Clear local "already deducted" tracking when switching employee/period.
+  useEffect(() => {
+    setDeductedVlHalfDates([]);
+    setVlHalfModalOpen(false);
+    setVlHalfSuggestion(null);
+    setVlHalfError("");
+    setVlHalfCertify(false);
+    fetchDeductedVlHalfDates();
+  }, [selectedEmployee?.employeeNumber, periodYear, periodMonth, fetchDeductedVlHalfDates]);
 
   // Realtime refresh for leave changes affecting balances/earnings
   useEffect(() => {
@@ -1892,6 +2686,11 @@ const EarningsManagement = () => {
   }, [employees, empCatMap, catFilter]);
 
 if (pageLoading) return <EarningsWireframe />;
+
+  const rawHoursPerDay = toNum(vlHalfSuggestion?.hours_per_day) || 8;
+  const hoursPerDay = rawHoursPerDay > 12 ? rawHoursPerDay / 4 : rawHoursPerDay;
+  // VL balance display uses 8-hr-equivalent days (same conversion as VLDeductionReceipt).
+  const availableVlDays = toNum(vlHalfSuggestion?.available_hours) / 8;
 
   const deptCode = selectedEmployee
     ? deptMap[String(selectedEmployee.employeeNumber)]
@@ -2551,6 +3350,8 @@ if (pageLoading) return <EarningsWireframe />;
   empCat={empCat}
   vlReceiptRefreshKey={vlReceiptRefreshKey}
   balanceRefreshKey={balanceKey}   // ← add this
+                deductedVlHalfDates={deductedVlHalfDates}
+                onDeductHalfDayVLRequested={openVlHalfModalForDate}
 />
               </Box>
               {/* Column 2: Input Earnings */}
@@ -2609,6 +3410,29 @@ if (pageLoading) return <EarningsWireframe />;
           </Fade>
         </SectionCard>
       </Box>
+
+      <DeductHalfDayVLModal
+        open={vlHalfModalOpen}
+        onClose={() => setVlHalfModalOpen(false)}
+        onConfirm={applyVlHalfDeduction}
+        employee={
+          selectedEmployee
+            ? {
+                ...selectedEmployee,
+                fullName: buildDisplayName(selectedEmployee),
+                category:
+                  empCat?.typeName ||
+                  empCat?.category ||
+                  empCat?.empCat ||
+                  "",
+              }
+            : null
+        }
+        date={vlHalfSelectedDate}
+        vlBalance={availableVlDays}
+        suggestedRateDecimal={vlHalfRateDecimal}
+        hoursPerDay={hoursPerDay}
+      />
 
       <FloatingConversionWidget />
     </Box>

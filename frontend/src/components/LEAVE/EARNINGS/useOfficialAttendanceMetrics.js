@@ -45,9 +45,19 @@ function hasNoPunches(row) {
   return empty(ti) && empty(bi) && empty(bo) && empty(to);
 }
 
+function hasMorningPunch(row) {
+  return !empty(row?.timeIN) || !empty(row?.breaktimeIN);
+}
+
+function hasAfternoonPunch(row) {
+  return !empty(row?.breaktimeOUT) || !empty(row?.timeOUT);
+}
+
 function computeMetricsFromDailyRows(rows) {
   let absentDays = 0;
+  let halfDays = 0;
   let lateDeficitSecTotal = 0;
+  let renderedSecTotal = 0;
 
   (Array.isArray(rows) ? rows : []).forEach((row) => {
     if (!isScheduledByOfficialTime(row)) return;
@@ -55,6 +65,15 @@ function computeMetricsFromDailyRows(rows) {
     if (hasNoPunches(row)) {
       absentDays += 1;
       return;
+    }
+
+    // Semi-absence handling:
+    // when only one session has punches, treat as half-day absence.
+    const hasMorning = hasMorningPunch(row);
+    const hasAfternoon = hasAfternoonPunch(row);
+    if (hasMorning !== hasAfternoon) {
+      absentDays += 0.5;
+      halfDays += 1;
     }
 
     const offInSec = parseTimeToSeconds(row?.officialTimeIN);
@@ -88,10 +107,12 @@ function computeMetricsFromDailyRows(rows) {
     }
 
     lateDeficitSecTotal += Math.max(0, schedWorkSec - renderedSec);
+    renderedSecTotal += renderedSec;
   });
 
   const lateHrs = lateDeficitSecTotal / 3600;
-  return { absentDays, lateHrs };
+  const renderedHrs = renderedSecTotal / 3600;
+  return { absentDays, halfDays, lateHrs, renderedHrs };
 }
 
 export function useOfficialAttendanceMetrics({
@@ -145,7 +166,9 @@ export function useOfficialAttendanceMetrics({
     error,
     rows,
     absentDays: metrics.absentDays,
+    halfDays: metrics.halfDays,
     lateHrs: metrics.lateHrs,
+    renderedHrs: metrics.renderedHrs,
   };
 }
 

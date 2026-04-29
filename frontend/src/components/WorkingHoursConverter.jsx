@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
 import API_BASE_URL from "../apiConfig";
 import {
+  sanitizeDecimal,
+  reverseConvert,
+} from "../utils/workingHoursConvert";
+import {
   Box,
   Typography,
   Card,
@@ -160,12 +164,6 @@ function ensureHourRows(rows, dayType, maxHours, fallbackRate) {
   });
 }
 
-function sanitizeDecimal(v) {
-  const n = Number(v);
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return Number(n.toFixed(3));
-}
-
 function sanitizeInt(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 0;
@@ -189,42 +187,6 @@ function getUserRole() {
   } catch {
     return null;
   }
-}
-
-// ─── Reverse conversion helper ────────────────────────────────────────────────
-function reverseConvert(totalDecimal, hoursTable, minutesTable, dayType) {
-  const defaultRate = dayType === "6hr" ? 0.167 : 0.125;
-  let bestH = 0, bestM = 0, bestDiff = Infinity;
-
-  for (let h = 0; h <= 8; h++) {
-    const hEntry = h === 0 ? null : hoursTable.find((r) => r.rate_value === h);
-    const hDec =
-      h === 0
-        ? 0
-        : Number((hEntry?.decimal_equivalent ?? h * defaultRate).toFixed(3));
-    const remainder = Number((totalDecimal - hDec).toFixed(4));
-
-    if (remainder < -0.0015) continue;
-
-    if (remainder <= 0.0015) {
-      const diff = Math.abs(remainder);
-      if (diff < bestDiff) { bestH = h; bestM = 0; bestDiff = diff; }
-    } else {
-      const mEntry = minutesTable.reduce(
-        (best, r) => {
-          const d = Math.abs(r.decimal_equivalent - remainder);
-          const bd = best ? Math.abs(best.decimal_equivalent - remainder) : Infinity;
-          return d < bd ? r : best;
-        },
-        null,
-      );
-      if (mEntry) {
-        const diff = Math.abs(mEntry.decimal_equivalent - remainder);
-        if (diff < bestDiff) { bestH = h; bestM = mEntry.rate_value; bestDiff = diff; }
-      }
-    }
-  }
-  return { hours: bestH, minutes: bestM };
 }
 
 // ─── Section bar ──────────────────────────────────────────────────────────────

@@ -18,7 +18,6 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Card,
-  Backdrop,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -396,18 +395,7 @@ const DepartmentTable = () => {
           px: { xs: 2, sm: 3, md: 6 },
         }}
       >
-        {/* Loading Backdrop */}
-        <Backdrop
-          sx={{ color: "#fff", zIndex: (theme) => theme.zIndex.drawer + 1 }}
-          open={loading}
-        >
-          <Box sx={{ textAlign: "center" }}>
-            <CircularProgress color="inherit" size={48} thickness={4} />
-            <Typography variant="body1" sx={{ mt: 2, color: "#fff" }}>
-              Processing department record…
-            </Typography>
-          </Box>
-        </Backdrop>
+        <LoadingOverlay open={loading} message="Processing department record…" />
 
         {/* ── Page Header ── */}
         <SectionCard sx={{ mb: 2, overflow: "hidden" }}>

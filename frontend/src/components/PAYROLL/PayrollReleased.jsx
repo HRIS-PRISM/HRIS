@@ -1,5 +1,5 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import {
   Backdrop,
@@ -50,142 +50,128 @@ import {
   People as PeopleIcon,
   FilterList,
   Refresh,
-  Publish as PublishIcon,
   BusinessCenter,
   Info,
+  CalendarToday,
+  Close,
 } from '@mui/icons-material';
 import SearchIcon from '@mui/icons-material/Search';
-import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import TextField from '@mui/material/TextField';
 import * as XLSX from 'xlsx';
 
-// Helper function to convert hex to rgb
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(
-        result[3],
-        16
-      )}`
-    : '109, 35, 35';
+// ─── Unified Design Tokens (mirrored from PayrollProcessing) ─────────────────
+const T = {
+  accent: '#6d2323',
+  accentDark: '#5a1d1d',
+  accentMid: '#8B4545',
+  accentFaint: 'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  accentHover: 'rgba(109,35,35,0.10)',
+  headerGrad: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
+  rowEven: '#ffffff',
+  rowOdd: 'rgba(109,35,35,0.025)',
+  rowHover: 'rgba(109,35,35,0.055)',
+  text: '#1a1a1a',
+  muted: '#6b6b6b',
+  faint: '#a0a0a0',
+  surface: '#ffffff',
+  divider: 'rgba(0,0,0,0.08)',
+  font: "'Poppins', sans-serif",
 };
 
-// Professional styled components - colors will be applied via sx prop
-const GlassCard = styled(Card)(({ theme }) => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'boxShadow 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  position: 'relative',
-}));
+// ─── Shimmer keyframes ────────────────────────────────────────────────────────
+const payrollShimmerKeyframes = `
+@keyframes payrollShimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
+}
+@keyframes payrollPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.62; }
+}
+`;
 
-const PremiumTableContainer = styled(TableContainer)(({ theme }) => ({
-  borderRadius: 16,
-  overflow: 'hidden',
-  boxShadow: '0 4px 24px rgba(109, 35, 35, 0.06)',
-  border: '1px solid rgba(109, 35, 35, 0.08)',
-}));
-
-const PremiumTableCell = styled(TableCell)(({ theme, isHeader = false }) => ({
-  fontWeight: isHeader ? 600 : 500,
-  padding: '18px 20px',
-  borderBottom: isHeader
-    ? '2px solid rgba(254, 249, 225, 0.5)'
-    : '1px solid rgba(109, 35, 35, 0.06)',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-}));
-
-const ModernTextField = styled(TextField)(({ theme }) => ({
-  '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    '&:hover': {
-      transform: 'translateY(-1px)',
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    },
-    '&.Mui-focused': {
-      transform: 'translateY(-1px)',
-      boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
-      backgroundColor: 'rgba(255, 255, 255, 1)',
-    },
-  },
-  '& .MuiInputLabel-root': {
-    fontWeight: 500,
-  },
-}));
-
-// Professional styled components
-const ProfessionalButton = styled(Button)(
-  ({ theme, variant, color = 'primary' }) => ({
-    borderRadius: 12,
-    fontWeight: 600,
-    padding: '12px 24px',
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    textTransform: 'none',
-    fontSize: '0.95rem',
-    letterSpacing: '0.025em',
-    boxShadow:
-      variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
-    '&:hover': {
-      transform: 'translateY(-2px)',
-      boxShadow:
-        variant === 'contained'
-          ? '0 6px 20px rgba(254, 249, 225, 0.35)'
-          : 'none',
-    },
-    '&:active': {
-      transform: 'translateY(0)',
-    },
-  })
-);
-
-// Custom styled TableCell for Excel-like appearance
-const ExcelTableCell = ({ children, header, ...props }) => (
-  <TableCell
-    {...props}
+const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
+  <Box
     sx={{
-      border: '1px solid #E0E0E0',
-      padding: '8px',
-      backgroundColor: header ? '#F5F5F5' : 'inherit',
-      fontWeight: header ? 'bold' : 'normal',
-      whiteSpace: 'nowrap',
-      '&:hover': {
-        backgroundColor: header ? '#F5F5F5' : '#F8F8F8',
-      },
-      ...props.sx,
+      width: w,
+      height: h,
+      borderRadius: r,
+      background:
+        'linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)',
+      backgroundSize: '800px 100%',
+      animation: 'payrollShimmer 1.6s infinite linear',
+      flexShrink: 0,
+      ...sx,
     }}
-  >
-    {children}
-  </TableCell>
+  />
 );
 
+// ─── Styled Primitives ────────────────────────────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  overflow: 'hidden',
+  background: T.surface,
+  fontFamily: T.font,
+});
+
+const FieldInput = styled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    fontFamily: T.font,
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+  },
+  '& .MuiInputLabel-root': { fontFamily: T.font },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.875rem',
+  letterSpacing: '0.01em',
+  fontFamily: T.font,
+  transition: 'all 0.18s ease',
+  '&:hover': { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
+
+const filterSelectSx = {
+  borderRadius: 2,
+  bgcolor: '#fafafa',
+  fontSize: '0.875rem',
+  fontFamily: T.font,
+  '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e5e7eb' },
+  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    borderColor: T.accent,
+    borderWidth: '1.5px',
+  },
+};
+
+const globalFontSx = {
+  '& *': { fontFamily: `${T.font} !important` },
+};
+
+const STICKY_STATUS_WIDTH = 120;
+const STICKY_ACTIONS_WIDTH = 60;
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 const PayrollReleased = () => {
-  // System Settings Hook
   const { settings } = useSystemSettings();
 
-  // Get colors from system settings - aligned with PayrollProcessing.jsx
-  const primaryColor = settings.accentColor || '#FEF9E1'; // Cards color
-  const secondaryColor = settings.backgroundColor || '#FFF8E7'; // Background
-  const accentColor = settings.primaryColor || '#6d2323'; // Primary accent
-  const accentDark = settings.secondaryColor || '#8B3333'; // Darker accent
-  const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
-  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
-  const hoverColor = settings.hoverColor || '#6D2323';
-  const blackColor = '#1a1a1a';
-  const whiteColor = '#FFFFFF';
-  const grayColor = '#6c757d';
-
-  //ACCESSING
-  // Dynamic page access control using component identifier
-  // The identifier 'payroll-released' should match the component_identifier in the pages table
   const {
     hasAccess,
     loading: accessLoading,
     error: accessError,
   } = usePageAccess('payroll-released');
-  // ACCESSING END
 
   const [releasedData, setReleasedData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -201,8 +187,6 @@ const PayrollReleased = () => {
   const [overlayLoading, setOverlayLoading] = useState(false);
   const [successOpen, setSuccessOpen] = useState(false);
   const [successAction, setSuccessAction] = useState('');
-  const [releasedIdSet, setReleasedIdSet] = useState(new Set());
-  const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
   const [summaryData, setSummaryData] = useState({
     totalReleased: 0,
@@ -210,32 +194,53 @@ const PayrollReleased = () => {
     totalGrossSalary: 0,
     totalNetSalary: 0,
   });
+  const [empCatMap, setEmpCatMap] = useState({});
+  const [selectedEmpCat, setSelectedEmpCat] = useState('');
 
-  // Month options for filtering
-  const monthOptions = [
-    { value: '', label: 'All Months' },
-    { value: '01', label: 'January' },
-    { value: '02', label: 'February' },
-    { value: '03', label: 'March' },
-    { value: '04', label: 'April' },
-    { value: '05', label: 'May' },
-    { value: '06', label: 'June' },
-    { value: '07', label: 'July' },
-    { value: '08', label: 'August' },
-    { value: '09', label: 'September' },
-    { value: '10', label: 'October' },
-    { value: '11', label: 'November' },
-    { value: '12', label: 'December' },
-  ];
+  const employmentCategoryOptions = useMemo(() => {
+    const unique = new Map();
+    Object.values(empCatMap).forEach((cat) => {
+      if (!cat?.label) return;
+      if (!unique.has(cat.label)) {
+        unique.set(cat.label, {
+          label: cat.label,
+          colorHex: cat.colorHex || '#757575',
+        });
+      }
+    });
+    return Array.from(unique.values()).sort((a, b) =>
+      a.label.localeCompare(b.label),
+    );
+  }, [empCatMap]);
 
-  // Year options for filtering
+  // ── Payroll Month Quick-Filter state ──────────────────────────────────────
+  const currentYear = new Date().getFullYear();
+  const payrollYearOptions = Array.from({ length: 7 }, (_, i) => currentYear - 3 + i);
+  const payrollMonths = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const [selectedPayrollYear, setSelectedPayrollYear] = useState(currentYear);
+  const [selectedPayrollMonth, setSelectedPayrollMonth] = useState(null);
+  const [selectedMonthDays, setSelectedMonthDays] = useState(null);
+
   const yearOptions = [
     { value: '', label: 'All Years' },
     { value: '2024', label: '2024' },
     { value: '2025', label: '2025' },
     { value: '2026', label: '2026' },
   ];
-  // Normalize date string to YYYY-MM-DD
+
+  const getCalendarDays = (year, month1based) =>
+    new Date(year, month1based, 0).getDate();
+
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token');
+    return {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    };
+  };
+
   const normalizeDateString = (dateInput) => {
     try {
       if (!dateInput) return '';
@@ -250,69 +255,167 @@ const PayrollReleased = () => {
     }
   };
 
-  const getRecordKey = (record) => {
-    const emp = record?.employeeNumber ?? '';
-    const start = normalizeDateString(record?.startDate);
-    const end = normalizeDateString(record?.endDate);
-    return `${emp}-${start}-${end}`;
-  };
-
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
-    console.log(
-      'Token from localStorage:',
-      token ? 'Token exists' : 'No token found'
+  const computeSummary = (rows) => {
+    const totalGross = rows.reduce(
+      (sum, item) => sum + parseFloat(item.grossSalary || 0),
+      0,
     );
-    if (token) {
-      console.log('Token length:', token.length);
-      console.log('Token starts with:', token.substring(0, 20) + '...');
-    }
+    const totalNet = rows.reduce(
+      (sum, item) => sum + parseFloat(item.netSalary || 0),
+      0,
+    );
     return {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+      totalReleased: rows.length,
+      totalEmployees: rows.length,
+      totalGrossSalary: totalGross,
+      totalNetSalary: totalNet,
     };
   };
 
-  const handleDateChange = (event) => {
-    const newDate = event.target.value;
-    setSelectedDate(newDate);
-    applyFilters(selectedDepartment, searchTerm, newDate, selectedMonth, selectedYear);
-  };
+  const applyFilters = (
+    department,
+    search,
+    filterDate,
+    year,
+    base = releasedData,
+    empCat = selectedEmpCat,
+  ) => {
+    let filtered = [...base];
 
-  const handleChangePage = (event, newPage) => {
-    setPage(newPage);
-  };
+    if (department) {
+      filtered = filtered.filter((r) => r.department === department);
+    }
 
-  const handleChangeRowsPerPage = (event) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
+    if (search) {
+      const lowerSearch = search.toLowerCase();
+      filtered = filtered.filter(
+        (r) =>
+          (r.name || '').toLowerCase().includes(lowerSearch) ||
+          (r.employeeNumber || '').toString().toLowerCase().includes(lowerSearch),
+      );
+    }
+
+    if (filterDate) {
+      filtered = filtered.filter((r) => {
+        const startDate = new Date(r.startDate);
+        const endDate = new Date(r.endDate);
+        const sel = new Date(filterDate);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+        sel.setHours(12, 0, 0, 0);
+        return sel >= startDate && sel <= endDate;
+      });
+    }
+
+    if (year && year !== '') {
+      filtered = filtered.filter((r) => {
+        if (!r.startDate) return false;
+        return new Date(r.startDate).getFullYear().toString() === year;
+      });
+    }
+
+    if (empCat) {
+      filtered = filtered.filter((r) => {
+        const cat = empCatMap[r.employeeNumber?.toString()];
+        return cat?.label === empCat;
+      });
+    }
+
+    setFilteredReleasedData(filtered);
+    setSummaryData(computeSummary(filtered));
     setPage(0);
   };
 
-  const getTableHeight = () => {
-    const rowHeight = 53;
-    const headerHeight = 56;
-    const paginationHeight = 52;
-    const minHeight = 300;
-    const maxHeight = 600;
+  const handlePayrollMonthClick = (monthIndex) => {
+    const year = selectedPayrollYear;
+    const month = monthIndex + 1;
+    const days = getCalendarDays(year, month);
+    const pad = (n) => String(n).padStart(2, '0');
+    const rangeStart = `${year}-${pad(month)}-01`;
+    const rangeEnd = `${year}-${pad(month)}-${pad(days)}`;
 
-    const contentHeight =
-      Math.min(rowsPerPage, filteredReleasedData.length) * rowHeight +
-      headerHeight +
-      paginationHeight;
-    return Math.min(Math.max(contentHeight, minHeight), maxHeight);
+    setSelectedPayrollMonth(monthIndex);
+    setSelectedMonthDays(days);
+
+    let base = [...releasedData];
+    if (selectedDepartment) base = base.filter((r) => r.department === selectedDepartment);
+    if (searchTerm) {
+      const lower = searchTerm.toLowerCase();
+      base = base.filter(
+        (r) =>
+          (r.name || '').toLowerCase().includes(lower) ||
+          (r.employeeNumber || '').toString().toLowerCase().includes(lower),
+      );
+    }
+    if (selectedEmpCat) {
+      base = base.filter(
+        (r) => empCatMap[r.employeeNumber?.toString()]?.label === selectedEmpCat,
+      );
+    }
+
+    const monthFiltered = base.filter((r) => {
+      if (!r.startDate) return false;
+      const s = normalizeDateString(r.startDate);
+      return s >= rangeStart && s <= rangeEnd;
+    });
+
+    setFilteredReleasedData(monthFiltered);
+    setSummaryData(computeSummary(monthFiltered));
+    setPage(0);
+  };
+
+  const handleClearPayrollMonth = () => {
+    setSelectedPayrollMonth(null);
+    setSelectedMonthDays(null);
+    applyFilters(
+      selectedDepartment,
+      searchTerm,
+      selectedDate,
+      selectedYear,
+      releasedData,
+      selectedEmpCat,
+    );
+  };
+
+  const handleChangePage = (_, newPage) => setPage(newPage);
+  const handleChangeRowsPerPage = (e) => {
+    setRowsPerPage(parseInt(e.target.value, 10));
+    setPage(0);
   };
 
   const fetchDepartments = async () => {
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/api/department-table`,
-        getAuthHeaders()
-      );
+      const response = await axios.get(`${API_BASE_URL}/api/department-table`, getAuthHeaders());
       setDepartments(response.data);
     } catch (err) {
       console.error('Error fetching departments:', err);
+    }
+  };
+
+  const fetchEmpCatMap = async () => {
+    try {
+      const res = await axios.get(
+        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
+        getAuthHeaders(),
+      );
+      const map = {};
+      (Array.isArray(res.data) ? res.data : []).forEach((item) => {
+        if (!item.employeeNumber) return;
+        const label =
+          item.parentGroup && item.typeName
+            ? `${item.parentGroup} | ${item.typeName}`
+            : item.categoryLabel || '';
+        if (label)
+          map[item.employeeNumber.toString()] = {
+            label,
+            colorHex: item.colorHex || '#757575',
+            parentGroup: item.parentGroup || '',
+            typeName: item.typeName || '',
+          };
+      });
+      setEmpCatMap(map);
+    } catch (err) {
+      console.error('Error fetching employment categories:', err);
     }
   };
 
@@ -320,33 +423,12 @@ const PayrollReleased = () => {
     try {
       const res = await axios.get(
         `${API_BASE_URL}/PayrollReleasedRoute/released-payroll`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       const data = Array.isArray(res.data) ? res.data : [];
       setReleasedData(data);
       setFilteredReleasedData(data);
-      // Also populate the key set for cross-page disable logic parity
-      const keys = new Set();
-      data.forEach((record) => keys.add(getRecordKey(record)));
-      setReleasedIdSet(keys);
-
-      // Calculate summary data
-      const totalGross = data.reduce(
-        (sum, item) => sum + parseFloat(item.grossSalary || 0),
-        0
-      );
-      const totalNet = data.reduce(
-        (sum, item) => sum + parseFloat(item.netSalary || 0),
-        0
-      );
-
-      setSummaryData({
-        totalReleased: data.length,
-        totalEmployees: data.length,
-        totalGrossSalary: totalGross,
-        totalNetSalary: totalNet,
-      });
-
+      setSummaryData(computeSummary(data));
       setLoading(false);
     } catch (err) {
       console.error('Error fetching released payroll:', err);
@@ -358,154 +440,92 @@ const PayrollReleased = () => {
   usePayrollRealtimeRefresh(() => {
     fetchDepartments();
     fetchReleasedPayroll();
+    fetchEmpCatMap();
   });
 
-  useEffect(() => {
-    fetchDepartments();
-  }, []);
+  useEffect(() => { fetchDepartments(); }, []);
+  useEffect(() => { fetchReleasedPayroll(); }, []);
+  useEffect(() => { fetchEmpCatMap(); }, []);
 
+  // Update summary when filtered data changes (external)
   useEffect(() => {
-    fetchReleasedPayroll();
-  }, []);
-
-  // Update summary data when filtered data changes
-  useEffect(() => {
-    const totalGross = filteredReleasedData.reduce(
-      (sum, item) => sum + parseFloat(item.grossSalary || 0),
-      0
-    );
-    const totalNet = filteredReleasedData.reduce(
-      (sum, item) => sum + parseFloat(item.netSalary || 0),
-      0
-    );
-
-    setSummaryData({
-      totalReleased: filteredReleasedData.length,
-      totalEmployees: filteredReleasedData.length,
-      totalGrossSalary: totalGross,
-      totalNetSalary: totalNet,
-    });
+    setSummaryData(computeSummary(filteredReleasedData));
   }, [filteredReleasedData]);
 
-  const handleDepartmentChange = (event) => {
-    const selectedDept = event.target.value;
-    setSelectedDepartment(selectedDept);
-    applyFilters(
-      selectedDept,
-      searchTerm,
-      selectedDate,
-      selectedMonth,
-      selectedYear
-    );
+  const handleDepartmentChange = (e) => {
+    const v = e.target.value;
+    setSelectedDepartment(v);
+    setSelectedPayrollMonth(null);
+    setSelectedMonthDays(null);
+    applyFilters(v, searchTerm, selectedDate, selectedYear, releasedData, selectedEmpCat);
   };
 
-  const handleSearchChange = (event) => {
-    const term = event.target.value;
+  const handleSearchChange = (e) => {
+    const term = e.target.value;
     setSearchTerm(term);
-    applyFilters(
-      selectedDepartment,
-      term,
-      selectedDate,
-      selectedMonth,
-      selectedYear
-    );
+    setSelectedPayrollMonth(null);
+    setSelectedMonthDays(null);
+    applyFilters(selectedDepartment, term, selectedDate, selectedYear, releasedData, selectedEmpCat);
   };
 
-  const handleMonthChange = (event) => {
-    const selectedMonthValue = event.target.value;
-    setSelectedMonth(selectedMonthValue);
+  const handleDateChange = (e) => {
+    const v = e.target.value;
+    setSelectedDate(v);
+    setSelectedPayrollMonth(null);
+    setSelectedMonthDays(null);
+    applyFilters(selectedDepartment, searchTerm, v, selectedYear, releasedData, selectedEmpCat);
+  };
+
+  const handleYearChange = (e) => {
+    const v = e.target.value;
+    setSelectedYear(v);
+    setSelectedPayrollMonth(null);
+    setSelectedMonthDays(null);
+    applyFilters(selectedDepartment, searchTerm, selectedDate, v, releasedData, selectedEmpCat);
+  };
+
+  const handleEmpCatChange = (e) => {
+    const v = e.target.value;
+    setSelectedEmpCat(v);
+    setSelectedPayrollMonth(null);
+    setSelectedMonthDays(null);
     applyFilters(
       selectedDepartment,
       searchTerm,
       selectedDate,
-      selectedMonthValue,
-      selectedYear
+      selectedYear,
+      releasedData,
+      v,
     );
   };
 
-  const handleYearChange = (event) => {
-    const selectedYearValue = event.target.value;
-    setSelectedYear(selectedYearValue);
-    applyFilters(
-      selectedDepartment,
-      searchTerm,
-      selectedDate,
-      selectedMonth,
-      selectedYearValue
-    );
-  };
-
-  const applyFilters = (department, search, filterDate, month, year) => {
-    let filtered = [...releasedData];
-
-    if (department) {
-      filtered = filtered.filter((record) => record.department === department);
-    }
-
-    if (search) {
-      const lowerSearch = search.toLowerCase();
-      filtered = filtered.filter(
-        (record) =>
-          (record.name || '').toLowerCase().includes(lowerSearch) ||
-          (record.employeeNumber || '')
-            .toString()
-            .toLowerCase()
-            .includes(lowerSearch)
-      );
-    }
-
-    // Filter by date - check if the selected date falls within the payroll period
-    if (filterDate) {
-      filtered = filtered.filter((record) => {
-        const startDate = new Date(record.startDate);
-        const endDate = new Date(record.endDate);
-        const selectedDate = new Date(filterDate);
-
-        // Set time to start/end of day to ensure proper comparison
-        startDate.setHours(0, 0, 0, 0);
-        endDate.setHours(23, 59, 59, 999);
-        selectedDate.setHours(12, 0, 0, 0); // Set to noon to avoid timezone issues
-
-        // Check if the selected date falls within the payroll period
-        return selectedDate >= startDate && selectedDate <= endDate;
-      });
-    }
-
-    // Apply month filter based on startDate
-    if (month && month !== '') {
-      filtered = filtered.filter((record) => {
-        if (record.startDate) {
-          const recordDate = new Date(record.startDate);
-          const recordMonth = String(recordDate.getMonth() + 1).padStart(
-            2,
-            '0'
-          );
-          return recordMonth === month;
-        }
-        return false;
-      });
-    }
-
-    // Apply year filter based on startDate
-    if (year && year !== '') {
-      filtered = filtered.filter((record) => {
-        if (record.startDate) {
-          const recordDate = new Date(record.startDate);
-          const recordYear = recordDate.getFullYear().toString();
-          return recordYear === year;
-        }
-        return false;
-      });
-    }
-
-    setFilteredReleasedData(filtered);
+  const clearAllFilters = () => {
+    setSelectedDepartment('');
+    setSelectedDate('');
+    setSelectedYear('');
+    setSelectedEmpCat('');
+    setSelectedPayrollMonth(null);
+    setSelectedMonthDays(null);
+    setFilteredReleasedData(releasedData);
+    setSummaryData(computeSummary(releasedData));
     setPage(0);
   };
 
+  const hasActiveFilters =
+    selectedDepartment ||
+    selectedDate ||
+    selectedYear ||
+    selectedEmpCat ||
+    selectedPayrollMonth !== null;
+
+  const fmt = (v, dec = 2) =>
+    (parseFloat(v) || 0).toLocaleString('en-US', {
+      minimumFractionDigits: dec,
+      maximumFractionDigits: dec,
+    });
+
   const handleSaveToExcel = () => {
-    // Create worksheet data
     const ws_data = [
-      // Header row (56 columns)
       [
         'No.',
         'Department',
@@ -564,27 +584,21 @@ const PayrollReleased = () => {
         'Total Deductions',
         'Date Submitted',
       ],
-      // Empty row after header
       Array(56).fill(''),
     ];
 
-    // Add data rows with empty rows in between
     filteredReleasedData.forEach((row, index) => {
-      // Helper function to convert string to number
       const toNumber = (value) => {
         if (value === null || value === undefined || value === '') return '';
         const num = Number(value);
         if (isNaN(num)) return value;
-        // Format with thousand separators but keep as number for Excel
         return num.toLocaleString('en-US', {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         });
       };
 
-      // Add data row with numeric values
       ws_data.push([
-        // 1-25: basic and totals
         index + 1,
         row.department || '',
         row.employeeNumber || '',
@@ -608,7 +622,6 @@ const PayrollReleased = () => {
         toNumber(row.PhilHealthContribution ?? row.philHealth),
         toNumber(row.totalOtherDeds),
         toNumber(row.totalDeductions),
-        // 26-32: contribution breakdown and computes (if available)
         index + 1,
         toNumber(row.rtIns),
         toNumber(row.ec),
@@ -616,7 +629,6 @@ const PayrollReleased = () => {
         toNumber(row.pagibigContribution ?? row.pagIbig),
         toNumber(row.pay1stCompute),
         toNumber(row.pay2ndCompute),
-        // 33-58: detailed deductions section
         index + 1,
         row.name || '',
         row.position || '',
@@ -649,93 +661,129 @@ const PayrollReleased = () => {
           : '',
       ]);
 
-      // Add empty row after each data row
       ws_data.push(Array(56).fill(''));
     });
 
-    // Create workbook and add the worksheet
     const ws = XLSX.utils.aoa_to_sheet(ws_data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Released Payroll Data');
 
-    // Auto-size columns
     const max_width = 20;
-    const colWidths = ws_data[0].map((_, i) => {
-      return {
-        wch: Math.min(
-          max_width,
-          Math.max(...ws_data.map((row) => row[i]?.toString().length || 0))
-        ),
-      };
-    });
-    ws['!cols'] = colWidths;
+    ws['!cols'] = ws_data[0].map((_, i) => ({
+      wch: Math.min(
+        max_width,
+        Math.max(...ws_data.map((row) => row[i]?.toString().length || 0)),
+      ),
+    }));
 
     const generateFilename = () => {
-      if (filteredReleasedData.length === 0) {
-        return 'PayrollReleased.xlsx';
-      }
-
-      // Get the first record's dates to determine the payroll period
+      if (filteredReleasedData.length === 0) return 'PayrollReleased.xlsx';
       const firstRecord = filteredReleasedData[0];
       const startDate = new Date(firstRecord.startDate);
       const endDate = new Date(firstRecord.endDate);
-
-      // Get month names
       const monthNames = [
-        'January',
-        'February',
-        'March',
-        'April',
-        'May',
-        'June',
-        'July',
-        'August',
-        'September',
-        'October',
-        'November',
-        'December',
+        'January','February','March','April','May','June',
+        'July','August','September','October','November','December',
       ];
-
       const startMonth = monthNames[startDate.getMonth()];
       const endMonth = monthNames[endDate.getMonth()];
       const year = startDate.getFullYear();
-
-      // If start and end are in the same month
       if (startDate.getMonth() === endDate.getMonth()) {
         return `PayrollReleased_${startMonth}_${year}.xlsx`;
-      } else {
-        // If spanning across months
-        return `PayrollReleased_${startMonth}_${endMonth}_${year}.xlsx`;
       }
+      return `PayrollReleased_${startMonth}_${endMonth}_${year}.xlsx`;
     };
 
-    const filename = generateFilename();
-
-    // Save with the generated filename
-    XLSX.writeFile(wb, `${filename}`);
+    XLSX.writeFile(wb, generateFilename());
   };
 
-  // ACCESSING 2
-  // Loading state
+  // ── Stat cards ───────────────────────────────────────────────────────────
+  const statCards = [
+    {
+      label: 'Total Released',
+      value: summaryData.totalReleased,
+      icon: CheckCircleIcon,
+      color: '#4caf50',
+    },
+    {
+      label: 'Total Employees',
+      value: summaryData.totalEmployees,
+      icon: PeopleIcon,
+      color: T.accent,
+    },
+    {
+      label: 'Total Gross Salary',
+      value: `₱${fmt(summaryData.totalGrossSalary)}`,
+      icon: TrendingUpIcon,
+      color: T.accent,
+    },
+    {
+      label: 'Total Net Salary',
+      value: `₱${fmt(summaryData.totalNetSalary)}`,
+      icon: TrendingUpIcon,
+      color: '#2e7d32',
+    },
+  ];
+
+  // ── Access loading skeleton ──────────────────────────────────────────────
   if (accessLoading) {
     return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
+      <>
+        <style>{payrollShimmerKeyframes}</style>
         <Box
           sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
+            py: { xs: 1, md: 2 },
+            mt: { xs: 0, md: -2 },
+            width: '100vw',
+            maxWidth: '100%',
+            position: 'relative',
+            left: '63%',
+            transform: 'translateX(-61%)',
+            px: { xs: 2, sm: 3, md: 6 },
+            fontFamily: T.font,
           }}
         >
-          <CircularProgress sx={{ color: textPrimaryColor, mb: 2 }} />
-          <Typography variant="h6" sx={{ color: textPrimaryColor }}>
-            Loading access information...
-          </Typography>
+          <SectionCard
+            sx={{ mb: 2, overflow: 'hidden', animation: 'payrollPulse 2s ease-in-out infinite' }}
+          >
+            <Box sx={{ p: 3.5, background: T.headerGrad, display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Box sx={{ width: 46, height: 46, borderRadius: '50%', bgcolor: alpha(T.accent, 0.14) }} />
+              <Box sx={{ flex: 1 }}>
+                <Bone w={240} h={16} sx={{ mb: 1 }} />
+                <Bone w={330} h={10} />
+              </Box>
+            </Box>
+          </SectionCard>
+          <Box sx={{ mb: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4,1fr)' }, gap: 1.5 }}>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <SectionCard key={i} sx={{ animation: `payrollPulse 2s ease-in-out ${i * 0.1}s infinite` }}>
+                <Box sx={{ px: 2.5, py: 2.2 }}>
+                  <Bone w="42%" h={10} sx={{ mb: 1 }} />
+                  <Bone w="65%" h={16} />
+                </Box>
+              </SectionCard>
+            ))}
+          </Box>
+          <SectionCard sx={{ animation: 'payrollPulse 2s ease-in-out infinite' }}>
+            <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: alpha(T.accent, 0.04) }}>
+              <Bone w={210} h={14} sx={{ mb: 1 }} />
+              <Bone w={170} h={9} />
+            </Box>
+            <Box sx={{ p: 2.5 }}>
+              <Bone h={38} r={10} sx={{ mb: 1.5 }} />
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(5,1fr)' }, gap: 1.25, mb: 1.5 }}>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Bone key={i} h={38} r={10} />
+                ))}
+              </Box>
+              <Bone h={250} r={14} />
+            </Box>
+          </SectionCard>
         </Box>
-      </Container>
+      </>
     );
   }
-  // Access denied state - Now using the reusable component
+
   if (!accessLoading && hasAccess !== true) {
     return (
       <AccessDenied
@@ -746,1001 +794,785 @@ const PayrollReleased = () => {
       />
     );
   }
-  //ACCESSING END2
 
   return (
-    <Box
-      sx={{
-        py: 4,
-        borderRadius: '14px',
-        width: '100vw', // Full viewport width
-        mx: 'auto', // Center horizontally
-        maxWidth: '100%', // Ensure it doesn't exceed viewport
-        overflow: 'hidden', // Prevent horizontal scroll
-        position: 'relative',
-        left: '50%',
-        transform: 'translateX(-50%)', // Center the element
-      }}
-    >
-      {/* Container with fixed width */}
-      <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
-        {/* Header */}
-        <Fade in timeout={500}>
-          <Box sx={{ mb: 4 }}>
-            <GlassCard
+    <>
+      <style>{payrollShimmerKeyframes}</style>
+      <Box
+        sx={{
+          py: { xs: 1, md: 2 },
+          mt: { xs: 0, md: -2 },
+          width: '100vw',
+          maxWidth: '100%',
+          position: 'relative',
+          left: '63%',
+          transform: 'translateX(-61%)',
+          px: { xs: 2, sm: 3, md: 6 },
+          fontFamily: T.font,
+          ...globalFontSx,
+        }}
+      >
+        {/* ── Page Header ── */}
+        <SectionCard sx={{ mb: 2 }}>
+          <Box
+            sx={{
+              px: 4,
+              py: 3,
+              background: T.headerGrad,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+          >
+            <Box
               sx={{
-                background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-                boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-                '&:hover': {
-                  boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-                },
+                position: 'absolute', top: -50, right: -50, width: 200, height: 200,
+                borderRadius: '50%',
+                background: 'radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)',
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150,
+                borderRadius: '50%',
+                background: 'radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)',
+              }}
+            />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, position: 'relative', zIndex: 1 }}>
+              <Payment sx={{ fontSize: 32, color: T.accent }} />
+              <Box>
+                <Typography sx={{ fontSize: '1.25rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3, fontFamily: T.font }}>
+                  Payroll Released
+                </Typography>
+                <Typography sx={{ fontSize: '0.82rem', color: T.accentMid, fontWeight: 700, opacity: 0.9, fontFamily: T.font }}>
+                  Administrative Panel • View and manage all released payroll records
+                </Typography>
+              </Box>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+              <Chip
+                label="Released Records"
+                size="small"
+                sx={{ bgcolor: alpha(T.accent, 0.12), color: T.accent, fontWeight: 600, fontSize: '0.72rem', fontFamily: T.font }}
+              />
+              <Tooltip title="Refresh Data">
+                <IconButton
+                  onClick={() => { fetchDepartments(); fetchReleasedPayroll(); }}
+                  sx={{
+                    bgcolor: alpha(T.accent, 0.08),
+                    border: `1px solid ${T.accentBorder}`,
+                    color: T.accent,
+                    width: 36, height: 36, borderRadius: 2,
+                    '&:hover': { bgcolor: T.accentFaint },
+                  }}
+                >
+                  <Refresh sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+        </SectionCard>
+
+        {/* ── Stats Strip ── */}
+        <Box sx={{ mb: 2, display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 1.5 }}>
+          {statCards.map((stat) => {
+            const Icon = stat.icon;
+            return (
+              <SectionCard key={stat.label}>
+                <Box sx={{ px: 2.5, py: 2, display: 'flex', alignItems: 'center', gap: 1.75 }}>
+                  <Box
+                    sx={{
+                      width: 38, height: 38, borderRadius: 2,
+                      bgcolor: alpha(stat.color, 0.1),
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    }}
+                  >
+                    <Icon sx={{ fontSize: 18, color: stat.color }} />
+                  </Box>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography
+                      sx={{
+                        fontWeight: 900,
+                        fontSize: typeof stat.value === 'string' ? '1rem' : '1.35rem',
+                        color: T.text, lineHeight: 1, fontFamily: T.font,
+                      }}
+                    >
+                      {stat.value}
+                    </Typography>
+                    <Typography
+                      sx={{ fontSize: '0.7rem', color: T.muted, mt: 0.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: T.font }}
+                    >
+                      {stat.label}
+                    </Typography>
+                  </Box>
+                </Box>
+              </SectionCard>
+            );
+          })}
+        </Box>
+
+        {/* ── Filters ── */}
+        <SectionCard sx={{ mb: 2 }}>
+          <Box
+            sx={{
+              px: 3.5, py: 1.5,
+              borderBottom: `1px solid ${T.divider}`,
+              bgcolor: T.accentFaint,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+              <FilterList sx={{ fontSize: 14, color: T.accent }} />
+              <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent, fontFamily: T.font }}>
+                Search & Filter
+              </Typography>
+              {hasActiveFilters && (
+                <Box sx={{ px: 1, py: 0.2, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${T.accentBorder}`, borderRadius: '20px' }}>
+                  <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: T.accent, fontFamily: T.font }}>
+                    {[selectedDepartment, selectedDate, selectedYear, selectedEmpCat, selectedPayrollMonth !== null ? 'month' : ''].filter(Boolean).length} active
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+            {hasActiveFilters && (
+              <AccentButton
+                size="small"
+                onClick={clearAllFilters}
+                startIcon={<Close sx={{ fontSize: 13 }} />}
+                sx={{
+                  fontSize: '0.72rem', color: '#d32f2f',
+                  border: '1px solid rgba(211,47,47,0.3)', px: 1.25, py: 0.3, height: 26,
+                  '&:hover': { bgcolor: alpha('#d32f2f', 0.06), transform: 'none' },
+                }}
+              >
+                Clear all
+              </AccentButton>
+            )}
+          </Box>
+
+          <Box sx={{ px: 3.5, py: 2.5 }}>
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              {/* Search */}
+              <FieldInput
+                size="small"
+                placeholder="Search by employee name or number…"
+                value={searchTerm}
+                onChange={handleSearchChange}
+                sx={{ minWidth: 220, flex: 1 }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon sx={{ color: T.faint, fontSize: 18 }} />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+
+              {/* Department */}
+              <FormControl size="small" sx={{ minWidth: 160, flex: 1 }}>
+                <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>Department</InputLabel>
+                <Select value={selectedDepartment} onChange={handleDepartmentChange} label="Department" sx={filterSelectSx}>
+                  <MenuItem value=""><em style={{ fontSize: '0.82rem', fontFamily: T.font }}>All Departments</em></MenuItem>
+                  {departments.map((dept) => (
+                    <MenuItem key={dept.id} value={dept.code} sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
+                      {dept.description}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {/* Employment category */}
+              <FormControl size="small" sx={{ minWidth: 200, flex: 1.5 }}>
+                <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>Category</InputLabel>
+                <Select
+                  value={selectedEmpCat}
+                  onChange={handleEmpCatChange}
+                  label="Category"
+                  sx={filterSelectSx}
+                >
+                  <MenuItem value="">
+                    <em style={{ fontSize: '0.82rem', fontFamily: T.font }}>All Categories</em>
+                  </MenuItem>
+                  {employmentCategoryOptions.length === 0 ? (
+                    <MenuItem
+                      disabled
+                      sx={{
+                        fontSize: '0.82rem',
+                        fontStyle: 'italic',
+                        color: '#999',
+                        fontFamily: T.font,
+                      }}
+                    >
+                      No categories loaded
+                    </MenuItem>
+                  ) : (
+                    employmentCategoryOptions.map((item) => (
+                      <MenuItem
+                        key={item.label}
+                        value={item.label}
+                        sx={{ fontSize: '0.82rem', fontFamily: T.font }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Box
+                            sx={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: '50%',
+                              bgcolor: item.colorHex,
+                              flexShrink: 0,
+                            }}
+                          />
+                          {item.label}
+                        </Box>
+                      </MenuItem>
+                    ))
+                  )}
+                </Select>
+              </FormControl>
+
+              {/* Year */}
+              <FormControl size="small" sx={{ minWidth: 110, flex: '0 0 auto' }}>
+                <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>Year</InputLabel>
+                <Select value={selectedYear} onChange={handleYearChange} label="Year" sx={filterSelectSx}>
+                  {yearOptions.map((o) => (
+                    <MenuItem key={o.value} value={o.value} sx={{ fontSize: '0.82rem', fontFamily: T.font }}>{o.label}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {/* Date */}
+              <FieldInput
+                type="date"
+                size="small"
+                label="Search by Date"
+                value={selectedDate}
+                onChange={handleDateChange}
+                InputLabelProps={{ shrink: true }}
+                sx={{ minWidth: 165, flex: '0 0 auto' }}
+              />
+            </Box>
+
+            {/* ── Payroll Month Quick-Filter ── */}
+            <Box sx={{ mt: 2, pt: 2, borderTop: `1px dashed ${alpha(T.accent, 0.15)}` }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CalendarToday sx={{ fontSize: 13, color: T.accent }} />
+                  <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.accent, letterSpacing: '0.05em', textTransform: 'uppercase', fontFamily: T.font }}>
+                    Quick Month Filter
+                  </Typography>
+                  {selectedPayrollMonth !== null && (
+                    <Box sx={{ px: 1, py: 0.2, borderRadius: '12px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                      <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: T.accent, fontFamily: T.font }}>
+                        {payrollMonths[selectedPayrollMonth]} {selectedPayrollYear}
+                        {selectedMonthDays !== null && ` · ${selectedMonthDays} days`}
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <FormControl size="small" sx={{ minWidth: 90 }}>
+                    <Select
+                      value={selectedPayrollYear}
+                      onChange={(e) => {
+                        setSelectedPayrollYear(e.target.value);
+                        if (selectedPayrollMonth !== null) {
+                          setTimeout(() => handlePayrollMonthClick(selectedPayrollMonth), 0);
+                        }
+                      }}
+                      sx={{ ...filterSelectSx, fontSize: '0.78rem', fontWeight: 700, fontFamily: T.font }}
+                    >
+                      {payrollYearOptions.map((y) => (
+                        <MenuItem key={y} value={y} sx={{ fontSize: '0.8rem', fontFamily: T.font }}>{y}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  {selectedPayrollMonth !== null && (
+                    <AccentButton
+                      size="small"
+                      onClick={handleClearPayrollMonth}
+                      startIcon={<Close sx={{ fontSize: 12 }} />}
+                      sx={{
+                        fontSize: '0.7rem', color: '#d32f2f',
+                        border: '1px solid rgba(211,47,47,0.3)', px: 1, py: 0.25, height: 26,
+                        '&:hover': { bgcolor: alpha('#d32f2f', 0.06), transform: 'none' },
+                      }}
+                    >
+                      Clear month
+                    </AccentButton>
+                  )}
+                </Box>
+              </Box>
+
+              <Box
+                sx={{
+                  p: 1.75, borderRadius: 2, border: `2px dashed ${T.accentBorder}`,
+                  bgcolor: T.accentFaint, display: 'flex', flexWrap: 'wrap', gap: 0.75, justifyContent: 'center',
+                }}
+              >
+                {payrollMonths.map((month, index) => {
+                  const isSelected = selectedPayrollMonth === index;
+                  const days = getCalendarDays(selectedPayrollYear, index + 1);
+                  return (
+                    <Box
+                      key={month}
+                      onClick={() => handlePayrollMonthClick(index)}
+                      title={`${month} ${selectedPayrollYear} — ${days} calendar days`}
+                      sx={{
+                        px: 1.5, py: 0.85, borderRadius: '6px', cursor: 'pointer', userSelect: 'none',
+                        bgcolor: isSelected ? T.accent : '#fff',
+                        border: `1px solid ${isSelected ? T.accent : T.accentBorder}`,
+                        color: isSelected ? '#fff' : T.accent,
+                        fontWeight: 700, fontFamily: T.font, letterSpacing: '0.04em',
+                        transition: 'all 0.15s ease',
+                        boxShadow: isSelected ? `0 2px 8px ${alpha(T.accent, 0.28)}` : 'none',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.2, minWidth: 46,
+                        '&:hover': {
+                          bgcolor: isSelected ? T.accentDark : T.accentFaint,
+                          borderColor: T.accent,
+                          boxShadow: `0 2px 8px ${alpha(T.accent, 0.15)}`,
+                        },
+                      }}
+                    >
+                      <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, fontFamily: T.font, lineHeight: 1, color: 'inherit' }}>
+                        {month}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.58rem', fontWeight: 600, fontFamily: T.font, lineHeight: 1, color: 'inherit', opacity: isSelected ? 0.85 : 0.5 }}>
+                        {days}d
+                      </Typography>
+                    </Box>
+                  );
+                })}
+              </Box>
+            </Box>
+
+            {/* Active filter chips */}
+            {hasActiveFilters && (
+              <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mt: 1.5, pt: 1.5, borderTop: `1px dashed ${alpha(T.accent, 0.15)}` }}>
+                <Typography sx={{ fontSize: '0.7rem', color: alpha(T.text, 0.5), fontWeight: 600, alignSelf: 'center', mr: 0.25, fontFamily: T.font }}>
+                  Active:
+                </Typography>
+                {selectedDepartment && (
+                  <Chip
+                    size="small"
+                    label={`Dept: ${departments.find((d) => d.code === selectedDepartment)?.description || selectedDepartment}`}
+                    onDelete={() => { setSelectedDepartment(''); applyFilters('', searchTerm, selectedDate, selectedYear, releasedData, selectedEmpCat); }}
+                    sx={{ height: 22, fontSize: '0.72rem', bgcolor: T.accentFaint, color: T.accent, border: `1px solid ${T.accentBorder}`, fontFamily: T.font, '& .MuiChip-deleteIcon': { fontSize: 14, color: T.accent } }}
+                  />
+                )}
+                {selectedEmpCat && (
+                  <Chip
+                    size="small"
+                    label={`Category: ${selectedEmpCat}`}
+                    onDelete={() => {
+                      setSelectedEmpCat('');
+                      applyFilters(selectedDepartment, searchTerm, selectedDate, selectedYear, releasedData, '');
+                    }}
+                    sx={{ height: 22, fontSize: '0.72rem', bgcolor: T.accentFaint, color: T.accent, border: `1px solid ${T.accentBorder}`, fontFamily: T.font, '& .MuiChip-deleteIcon': { fontSize: 14, color: T.accent } }}
+                  />
+                )}
+                {selectedDate && (
+                  <Chip
+                    size="small"
+                    label={`Date: ${selectedDate}`}
+                    onDelete={() => { setSelectedDate(''); applyFilters(selectedDepartment, searchTerm, '', selectedYear, releasedData, selectedEmpCat); }}
+                    sx={{ height: 22, fontSize: '0.72rem', bgcolor: T.accentFaint, color: T.accent, border: `1px solid ${T.accentBorder}`, fontFamily: T.font, '& .MuiChip-deleteIcon': { fontSize: 14, color: T.accent } }}
+                  />
+                )}
+                {selectedYear && (
+                  <Chip
+                    size="small"
+                    label={`Year: ${selectedYear}`}
+                    onDelete={() => { setSelectedYear(''); applyFilters(selectedDepartment, searchTerm, selectedDate, '', releasedData, selectedEmpCat); }}
+                    sx={{ height: 22, fontSize: '0.72rem', bgcolor: T.accentFaint, color: T.accent, border: `1px solid ${T.accentBorder}`, fontFamily: T.font, '& .MuiChip-deleteIcon': { fontSize: 14, color: T.accent } }}
+                  />
+                )}
+                {selectedPayrollMonth !== null && (
+                  <Chip
+                    size="small"
+                    label={`Quick: ${payrollMonths[selectedPayrollMonth]} ${selectedPayrollYear}`}
+                    onDelete={handleClearPayrollMonth}
+                    sx={{ height: 22, fontSize: '0.72rem', bgcolor: T.accentFaint, color: T.accent, border: `1px solid ${T.accentBorder}`, fontFamily: T.font, '& .MuiChip-deleteIcon': { fontSize: 14, color: T.accent } }}
+                  />
+                )}
+              </Box>
+            )}
+          </Box>
+        </SectionCard>
+
+        {/* ── Error Alert ── */}
+        {error && (
+          <Alert severity="error" sx={{ mb: 2, borderRadius: 2, fontFamily: T.font }} icon={<Info />}>
+            {error}
+          </Alert>
+        )}
+
+        {/* ── Table ── */}
+        <SectionCard
+          sx={{
+            mb: 2,
+            overflow: 'hidden',
+            '& .MuiTableHead-root .MuiTableCell-root': { fontSize: '0.78rem !important', fontFamily: `${T.font} !important` },
+            '& .MuiTableBody-root .MuiTableCell-root': { fontSize: '0.9rem !important', fontFamily: `${T.font} !important` },
+          }}
+        >
+          {/* Table header bar */}
+          <Box
+            sx={{
+              px: 3.5, py: 2,
+              borderBottom: `1px solid ${T.divider}`,
+              bgcolor: T.accentFaint,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1.5,
+            }}
+          >
+            <Box>
+              <Typography sx={{ fontWeight: 700, fontSize: '0.88rem', color: T.text, fontFamily: T.font }}>
+                Employee Released Payroll Data
+              </Typography>
+              <Typography sx={{ fontSize: '0.72rem', color: T.faint, mt: 0.1, fontFamily: T.font }}>
+                Total {filteredReleasedData.length} records · {selectedRows.length} selected
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              {selectedRows.length > 0 && (
+                <Box sx={{ px: 1.5, py: 0.35, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: '20px' }}>
+                  <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: T.accent, fontFamily: T.font }}>
+                    {selectedRows.length} selected
+                  </Typography>
+                </Box>
+              )}
+              <AccentButton
+                variant="outlined"
+                size="small"
+                startIcon={<Refresh sx={{ fontSize: 14 }} />}
+                onClick={() => { fetchDepartments(); fetchReleasedPayroll(); }}
+                sx={{
+                  fontSize: '0.72rem', px: 1.25, py: 0.35, height: 28,
+                  borderColor: T.accentBorder, color: T.accent,
+                  '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, transform: 'none' },
+                }}
+              >
+                Refresh
+              </AccentButton>
+            </Box>
+          </Box>
+
+          {loading ? (
+            <Box display="flex" justifyContent="center" py={10}>
+              <CircularProgress sx={{ color: T.accent }} />
+            </Box>
+          ) : filteredReleasedData.length === 0 ? (
+            <Box
+              sx={{
+                mx: 3.5, my: 2, py: 7, px: 2,
+                border: `1px solid ${T.divider}`, borderRadius: 2,
+                bgcolor: '#fff', textAlign: 'center',
               }}
             >
               <Box
                 sx={{
-                  p: 5,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  color: textPrimaryColor,
-                  position: 'relative',
-                  overflow: 'hidden',
+                  width: 72, height: 72, borderRadius: '50%',
+                  bgcolor: T.accentFaint,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2,
                 }}
               >
-                {/* Decorative elements */}
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: -50,
-                    right: -50,
-                    width: 200,
-                    height: 200,
-                    background:
-                      'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)',
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    bottom: -30,
-                    left: '30%',
-                    width: 150,
-                    height: 150,
-                    background:
-                      'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
-                  }}
-                />
-
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  position="relative"
-                  zIndex={1}
-                  mb={3}
-                >
-                  <Box display="flex" alignItems="center">
-                    <Avatar
-                      sx={{
-                        bgcolor: 'rgba(109,35,35,0.15)',
-                        mr: 4,
-                        width: 64,
-                        height: 64,
-                        boxShadow: '0 8px 24px rgba(109,35,35,0.15)',
-                      }}
-                    >
-                      <Payment sx={{ color: textPrimaryColor, fontSize: 32 }} />
-                    </Avatar>
-                    <Box>
-                      <Typography
-                        variant="h4"
-                        component="h1"
-                        sx={{
-                          fontWeight: 700,
-                          mb: 1,
-                          lineHeight: 1.2,
-                          color: textPrimaryColor,
-                        }}
-                      >
-                        Payroll Released
-                      </Typography>
-                      <Typography
-                        variant="body1"
-                        sx={{
-                          opacity: 0.8,
-                          fontWeight: 400,
-                          color: textPrimaryColor,
-                        }}
-                      >
-                        View and manage all released payroll records
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Chip
-                      label="Released Records"
-                      size="small"
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.15),
-                        color: textPrimaryColor,
-                        fontWeight: 500,
-                        '& .MuiChip-label': { px: 1 },
-                      }}
-                    />
-                    <Tooltip title="Refresh Data">
-                      <IconButton
-                        onClick={() => window.location.reload()}
-                        sx={{
-                          bgcolor: alpha(accentColor, 0.1),
-                          '&:hover': { bgcolor: alpha(accentColor, 0.2) },
-                          color: textPrimaryColor,
-                          width: 48,
-                          height: 48,
-                        }}
-                      >
-                        <Refresh />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Box>
-
-                {/* Summary Cards */}
-                <Box
-                  sx={{
-                    display: 'flex',
-                    gap: 2,
-                    flexWrap: 'wrap',
-                    position: 'relative',
-                    zIndex: 1,
-                  }}
-                >
-                  <Card
-                    sx={{
-                      minWidth: 180,
-                      flex: 1,
-                      border: `1px solid ${alpha(accentColor, 0.1)}`,
-                      background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
-                      boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
-                      '&:hover': {
-                        boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
-                        transform: 'translateY(-2px)',
-                      },
-                      transition: 'all 0.3s ease',
-                    }}
-                  >
-                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                      <Box
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="space-between"
-                      >
-                        <Box>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: textPrimaryColor,
-                              opacity: 0.7,
-                              fontWeight: 500,
-                            }}
-                          >
-                            Total Released
-                          </Typography>
-                          <Typography
-                            variant="h6"
-                            fontWeight="bold"
-                            sx={{ color: textPrimaryColor }}
-                          >
-                            {summaryData.totalReleased}
-                          </Typography>
-                        </Box>
-                        <CheckCircleIcon sx={{ color: '#4caf50', fontSize: 32 }} />
-                      </Box>
-                    </CardContent>
-                  </Card>
-
-                  <Card
-                    sx={{
-                      minWidth: 180,
-                      flex: 1,
-                      border: `1px solid ${alpha(accentColor, 0.1)}`,
-                      background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
-                      boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
-                      '&:hover': {
-                        boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
-                        transform: 'translateY(-2px)',
-                      },
-                      transition: 'all 0.3s ease',
-                    }}
-                  >
-                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                      <Box
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="space-between"
-                      >
-                        <Box>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: textPrimaryColor,
-                              opacity: 0.7,
-                              fontWeight: 500,
-                            }}
-                          >
-                            Total Employees
-                          </Typography>
-                          <Typography
-                            variant="h6"
-                            fontWeight="bold"
-                            sx={{ color: '#4caf50' }}
-                          >
-                            {summaryData.totalEmployees}
-                          </Typography>
-                        </Box>
-                        <PeopleIcon sx={{ color: accentColor, fontSize: 32 }} />
-                      </Box>
-                    </CardContent>
-                  </Card>
-
-                  <Card
-                    sx={{
-                      minWidth: 180,
-                      flex: 1,
-                      border: `1px solid ${alpha(accentColor, 0.1)}`,
-                      background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
-                      boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
-                      '&:hover': {
-                        boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
-                        transform: 'translateY(-2px)',
-                      },
-                      transition: 'all 0.3s ease',
-                    }}
-                  >
-                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                      <Box
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="space-between"
-                      >
-                        <Box>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: textPrimaryColor,
-                              opacity: 0.7,
-                              fontWeight: 500,
-                            }}
-                          >
-                            Total Gross Salary
-                          </Typography>
-                          <Typography
-                            variant="h6"
-                            fontWeight="bold"
-                            sx={{ color: textPrimaryColor }}
-                          >
-                            ₱
-                            {summaryData.totalGrossSalary.toLocaleString('en-US', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </Typography>
-                        </Box>
-                        <TrendingUpIcon sx={{ color: accentColor, fontSize: 32 }} />
-                      </Box>
-                    </CardContent>
-                  </Card>
-
-                  <Card
-                    sx={{
-                      minWidth: 180,
-                      flex: 1,
-                      border: `1px solid ${alpha(accentColor, 0.1)}`,
-                      background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
-                      boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
-                      '&:hover': {
-                        boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
-                        transform: 'translateY(-2px)',
-                      },
-                      transition: 'all 0.3s ease',
-                    }}
-                  >
-                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                      <Box
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="space-between"
-                      >
-                        <Box>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: textPrimaryColor,
-                              opacity: 0.7,
-                              fontWeight: 500,
-                            }}
-                          >
-                            Total Net Salary
-                          </Typography>
-                          <Typography
-                            variant="h6"
-                            fontWeight="bold"
-                            sx={{ color: textPrimaryColor }}
-                          >
-                            ₱
-                            {summaryData.totalNetSalary.toLocaleString('en-US', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </Typography>
-                        </Box>
-                        <TrendingUpIcon sx={{ color: accentColor, fontSize: 32 }} />
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Box>
+                <Info sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
               </Box>
-            </GlassCard>
-          </Box>
-        </Fade>
-
-        {/* Loading Backdrop */}
-        <Backdrop
-          sx={{ color: textSecondaryColor, zIndex: (theme) => theme.zIndex.drawer + 1 }}
-          open={loading}
-        >
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: textSecondaryColor }}>
-              Processing department record...
-            </Typography>
-          </Box>
-        </Backdrop>
-
-        {/* Filters Section */}
-        <Fade in timeout={700}>
-          <GlassCard
-            sx={{
-              mb: 4,
-              background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-              boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-              border: `1px solid ${alpha(accentColor, 0.1)}`,
-              '&:hover': {
-                boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-              },
-            }}
-          >
-            <CardContent sx={{ p: 4 }}>
-              <Box
-                display="flex"
-                alignItems="center"
-                justifyContent="space-between"
-                mb={3}
-              >
-                <Box display="flex" alignItems="center" gap={1}>
-                  <FilterList sx={{ color: textPrimaryColor, fontSize: 24 }} />
-                  <Typography
-                    variant="h6"
-                    fontWeight="bold"
-                    sx={{ color: textPrimaryColor }}
-                  >
-                    FILTERS
-                  </Typography>
-                </Box>
-              </Box>
-
-              <Grid container spacing={2} alignItems="center">
-                <Grid item xs={12} sm={6} md={2}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel sx={{ color: textPrimaryColor }}>
-                      Department
-                    </InputLabel>
-                    <Select
-                      value={selectedDepartment}
-                      onChange={handleDepartmentChange}
-                      label="Department"
-                      sx={{
-                        color: textPrimaryColor,
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.3),
-                        },
-                        '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.5),
-                        },
-                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                          borderColor: accentColor,
-                        },
-                      }}
-                    >
-                      <MenuItem value="">
-                        <em>All Departments</em>
-                      </MenuItem>
-                      {departments.map((dept) => (
-                        <MenuItem key={dept.id} value={dept.code}>
-                          {dept.description}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-
-                <Grid item xs={12} sm={6} md={2}>
-                  <ModernTextField
-                    type="date"
-                    fullWidth
-                    size="small"
-                    label="Search by Date"
-                    value={selectedDate}
-                    onChange={handleDateChange}
-                    InputLabelProps={{
-                      shrink: true,
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        color: textPrimaryColor,
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.3),
-                        },
-                        '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.5),
-                        },
-                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                          borderColor: accentColor,
-                        },
-                      },
-                      '& .MuiInputLabel-root': {
-                        color: textPrimaryColor,
-                      },
-                    }}
-                  />
-                </Grid>
-
-                <Grid item xs={12} sm={6} md={2}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel sx={{ color: textPrimaryColor }}>Month</InputLabel>
-                    <Select
-                      value={selectedMonth}
-                      onChange={handleMonthChange}
-                      label="Month"
-                      sx={{
-                        color: textPrimaryColor,
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.3),
-                        },
-                        '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.5),
-                        },
-                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                          borderColor: accentColor,
-                        },
-                      }}
-                    >
-                      {monthOptions.map((option) => (
-                        <MenuItem key={option.value} value={option.value}>
-                          {option.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-
-                <Grid item xs={12} sm={6} md={2}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel sx={{ color: textPrimaryColor }}>Year</InputLabel>
-                    <Select
-                      value={selectedYear}
-                      onChange={handleYearChange}
-                      label="Year"
-                      sx={{
-                        color: textPrimaryColor,
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.3),
-                        },
-                        '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.5),
-                        },
-                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                          borderColor: accentColor,
-                        },
-                      }}
-                    >
-                      {yearOptions.map((option) => (
-                        <MenuItem key={option.value} value={option.value}>
-                          {option.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-
-                <Grid item xs={12} sm={6} md={2}>
-                  <ModernTextField
-                    fullWidth
-                    size="small"
-                    placeholder="Search employee..."
-                    value={searchTerm}
-                    onChange={handleSearchChange}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <SearchIcon
-                            sx={{ color: textPrimaryColor }}
-                            fontSize="small"
-                          />
-                        </InputAdornment>
-                      ),
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        color: textPrimaryColor,
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.3),
-                        },
-                        '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: alpha(accentColor, 0.5),
-                        },
-                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                          borderColor: accentColor,
-                        },
-                      },
-                    }}
-                  />
-                </Grid>
-              </Grid>
-            </CardContent>
-          </GlassCard>
-        </Fade>
-
-        {/* Alerts */}
-        {error && (
-          <Fade in timeout={300}>
-            <Alert
-              severity="error"
-              sx={{
-                mb: 3,
-                borderRadius: 3,
-                '& .MuiAlert-message': { fontWeight: 500 },
-              }}
-              icon={<Info />}
-            >
-              {error}
-            </Alert>
-          </Fade>
-        )}
-
-        {/* Table View Section */}
-        <Fade in timeout={900}>
-          <GlassCard
-            sx={{
-              mb: 4,
-              background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-              boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-              border: `1px solid ${alpha(accentColor, 0.1)}`,
-              overflow: 'visible',
-              '&:hover': {
-                boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-              },
-            }}
-          >
-            {/* Table Header */}
-            <Box
-              sx={{
-                p: 4,
-                background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                color: textPrimaryColor,
-                borderBottom: `1px solid ${alpha(accentColor, 0.1)}`,
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <Box>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    opacity: 0.8,
-                    mb: 1,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.1em',
-                    color: textPrimaryColor,
-                  }}
-                >
-                  Payroll Records
-                </Typography>
-                <Typography
-                  variant="h4"
-                  sx={{ fontWeight: 600, color: textPrimaryColor }}
-                >
-                  Released Payroll Data
-                </Typography>
-              </Box>
-              <Box display="flex" gap={1} alignItems="center">
-                <Chip
-                  icon={<PeopleIcon />}
-                  label={`${selectedRows.length} Selected`}
-                  size="small"
-                  sx={{
-                    bgcolor: alpha(accentColor, 0.15),
-                    color: textPrimaryColor,
-                    fontWeight: 500,
-                  }}
-                />
-                <Badge badgeContent={selectedRows.length} color="primary">
-                  <ProfessionalButton
-                    variant="outlined"
-                    size="small"
-                    startIcon={<Refresh />}
-                    onClick={() => window.location.reload()}
-                    sx={{
-                      borderColor: accentColor,
-                      color: textPrimaryColor,
-                      '&:hover': {
-                        borderColor: accentDark,
-                        backgroundColor: alpha(accentColor, 0.1),
-                      },
-                    }}
-                  >
-                    Refresh
-                  </ProfessionalButton>
-                </Badge>
-              </Box>
+              <Typography sx={{ fontWeight: 700, fontSize: '1rem', color: T.muted, mb: 0.5, fontFamily: T.font }}>
+                No Records Found
+              </Typography>
+              <Typography sx={{ fontSize: '0.86rem', color: T.faint, fontFamily: T.font }}>
+                No released payroll records match your current filters. Try adjusting your filters.
+              </Typography>
             </Box>
-
-            {loading ? (
-              <Box display="flex" justifyContent="center" py={10}>
-                <CircularProgress />
-              </Box>
-            ) : (
-              <Box>
-                {/* Table with Fixed Actions Column */}
-                <Box sx={{ display: 'flex', width: '100%', position: 'relative' }}>
-                  {/* Scrollable Table Content */}
-                  <Box
-                    sx={{
-                      overflowX: 'auto',
-                      overflowY: 'visible',
-                      flex: 1,
-                      minWidth: 0,
-                      '&::-webkit-scrollbar': {
-                        height: '10px',
-                      },
-                      '&::-webkit-scrollbar-track': {
-                        background: alpha(accentColor, 0.1),
-                        borderRadius: '4px',
-                      },
-                      '&::-webkit-scrollbar-thumb': {
-                        background: alpha(accentColor, 0.4),
-                        borderRadius: '4px',
-                        '&:hover': {
-                          background: alpha(accentColor, 0.6),
-                        },
-                      },
-                    }}
-                  >
-                    <PremiumTableContainer
-                      sx={{
-                        boxShadow: `0 4px 24px ${alpha(accentColor, 0.06)}`,
-                        border: `1px solid ${alpha(accentColor, 0.08)}`,
-                        overflowX: 'auto',
-                        overflowY: 'visible',
-                        width: 'max-content',
-                        minWidth: '100%',
-                      }}
-                    >
-                      <Table sx={{ minWidth: 'max-content', tableLayout: 'auto' }}>
-                        <TableHead sx={{ bgcolor: alpha(primaryColor, 0.7) }}>
-                          <TableRow>
-                            <PremiumTableCell
-                              padding="checkbox"
-                              isHeader
-                              sx={{ color: textPrimaryColor }}
-                            >
+          ) : (
+            <Box sx={{ display: 'flex', width: '100%', position: 'relative' }}>
+              {/* Scrollable main table */}
+              <Box
+                sx={{
+                  overflowX: 'auto',
+                  flex: 1,
+                  minWidth: 0,
+                  '&::-webkit-scrollbar': { height: 8 },
+                  '&::-webkit-scrollbar-track': { background: T.accentFaint, borderRadius: 4 },
+                  '&::-webkit-scrollbar-thumb': {
+                    background: alpha(T.accent, 0.35), borderRadius: 4,
+                    '&:hover': { background: alpha(T.accent, 0.55) },
+                  },
+                }}
+              >
+                <TableContainer
+                  component={Paper}
+                  elevation={0}
+                  sx={{ overflowX: 'auto', width: 'max-content', minWidth: '100%', borderRadius: 0 }}
+                >
+                  <Table sx={{ minWidth: 'max-content', tableLayout: 'auto', borderCollapse: 'separate', borderSpacing: 0 }}>
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: T.accent }}>
+                        <TableCell
+                          padding="checkbox"
+                          sx={{
+                            borderBottom: `2px solid ${alpha('#fff', 0.25)}`,
+                            bgcolor: T.accent,
+                            py: 1.5,
+                            px: 2,
+                            height: 56,
+                          }}
+                        >
+                          <Checkbox
+                            size="small"
+                            sx={{
+                              color: '#fff',
+                              '&.Mui-checked': { color: '#fff' },
+                              '&.MuiCheckbox-indeterminate': { color: '#fff' },
+                              p: 0,
+                            }}
+                            indeterminate={(() => {
+                              const pageRows = filteredReleasedData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+                              const ids = pageRows.map((r) => r.id);
+                              const sel = selectedRows.filter((id) => ids.includes(id));
+                              return sel.length > 0 && sel.length < ids.length;
+                            })()}
+                            checked={(() => {
+                              const pageRows = filteredReleasedData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+                              const ids = pageRows.map((r) => r.id);
+                              return ids.length > 0 && ids.every((id) => selectedRows.includes(id));
+                            })()}
+                            onChange={(e) => {
+                              const pageRows = filteredReleasedData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+                              const ids = pageRows.map((r) => r.id);
+                              if (e.target.checked) {
+                                setSelectedRows((prev) => [...new Set([...prev, ...ids])]);
+                              } else {
+                                setSelectedRows((prev) => prev.filter((id) => !ids.includes(id)));
+                              }
+                            }}
+                          />
+                        </TableCell>
+                        {[
+                          'No.',
+                          'Department',
+                          'Employee Number',
+                          'Start Date',
+                          'End Date',
+                          'Name',
+                          'Position',
+                          'Gross Salary',
+                          'Net Salary',
+                          'Date Released',
+                        ].map((h) => (
+                          <TableCell
+                            key={h}
+                            sx={{
+                              borderBottom: `2px solid ${alpha('#fff', 0.25)}`,
+                              py: 1.5, px: 2,
+                              fontSize: '0.62rem',
+                              fontWeight: 700,
+                              color: '#fff',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.08em',
+                              whiteSpace: 'nowrap',
+                              bgcolor: T.accent,
+                              fontFamily: T.font,
+                              height: 56,
+                            }}
+                          >
+                            {h}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {filteredReleasedData
+                        .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                        .map((row, index) => (
+                          <TableRow
+                            key={row.id}
+                            sx={{
+                              height: 56,
+                              bgcolor: index % 2 === 0 ? T.rowEven : T.rowOdd,
+                              '&:hover': { bgcolor: `${T.rowHover} !important` },
+                              transition: 'background-color 0.12s',
+                              borderBottom: `1px solid ${T.divider}`,
+                            }}
+                          >
+                            <TableCell padding="checkbox" sx={{ borderBottom: 'none', py: 1.5, px: 2 }}>
                               <Checkbox
-                                sx={{
-                                  color: 'white',
-                                  '&.Mui-checked': {
-                                    color: 'white',
-                                  },
-                                  '&:hover': {
-                                    color: '#F5F5F5',
-                                  },
-                                  '&.MuiCheckbox-indeterminate': {
-                                    color: 'white',
-                                  },
-                                }}
-                                indeterminate={(() => {
-                                  const currentPageRows = filteredReleasedData.slice(
-                                    page * rowsPerPage,
-                                    page * rowsPerPage + rowsPerPage
-                                  );
-                                  const selectableIds = currentPageRows.map((row) => row.id);
-                                  const selectedOnPage = selectedRows.filter((id) =>
-                                    selectableIds.includes(id)
-                                  );
-                                  return (
-                                    selectedOnPage.length > 0 &&
-                                    selectedOnPage.length < selectableIds.length
-                                  );
-                                })()}
-                                checked={(() => {
-                                  const currentPageRows = filteredReleasedData.slice(
-                                    page * rowsPerPage,
-                                    page * rowsPerPage + rowsPerPage
-                                  );
-                                  const selectableIds = currentPageRows.map((row) => row.id);
-                                  if (selectableIds.length === 0) return false;
-                                  return selectableIds.every((id) =>
-                                    selectedRows.includes(id)
-                                  );
-                                })()}
+                                size="small"
+                                checked={selectedRows.includes(row.id)}
                                 onChange={(e) => {
-                                  const currentPageRows = filteredReleasedData.slice(
-                                    page * rowsPerPage,
-                                    page * rowsPerPage + rowsPerPage
-                                  );
-                                  const selectableIds = currentPageRows.map((row) => row.id);
-                                  if (e.target.checked) {
-                                    setSelectedRows((prev) => [
-                                      ...new Set([...prev, ...selectableIds]),
-                                    ]);
+                                  e.stopPropagation();
+                                  if (selectedRows.includes(row.id)) {
+                                    setSelectedRows((prev) => prev.filter((id) => id !== row.id));
                                   } else {
-                                    setSelectedRows((prev) =>
-                                      prev.filter((id) => !selectableIds.includes(id))
-                                    );
+                                    setSelectedRows((prev) => [...prev, row.id]);
                                   }
                                 }}
+                                sx={{ color: T.accentBorder, '&.Mui-checked': { color: T.accent }, p: 0 }}
                               />
-                            </PremiumTableCell>
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              No.
-                            </PremiumTableCell>
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              Department
-                            </PremiumTableCell>
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              Employee Number
-                            </PremiumTableCell>
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              Start Date
-                            </PremiumTableCell>
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              End Date
-                            </PremiumTableCell>
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              Name
-                            </PremiumTableCell>
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              Position
-                            </PremiumTableCell>
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              Gross Salary
-                            </PremiumTableCell>
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              Net Salary
-                            </PremiumTableCell>
-                            <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                              Date Released
-                            </PremiumTableCell>
+                            </TableCell>
+                            <TableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', color: T.muted, fontFamily: T.font, whiteSpace: 'nowrap', px: 2 }}>
+                              {page * rowsPerPage + index + 1}
+                            </TableCell>
+                            <TableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontFamily: T.font, whiteSpace: 'nowrap', px: 2 }}>
+                              {row.department}
+                            </TableCell>
+                            <TableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap', px: 2 }}>
+                              {row.employeeNumber}
+                            </TableCell>
+                            <TableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontFamily: T.font, whiteSpace: 'nowrap', px: 2 }}>
+                              {row.startDate ? row.startDate.split('T')[0] : ''}
+                            </TableCell>
+                            <TableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontFamily: T.font, whiteSpace: 'nowrap', px: 2 }}>
+                              {row.endDate ? row.endDate.split('T')[0] : ''}
+                            </TableCell>
+                            <TableCell sx={{ borderBottom: 'none', fontSize: '0.82rem', fontWeight: 600, color: T.text, fontFamily: T.font, whiteSpace: 'nowrap', px: 2 }}>
+                              {row.name}
+                            </TableCell>
+                            <TableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontFamily: T.font, whiteSpace: 'nowrap', px: 2 }}>
+                              {row.position}
+                            </TableCell>
+                            <TableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600, fontFamily: T.font, whiteSpace: 'nowrap', px: 2 }}>
+                              {row.grossSalary ? fmt(row.grossSalary) : ''}
+                            </TableCell>
+                            <TableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontWeight: 600, color: '#2e7d32', fontFamily: T.font, whiteSpace: 'nowrap', px: 2 }}>
+                              {row.netSalary ? fmt(row.netSalary) : ''}
+                            </TableCell>
+                            <TableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', fontFamily: T.font, whiteSpace: 'nowrap', px: 2 }}>
+                              {row.dateReleased ? new Date(row.dateReleased).toLocaleDateString() : ''}
+                            </TableCell>
                           </TableRow>
-                        </TableHead>
-
-                        <TableBody>
-                          {filteredReleasedData.length > 0 ? (
-                            filteredReleasedData
-                              .slice(
-                                page * rowsPerPage,
-                                page * rowsPerPage + rowsPerPage
-                              )
-                              .map((row, index) => (
-                                <TableRow
-                                  key={row.id}
-                                  sx={{
-                                    '&:nth-of-type(even)': {
-                                      bgcolor: alpha(primaryColor, 0.3),
-                                    },
-                                    '&:hover': {
-                                      backgroundColor:
-                                        alpha(accentColor, 0.05) + ' !important',
-                                    },
-                                    transition: 'all 0.2s ease',
-                                  }}
-                                >
-                                  <PremiumTableCell padding="checkbox">
-                                    <Checkbox
-                                      checked={selectedRows.includes(row.id)}
-                                      onChange={(e) => {
-                                        e.stopPropagation();
-                                        if (selectedRows.includes(row.id)) {
-                                          setSelectedRows((prev) =>
-                                            prev.filter((id) => id !== row.id)
-                                          );
-                                        } else {
-                                          setSelectedRows((prev) => [
-                                            ...prev,
-                                            row.id,
-                                          ]);
-                                        }
-                                      }}
-                                    />
-                                  </PremiumTableCell>
-                                  <PremiumTableCell>
-                                    {page * rowsPerPage + index + 1}
-                                  </PremiumTableCell>
-                                  <PremiumTableCell>{row.department}</PremiumTableCell>
-                                  <PremiumTableCell>
-                                    {row.employeeNumber}
-                                  </PremiumTableCell>
-                                  <PremiumTableCell>
-                                    {row.startDate ? row.startDate.split('T')[0] : ''}
-                                  </PremiumTableCell>
-                                  <PremiumTableCell>
-                                    {row.endDate ? row.endDate.split('T')[0] : ''}
-                                  </PremiumTableCell>
-                                  <PremiumTableCell>{row.name}</PremiumTableCell>
-                                  <PremiumTableCell>{row.position}</PremiumTableCell>
-                                  <PremiumTableCell>
-                                    {row.grossSalary
-                                      ? Number(row.grossSalary).toLocaleString(
-                                          'en-US',
-                                          {
-                                            minimumFractionDigits: 2,
-                                            maximumFractionDigits: 2,
-                                          }
-                                        )
-                                      : ''}
-                                  </PremiumTableCell>
-                                  <PremiumTableCell>
-                                    {row.netSalary
-                                      ? Number(row.netSalary).toLocaleString(
-                                          'en-US',
-                                          {
-                                            minimumFractionDigits: 2,
-                                            maximumFractionDigits: 2,
-                                          }
-                                        )
-                                      : ''}
-                                  </PremiumTableCell>
-                                  <PremiumTableCell>
-                                    {row.dateReleased
-                                      ? new Date(
-                                          row.dateReleased
-                                        ).toLocaleDateString()
-                                      : ''}
-                                  </PremiumTableCell>
-                                </TableRow>
-                              ))
-                          ) : (
-                            <TableRow>
-                              <PremiumTableCell
-                                colSpan={12}
-                                align="center"
-                                sx={{ py: 8 }}
-                              >
-                                <Box sx={{ textAlign: 'center' }}>
-                                  <Info
-                                    sx={{
-                                      fontSize: 80,
-                                      color: alpha(accentColor, 0.3),
-                                      mb: 3,
-                                    }}
-                                  />
-                                  <Typography
-                                    variant="h5"
-                                    sx={{
-                                      color: alpha(accentColor, 0.6),
-                                      fontWeight: 600,
-                                    }}
-                                    gutterBottom
-                                  >
-                                    No Records Found
-                                  </Typography>
-                                  <Typography
-                                    variant="body1"
-                                    sx={{ color: alpha(accentColor, 0.4) }}
-                                  >
-                                    No released payroll records available. Try
-                                    adjusting your filters.
-                                  </Typography>
-                                </Box>
-                              </PremiumTableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </PremiumTableContainer>
-                  </Box>
-                </Box>
-
-                {/* Table Footer */}
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    borderTop: `1px solid ${alpha(accentColor, 0.1)}`,
-                    px: 4,
-                    py: 2,
-                    bgcolor: alpha(primaryColor, 0.5),
-                  }}
-                >
-                  <Box sx={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-                    <Typography
-                      variant="body2"
-                      sx={{ fontWeight: 'bold', color: textPrimaryColor }}
-                    >
-                      Total Records: {filteredReleasedData.length}
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      sx={{ fontWeight: 'bold', color: textPrimaryColor }}
-                    >
-                      Selected: {selectedRows.length}
-                    </Typography>
-                  </Box>
-                  <TablePagination
-                    component="div"
-                    count={filteredReleasedData.length}
-                    page={page}
-                    onPageChange={handleChangePage}
-                    rowsPerPage={rowsPerPage}
-                    onRowsPerPageChange={handleChangeRowsPerPage}
-                    rowsPerPageOptions={[10, 25, 50, 100]}
-                    sx={{
-                      '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows':
-                        {
-                          color: textPrimaryColor,
-                        },
-                      '& .MuiIconButton-root': {
-                        color: textPrimaryColor,
-                      },
-                    }}
-                  />
-                </Box>
+                        ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               </Box>
-            )}
-          </GlassCard>
-        </Fade>
 
-        {/* Action Buttons */}
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 3 }}>
-          <ProfessionalButton
+              {/* Floating right rail — Status column */}
+              <Box
+                sx={{
+                  width: STICKY_STATUS_WIDTH,
+                  minWidth: STICKY_STATUS_WIDTH,
+                  flexShrink: 0,
+                  position: 'sticky',
+                  right: 0,
+                  zIndex: 60,
+                  borderLeft: `2px solid ${T.accentBorder}`,
+                  boxShadow: `-2px 0 10px ${alpha(T.accent, 0.12)}`,
+                  bgcolor: alpha(T.accent, 0.02),
+                }}
+              >
+                <Table sx={{ tableLayout: 'fixed', width: '100%' }}>
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: T.accent }}>
+                      <TableCell
+                        sx={{
+                          borderBottom: `2px solid ${alpha('#fff', 0.25)}`,
+                          py: 1.5, px: 1,
+                          fontSize: '0.62rem', fontWeight: 700,
+                          color: '#fff', textTransform: 'uppercase',
+                          letterSpacing: '0.08em', whiteSpace: 'nowrap',
+                          bgcolor: T.accent, fontFamily: T.font,
+                          height: 56, textAlign: 'center',
+                        }}
+                      >
+                        Status
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {filteredReleasedData
+                      .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                      .map((row, idx) => (
+                        <TableRow
+                          key={`status-${row.id}`}
+                          sx={{ height: 56, bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd, borderBottom: `1px solid ${T.divider}` }}
+                        >
+                          <TableCell sx={{ borderBottom: 'none', p: 0, textAlign: 'center' }}>
+                            <Chip
+                              label="Released"
+                              size="small"
+                              sx={{
+                                fontWeight: 700, fontSize: '0.65rem', fontFamily: T.font,
+                                bgcolor: alpha('#4caf50', 0.12), color: '#2e7d32',
+                                border: `1px solid ${alpha('#4caf50', 0.3)}`,
+                              }}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            </Box>
+          )}
+
+          {/* Pagination */}
+          <Box
+            sx={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              borderTop: `1px solid ${T.divider}`, px: 3.5, py: 0.5, bgcolor: T.accentFaint,
+            }}
+          >
+            <Box sx={{ display: 'flex', gap: 3 }}>
+              <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.text, fontFamily: T.font }}>
+                Total: {filteredReleasedData.length}
+              </Typography>
+              <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.accent, fontFamily: T.font }}>
+                Selected: {selectedRows.length}
+              </Typography>
+            </Box>
+            <TablePagination
+              component="div"
+              count={filteredReleasedData.length}
+              page={page}
+              onPageChange={handleChangePage}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={handleChangeRowsPerPage}
+              rowsPerPageOptions={[10, 25, 50, 100]}
+              sx={{
+                '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': {
+                  fontSize: '0.78rem', fontWeight: 600, color: T.muted, fontFamily: T.font,
+                },
+              }}
+            />
+          </Box>
+        </SectionCard>
+
+        {/* ── Action Buttons ── */}
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 2, mb: 6 }}>
+          <AccentButton
             variant="outlined"
             onClick={() => (window.location.href = '/payroll-processed')}
             size="large"
+            startIcon={<BusinessCenter sx={{ fontSize: '16px !important' }} />}
             sx={{
-              borderColor: accentColor,
-              color: textPrimaryColor,
-              '&:hover': {
-                borderColor: accentDark,
-                backgroundColor: alpha(accentColor, 0.1),
-              },
+              borderColor: T.accentBorder, color: T.accent,
+              '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent },
             }}
-            startIcon={<BusinessCenter />}
           >
             View Processed Payroll
-          </ProfessionalButton>
+          </AccentButton>
 
-          <ProfessionalButton
+          <AccentButton
             variant="outlined"
-            startIcon={<SaveIcon />}
+            startIcon={<SaveIcon sx={{ fontSize: '16px !important' }} />}
             onClick={handleSaveToExcel}
             size="large"
             sx={{
-              borderColor: accentColor,
-              color: textPrimaryColor,
-              '&:hover': {
-                borderColor: accentDark,
-                backgroundColor: alpha(accentColor, 0.1),
-              },
+              borderColor: T.accentBorder, color: T.accent,
+              '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent },
             }}
           >
             Save to Excel
-          </ProfessionalButton>
+          </AccentButton>
 
-          <ProfessionalButton
+          <AccentButton
             variant="contained"
-            startIcon={<Email />}
+            startIcon={<Email sx={{ fontSize: '16px !important' }} />}
             onClick={() => {
               if (selectedRows.length > 0) {
-                // Store selected employee numbers in localStorage for distribution page
                 const selectedEmployeeNumbers = filteredReleasedData
                   .filter((row) => selectedRows.includes(row.id))
                   .map((row) => row.employeeNumber);
@@ -1751,17 +1583,14 @@ const PayrollReleased = () => {
             disabled={selectedRows.length === 0}
             size="large"
             sx={{
-              backgroundColor: accentColor,
-              color: textSecondaryColor,
-              '&:hover': { backgroundColor: accentDark },
-              '&:disabled': {
-                backgroundColor: alpha(accentColor, 0.3),
-                color: alpha(textSecondaryColor, 0.5),
-              },
+              bgcolor: T.accent, color: '#fff',
+              boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}`,
+              '&:hover': { bgcolor: T.accentDark },
+              '&:disabled': { bgcolor: alpha(T.accent, 0.25), color: alpha('#fff', 0.5) },
             }}
           >
-            Distribute Payslips {selectedRows.length > 0 ? `(${selectedRows.length})` : ''}
-          </ProfessionalButton>
+            Distribute Payslips{selectedRows.length > 0 ? ` (${selectedRows.length})` : ''}
+          </AccentButton>
         </Box>
 
         <LoadingOverlay open={overlayLoading} message="Processing..." />
@@ -1771,7 +1600,7 @@ const PayrollReleased = () => {
           onClose={() => setSuccessOpen(false)}
         />
       </Box>
-    </Box>
+    </>
   );
 };
 

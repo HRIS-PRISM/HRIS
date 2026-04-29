@@ -210,21 +210,42 @@ const express = require("express");
     const hrs = toNum(earnedHours);
     if (!employeeNumber || !leaveCode || !Number.isFinite(y) || !Number.isFinite(m) || !hrs) return;
 
+    const isDeduction = hrs < 0;
+    const usedDelta = isDeduction ? Math.abs(hrs) : 0;
+
     await new Promise((resolve) => {
-      db.query(
-        `UPDATE leave_assignment
-         SET
-           carried_forward_hours = GREATEST(0, carried_forward_hours + ?),
-           total_hours           = GREATEST(0, total_hours + ?),
-           remaining_hours       = GREATEST(0, remaining_hours + ?)
-         WHERE employeeNumber = ?
-           AND TRIM(leave_code) = TRIM(?)
-           AND period_year = ?
-           AND period_semester IS NOT NULL
-           AND CAST(period_semester AS UNSIGNED) > ?`,
-        [hrs, hrs, hrs, employeeNumber, leaveCode, y, m],
-        () => resolve(),
-      );
+      if (isDeduction) {
+        db.query(
+          `UPDATE leave_assignment
+           SET
+             carried_forward_hours = GREATEST(0, carried_forward_hours + ?),
+             total_hours           = GREATEST(0, total_hours + ?),
+             remaining_hours       = GREATEST(0, remaining_hours + ?),
+             used_hours            = GREATEST(0, used_hours + ?)
+           WHERE employeeNumber = ?
+             AND TRIM(leave_code) = TRIM(?)
+             AND period_year = ?
+             AND period_semester IS NOT NULL
+             AND CAST(period_semester AS UNSIGNED) > ?`,
+          [hrs, hrs, hrs, usedDelta, employeeNumber, leaveCode, y, m],
+          () => resolve(),
+        );
+      } else {
+        db.query(
+          `UPDATE leave_assignment
+           SET
+             carried_forward_hours = GREATEST(0, carried_forward_hours + ?),
+             total_hours           = GREATEST(0, total_hours + ?),
+             remaining_hours       = GREATEST(0, remaining_hours + ?)
+           WHERE employeeNumber = ?
+             AND TRIM(leave_code) = TRIM(?)
+             AND period_year = ?
+             AND period_semester IS NOT NULL
+             AND CAST(period_semester AS UNSIGNED) > ?`,
+          [hrs, hrs, hrs, employeeNumber, leaveCode, y, m],
+          () => resolve(),
+        );
+      }
     });
   };
 
@@ -1101,7 +1122,7 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
             const afterUpdate = async () => {
               // If a later period (e.g. April) already exists, make it reflect this newly-approved earlier month.
               // This is what prevents "separate 10 hours record" from looking like it didn't add to the later running balance.
-              if (periodMonth) {
+              if (periodMonth && !(earnedHrs < 0 && !matched)) {
                 await propagateEarnedHoursToLaterPeriods({
                   employeeNumber: rec.employee_number,
                   leaveCode: rec.leave_code,
@@ -1155,31 +1176,85 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
             };
 
             if (matched) {
-              db.query(
-                `UPDATE leave_assignment
+              if (earnedHrs >= 0) {
+                // Earnings (SL/SC/VL earned hours): increase allocation + remaining.
+                db.query(
+                  `UPDATE leave_assignment
 SET
   total_hours     = GREATEST(0, total_hours + ?),
   remaining_hours = GREATEST(0, remaining_hours + ?),
   allocated_hours = GREATEST(0, allocated_hours + ?)
 WHERE id = ?`,
-                [earnedHrs, earnedHrs, earnedHrs, matched.id],
-                () => { afterUpdate(); },
-              );
+                  [earnedHrs, earnedHrs, earnedHrs, matched.id],
+                  () => { afterUpdate(); },
+                );
+              } else {
+                // Deductions (earned_hours < 0): reduce remaining + increase used_hours.
+                // IMPORTANT: never insert/update a negative leave_assignment allocation record.
+                const deductionHours = Math.abs(earnedHrs);
+                db.query(
+                  `UPDATE leave_assignment
+SET
+  remaining_hours = GREATEST(0, remaining_hours - ?),
+  used_hours       = GREATEST(0, used_hours + ?)
+WHERE id = ?`,
+                  [deductionHours, deductionHours, matched.id],
+                  () => { afterUpdate(); },
+                );
+              }
             } else {
-              db.query(
-                `INSERT INTO leave_assignment (employeeNumber, leave_code, total_hours, remaining_hours, used_hours, carried_forward_hours, allocated_hours, period_year, period_semester)
-                 VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?)`,
-                [
-                  rec.employee_number,
-                  rec.leave_code,
-                  earnedHrs,
-                  earnedHrs,
-                  earnedHrs,
-                  rec.period_year,
-                  periodMonth ? String(periodMonth) : null,
-                ],
-                () => { afterUpdate(); },
-              );
+              if (earnedHrs >= 0) {
+                // If no allocation row exists (unlikely for earnings), create it.
+                db.query(
+                  `INSERT INTO leave_assignment (employeeNumber, leave_code, total_hours, remaining_hours, used_hours, carried_forward_hours, allocated_hours, period_year, period_semester)
+                   VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?)`,
+                  [
+                    rec.employee_number,
+                    rec.leave_code,
+                    earnedHrs,
+                    earnedHrs,
+                    earnedHrs,
+                    rec.period_year,
+                    periodMonth ? String(periodMonth) : null,
+                  ],
+                  () => { afterUpdate(); },
+                );
+              } else {
+                // Deductions with no matched allocation row for this period:
+                // deduct from the latest available allocation row instead of inserting a 0/0 "ledger" row.
+                // This prevents new conflicting allocation records while keeping used_hours consistent.
+                const deductionHours = Math.abs(earnedHrs);
+                const donor = await new Promise((resolve) => {
+                  db.query(
+                    `SELECT *
+                     FROM leave_assignment
+                     WHERE employeeNumber = ?
+                       AND TRIM(leave_code) = TRIM(?)
+                       AND CAST(remaining_hours AS DECIMAL(12,4)) > 0
+                     ORDER BY period_year DESC, id DESC
+                     LIMIT 1`,
+                    [rec.employee_number, rec.leave_code],
+                    (e4, laRows) => {
+                      if (e4) return resolve(null);
+                      resolve((laRows && laRows[0]) ? laRows[0] : null);
+                    },
+                  );
+                });
+
+                if (!donor) {
+                  throw new Error(`No remaining VL/leave allocation found to apply deduction (${deductionHours} hrs).`);
+                }
+
+                db.query(
+                  `UPDATE leave_assignment
+                   SET
+                     remaining_hours = GREATEST(0, remaining_hours - ?),
+                     used_hours       = GREATEST(0, used_hours + ?)
+                   WHERE id = ?`,
+                  [deductionHours, deductionHours, donor.id],
+                  () => { afterUpdate(); },
+                );
+              }
             }
           })().catch((e) => {
             console.error("[earnings] roll-forward/approve error:", e.message);
@@ -1279,17 +1354,59 @@ WHERE id = ?`,
         db.query(findQuery, findParams, (err2, laRows) => {
           const matched = (!err2 && laRows && laRows[0]) ? laRows[0] : null;
           if (matched) {
-            db.query(
-              `UPDATE leave_assignment SET
-                total_hours      = GREATEST(0, total_hours - ?),
-                remaining_hours  = GREATEST(0, remaining_hours - ?),
-                allocated_hours  = GREATEST(0, allocated_hours - ?)
-              WHERE id = ?`,
-              [earnedHrs, earnedHrs, earnedHrs, matched.id],
-              doDelete
-            );
+            if (earnedHrs >= 0) {
+              // Reversing an earned approval: subtract earned hours from allocation + remaining.
+              db.query(
+                `UPDATE leave_assignment SET
+                  total_hours      = GREATEST(0, total_hours - ?),
+                  remaining_hours  = GREATEST(0, remaining_hours - ?),
+                  allocated_hours  = GREATEST(0, allocated_hours - ?)
+                WHERE id = ?`,
+                [earnedHrs, earnedHrs, earnedHrs, matched.id],
+                doDelete
+              );
+            } else {
+              // Reversing a deduction approval: add back remaining + subtract from used_hours.
+              const deductionHours = Math.abs(earnedHrs);
+              db.query(
+                `UPDATE leave_assignment SET
+                  remaining_hours  = GREATEST(0, remaining_hours + ?),
+                  used_hours       = GREATEST(0, used_hours - ?)
+                WHERE id = ?`,
+                [deductionHours, deductionHours, matched.id],
+                doDelete
+              );
+            }
           } else {
-            doDelete();
+            if (earnedHrs < 0) {
+              // Reversing a deduction approval but the period-specific allocation row is missing.
+              // Try to revert using the latest row that has enough used_hours.
+              const deductionHours = Math.abs(earnedHrs);
+              db.query(
+                `SELECT id
+                 FROM leave_assignment
+                 WHERE employeeNumber = ?
+                   AND TRIM(leave_code) = TRIM(?)
+                   AND CAST(used_hours AS DECIMAL(12,4)) >= ?
+                 ORDER BY period_year DESC, id DESC
+                 LIMIT 1`,
+                [rec.employee_number, rec.leave_code, deductionHours],
+                (err3, donorRows) => {
+                  const donor = !err3 && donorRows && donorRows[0] ? donorRows[0] : null;
+                  if (!donor) return doDelete();
+                  db.query(
+                    `UPDATE leave_assignment SET
+                      remaining_hours = GREATEST(0, remaining_hours + ?),
+                      used_hours       = GREATEST(0, used_hours - ?)
+                    WHERE id = ?`,
+                    [deductionHours, deductionHours, donor.id],
+                    doDelete,
+                  );
+                },
+              );
+            } else {
+              doDelete();
+            }
           }
         });
       } else {

@@ -1,6 +1,7 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
+import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
 import {
   Box,
   Typography,
@@ -523,6 +524,25 @@ const AttendanceUserState = () => {
       }
     }
   };
+
+  const fetchRecordsRef = useRef(fetchRecords);
+  useEffect(() => {
+    fetchRecordsRef.current = fetchRecords;
+  });
+
+  useAttendanceRealtimeRefresh(
+    useCallback(() => {
+      if (!personID || !startDate || !endDate) return;
+      fetchRecordsRef.current(false);
+    }, [personID, startDate, endDate]),
+    {
+      personId: personID,
+      startDate,
+      endDate,
+      requireDateRange: true,
+      matchMode: 'strict',
+    },
+  );
 
   useEffect(() => {
     fetchRecords(false);

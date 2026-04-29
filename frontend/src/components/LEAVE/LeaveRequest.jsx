@@ -8,6 +8,11 @@ import React, {
 } from 'react';
 import axios from 'axios';
 import { getAuthHeaders } from '../../utils/auth';
+import {
+  decimalToLeaveDeductionHours,
+  leaveDeductionHoursToDecimal,
+  getHourlyDecimalRate,
+} from '../../utils/workingHoursConvert';
 import { useSocket } from '../../contexts/SocketContext';
 import {
   Typography,
@@ -850,11 +855,98 @@ const LeaveRequest = () => {
 
   const [errorModal, setErrorModal]     = useState({ open: false, title: '', message: '', iconColor: '#C62828', iconBg: '#FFEBEE', icon: ErrorOutlineIcon });
   const [confirmModal, setConfirmModal] = useState({ open: false, title: '', message: '', confirmLabel: 'Confirm', confirmColor: T.accent, confirmHoverColor: T.accentDark, icon: HelpOutlineIcon, iconColor: T.accent, iconBg: T.accentFaint, loading: false, onConfirm: () => {} });
+  /** HR approve: decimal ↔ hours uses Working Hours tables (same as WorkingHoursConverter). */
+  const [hrApproveModal, setHrApproveModal] = useState({
+    open: false,
+    mode: 'single',
+    loading: false,
+    loadingContext: false,
+    whDayType: '8hr',
+    hours8: [],
+    hours6: [],
+    minutes: [],
+    hoursPerDay: 8,
+    employmentTypeName: '',
+    rateSource: '',
+    rateDecimal: '1',
+    hoursInput: '8',
+    suggestion: null,
+    overrideReason: '',
+    pendingRequest: null,
+    pendingBulkIds: [],
+    fromEditSave: false,
+  });
 
   const showError   = (title, message, opts = {}) => setErrorModal({ open: true, title, message, iconColor: '#C62828', iconBg: '#FFEBEE', icon: ErrorOutlineIcon, ...opts });
   const closeError  = () => setErrorModal((p) => ({ ...p, open: false }));
   const showConfirm = (opts) => setConfirmModal({ open: true, title: '', message: '', confirmLabel: 'Confirm', confirmColor: T.accent, confirmHoverColor: T.accentDark, icon: HelpOutlineIcon, iconColor: T.accent, iconBg: T.accentFaint, loading: false, onConfirm: () => {}, ...opts });
   const closeConfirm = () => setConfirmModal((p) => ({ ...p, open: false, loading: false }));
+
+  const closeHrApproveModal = () => {
+    setHrApproveModal((p) => ({
+      ...p,
+      open: false,
+      loading: false,
+      loadingContext: false,
+      whDayType: '8hr',
+      hours8: [],
+      hours6: [],
+      minutes: [],
+      suggestion: null,
+      overrideReason: '',
+      pendingRequest: null,
+      pendingBulkIds: [],
+      fromEditSave: false,
+    }));
+  };
+
+  const loadHrApproveModalData = async (employeeNumber, leave_code, leave_date = null) => {
+    const [ratesRes, ctxRes, suggestionRes] = await Promise.all([
+      axios.get(`${API_BASE_URL}/api/working-hours/rates`, getAuthHeaders()),
+      axios.post(
+        `${API_BASE_URL}/leaveRoute/leave_request/hr-deduction-context`,
+        { employeeNumber, leave_code },
+        getAuthHeaders(),
+      ),
+      axios.post(
+        `${API_BASE_URL}/leaveRoute/leave_request/deduction-suggestion`,
+        {
+          employeeNumber,
+          leave_code,
+          leave_date,
+          has_leave_form: true,
+          is_half_day_absence: false,
+        },
+        getAuthHeaders(),
+      ),
+    ]);
+    const d = ratesRes.data || {};
+    const hours8 = Array.isArray(d.hours8) ? d.hours8 : [];
+    const hours6 = Array.isArray(d.hours6) ? d.hours6 : [];
+    const minutes = Array.isArray(d.minutes) ? d.minutes : [];
+    const whDayType = '8hr';
+    const active = hours8;
+    const suggestedRate = parseFloat(suggestionRes.data?.recommended_rate_decimal);
+    const startDec = Number.isFinite(suggestedRate) && suggestedRate > 0 ? suggestedRate : 1;
+    const suggestedHours = parseFloat(suggestionRes.data?.recommended_hours);
+    const hrs = Number.isFinite(suggestedHours) && suggestedHours > 0
+      ? suggestedHours
+      : decimalToLeaveDeductionHours(startDec, active, whDayType);
+    return {
+      loadingContext: false,
+      hours8,
+      hours6,
+      minutes,
+      whDayType,
+      hoursPerDay: Number(ctxRes.data?.hoursPerDay) || 8,
+      employmentTypeName: ctxRes.data?.employmentTypeName || '—',
+      rateSource: ctxRes.data?.rateSource || 'default',
+      rateDecimal: String(startDec),
+      hoursInput: String(hrs),
+      suggestion: suggestionRes.data || null,
+      overrideReason: '',
+    };
+  };
 
   const userRole = useMemo(() => {
   try {
@@ -1084,6 +1176,25 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
   };
 
   const handleUpdate = async () => {
+    if (String(editRequest.status) === '2' && String(originalRequest.status) !== '2') {
+      setHrApproveModal((p) => ({
+        ...p,
+        open: true,
+        mode: 'single',
+        fromEditSave: true,
+        loadingContext: true,
+        pendingRequest: { ...editRequest },
+        pendingBulkIds: [],
+      }));
+      try {
+        const patch = await loadHrApproveModalData(editRequest.employeeNumber, editRequest.leave_code, editRequest.leave_date);
+        setHrApproveModal((p) => ({ ...p, ...patch }));
+      } catch (e) {
+        showError('Context Failed', e.response?.data?.error || e.message);
+        closeHrApproveModal();
+      }
+      return;
+    }
     try {
       await axios.put(
         `${API_BASE_URL}/leaveRoute/leave_request/${editRequest.id}`,
@@ -1127,9 +1238,119 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
     });
   };
 
+  const confirmHrApprove = async () => {
+    const rateDec = parseFloat(hrApproveModal.rateDecimal);
+    const hoursN = parseFloat(hrApproveModal.hoursInput);
+    if (!(Number.isFinite(rateDec) && rateDec > 0) && !(Number.isFinite(hoursN) && hoursN > 0)) {
+      showError('Invalid deduction', 'Enter a positive decimal rate and/or hours to deduct.');
+      return;
+    }
+    const suggestedRate = parseFloat(hrApproveModal.suggestion?.recommended_rate_decimal);
+    const suggestedHours = parseFloat(hrApproveModal.suggestion?.recommended_hours);
+    const isOverride =
+      (Number.isFinite(suggestedRate) && !Number.isFinite(rateDec)) ||
+      (Number.isFinite(suggestedHours) && !Number.isFinite(hoursN)) ||
+      (Number.isFinite(suggestedRate) && Number.isFinite(rateDec) && Math.abs(suggestedRate - rateDec) > 0.0001) ||
+      (Number.isFinite(suggestedHours) && Number.isFinite(hoursN) && Math.abs(suggestedHours - hoursN) > 0.0001);
+    if (isOverride && !String(hrApproveModal.overrideReason || '').trim()) {
+      showError('Override reason required', 'Please provide an override reason when changing the suggested deduction.');
+      return;
+    }
+    const decisionContext = {
+      decision: isOverride ? 'overridden' : 'accepted',
+      override_reason: String(hrApproveModal.overrideReason || '').trim() || null,
+      system_recommendation: hrApproveModal.suggestion || null,
+    };
+    setHrApproveModal((p) => ({ ...p, loading: true }));
+    try {
+      if (hrApproveModal.mode === 'bulk') {
+        await axios.put(
+          `${API_BASE_URL}/leaveRoute/leave_request/bulk-update`,
+          {
+            ids: hrApproveModal.pendingBulkIds,
+            status: 2,
+            hr_approval_rate: Number.isFinite(rateDec) && rateDec > 0 ? rateDec : undefined,
+            deduction_hours_each: Number.isFinite(hoursN) && hoursN > 0 ? hoursN : undefined,
+            decision_context: decisionContext,
+          },
+          getAuthHeaders(),
+        );
+        setSuccessAction('bulk');
+        setSuccessOpen(true);
+        setTimeout(() => setSuccessOpen(false), 2000);
+        setSelectedRequests([]);
+        setSelectMode(false);
+        fetchAll();
+        closeHrApproveModal();
+      } else {
+        const base = hrApproveModal.pendingRequest;
+        if (!base) {
+          closeHrApproveModal();
+          return;
+        }
+        await axios.put(
+          `${API_BASE_URL}/leaveRoute/leave_request/${base.id}`,
+          {
+            employeeNumber: base.employeeNumber,
+            leave_code: base.leave_code,
+            leave_date: base.leave_date,
+            status: 2,
+            deduction_hours: Number.isFinite(hoursN) && hoursN > 0 ? hoursN : undefined,
+            rate_decimal: Number.isFinite(rateDec) && rateDec > 0 ? rateDec : undefined,
+            decision_context: decisionContext,
+          },
+          getAuthHeaders(),
+        );
+        if (hrApproveModal.fromEditSave) {
+          setOriginalRequest((prev) => (prev ? { ...prev, status: '2' } : prev));
+          setEditRequest((prev) => (prev ? { ...prev, status: '2' } : prev));
+        } else {
+          closeModal();
+        }
+        setSuccessAction('status');
+        setSuccessOpen(true);
+        setTimeout(() => setSuccessOpen(false), 2000);
+        fetchAll();
+        closeHrApproveModal();
+      }
+    } catch (e) {
+      const msg = e.response?.data?.error || e.response?.data?.message || e.message;
+      showError('HR Approval Failed', msg);
+    } finally {
+      setHrApproveModal((p) => ({ ...p, loading: false }));
+    }
+  };
+
   const handleBulkStatusUpdate = (newStatus) => {
     if (selectedRequests.length === 0) {
       showError('No Selection', 'Please select at least one leave request before performing a bulk action.', { icon: WarningIcon, iconColor: '#F57C00', iconBg: '#FFF3E0' });
+      return;
+    }
+    if (String(newStatus) === '2') {
+      const firstId = selectedRequests[0];
+      const row = leaveRequests.find((r) => r.id === firstId);
+      if (!row) {
+        showError('Bulk Approve', 'Could not load selected requests.');
+        return;
+      }
+      setHrApproveModal((p) => ({
+        ...p,
+        open: true,
+        mode: 'bulk',
+        fromEditSave: false,
+        loadingContext: true,
+        pendingRequest: null,
+        pendingBulkIds: [...selectedRequests],
+      }));
+      (async () => {
+        try {
+          const patch = await loadHrApproveModalData(row.employeeNumber, row.leave_code, row.leave_date);
+          setHrApproveModal((p) => ({ ...p, ...patch }));
+        } catch (e) {
+          showError('Context Failed', e.response?.data?.error || e.message);
+          closeHrApproveModal();
+        }
+      })();
       return;
     }
     const label = statusOptions.find((o) => o.value === String(newStatus))?.label || 'Unknown';
@@ -2247,6 +2468,186 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
           </Fade>
         </Modal>
 
+        {/* ── HR Approve: rate / hours (employment category hours/day) ── */}
+        <Modal
+          open={hrApproveModal.open}
+          onClose={hrApproveModal.loading ? undefined : closeHrApproveModal}
+          sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2, zIndex: 1600 }}
+        >
+          <Box
+            sx={{
+              width: '100%',
+              maxWidth: 440,
+              borderRadius: 3,
+              overflow: 'hidden',
+              bgcolor: T.surface,
+              boxShadow: '0 24px 64px rgba(0,0,0,0.22)',
+            }}
+          >
+            <Box sx={{ px: 3, py: 2.25, background: T.headerGrad, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography sx={{ fontWeight: 700, color: '#fff', fontSize: '0.95rem' }}>
+                HR approval — set deduction
+              </Typography>
+              <IconButton
+                size="small"
+                disabled={hrApproveModal.loading}
+                onClick={closeHrApproveModal}
+                sx={{ color: 'rgba(255,255,255,0.8)' }}
+              >
+                <Close sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Box>
+            <Box sx={{ px: 3, py: 2.5 }}>
+              {hrApproveModal.loadingContext ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                  <CircularProgress size={36} sx={{ color: T.accent }} />
+                </Box>
+              ) : (
+                <>
+                  {hrApproveModal.mode === 'bulk' && (
+                    <Typography sx={{ fontSize: '0.82rem', color: T.text, mb: 1.5 }}>
+                      Approving <strong>{hrApproveModal.pendingBulkIds.length}</strong> request(s). Sample row uses employee #
+                      {leaveRequests.find((r) => r.id === hrApproveModal.pendingBulkIds[0])?.employeeNumber ?? '—'} for category reference.
+                    </Typography>
+                  )}
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
+                    <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.accent }}>Working hours table</Typography>
+                    <ToggleButtonGroup
+                      exclusive
+                      size="small"
+                      value={hrApproveModal.whDayType}
+                      onChange={(_, v) => {
+                        if (!v) return;
+                        setHrApproveModal((p) => {
+                          const active = v === '6hr' ? p.hours6 : p.hours8;
+                          const r = parseFloat(p.rateDecimal);
+                          const h = Number.isFinite(r) && r >= 0
+                            ? String(decimalToLeaveDeductionHours(r, active, v))
+                            : p.hoursInput;
+                          return { ...p, whDayType: v, hoursInput: h };
+                        });
+                      }}
+                      sx={{ '& .MuiToggleButton-root': { px: 1.1, py: 0.35, fontSize: '0.68rem', fontWeight: 700 } }}
+                    >
+                      <ToggleButton value="8hr">8 hr</ToggleButton>
+                      <ToggleButton value="6hr">6 hr</ToggleButton>
+                    </ToggleButtonGroup>
+                  </Box>
+                  <Alert severity="info" sx={{ mb: 2, fontSize: '0.78rem', '& .MuiAlert-message': { width: '100%' } }}>
+                    <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, mb: 0.5 }}>Employee context</Typography>
+                    <Typography sx={{ fontSize: '0.76rem', lineHeight: 1.55 }}>
+                      Employment type: <strong>{hrApproveModal.employmentTypeName || '—'}</strong>
+                      <br />
+                      Same rules as <strong>Working Hours</strong> Quick Converter:{' '}
+                      <strong>1 h</strong> ={' '}
+                      <strong>
+                        {getHourlyDecimalRate(
+                          hrApproveModal.whDayType === '6hr' ? hrApproveModal.hours6 : hrApproveModal.hours8,
+                          hrApproveModal.whDayType,
+                        ).toFixed(3)}
+                      </strong>{' '}
+                      decimal ({hrApproveModal.whDayType}). So decimal <strong>1.25</strong> ⇒ <strong>10</strong> h when 1 h = 0.125.
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.72rem', mt: 1, color: T.muted, lineHeight: 1.5 }}>
+                      Tables load from the API used on the Working Hours page. The values you confirm below are what get saved and deducted.
+                    </Typography>
+                  </Alert>
+                  <Alert severity="success" sx={{ mb: 2, fontSize: '0.76rem', '& .MuiAlert-message': { width: '100%' } }}>
+                    <Typography sx={{ fontSize: '0.76rem', fontWeight: 700, mb: 0.3 }}>Suggested deduction</Typography>
+                    <Typography sx={{ fontSize: '0.74rem', lineHeight: 1.5 }}>
+                      Recommended charge: <strong>{hrApproveModal.suggestion?.recommended_charge_to || '—'}</strong> •
+                      Rate: <strong>{hrApproveModal.suggestion?.recommended_rate_decimal ?? '—'}</strong> •
+                      Hours: <strong>{hrApproveModal.suggestion?.recommended_hours ?? '—'}</strong>
+                    </Typography>
+                    {hrApproveModal.suggestion?.recommendation_reason && (
+                      <Typography sx={{ fontSize: '0.71rem', mt: 0.7, color: T.muted }}>
+                        {hrApproveModal.suggestion.recommendation_reason}
+                      </Typography>
+                    )}
+                  </Alert>
+                  <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.5 }}>Decimal (working-hours scale)</Typography>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    type="number"
+                    inputProps={{ min: 0.001, step: 0.001 }}
+                    value={hrApproveModal.rateDecimal}
+                    disabled={hrApproveModal.loading}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      const active = hrApproveModal.whDayType === '6hr' ? hrApproveModal.hours6 : hrApproveModal.hours8;
+                      const r = parseFloat(v);
+                      const h = Number.isFinite(r) && r >= 0
+                        ? String(decimalToLeaveDeductionHours(r, active, hrApproveModal.whDayType))
+                        : hrApproveModal.hoursInput;
+                      setHrApproveModal((p) => ({ ...p, rateDecimal: v, hoursInput: h }));
+                    }}
+                    sx={{ mb: 2 }}
+                  />
+                  <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.5 }}>
+                    Override reason (required if values differ from suggestion)
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    multiline
+                    minRows={2}
+                    value={hrApproveModal.overrideReason}
+                    disabled={hrApproveModal.loading}
+                    onChange={(e) => setHrApproveModal((p) => ({ ...p, overrideReason: e.target.value }))}
+                    placeholder="State why the suggested rate/hours are being changed."
+                    sx={{ mb: 2 }}
+                  />
+                  <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.5 }}>Deduction (hours)</Typography>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    type="number"
+                    inputProps={{ min: 0.001, step: 0.01 }}
+                    value={hrApproveModal.hoursInput}
+                    disabled={hrApproveModal.loading}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      const active = hrApproveModal.whDayType === '6hr' ? hrApproveModal.hours6 : hrApproveModal.hours8;
+                      const h = parseFloat(v);
+                      const r = Number.isFinite(h) && h >= 0
+                        ? String(leaveDeductionHoursToDecimal(h, active, hrApproveModal.whDayType))
+                        : hrApproveModal.rateDecimal;
+                      setHrApproveModal((p) => ({ ...p, hoursInput: v, rateDecimal: r }));
+                    }}
+                    sx={{ mb: 2 }}
+                  />
+                  {hrApproveModal.mode === 'bulk' && (
+                    <Typography sx={{ fontSize: '0.7rem', color: T.muted, fontStyle: 'italic', mb: 1 }}>
+                      Bulk: if both are set, fixed hours per row win. If only decimal rate is sent, the server applies rate × each employee&apos;s leave-type hours/day — enter explicit hours when amounts must match this converter exactly.
+                    </Typography>
+                  )}
+                </>
+              )}
+            </Box>
+            <Box sx={{ px: 3, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: '#f9f9f9', display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+              <Button
+                variant="outlined"
+                size="small"
+                disabled={hrApproveModal.loading || hrApproveModal.loadingContext}
+                onClick={closeHrApproveModal}
+                sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                size="small"
+                disabled={hrApproveModal.loading || hrApproveModal.loadingContext}
+                onClick={confirmHrApprove}
+                sx={{ fontSize: '0.8rem', bgcolor: '#2E7D32', color: '#fff', '&:hover': { bgcolor: '#1B5E20' } }}
+              >
+                {hrApproveModal.loading ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : 'Confirm HR approval'}
+              </Button>
+            </Box>
+          </Box>
+        </Modal>
+
         {/* ── Edit / View Modal ── */}
         <Modal open={!!editRequest} onClose={closeModal} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>
           <Fade in={!!editRequest}>
@@ -2391,6 +2792,25 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
                             value={String(editRequest.status)}
                             onChange={async (e) => {
                               const newStatus = e.target.value;
+                              if (!isEditing && newStatus === '2' && String(originalRequest.status) !== '2') {
+                                setHrApproveModal((p) => ({
+                                  ...p,
+                                  open: true,
+                                  mode: 'single',
+                                  fromEditSave: false,
+                                  loadingContext: true,
+                                  pendingRequest: { ...editRequest },
+                                  pendingBulkIds: [],
+                                }));
+                                try {
+                                  const patch = await loadHrApproveModalData(editRequest.employeeNumber, editRequest.leave_code, editRequest.leave_date);
+                                  setHrApproveModal((p) => ({ ...p, ...patch }));
+                                } catch (err) {
+                                  showError('Context Failed', err.response?.data?.error || err.message);
+                                  closeHrApproveModal();
+                                }
+                                return;
+                              }
                               setEditRequest((prev) => ({ ...prev, status: newStatus }));
                               if (!isEditing) {
                                 const statusObj = allStatusOptions.find((o) => o.value === newStatus);

@@ -1051,6 +1051,11 @@ const Payslip = forwardRef(({ employee }, ref) => {
           </Box>
         )}
 
+        <LoadingOverlay
+          open={loading || sending}
+          message={sending ? 'Generating PDF…' : 'Loading payroll…'}
+        />
+
         {/* Dialog */}
         <Dialog
           open={modal.open}

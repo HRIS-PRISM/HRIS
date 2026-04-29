@@ -20,15 +20,10 @@ import {
   Alert,
   Fade,
   IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Collapse,
   Paper,
   Tabs,
   Tab,
-  Checkbox,
 } from "@mui/material";
 import { alpha, styled } from "@mui/material/styles";
 import {
@@ -70,6 +65,12 @@ import {
   Receipt as ReceiptIcon,
 } from "@mui/icons-material";
 import { useOfficialAttendanceMetrics } from "./useOfficialAttendanceMetrics";
+import OverallAttendanceCompareModal from "../../ATTENDANCE/OverallAttendanceCompareModal";
+import {
+  buildOverallPutPayloadFromRow,
+  mergeEarningsSummaryChoices,
+  overallRecordsDiffer,
+} from "../../ATTENDANCE/overallAttendanceMerge";
 
 const T = {
   accent: "#6d2323",
@@ -177,6 +178,12 @@ const hrsToHMS = (h) => {
   const ss = totalSec % 60;
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 };
+
+const EARNINGS_OVERALL_COMPARE_FIELDS = [
+  { key: "overallRenderedOfficialTime", label: "Overall — rendered" },
+  { key: "overallRenderedOfficialTimeTardiness", label: "Overall — tardiness" },
+];
+const EARNINGS_COMPARE_KEYS = EARNINGS_OVERALL_COMPARE_FIELDS.map((f) => f.key);
 
 const globalCss = `
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
@@ -458,6 +465,8 @@ const AttendanceFieldCell = ({ f, valueHrs, onChange }) => {
 const AttendanceSummary = ({
   employee, year, month, attendanceData, attendanceLoading,
   onRefresh, onRecordsRefresh, empCat, vlReceiptRefreshKey, balanceRefreshKey,
+  deductedVlHalfDates = [],
+  onDeductHalfDayVLRequested,
 }) => {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -467,6 +476,11 @@ const AttendanceSummary = ({
 
   const [liveBalances, setLiveBalances] = useState({ vl: null, sc: null, cto: null });
 const [balLoading, setBalLoading] = useState(false);
+
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareFormProposal, setCompareFormProposal] = useState(null);
+  const [compareTertiary, setCompareTertiary] = useState(null);
+  const [summaryUpdateNote, setSummaryUpdateNote] = useState("");
 
 const fetchLiveBalances = useCallback(async () => {
   if (!employee) return;
@@ -496,12 +510,18 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
   const calDays = getCalendarDays(year, month);
   const officialStart = raw?.startDate;
   const officialEnd = raw?.endDate;
-  const { absentDays: absentDaysOfficial, lateHrs: lateHrsOfficial } =
-    useOfficialAttendanceMetrics({
-      employeeNumber: employee?.employeeNumber,
-      startDate: officialStart,
-      endDate: officialEnd,
-    });
+  const {
+    absentDays: absentDaysOfficial,
+    halfDays: halfDaysOfficial,
+    rows: officialRows,
+    lateHrs: lateHrsOfficial,
+    renderedHrs: renderedHrsOfficial,
+    loading: officialMetricsLoading,
+  } = useOfficialAttendanceMetrics({
+    employeeNumber: employee?.employeeNumber,
+    startDate: officialStart,
+    endDate: officialEnd,
+  });
 
   const ATTEND_FIELDS = [
     { key: "overallRenderedOfficialTime", label: "Overall Rendered" },
@@ -524,6 +544,20 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
   const handleChange = (key, val) =>
     setFields((p) => ({ ...p, [key]: toNum(val) }));
 
+  const putSummaryPayload = async (payload) => {
+    const token = localStorage.getItem("token");
+    await axios.put(
+      `${API_BASE_URL}/attendance/api/overall_attendance_record/${raw.id}`,
+      payload,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    setSuccess("Saved!");
+    setEditing(false);
+    setSummaryUpdateNote(`Summary updated · ${new Date().toLocaleString()}`);
+    if (onRefresh) onRefresh();
+    setTimeout(() => setSuccess(""), 3000);
+  };
+
   const handleSave = async () => {
     if (!raw?.id) {
       setError("No record to update.");
@@ -531,64 +565,84 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     }
     setSaving(true);
     setError("");
-    const token = localStorage.getItem("token");
-    const payload = {
-      personID: employee.employeeNumber,
-      startDate: raw.startDate,
-      endDate: raw.endDate,
+    const formProposal = {
+      overallRenderedOfficialTime: hoursToHHMM(
+        toNum(fields.overallRenderedOfficialTime),
+      ),
+      overallRenderedOfficialTimeTardiness: hoursToHHMM(
+        toNum(fields.overallRenderedOfficialTimeTardiness),
+      ),
     };
-    ATTEND_FIELDS.forEach(({ key }) => {
-      payload[key] = hoursToHHMM(toNum(fields[key]));
-    });
+    const tertiaryProposal = !officialMetricsLoading
+      ? {
+          overallRenderedOfficialTime: hoursToHHMM(toNum(renderedHrsOfficial)),
+          overallRenderedOfficialTimeTardiness: hoursToHHMM(
+            toNum(lateHrsOfficial),
+          ),
+        }
+      : null;
+    const diffSavedForm = overallRecordsDiffer(
+      raw,
+      formProposal,
+      EARNINGS_COMPARE_KEYS,
+    );
+    const diffSavedTert =
+      tertiaryProposal &&
+      overallRecordsDiffer(raw, tertiaryProposal, EARNINGS_COMPARE_KEYS);
+
     try {
-      await axios.put(
-        `${API_BASE_URL}/attendance/api/overall_attendance_record/${raw.id}`,
-        payload,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      setSuccess("Saved!");
-      setEditing(false);
-      if (onRefresh) onRefresh();
-      setTimeout(() => setSuccess(""), 3000);
+      if (diffSavedForm || diffSavedTert) {
+        setCompareFormProposal(formProposal);
+        setCompareTertiary(tertiaryProposal);
+        setCompareOpen(true);
+        return;
+      }
+      const payload = buildOverallPutPayloadFromRow(raw, formProposal);
+      await putSummaryPayload(payload);
     } catch (err) {
       setError("Save failed: " + (err.response?.data?.message || err.message));
+    } finally {
+      setSaving(false);
     }
+  };
+
+  const handleCompareClose = () => {
+    setCompareOpen(false);
+    setCompareFormProposal(null);
+    setCompareTertiary(null);
     setSaving(false);
   };
 
-  if (!employee)
-    return (
-      <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-        <ColHeader
-          icon={DateRangeIcon}
-          label="Attendance Summary"
-          color={T.muted}
-        />
-      </Box>
-    );
+  const handleCompareConfirm = async (choices) => {
+    if (!raw?.id || !compareFormProposal) {
+      handleCompareClose();
+      return;
+    }
+    setCompareOpen(false);
+    setSaving(true);
+    setError("");
+    try {
+      const payload = mergeEarningsSummaryChoices(
+        raw,
+        compareFormProposal,
+        compareTertiary || {},
+        choices,
+      );
+      await putSummaryPayload(payload);
+    } catch (err) {
+      setError("Save failed: " + (err.response?.data?.message || err.message));
+    } finally {
+      setSaving(false);
+      setCompareFormProposal(null);
+      setCompareTertiary(null);
+    }
+  };
+
+  const showEmployeePlaceholder = !employee;
 
     
 
-  if (attendanceLoading)
-    return (
-      <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-        <ColHeader
-          icon={DateRangeIcon}
-          label="Attendance Summary"
-          color={T.muted}
-        />
-        <Box
-          sx={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <CircularProgress size={20} sx={{ color: T.accent }} />
-        </Box>
-      </Box>
-    );
+  const showAttendanceLoading = attendanceLoading;
 
   const overallHrs = raw ? parseHHMM(raw.overallRenderedOfficialTime) : 0;
 
@@ -597,6 +651,35 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     : (raw ? parseHHMM(raw.overallRenderedOfficialTimeTardiness) : 0);
   const stats = attendanceData?.stats || {};
   const lateDays = toNum(stats.late_days);
+  const halfDays = halfDaysOfficial > 0
+    ? halfDaysOfficial
+    : toNum(stats.half_days ?? stats.halfDays);
+  const halfDayHrs = halfDays * 4;
+  const halfDayDates = useMemo(() => {
+    const list = Array.isArray(officialRows) ? officialRows : [];
+    const empty = (v) => v == null || String(v).trim() === "";
+    const isScheduled = (row) => {
+      const offIn = row?.officialTimeIN;
+      const offOut = row?.officialTimeOUT;
+      return (
+        !empty(offIn) &&
+        !empty(offOut) &&
+        String(offIn).trim() !== "00:00:00 AM" &&
+        String(offOut).trim() !== "00:00:00 PM"
+      );
+    };
+    const hasMorning = (row) => !empty(row?.timeIN) || !empty(row?.breaktimeIN);
+    const hasAfternoon = (row) => !empty(row?.breaktimeOUT) || !empty(row?.timeOUT);
+    const dates = list
+      .filter((row) => isScheduled(row) && hasMorning(row) !== hasAfternoon(row))
+      .map((row) => String(row?.date || "").slice(0, 10))
+      .filter(Boolean);
+    return [...new Set(dates)].sort();
+  }, [officialRows]);
+
+  const deductedSet = new Set(deductedVlHalfDates || []);
+  const nextUndeductedVlHalfDate =
+    halfDayDates.find((d) => !deductedSet.has(d)) || null;
   const absentDays = absentDaysOfficial > 0
     ? absentDaysOfficial
     : toNum(stats.absent_days);
@@ -619,6 +702,32 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
   const half = Math.ceil(ATTEND_FIELDS.length / 2);
   const col1 = ATTEND_FIELDS.slice(0, half);
   const col2 = ATTEND_FIELDS.slice(half);
+
+  // Safe early returns AFTER all hooks are declared (prevents hook order mismatch).
+  if (showEmployeePlaceholder) {
+    return (
+      <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+        <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.muted} />
+      </Box>
+    );
+  }
+  if (showAttendanceLoading) {
+    return (
+      <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+        <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.muted} />
+        <Box
+          sx={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <CircularProgress size={20} sx={{ color: T.accent }} />
+        </Box>
+      </Box>
+    );
+  }
 
   return (
     <Box
@@ -799,7 +908,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
               boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
               bgcolor: "#fff",
               display: "grid",
-              gridTemplateColumns: "56px 1fr 1fr 1fr 1fr",
+              gridTemplateColumns: "56px 1fr 1fr 1fr 1fr 1fr",
               alignItems: "stretch",
             }}
           >
@@ -865,6 +974,13 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
                   totalAbsentDays > 0 ? `${totalAbsentHrs.toFixed(3)} hrs` : "—",
               },
               {
+                label: "Total Half Day",
+                Icon: HourIcon,
+                color: "#8B5E00",
+                primary: halfDays > 0 ? hrsToHMS(halfDayHrs) : "00:00:00",
+                secondary: `${halfDays.toFixed(3)} d`,
+              },
+              {
                 label: "Total Present",
                 Icon: PresentIcon,
                 color: "#2e7d32",
@@ -878,7 +994,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
                   px: 1,
                   py: 0.7,
                   borderRight:
-                    idx < 3 ? "1px solid rgba(0,0,0,0.08)" : "none",
+                    idx < 4 ? "1px solid rgba(0,0,0,0.08)" : "none",
                   bgcolor: "rgba(0,0,0,0.01)",
                   minWidth: 0,
                 }}
@@ -931,6 +1047,11 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
               </Box>
             ))}
           </Box>
+          {/*
+            Kept as a conditional to avoid rendering the button in this old location.
+            The button is now rendered after `DeductionReceiptSwitcher`.
+          */}
+          {null}
 
 {/* ── Edit fields (shown only when editing) ── */}
 {editing && (
@@ -1050,9 +1171,58 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
               refreshKey={vlReceiptRefreshKey}
               empCat={empCat}
             />
+            {onDeductHalfDayVLRequested && (
+              <Box sx={{ mt: 1, display: "flex", justifyContent: "flex-end" }}>
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<DeductIcon sx={{ fontSize: "12px !important" }} />}
+                  disabled={!nextUndeductedVlHalfDate}
+                  onClick={() => {
+                    if (!nextUndeductedVlHalfDate) return;
+                    onDeductHalfDayVLRequested(nextUndeductedVlHalfDate);
+                  }}
+                  sx={{
+                    fontSize: "0.66rem",
+                    fontWeight: 700,
+                    textTransform: "none",
+                    borderRadius: 1.2,
+                    bgcolor: T.accent,
+                    "&:hover": { bgcolor: T.accentDark },
+                  }}
+                >
+                  Deduct Half Day to VL
+                </Button>
+              </Box>
+            )}
+            {summaryUpdateNote ? (
+              <Typography
+                sx={{
+                  fontSize: "0.58rem",
+                  color: T.muted,
+                  fontFamily: T.poppins,
+                  textAlign: "center",
+                  pt: 0.75,
+                  pb: 0.25,
+                }}
+              >
+                {summaryUpdateNote}
+              </Typography>
+            ) : null}
           </>
         )}
       </Box>
+
+      <OverallAttendanceCompareModal
+        open={compareOpen}
+        onClose={handleCompareClose}
+        onConfirm={handleCompareConfirm}
+        savedRow={raw}
+        proposedRecord={compareFormProposal}
+        tertiaryRecord={compareTertiary}
+        fields={EARNINGS_OVERALL_COMPARE_FIELDS}
+        title="Compare summary vs your edit"
+      />
     </Box>
   );
 };

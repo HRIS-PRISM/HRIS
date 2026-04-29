@@ -358,6 +358,7 @@ const CTODeductionReceipt = ({
   const [deducting, setDeducting] = useState(false);
   const [deductError, setDeductError] = useState("");
   const [deductSuccess, setDeductSuccess] = useState("");
+  const [remark, setRemark] = useState("");
   const [policySelection, setPolicySelection] = useState(null); // 'sc' | 'cto' | null
   const [policyMenuAnchor, setPolicyMenuAnchor] = useState(null);
   const [ctoBalance, setCtoBalance] = useState(null);
@@ -517,6 +518,7 @@ const CTODeductionReceipt = ({
   const openConfirm = (source) => {
     setDeductSource(source);
     setDeductError("");
+    setRemark("");
     setConfirmOpen(true);
   };
  
@@ -524,6 +526,7 @@ const CTODeductionReceipt = ({
     setConfirmOpen(false);
     setDeductSource(null);
     setDeductError("");
+    setRemark("");
   };
  
   const handleDeduct = async () => {
@@ -851,9 +854,49 @@ const CTODeductionReceipt = ({
                 </Box>
               )}
               {(tardinessPending || tardinessApproved) && tardDays > 0 && !tardinessFullyDeducted && (
-                <Box/>
-                 
-    
+                <Box
+                  sx={{
+                    px: 1,
+                    py: 0.6,
+                    borderRadius: 1.25,
+                    bgcolor: "rgba(109,35,35,0.05)",
+                    border: "1px solid rgba(109,35,35,0.14)",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 0.75,
+                  }}
+                >
+                  {tardinessApproved ? (
+                    <CheckIcon
+                      sx={{
+                        fontSize: 14,
+                        color: "#2e7d32",
+                        flexShrink: 0,
+                        mt: "1px",
+                      }}
+                    />
+                  ) : (
+                    <PendingIcon
+                      sx={{
+                        fontSize: 14,
+                        color: "#e65100",
+                        flexShrink: 0,
+                        mt: "1px",
+                      }}
+                    />
+                  )}
+                  <Typography
+                    sx={{
+                      fontSize: "0.63rem",
+                      fontWeight: 700,
+                      color: tardinessApproved ? "#1b5e20" : T.accentDark,
+                      fontFamily: T.poppins,
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    Tardiness deduction is already {tardinessApproved ? "approved" : "pending"}.
+                  </Typography>
+                </Box>
               )}
               {/* CTO checkbox OR Policy dropdown — mutually exclusive */}
               {absentDays > 0 && !absenceCoveredBySC && !absenceFullyDeducted && remainingAbsenceCto > 0 && !showScWarningButtons && !(absencePending || absenceApproved || scPending || scApproved) && (
@@ -1038,209 +1081,767 @@ const CTODeductionReceipt = ({
           sx: { borderRadius: 3, overflow: "hidden", boxShadow: "0 12px 48px rgba(0,0,0,0.2)" },
         }}
       >
-        {/* Colored header */}
-        <Box sx={{
-          px: 2.5, py: 2,
-          background: T.headerGrad,
-          display: "flex", alignItems: "center", gap: 1.5,
-        }}>
-          <Box sx={{ width: 36, height: 36, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.18)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            {deductSource === "sc"
-              ? <SCIcon sx={{ fontSize: 18, color: "#fff" }} />
-              : deductSource === "cto"
-                ? <CTOIcon sx={{ fontSize: 18, color: "#fff" }} />
-                : <DeductIcon sx={{ fontSize: 18, color: "#fff" }} />
-            }
-          </Box>
-          <Box>
-            <Typography sx={{ fontFamily: T.poppins, fontWeight: 800, fontSize: "0.95rem", color: "#fff", lineHeight: 1.25 }}>
-              {deductSource === "sc" && "Confirm SC Deduction"}
-              {deductSource === "cto" && "Confirm CTO Override"}
-              {deductSource === "normal" && "Confirm Deductions"}
-            </Typography>
-            <Typography sx={{ fontFamily: T.poppins, fontSize: "0.62rem", color: "rgba(255,255,255,0.7)", mt: 0.2 }}>
-              {monthName(month)} {year} · {employee?.fullName || employee?.employeeNumber || "Employee"}
-            </Typography>
-          </Box>
-        </Box>
- 
-        <DialogContent sx={{ px: 2.5, pt: 2, pb: 0 }}>
- 
-          {/* CTO override warning */}
-          {deductSource === "cto" && (
-            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.8, mb: 1.75, px: 1.25, py: 1, borderRadius: 2, bgcolor: "rgba(255,152,0,0.08)", border: "1px solid rgba(255,152,0,0.3)" }}>
-              <WarnIcon sx={{ fontSize: 15, color: "#e65100", flexShrink: 0, mt: "1px" }} />
-              <Typography sx={{ fontSize: "0.7rem", color: "#bf360c", fontFamily: T.poppins, fontWeight: 600, lineHeight: 1.6 }}>
-                <strong>Policy override:</strong> SC balance of <strong>{scBuffer.toFixed(3)}d</strong> has not been depleted. Proceeding will deduct from CTO instead.
-              </Typography>
+        {/* ── Header ── */}
+        <Box
+          sx={{
+            px: 2,
+            py: 1.75,
+            background: T.headerGrad,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 1.5,
+          }}
+        >
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, minWidth: 0 }}>
+            <Box
+              sx={{
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                bgcolor: "rgba(255,255,255,0.18)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              {deductSource === "sc" ? (
+                <SCIcon sx={{ fontSize: 16, color: "#fff" }} />
+              ) : deductSource === "cto" ? (
+                <CTOIcon sx={{ fontSize: 16, color: "#fff" }} />
+              ) : (
+                <DeductIcon sx={{ fontSize: 16, color: "#fff" }} />
+              )}
             </Box>
-          )}
- 
-          {/* SC policy note */}
-          {deductSource === "sc" && (
-            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.8, mb: 1.75, px: 1.25, py: 1, borderRadius: 2, bgcolor: "rgba(109,35,35,0.06)", border: "1px solid rgba(109,35,35,0.18)" }}>
-              <PolicyIcon sx={{ fontSize: 15, color: T.accent, flexShrink: 0, mt: "1px" }} />
-              <Typography sx={{ fontSize: "0.7rem", color: T.accentDark, fontFamily: T.poppins, fontWeight: 600, lineHeight: 1.6 }}>
-                Following SC-first policy. This will deduct from your SC balance before using CTO.
-              </Typography>
-            </Box>
-          )}
- 
-          {/* ── Breakdown card ── */}
-          <Box sx={{ borderRadius: 2, border: "1px solid rgba(0,0,0,0.1)", overflow: "hidden", mb: 1.75 }}>
- 
-            {/* Source row */}
-            <Box sx={{ px: 1.75, py: 0.55, bgcolor: "rgba(0,0,0,0.03)", borderBottom: "1px solid rgba(0,0,0,0.07)" }}>
-              <Typography sx={{ fontSize: "0.58rem", fontWeight: 800, color: "#999", fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.07em" }}>
-                Deducting from
-              </Typography>
-            </Box>
-            <Box sx={{ px: 1.75, py: 1, display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px dashed rgba(0,0,0,0.08)" }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 0.7 }}>
-                {deductSource === "sc"
-                  ? <SCIcon sx={{ fontSize: 15, color: T.accent }} />
-                  : <CTOIcon sx={{ fontSize: 15, color: T.accent }} />
-                }
-                <Typography sx={{ fontSize: "0.76rem", fontWeight: 600, color: "#1a1a1a", fontFamily: T.poppins }}>
-                  {deductSource === "sc" ? "Service Credit (SC)" : deductSource === "cto" ? "Compensatory Time Off (CTO)" : "CTO / VL"}
-                </Typography>
-              </Box>
-              <Chip
-                size="small"
-                label={`${deductSource === "sc" ? scBuffer.toFixed(3) : ctoBal.toFixed(3)} d available`}
+
+            <Box sx={{ minWidth: 0 }}>
+              <Typography
                 sx={{
-                  height: 20, fontSize: "0.63rem", fontWeight: 700,
-                  bgcolor: "rgba(109,35,35,0.06)",
-                  color: T.accent,
-                  border: `1px solid ${T.accentBorder}`,
+                  fontFamily: T.poppins,
+                  fontWeight: 800,
+                  fontSize: "0.95rem",
+                  color: "#fff",
+                  lineHeight: 1.2,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
                 }}
-              />
-            </Box>
- 
-            {/* Breakdown */}
-            <Box sx={{ px: 1.75, py: 0.55, bgcolor: "rgba(0,0,0,0.03)", borderBottom: "1px solid rgba(0,0,0,0.07)" }}>
-              <Typography sx={{ fontSize: "0.58rem", fontWeight: 800, color: "#999", fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.07em" }}>
-                Breakdown
+              >
+                {deductSource === "sc" && "Confirm SC Deduction"}
+                {deductSource === "cto" && "Confirm CTO Override"}
+                {deductSource === "normal" &&
+                  checkedTardiness &&
+                  remainingTardVl > 0 &&
+                  !checkedAbsence && (
+                    <>Confirm deduct {remainingTardVl.toFixed(3)}d tardiness from VL</>
+                  )}
+                {deductSource === "normal" &&
+                  (!checkedTardiness || remainingTardVl <= 0 || checkedAbsence) &&
+                  "Confirm Deductions"}
+              </Typography>
+              <Typography
+                sx={{
+                  fontFamily: T.poppins,
+                  fontSize: "0.62rem",
+                  color: "rgba(255,255,255,0.7)",
+                  mt: 0.25,
+                }}
+              >
+                {monthName(month)} {year}
               </Typography>
             </Box>
-            <Box sx={{ px: 1.75, py: 1 }}>
-              {(deductSource === "sc" || deductSource === "cto") && (
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <Box>
-                    <Typography sx={{ fontSize: "0.74rem", fontWeight: 600, color: T.accent, fontFamily: T.poppins }}>Absences</Typography>
-                    <Typography sx={{ fontSize: "0.61rem", color: T.faint, fontFamily: T.poppins }}>{absentDays} day(s) × 8h</Typography>
-                  </Box>
-                  <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>
-                    − {absenceAmountForSource.toFixed(3)} d
-                  </Typography>
-                </Box>
-              )}
-              {deductSource === "normal" && (
-                <>
-                  {checkedAbsence && remainingAbsenceCto > 0 && (
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 0.6 }}>
-                      <Box>
-                        <Typography sx={{ fontSize: "0.74rem", fontWeight: 600, color: "#6a1b9a", fontFamily: T.poppins }}>Absence → CTO</Typography>
-                        <Typography sx={{ fontSize: "0.61rem", color: T.faint, fontFamily: T.poppins }}>{absentDays} day(s)</Typography>
-                      </Box>
-                      <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#6a1b9a", fontFamily: T.poppins }}>− {remainingAbsenceCto.toFixed(3)} d</Typography>
-                    </Box>
-                  )}
-                  {checkedTardiness && remainingTardVl > 0 && (
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                      <Box>
-                        <Typography sx={{ fontSize: "0.74rem", fontWeight: 600, color: "#c62828", fontFamily: T.poppins }}>Tardiness → VL</Typography>
-                        <Typography sx={{ fontSize: "0.61rem", color: T.faint, fontFamily: T.poppins }}>{tardHrs.toFixed(3)} hrs · {hrsToHMS(tardHrs)}</Typography>
-                      </Box>
-                      <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#c62828", fontFamily: T.poppins }}>− {remainingTardVl.toFixed(3)} d</Typography>
-                    </Box>
-                  )}
-                </>
-              )}
-            </Box>
- 
-            {/* New balance preview */}
-            {(deductSource === "sc" || deductSource === "cto") && (() => {
-              const newBalRaw = deductSource === "sc" ? newScBalance : newCtoBalanceOverride;
-              const newBal = (deductSource === "sc" && !allowScNegZero && Object.is(newBalRaw, -0)) ? 0 : newBalRaw;
-              const balColor = newBal < 0 ? "#c62828" : newBal === 0 ? "#7a4a00" : "#1e4d20";
-              const bgColor = newBal < 0 ? "rgba(198,40,40,0.06)" : newBal === 0 ? "rgba(122,74,0,0.05)" : "rgba(46,125,50,0.06)";
-              return (
-                <Box sx={{ px: 1.75, py: 1, bgcolor: bgColor, borderTop: "1.5px solid rgba(0,0,0,0.09)", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <Box>
-                    <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: "#1a1a1a", fontFamily: T.poppins }}>
-                      New {deductSource === "sc" ? "SC" : "CTO"} Balance
-                    </Typography>
-                    {newBal < 0 && <Typography sx={{ fontSize: "0.6rem", color: "#c62828", fontFamily: T.poppins, fontWeight: 600, mt: 0.15 }}>Shortfall → salary deduction</Typography>}
-                  </Box>
-                  <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: balColor, fontFamily: T.poppins }}>
-                    {newBal.toFixed(3)} d
-                  </Typography>
-                </Box>
-              );
-            })()}
-            {deductSource === "normal" && checkedAbsence && remainingAbsenceCto > 0 && (() => {
-              const balColor = newCtoBalance < 0 ? "#c62828" : newCtoBalance === 0 ? "#7a4a00" : "#1e4d20";
-              return (
-                <Box sx={{ px: 1.75, py: 1, bgcolor: newCtoBalance < 0 ? "rgba(198,40,40,0.06)" : "rgba(46,125,50,0.06)", borderTop: "1.5px solid rgba(0,0,0,0.09)", display: "flex", justifyContent: "space-between" }}>
-                  <Box>
-                    <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: "#1a1a1a", fontFamily: T.poppins }}>New CTO Balance</Typography>
-                    {newCtoBalance < 0 && <Typography sx={{ fontSize: "0.6rem", color: "#c62828", fontFamily: T.poppins, fontWeight: 600 }}>Shortfall → salary deduction</Typography>}
-                  </Box>
-                  <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: balColor, fontFamily: T.poppins }}>{newCtoBalance.toFixed(3)} d</Typography>
-                </Box>
-              );
-            })()}
           </Box>
- 
-          {/* Auto-approved note */}
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.7, px: 1.25, py: 1, borderRadius: 1.75, bgcolor: "rgba(46,125,50,0.07)", border: "1px solid rgba(46,125,50,0.2)", mb: 2 }}>
-            <CheckIcon sx={{ fontSize: 14, color: T.accent, flexShrink: 0 }} />
-            <Typography sx={{ fontSize: "0.68rem", color: T.accentDark, fontFamily: T.poppins, fontWeight: 600 }}>
-              Auto-approved — balance updates immediately upon confirmation.
-            </Typography>
-          </Box>
- 
-          {deductError && (
-            <Alert severity="error" sx={{ mb: 1.5, py: 0.25, fontSize: "0.68rem", borderRadius: 1.5 }}>{deductError}</Alert>
-          )}
-        </DialogContent>
- 
-        <DialogActions sx={{ px: 2.5, pb: 2.5, pt: 0.5, gap: 1 }}>
-          <Button
+
+          <IconButton
+            size="small"
             onClick={closeConfirm}
             disabled={deducting}
             sx={{
-              textTransform: "none", color: T.muted, fontFamily: T.poppins,
-              fontWeight: 600, fontSize: "0.82rem", borderRadius: 1.5, px: 2,
-              "&:hover": { bgcolor: "rgba(0,0,0,0.04)" },
+              color: "#fff",
+              bgcolor: "rgba(255,255,255,0.12)",
+              borderRadius: 1,
+              p: 0.5,
+              "&:hover": { bgcolor: "rgba(255,255,255,0.22)" },
+            }}
+          >
+            <Close sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
+
+        <DialogContent sx={{ p: 0 }}>
+          <Box
+            sx={{
+              px: 2,
+              py: 1.75,
+              display: "flex",
+              flexDirection: "column",
+              gap: 1.25,
+            }}
+          >
+            {/* Employee strip */}
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1.25,
+                bgcolor: "rgba(0,0,0,0.03)",
+                borderRadius: 1.75,
+                border: "0.5px solid rgba(0,0,0,0.09)",
+                px: 1.5,
+                py: 1,
+              }}
+            >
+              <Avatar
+                sx={{
+                  width: 36,
+                  height: 36,
+                  bgcolor: T.accent,
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  fontFamily: T.poppins,
+                  flexShrink: 0,
+                }}
+              >
+                {(employee?.fullName || employee?.employeeNumber || "Employee")
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((n) => n[0]?.toUpperCase())
+                  .join("")}
+              </Avatar>
+
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography
+                  sx={{
+                    fontSize: "0.8rem",
+                    fontWeight: 800,
+                    color: T.text,
+                    fontFamily: T.poppins,
+                    lineHeight: 1.2,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {employee?.fullName || employee?.employeeNumber || "Employee"}
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.62rem",
+                    color: T.faint,
+                    fontFamily: T.poppins,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {employee?.employeeNumber || "—"}
+                  {empCat ? ` · ${empCat}` : ""}
+                </Typography>
+              </Box>
+
+              <Box sx={{ textAlign: "right", flexShrink: 0 }}>
+                <Typography
+                  sx={{
+                    fontSize: "0.58rem",
+                    color: T.faint,
+                    fontFamily: T.poppins,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  {deductSource === "sc"
+                    ? "SC Balance"
+                    : deductSource === "cto"
+                      ? "CTO Balance"
+                      : checkedTardiness
+                        ? "VL Balance"
+                        : "CTO Balance"}
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.95rem",
+                    fontWeight: 900,
+                    color: T.accent,
+                    fontFamily: T.poppins,
+                    lineHeight: 1.1,
+                  }}
+                >
+                  {(
+                    Number(
+                      deductSource === "sc"
+                        ? scBuffer
+                        : deductSource === "cto"
+                          ? ctoBal
+                          : checkedTardiness
+                            ? vlBal
+                            : ctoBal,
+                    ) || 0
+                  ).toFixed(3)}{" "}
+                  d
+                </Typography>
+              </Box>
+            </Box>
+
+            {/* Date/period being deducted */}
+            <Box>
+              <Typography
+                sx={{
+                  fontSize: "0.58rem",
+                  fontWeight: 800,
+                  color: T.muted,
+                  fontFamily: T.poppins,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.07em",
+                  mb: 0.5,
+                }}
+              >
+                Period being deducted
+              </Typography>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  bgcolor: "rgba(0,0,0,0.03)",
+                  borderRadius: 1.5,
+                  border: "0.5px solid rgba(0,0,0,0.12)",
+                  px: 1.25,
+                  py: 0.85,
+                }}
+              >
+                <CalIcon sx={{ fontSize: 14, color: T.accent, flexShrink: 0 }} />
+                <Typography
+                  sx={{
+                    fontSize: "0.8rem",
+                    fontWeight: 800,
+                    color: T.text,
+                    fontFamily: T.poppins,
+                    flex: 1,
+                  }}
+                >
+                  {monthName(month)} {year}
+                </Typography>
+                <Box
+                  sx={{
+                    bgcolor: "rgba(109,35,35,0.10)",
+                    color: T.accentDark,
+                    border: "0.5px solid rgba(109,35,35,0.22)",
+                    borderRadius: 1,
+                    px: 0.75,
+                    py: 0.2,
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      fontSize: "0.58rem",
+                      fontWeight: 800,
+                      fontFamily: T.poppins,
+                    }}
+                  >
+                    Deduction confirmed
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+
+            {/* Policy notes (kept same logic, moved layout) */}
+            {deductSource === "cto" && (
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 0.8,
+                  px: 1.25,
+                  py: 1,
+                  borderRadius: 2,
+                  bgcolor: "rgba(255,152,0,0.08)",
+                  border: "1px solid rgba(255,152,0,0.3)",
+                }}
+              >
+                <WarnIcon sx={{ fontSize: 15, color: "#e65100", flexShrink: 0, mt: "1px" }} />
+                <Typography
+                  sx={{
+                    fontSize: "0.7rem",
+                    color: "#bf360c",
+                    fontFamily: T.poppins,
+                    fontWeight: 700,
+                    lineHeight: 1.55,
+                  }}
+                >
+                  <strong>Policy override:</strong> SC balance of <strong>{scBuffer.toFixed(3)}d</strong>{" "}
+                  has not been depleted. Proceeding will deduct from CTO instead.
+                </Typography>
+              </Box>
+            )}
+
+            {deductSource === "sc" && (
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 0.8,
+                  px: 1.25,
+                  py: 1,
+                  borderRadius: 2,
+                  bgcolor: "rgba(109,35,35,0.06)",
+                  border: "1px solid rgba(109,35,35,0.18)",
+                }}
+              >
+                <PolicyIcon sx={{ fontSize: 15, color: T.accent, flexShrink: 0, mt: "1px" }} />
+                <Typography
+                  sx={{
+                    fontSize: "0.7rem",
+                    color: T.accentDark,
+                    fontFamily: T.poppins,
+                    fontWeight: 700,
+                    lineHeight: 1.55,
+                  }}
+                >
+                  Following SC-first policy. This will deduct from your SC balance before using CTO.
+                </Typography>
+              </Box>
+            )}
+
+            {/* Deduction breakdown */}
+            <Box
+              sx={{
+                borderRadius: 1.5,
+                border: "0.5px solid rgba(0,0,0,0.09)",
+                overflow: "hidden",
+              }}
+            >
+              <Box
+                sx={{
+                  px: 1.25,
+                  py: 0.6,
+                  bgcolor: "rgba(0,0,0,0.03)",
+                  borderBottom: "0.5px solid rgba(0,0,0,0.08)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.5,
+                }}
+              >
+                <LeaveIcon sx={{ fontSize: 10, color: T.muted }} />
+                <Typography
+                  sx={{
+                    fontSize: "0.58rem",
+                    fontWeight: 900,
+                    color: T.muted,
+                    fontFamily: T.poppins,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.07em",
+                  }}
+                >
+                  Deduction breakdown
+                </Typography>
+              </Box>
+
+              <Box
+                sx={{
+                  px: 1.25,
+                  py: 0.85,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 0.7,
+                }}
+              >
+                {/* Deducting from */}
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 1,
+                    pb: 0.2,
+                    borderBottom: "1px dashed rgba(0,0,0,0.08)",
+                  }}
+                >
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.7, minWidth: 0 }}>
+                    {deductSource === "sc" ? (
+                      <SCIcon sx={{ fontSize: 14, color: T.accent }} />
+                    ) : (
+                      <CTOIcon sx={{ fontSize: 14, color: T.accent }} />
+                    )}
+                    <Typography
+                      sx={{
+                        fontSize: "0.76rem",
+                        fontWeight: 700,
+                        color: "#1a1a1a",
+                        fontFamily: T.poppins,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {deductSource === "sc"
+                        ? "Service Credit (SC)"
+                        : deductSource === "cto"
+                          ? "Compensatory Time Off (CTO)"
+                          : "CTO / VL"}
+                    </Typography>
+                  </Box>
+
+                  <Chip
+                    size="small"
+                    label={`${
+                      deductSource === "sc" ? scBuffer.toFixed(3) : ctoBal.toFixed(3)
+                    } d available`}
+                    sx={{
+                      height: 20,
+                      fontSize: "0.63rem",
+                      fontWeight: 800,
+                      bgcolor: "rgba(109,35,35,0.06)",
+                      color: T.accent,
+                      border: `1px solid ${T.accentBorder}`,
+                    }}
+                  />
+                </Box>
+
+                {/* Amount + hours */}
+                {(() => {
+                  const deductDays =
+                    deductSource === "sc" || deductSource === "cto"
+                      ? absenceAmountForSource
+                      : (checkedAbsence ? remainingAbsenceCto : 0) + (checkedTardiness ? remainingTardVl : 0);
+                  const deductHrs = deductDays * 8;
+                  return (
+                    <>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <Typography sx={{ fontSize: "0.7rem", color: T.faint, fontFamily: T.poppins }}>
+                          Deduction amount
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.78rem", fontWeight: 900, color: "#1a1a1a", fontFamily: T.poppins }}>
+                          {deductDays.toFixed(3)} days
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <Typography sx={{ fontSize: "0.7rem", color: T.faint, fontFamily: T.poppins }}>
+                          Equivalent hours
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.78rem", fontWeight: 900, color: "#1a1a1a", fontFamily: T.poppins }}>
+                          {deductHrs.toFixed(3)} hrs
+                        </Typography>
+                      </Box>
+                    </>
+                  );
+                })()}
+
+                {/* Breakdown lines (preserve existing logic) */}
+                {deductSource === "sc" || deductSource === "cto" ? (
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <Box>
+                      <Typography sx={{ fontSize: "0.74rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>
+                        Absences
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.61rem", color: T.faint, fontFamily: T.poppins }}>
+                        {absentDays} day(s) × 8h
+                      </Typography>
+                    </Box>
+                    <Typography sx={{ fontSize: "0.78rem", fontWeight: 900, color: T.accent, fontFamily: T.poppins }}>
+                      − {absenceAmountForSource.toFixed(3)} d
+                    </Typography>
+                  </Box>
+                ) : (
+                  <>
+                    {checkedAbsence && remainingAbsenceCto > 0 && (
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <Box>
+                          <Typography sx={{ fontSize: "0.74rem", fontWeight: 800, color: "#6a1b9a", fontFamily: T.poppins }}>
+                            Absence → CTO
+                          </Typography>
+                          <Typography sx={{ fontSize: "0.61rem", color: T.faint, fontFamily: T.poppins }}>
+                            {absentDays} day(s)
+                          </Typography>
+                        </Box>
+                        <Typography sx={{ fontSize: "0.78rem", fontWeight: 900, color: "#6a1b9a", fontFamily: T.poppins }}>
+                          − {remainingAbsenceCto.toFixed(3)} d
+                        </Typography>
+                      </Box>
+                    )}
+
+                    {checkedTardiness && remainingTardVl > 0 && (
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <Box>
+                          <Typography sx={{ fontSize: "0.74rem", fontWeight: 800, color: "#c62828", fontFamily: T.poppins }}>
+                            Tardiness → VL
+                          </Typography>
+                          <Typography sx={{ fontSize: "0.61rem", color: T.faint, fontFamily: T.poppins }}>
+                            {tardHrs.toFixed(3)} hrs · {hrsToHMS(tardHrs)}
+                          </Typography>
+                        </Box>
+                        <Typography sx={{ fontSize: "0.78rem", fontWeight: 900, color: "#c62828", fontFamily: T.poppins }}>
+                          − {remainingTardVl.toFixed(3)} d
+                        </Typography>
+                      </Box>
+                    )}
+                  </>
+                )}
+
+                {/* New balance preview (preserve existing conditional behavior) */}
+                {(deductSource === "sc" || deductSource === "cto") && (() => {
+                  const newBalRaw = deductSource === "sc" ? newScBalance : newCtoBalanceOverride;
+                  const newBal =
+                    deductSource === "sc" && !allowScNegZero && Object.is(newBalRaw, -0) ? 0 : newBalRaw;
+                  const balColor = newBal < 0 ? "#c62828" : newBal === 0 ? "#7a4a00" : "#1e4d20";
+                  const bgColor =
+                    newBal < 0 ? "rgba(198,40,40,0.06)" : newBal === 0 ? "rgba(122,74,0,0.05)" : "rgba(46,125,50,0.06)";
+                  return (
+                    <Box
+                      sx={{
+                        px: 1.5,
+                        py: 0.9,
+                        bgcolor: bgColor,
+                        borderTop: "1.5px solid rgba(0,0,0,0.09)",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      <Box>
+                        <Typography sx={{ fontSize: "0.72rem", fontWeight: 900, color: "#1a1a1a", fontFamily: T.poppins }}>
+                          New {deductSource === "sc" ? "SC" : "CTO"} Balance
+                        </Typography>
+                        {newBal < 0 && (
+                          <Typography
+                            sx={{
+                              fontSize: "0.6rem",
+                              color: "#c62828",
+                              fontFamily: T.poppins,
+                              fontWeight: 700,
+                              mt: 0.15,
+                            }}
+                          >
+                            Shortfall → salary deduction
+                          </Typography>
+                        )}
+                      </Box>
+                      <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: balColor, fontFamily: T.poppins }}>
+                        {newBal.toFixed(3)} d
+                      </Typography>
+                    </Box>
+                  );
+                })()}
+
+                {deductSource === "normal" && checkedAbsence && remainingAbsenceCto > 0 && (() => {
+                  const balColor =
+                    newCtoBalance < 0 ? "#c62828" : newCtoBalance === 0 ? "#7a4a00" : "#1e4d20";
+                  return (
+                    <Box
+                      sx={{
+                        px: 1.5,
+                        py: 0.9,
+                        bgcolor:
+                          newCtoBalance < 0 ? "rgba(198,40,40,0.06)" : "rgba(46,125,50,0.06)",
+                        borderTop: "1.5px solid rgba(0,0,0,0.09)",
+                        display: "flex",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <Box>
+                        <Typography sx={{ fontSize: "0.72rem", fontWeight: 900, color: "#1a1a1a", fontFamily: T.poppins }}>
+                          New CTO Balance
+                        </Typography>
+                        {newCtoBalance < 0 && (
+                          <Typography
+                            sx={{
+                              fontSize: "0.6rem",
+                              color: "#c62828",
+                              fontFamily: T.poppins,
+                              fontWeight: 700,
+                            }}
+                          >
+                            Shortfall → salary deduction
+                          </Typography>
+                        )}
+                      </Box>
+                      <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: balColor, fontFamily: T.poppins }}>
+                        {newCtoBalance.toFixed(3)} d
+                      </Typography>
+                    </Box>
+                  );
+                })()}
+
+                {deductSource === "normal" && checkedTardiness && remainingTardVl > 0 && (() => {
+                  const vlColor = newVlBalance < 0 ? "#c62828" : newVlBalance === 0 ? "#7a4a00" : "#1e4d20";
+                  const bgColor =
+                    newVlBalance < 0 ? "rgba(198,40,40,0.06)" : newVlBalance === 0 ? "rgba(122,74,0,0.05)" : "rgba(46,125,50,0.06)";
+
+                  return (
+                    <Box
+                      sx={{
+                        px: 1.5,
+                        py: 0.9,
+                        bgcolor: bgColor,
+                        borderTop: "1.5px solid rgba(0,0,0,0.09)",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      <Box>
+                        <Typography sx={{ fontSize: "0.72rem", fontWeight: 900, color: "#1a1a1a", fontFamily: T.poppins }}>
+                          VL Balance
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins, fontWeight: 700, mt: 0.15 }}>
+                          Before: {vlBal.toFixed(3)} d
+                        </Typography>
+                      </Box>
+
+                      <Box sx={{ textAlign: "right" }}>
+                        {newVlBalance < 0 && (
+                          <Typography sx={{ fontSize: "0.6rem", color: "#c62828", fontFamily: T.poppins, fontWeight: 700, mb: 0.15 }}>
+                            Shortfall → salary deduction
+                          </Typography>
+                        )}
+                        <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: vlColor, fontFamily: T.poppins }}>
+                          After: {newVlBalance.toFixed(3)} d
+                        </Typography>
+                      </Box>
+                    </Box>
+                  );
+                })()}
+              </Box>
+            </Box>
+
+            {/* Remark (optional) */}
+            <Box>
+              <Typography
+                sx={{
+                  fontSize: "0.58rem",
+                  fontWeight: 800,
+                  color: T.muted,
+                  fontFamily: T.poppins,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.07em",
+                  mb: 0.5,
+                }}
+              >
+                Remark{" "}
+                <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
+                  (optional)
+                </span>
+              </Typography>
+              <TextField
+                multiline
+                rows={2}
+                fullWidth
+                placeholder="Add a note for this deduction…"
+                value={remark}
+                onChange={(e) => setRemark(e.target.value)}
+                disabled={deducting}
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    borderRadius: 1.5,
+                    fontSize: "0.78rem",
+                    fontFamily: T.poppins,
+                    bgcolor: "#fff",
+                    "& fieldset": { borderColor: "rgba(0,0,0,0.12)" },
+                    "&:hover fieldset": { borderColor: T.accent },
+                    "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 },
+                  },
+                }}
+              />
+            </Box>
+
+            {/* Auto-approved note */}
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 0.7,
+                px: 1.25,
+                py: 1,
+                borderRadius: 1.75,
+                bgcolor: "rgba(46,125,50,0.07)",
+                border: "1px solid rgba(46,125,50,0.2)",
+              }}
+            >
+              <CheckIcon sx={{ fontSize: 14, color: T.accent, flexShrink: 0 }} />
+              <Typography sx={{ fontSize: "0.68rem", color: T.accentDark, fontFamily: T.poppins, fontWeight: 700 }}>
+                Auto-approved — balance updates immediately upon confirmation.
+              </Typography>
+            </Box>
+
+            {deductError && (
+              <Alert
+                severity="error"
+                sx={{
+                  mt: 0.2,
+                  py: 0.25,
+                  fontSize: "0.68rem",
+                  borderRadius: 1.5,
+                }}
+              >
+                {deductError}
+              </Alert>
+            )}
+          </Box>
+        </DialogContent>
+
+        {/* ── Footer ── */}
+        <DialogActions
+          sx={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 1,
+            px: 2,
+            py: 1.25,
+            borderTop: `1px solid ${T.divider}`,
+            bgcolor: "rgba(0,0,0,0.02)",
+          }}
+        >
+          <Button
+            size="small"
+            onClick={closeConfirm}
+            disabled={deducting}
+            sx={{
+              fontSize: "0.72rem",
+              fontWeight: 700,
+              textTransform: "none",
+              fontFamily: T.poppins,
+              color: T.muted,
+              borderRadius: 1.25,
+              px: 1.5,
+              border: "0.5px solid rgba(0,0,0,0.15)",
             }}
           >
             Cancel
           </Button>
           <Button
+            size="small"
             variant="contained"
             onClick={handleDeduct}
             disabled={deducting}
-            startIcon={deducting ? <CircularProgress size={13} sx={{ color: "#fff" }} /> : null}
+            startIcon={
+              deducting ? <CircularProgress size={11} sx={{ color: "#fff" }} /> : <SaveIcon sx={{ fontSize: "13px !important" }} />
+            }
             sx={{
-              textTransform: "none", fontFamily: T.poppins, fontWeight: 700,
-              fontSize: "0.82rem", borderRadius: 1.5, px: 2.5, boxShadow: "none",
-              background: T.headerGrad,
-              color: "#fff",
-              "&:hover": {
-                background: "linear-gradient(135deg, #5a1d1d 0%, #7a2525 100%)",
-                boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
-              },
-              "&.Mui-disabled": { bgcolor: "#c0c0c0 !important", background: "#c0c0c0 !important", color: "#888 !important" },
+              fontSize: "0.72rem",
+              fontWeight: 900,
+              textTransform: "none",
+              fontFamily: T.poppins,
+              bgcolor: T.accent,
+              borderRadius: 1.25,
+              px: 1.75,
+              boxShadow: "none",
+              "&:hover": { bgcolor: T.accentDark, boxShadow: "none" },
+              "&.Mui-disabled": { bgcolor: "rgba(109,35,35,0.4)", color: "#fff" },
             }}
           >
             {deducting
               ? "Processing…"
-              : deductSource === "sc" ? "Confirm SC Deduction"
-              : deductSource === "cto" ? "Confirm CTO Override"
-              : "Confirm Deductions"
-            }
+              : deductSource === "sc"
+                ? "Confirm SC Deduction"
+                : deductSource === "cto"
+                  ? "Confirm CTO Override"
+                  : deductSource === "normal" &&
+                      checkedTardiness &&
+                      remainingTardVl > 0 &&
+                      !checkedAbsence
+                    ? `Confirm deduct ${remainingTardVl.toFixed(3)}d tardiness from VL`
+                    : "Confirm Deductions"}
           </Button>
         </DialogActions>
       </Dialog>
