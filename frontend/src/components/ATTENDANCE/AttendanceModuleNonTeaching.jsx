@@ -642,6 +642,22 @@ const getCellValue = (row, colKey, isFurlough = false) => {
   }
 };
 
+// ─── Half day (one AM or PM session has punches, not both; excludes calendar status) ──
+const HALF_DAY_ORANGE = '#ff9800';
+const attendanceEmptyPunch = (v) => v == null || String(v).trim() === '' || String(v).trim() === '—' || String(v).trim().toUpperCase() === 'N/A';
+const isHalfDayAttendanceRow = (row, getStatusLabelForDateFn) => {
+  if (!row || getStatusLabelForDateFn(row.date)) return false;
+  const morning = !attendanceEmptyPunch(row.timeIN) || !attendanceEmptyPunch(row.breaktimeIN);
+  const afternoon = !attendanceEmptyPunch(row.breaktimeOUT) || !attendanceEmptyPunch(row.timeOUT);
+  return morning !== afternoon;
+};
+const halfDayRowBg = (isEven) => (isEven ? alpha(HALF_DAY_ORANGE, 0.14) : alpha(HALF_DAY_ORANGE, 0.22));
+const halfDayChipSx = {
+  bgcolor: alpha(HALF_DAY_ORANGE, 0.16),
+  color: '#e65100',
+  border: `1px solid ${alpha(HALF_DAY_ORANGE, 0.45)}`,
+};
+
 // ─── Status helpers ───────────────────────────────────────────────────────
 const getStatusStyle = (label) => {
   if (label === 'WORK SUSPENDED') return { bgcolor: alpha('#d32f2f', 0.12), color: '#d32f2f', border: `1px solid ${alpha('#d32f2f', 0.4)}` };
@@ -769,6 +785,7 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
           {items.map(({ label, value, group }) => {
             const isActive = group === activeTab;
             const isTard = label.includes('Tardiness') || label.includes('Tard.');
+            const isHalf = label === 'Half Days';
             return (
               <Box key={label} sx={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -778,23 +795,23 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
                 py: 1.1,
                 borderRadius: '8px',
                 bgcolor: isActive
-                  ? (isTard ? 'rgba(153,27,27,0.12)' : T.accentFaint)
-                  : (isTard ? 'rgba(153,27,27,0.05)' : T.accentFaint),
-                border: `1px solid ${isActive ? T.accent : T.accentBorder}`,
-                boxShadow: isActive ? `0 0 10px ${alpha(T.accent, 0.22)}` : 'none',
+                  ? (isHalf ? alpha(HALF_DAY_ORANGE, 0.2) : isTard ? 'rgba(153,27,27,0.12)' : T.accentFaint)
+                  : (isHalf ? alpha(HALF_DAY_ORANGE, 0.08) : isTard ? 'rgba(153,27,27,0.05)' : T.accentFaint),
+                border: `1px solid ${isActive ? (isHalf ? HALF_DAY_ORANGE : T.accent) : T.accentBorder}`,
+                boxShadow: isActive ? `0 0 10px ${alpha(isHalf ? HALF_DAY_ORANGE : T.accent, 0.22)}` : 'none',
                 transform: isActive ? 'translateY(-2px) scale(1.03)' : 'none',
                 transition: 'all 0.2s ease',
               }}>
                 <Typography sx={{
                   fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
                   letterSpacing: '0.05em', mb: 0.25, textAlign: 'center', lineHeight: 1.2,
-                  color: isActive ? T.accent : T.faint,
+                  color: isActive ? (isHalf ? '#e65100' : T.accent) : T.faint,
                 }}>
                   {label}
                 </Typography>
                 <Typography sx={{
                   fontSize: isActive ? '1.1rem' : '1.02rem', fontWeight: 800,
-                  color: isTard ? '#991b1b' : '#166534',
+                  color: isHalf ? '#e65100' : isTard ? '#991b1b' : '#166534',
                   fontFamily: 'monospace', letterSpacing: '0.04em',
                   transition: 'all 0.2s',
                   whiteSpace: 'nowrap',
@@ -1114,6 +1131,7 @@ const AttendanceModuleNonTeachingStaff = () => {
           getAuthHeaders,
           startDate,
           endDate,
+          personId: employeeNumber,
         }),
       ]);
       if (deviceRows.length === 0) {
@@ -1180,15 +1198,10 @@ const AttendanceModuleNonTeachingStaff = () => {
 
   const totals = React.useMemo(() => {
     if (!attendanceData.length) return {};
-    const emptyPunch = (v) => v == null || String(v).trim() === '' || String(v).trim() === '—' || String(v).trim().toUpperCase() === 'N/A';
-    const hasMorningPunch = (r) => !emptyPunch(r.timeIN) || !emptyPunch(r.breaktimeIN);
-    const hasAfternoonPunch = (r) => !emptyPunch(r.breaktimeOUT) || !emptyPunch(r.timeOUT);
-    const halfDays = attendanceData.reduce((sum, r) => {
-      if (getStatusLabelForDate(r.date)) return sum;
-      const morning = hasMorningPunch(r);
-      const afternoon = hasAfternoonPunch(r);
-      return morning !== afternoon ? sum + 1 : sum;
-    }, 0);
+    const halfDays = attendanceData.reduce(
+      (sum, r) => (isHalfDayAttendanceRow(r, getStatusLabelForDate) ? sum + 1 : sum),
+      0,
+    );
     const absentDays = computeAbsentDays(attendanceData, leaveByDate);
     const morningRendered    = sumTime(attendanceData.map(r => getCellValue(r, '_morningRendered',   Boolean(getStatusLabelForDate(r.date)))));
     const morningTardiness   = sumTime(attendanceData.map(r => getCellValue(r, '_morningTardiness',  Boolean(getStatusLabelForDate(r.date)))));
@@ -1378,7 +1391,7 @@ const AttendanceModuleNonTeachingStaff = () => {
   const columns = TAB_COLUMNS[activeTab];
 
   // ─── Table cell builder ───────────────────────────────────────────────
-  const buildCell = (content, group, isEven, dividerBefore = false) => (
+  const buildCell = (content, group, isEven, dividerBefore = false, isHalfDay = false) => (
     <TableCell sx={{
       fontSize: '0.8rem', fontFamily: 'monospace',
       borderBottom: `1px solid ${T.divider}`,
@@ -1388,11 +1401,14 @@ const AttendanceModuleNonTeachingStaff = () => {
       px: 1.75, py: 1, whiteSpace: 'nowrap', textAlign: 'center',
       fontWeight: group === 'calc' || group === 'tard' || group === 'actual' ? 700 : 400,
       color: group === 'calc' ? '#166534' : group === 'tard' ? '#991b1b' : group === 'official' ? '#374151' : '#111827',
-      bgcolor:
-        group === 'actual'   ? (isEven ? alpha(T.accent,0.07) : alpha(T.accent,0.12)) :
-        group === 'calc'     ? (isEven ? 'rgba(21,128,61,0.05)'  : 'rgba(21,128,61,0.09)') :
-        group === 'tard'     ? (isEven ? 'rgba(153,27,27,0.04)'  : 'rgba(153,27,27,0.08)') :
-        isEven ? '#fff' : T.rowOdd,
+      bgcolor: isHalfDay
+        ? halfDayRowBg(isEven)
+        : (
+            group === 'actual'   ? (isEven ? alpha(T.accent,0.07) : alpha(T.accent,0.12)) :
+            group === 'calc'     ? (isEven ? 'rgba(21,128,61,0.05)'  : 'rgba(21,128,61,0.09)') :
+            group === 'tard'     ? (isEven ? 'rgba(153,27,27,0.04)'  : 'rgba(153,27,27,0.08)') :
+            isEven ? '#fff' : T.rowOdd
+          ),
       transition: 'background-color 0.12s',
       'tr:hover &': { bgcolor: T.rowHover + ' !important' },
     }}>{content}</TableCell>
@@ -1781,29 +1797,33 @@ const AttendanceModuleNonTeachingStaff = () => {
                                 const statusLabel = getStatusLabelForDate(row.date);
                                 const isFurlough  = Boolean(statusLabel);
                                 const isEven      = index % 2 === 0;
+                                const isHalfDay   = isHalfDayAttendanceRow(row, getStatusLabelForDate);
                                 return (
                                   <TableRow key={row.date || index} sx={{ '&:hover td': { bgcolor: `${T.rowHover} !important` } }}>
                                     {columns.map(({ key, group, dividerBefore: db }) => {
                                       if (key === 'date') {
                                         return (
-                                          <TableCell key={key} sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text, bgcolor: isEven ? '#fff' : T.rowOdd, borderBottom: `1px solid ${T.divider}`, px: 1.75, py: 1, whiteSpace: 'nowrap', textAlign: 'center', transition: 'background-color 0.12s' }}>
+                                          <TableCell key={key} sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text, bgcolor: isHalfDay ? halfDayRowBg(isEven) : (isEven ? '#fff' : T.rowOdd), borderBottom: `1px solid ${T.divider}`, px: 1.75, py: 1, whiteSpace: 'nowrap', textAlign: 'center', transition: 'background-color 0.12s' }}>
                                             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.3 }}>
                                               <span>{row.date}</span>
                                               {statusLabel && <Chip size="small" label={statusLabel} sx={{ fontWeight: 700, fontSize: '0.62rem', height: 16, ...getStatusStyle(statusLabel) }} />}
+                                              {!statusLabel && isHalfDay && (
+                                                <Chip size="small" label="Half day" sx={{ fontWeight: 700, fontSize: '0.62rem', height: 16, ...halfDayChipSx }} />
+                                              )}
                                             </Box>
                                           </TableCell>
                                         );
                                       }
                                       if (key === 'day') {
                                         return (
-                                          <TableCell key={key} sx={{ fontSize: '0.8rem', color: T.muted, bgcolor: isEven ? '#fff' : T.rowOdd, borderBottom: `1px solid ${T.divider}`, px: 1.75, py: 1, textAlign: 'center', transition: 'background-color 0.12s' }}>
+                                          <TableCell key={key} sx={{ fontSize: '0.8rem', color: T.muted, bgcolor: isHalfDay ? halfDayRowBg(isEven) : (isEven ? '#fff' : T.rowOdd), borderBottom: `1px solid ${T.divider}`, px: 1.75, py: 1, textAlign: 'center', transition: 'background-color 0.12s' }}>
                                             {row.day}
                                           </TableCell>
                                         );
                                       }
                                       return (
                                         <React.Fragment key={key}>
-                                          {buildCell(getCellValue(row, key, isFurlough), group, isEven, db)}
+                                          {buildCell(getCellValue(row, key, isFurlough), group, isEven, db, isHalfDay)}
                                         </React.Fragment>
                                       );
                                     })}
@@ -1851,6 +1871,7 @@ const AttendanceModuleNonTeachingStaff = () => {
                 {/* Footer legend */}
                 <Box sx={{ pt: 1.5, display: 'flex', gap: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
                   {[
+                    { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: alpha(HALF_DAY_ORANGE, 0.18), border: `1px solid ${alpha(HALF_DAY_ORANGE, 0.45)}` }} />, label: 'Half day (only AM or only PM punched)' },
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: alpha(T.accent, 0.12), border: `1px solid ${alpha(T.accent, 0.3)}` }} />, label: 'Employee device punch-in/out' },
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(21,128,61,0.1)', border: '1px solid rgba(21,128,61,0.3)' }} />, label: 'Computed rendered time' },
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(153,27,27,0.08)', border: '1px solid rgba(153,27,27,0.3)' }} />, label: 'Computed tardiness' },

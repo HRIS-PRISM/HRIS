@@ -25,6 +25,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  InputLabel,
   Collapse,
   Paper,
   Tabs,
@@ -69,13 +70,20 @@ import {
   OpenInNew as OpenInNewIcon,
   RemoveCircleOutline as DeductIcon,
   Receipt as ReceiptIcon,
+  MoneyOff as SalaryShortfallIcon,
 } from "@mui/icons-material";
 import { LeaveInputColumn } from './EARNINGS/LeaveEarnings';
 import { SCInputColumn } from './EARNINGS/SCEarnings';
 import { CTOInputColumn } from './EARNINGS/CTOEarnings';
 import { AttendanceSummary } from './EARNINGS/AttendanceSummary';
 import { RecordsList, DeptBadge, EmpCatBadge } from './EARNINGS/RecordsList';
+import { SalaryShortfallRegistry } from './EARNINGS/SalaryShortfallRegistry';
 import { useRef } from "react";
+import {
+  getDeductionSourceBalanceDays,
+  isDeductionSourceSufficient,
+  fetchDeductionCreditSnapshots,
+} from "../../utils/deductionSourceBalances";
 
 const T = {
   accent: "#6d2323",
@@ -1648,10 +1656,16 @@ const TABS = [
     shortLabel: "CTO",
     icon: CTOIcon,
   },
+  {
+    id: "salary_shortfall",
+    label: "Salary Shortfall",
+    shortLabel: "Salary",
+    icon: SalaryShortfallIcon,
+  },
 ];
 
 /**
- * DeductHalfDayVLModal
+ * DeductHalfDayModal (half-day attendance deduction)
  *
  * Props:
  *   open      {boolean}  – controls dialog visibility
@@ -1659,9 +1673,13 @@ const TABS = [
  *   onConfirm {function}  – async ({ remark: string, rateDecimal: number }) => void
  *   employee  {object}    – { employeeNumber, fullName, category/empCat }
  *   date      {string}    – ISO date string "YYYY-MM-DD"
- *   vlBalance {number}    – current VL balance in 8-hr-equivalent DAYS (before deduction)
+ *   creditSnapshots – from assignment-balances + SC + CTO APIs (remaining_hours / totalRemaining)
+ *   creditsLoading – while true, balance chips are indeterminate and confirm stays disabled
  *   suggestedRateDecimal {string|number} – suggested half-day rate decimal (relative to `hoursPerDay`)
- *   hoursPerDay {number}               – normalized clock-hours per day for this VL policy
+ *   hoursPerDay {number}               – normalized clock-hours per day for this policy row
+ *   deductionOptions {Array<{value:string,label:string}>} – from GET /api/deductions/options
+ *   chargeTo {string} – selected deduction source code (e.g. VL, CTO, SALARY_DEDUCTION)
+ *   onChargeToChange {(code: string) => void} – refetch policy suggestion when source changes
  */
 const DeductHalfDayVLModal = ({
   open,
@@ -1669,9 +1687,13 @@ const DeductHalfDayVLModal = ({
   onConfirm,
   employee,
   date,
-  vlBalance,
+  creditSnapshots = null,
+  creditsLoading = false,
   suggestedRateDecimal,
   hoursPerDay = 8,
+  deductionOptions = [],
+  chargeTo = "VL",
+  onChargeToChange,
 }) => {
   const [remark, setRemark] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1696,6 +1718,8 @@ const DeductHalfDayVLModal = ({
     muted: "#555555",
     faint: "#888888",
     poppins: "'Poppins', sans-serif",
+    balOk: "#2e7d32",
+    balBad: "#c62828",
   };
 
   const fmtDate = (dateStr) => {
@@ -1719,10 +1743,38 @@ const DeductHalfDayVLModal = ({
       .map((n) => n[0].toUpperCase())
       .join("");
 
-  const balanceBefore = Number(vlBalance) || 0;
+  const creditCtx = useMemo(
+    () => ({
+      assignmentMap: creditSnapshots?.assignmentMap ?? {},
+      scRemainingHours: creditSnapshots?.scRemainingHours ?? 0,
+      ctoRemainingHours: creditSnapshots?.ctoRemainingHours ?? 0,
+      salaryFallbackDays: null,
+    }),
+    [creditSnapshots],
+  );
+
+  const chargeU = String(chargeTo || "").toUpperCase();
+  const balanceBefore =
+    chargeU === "SALARY_DEDUCTION"
+      ? null
+      : getDeductionSourceBalanceDays(chargeTo, creditCtx);
   const deductDaysNum = toNum(deductDaysRaw); // display days (8-hr-equivalent)
   const deductionHours = deductDaysNum * BASE_HOURS_PER_DAY;
-  const balanceAfter = balanceBefore - deductDaysNum;
+  const balanceAfter =
+    balanceBefore == null ? null : balanceBefore - deductDaysNum;
+  const chargeLabel =
+    deductionOptions.find((o) => o.value === chargeTo)?.label || chargeTo;
+  const showCreditLedgerPreview = chargeU !== "SALARY_DEDUCTION" && balanceBefore != null;
+  const selectedSufficient =
+    creditsLoading ||
+    chargeU === "SALARY_DEDUCTION" ||
+    isDeductionSourceSufficient(balanceBefore, deductDaysNum, chargeTo);
+  const selectedHasBalance =
+    chargeU !== "SALARY_DEDUCTION" && (balanceBefore ?? 0) > 1e-6;
+  const selectedBalancePositive =
+    chargeU === "SALARY_DEDUCTION" ||
+    selectedSufficient ||
+    selectedHasBalance;
 
   useEffect(() => {
     if (!open) return;
@@ -1829,7 +1881,7 @@ const DeductHalfDayVLModal = ({
                 lineHeight: 1.2,
               }}
             >
-              Deduct Half Day to VL
+              Half-day attendance deduction
             </Typography>
             <Typography
               sx={{
@@ -1838,7 +1890,7 @@ const DeductHalfDayVLModal = ({
                 fontFamily: MODAL_T.poppins,
               }}
             >
-              Vacation Leave deduction
+              {chargeLabel}
             </Typography>
           </Box>
         </Box>
@@ -1912,31 +1964,101 @@ const DeductHalfDayVLModal = ({
                 {empCat ? ` · ${empCat}` : ""}
               </Typography>
             </Box>
-            <Box sx={{ textAlign: "right", flexShrink: 0 }}>
-              <Typography
-                sx={{
-                  fontSize: "0.58rem",
-                  color: MODAL_T.faint,
-                  fontFamily: MODAL_T.poppins,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                }}
-              >
-                VL Balance
-              </Typography>
-              <Typography
-                sx={{
-                  fontSize: "0.95rem",
-                  fontWeight: 800,
-                  color: MODAL_T.accent,
-                  fontFamily: MODAL_T.poppins,
-                  lineHeight: 1.1,
-                }}
-              >
-                {balanceBefore.toFixed(3)} d
-              </Typography>
-            </Box>
+            {showCreditLedgerPreview && (
+              <Box sx={{ textAlign: "right", flexShrink: 0 }}>
+                <Typography
+                  sx={{
+                    fontSize: "0.58rem",
+                    color: MODAL_T.faint,
+                    fontFamily: MODAL_T.poppins,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  {chargeU} balance
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.95rem",
+                    fontWeight: 800,
+                    color: creditsLoading
+                      ? MODAL_T.muted
+                      : selectedBalancePositive
+                        ? MODAL_T.balOk
+                        : MODAL_T.balBad,
+                    fontFamily: MODAL_T.poppins,
+                    lineHeight: 1.1,
+                  }}
+                >
+                  {creditsLoading ? "…" : `${balanceBefore.toFixed(3)} d`}
+                </Typography>
+              </Box>
+            )}
           </Box>
+
+          {deductionOptions.length > 0 && (
+            <Box>
+              <FormControl fullWidth size="small" disabled={deductionOptions.length <= 1}>
+                <InputLabel id="halfday-deduction-source-label">Deduction Source for Half-Day</InputLabel>
+                <Select
+                  labelId="halfday-deduction-source-label"
+                  label="Deduction Source for Half-Day"
+                  value={chargeTo}
+                  onChange={(e) => onChargeToChange?.(e.target.value)}
+                  disabled={saving || deductionOptions.length <= 1}
+                  sx={{ borderRadius: 1.25, fontFamily: MODAL_T.poppins, fontSize: "0.8rem" }}
+                >
+                  {deductionOptions.map((o) => {
+                    const oCode = String(o.value || "").toUpperCase();
+                    const bal = getDeductionSourceBalanceDays(o.value, creditCtx);
+                    const rowOk = isDeductionSourceSufficient(bal, deductDaysNum, o.value);
+                    const hasBalance = oCode !== "SALARY_DEDUCTION" && (bal ?? 0) > 1e-6;
+                    const balColor =
+                      oCode === "SALARY_DEDUCTION"
+                        ? MODAL_T.balOk
+                        : creditsLoading
+                          ? MODAL_T.muted
+                          : rowOk || hasBalance
+                            ? MODAL_T.balOk
+                            : MODAL_T.balBad;
+                    return (
+                      <MenuItem key={o.value} value={o.value}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 1,
+                            width: "100%",
+                            pr: 0.5,
+                          }}
+                        >
+                          <Typography sx={{ fontSize: "0.78rem", fontFamily: MODAL_T.poppins, flex: 1, minWidth: 0 }}>
+                            {o.label}
+                          </Typography>
+                          <Typography
+                            sx={{
+                              fontSize: "0.65rem",
+                              fontWeight: 700,
+                              color: balColor,
+                              fontFamily: MODAL_T.poppins,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {oCode === "SALARY_DEDUCTION"
+                              ? "—"
+                              : creditsLoading
+                                ? "…"
+                                : `${(bal ?? 0).toFixed(3)} d`}
+                          </Typography>
+                        </Box>
+                      </MenuItem>
+                    );
+                  })}
+                </Select>
+              </FormControl>
+            </Box>
+          )}
 
           {/* ── Date being deducted ── */}
           <Box>
@@ -2103,29 +2225,48 @@ const DeductHalfDayVLModal = ({
 
               <Box sx={{ height: "0.5px", bgcolor: "rgba(0,0,0,0.07)", my: 0.25 }} />
 
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <Typography sx={{ fontSize: "0.7rem", color: MODAL_T.muted, fontFamily: MODAL_T.poppins }}>
-                  VL balance before
-                </Typography>
-                <Typography sx={{ fontSize: "0.72rem", color: MODAL_T.muted, fontFamily: MODAL_T.poppins }}>
-                  {balanceBefore.toFixed(3)} d
-                </Typography>
-              </Box>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <Typography sx={{ fontSize: "0.7rem", color: MODAL_T.muted, fontFamily: MODAL_T.poppins }}>
-                  VL balance after
-                </Typography>
-                <Typography
-                  sx={{
-                    fontSize: "0.82rem",
-                    fontWeight: 800,
-                    color: balanceAfter < 0 ? "#c62828" : MODAL_T.accent,
-                    fontFamily: MODAL_T.poppins,
-                  }}
-                >
-                  {balanceAfter.toFixed(3)} d
-                </Typography>
-              </Box>
+              {showCreditLedgerPreview && (
+                <>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography sx={{ fontSize: "0.7rem", color: MODAL_T.muted, fontFamily: MODAL_T.poppins }}>
+                      {chargeU} balance before
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                        color: creditsLoading
+                          ? MODAL_T.muted
+                          : selectedBalancePositive
+                            ? MODAL_T.balOk
+                            : MODAL_T.balBad,
+                        fontFamily: MODAL_T.poppins,
+                      }}
+                    >
+                      {creditsLoading ? "…" : `${balanceBefore.toFixed(3)} d`}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography sx={{ fontSize: "0.7rem", color: MODAL_T.muted, fontFamily: MODAL_T.poppins }}>
+                      {chargeU} balance after
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: "0.82rem",
+                        fontWeight: 800,
+                        color: creditsLoading
+                          ? MODAL_T.muted
+                          : balanceAfter < 0
+                            ? MODAL_T.balBad
+                            : MODAL_T.balOk,
+                        fontFamily: MODAL_T.poppins,
+                      }}
+                    >
+                      {creditsLoading ? "…" : `${balanceAfter.toFixed(3)} d`}
+                    </Typography>
+                  </Box>
+                </>
+              )}
             </Box>
           </Box>
 
@@ -2182,10 +2323,25 @@ const DeductHalfDayVLModal = ({
           >
             <WarnIcon sx={{ fontSize: 13, color: "#c62828", flexShrink: 0, mt: 0.15 }} />
             <Typography sx={{ fontSize: "0.65rem", color: "#7b1a1a", fontFamily: MODAL_T.poppins, lineHeight: 1.55 }}>
-              This will permanently deduct{" "}
-              <strong>{(deductDaysNum > 0 ? deductDaysNum : 0).toFixed(3)} days</strong>{" "}
-              from the employee's VL balance.
-              This action cannot be undone without manual adjustment.
+              {String(chargeTo).toUpperCase() === "SALARY_DEDUCTION" ? (
+                <>
+                  This records a <strong>salary deduction</strong> for this half-day (policy equivalent{" "}
+                  <strong>{(deductDaysNum > 0 ? deductDaysNum : 0).toFixed(3)}</strong> display days). No leave credits
+                  are posted from this action.
+                </>
+              ) : String(chargeTo).toUpperCase() === "VL" ? (
+                <>
+                  This will permanently deduct{" "}
+                  <strong>{(deductDaysNum > 0 ? deductDaysNum : 0).toFixed(3)} days</strong> from the employee's VL
+                  balance. This action cannot be undone without manual adjustment.
+                </>
+              ) : (
+                <>
+                  This will post <strong>{(deductDaysNum > 0 ? deductDaysNum : 0).toFixed(3)}</strong> display days
+                  against <strong>{chargeLabel}</strong> (hours computed from policy). Verify balances in records after
+                  apply.
+                </>
+              )}
             </Typography>
           </Box>
 
@@ -2230,7 +2386,11 @@ const DeductHalfDayVLModal = ({
             size="small"
             variant="contained"
             onClick={handleConfirm}
-            disabled={saving}
+            disabled={
+              saving ||
+              creditsLoading ||
+              (!selectedSufficient && chargeU !== "SALARY_DEDUCTION")
+            }
             startIcon={
               saving ? (
                 <CircularProgress size={11} sx={{ color: "#fff" }} />
@@ -2292,6 +2452,9 @@ const EarningsManagement = () => {
   const [vlHalfSuggestion, setVlHalfSuggestion] = useState(null);
   const [vlHalfSelectedDate, setVlHalfSelectedDate] = useState("");
   const [vlHalfError, setVlHalfError] = useState("");
+  const [vlHalfDeductionOptions, setVlHalfDeductionOptions] = useState([]);
+  const [vlHalfChargeTo, setVlHalfChargeTo] = useState("VL");
+  const [vlHalfCreditSnapshots, setVlHalfCreditSnapshots] = useState(null);
 
   const handleMonthChange = useCallback((y, m) => {
     setPeriodYear(y);
@@ -2349,7 +2512,7 @@ const EarningsManagement = () => {
         `${API_BASE_URL}/leaveRoute/leave_request/halfday-deduction-applied-dates`,
         {
           employeeNumber: selectedEmployee.employeeNumber,
-          leave_code: "VL",
+          leave_code: "*",
           startDate,
           endDate,
         },
@@ -2372,19 +2535,52 @@ const EarningsManagement = () => {
       setVlHalfRateDecimal("0.5");
       setVlHalfSuggestion(null);
       setVlHalfError("");
+      setVlHalfDeductionOptions([]);
+      setVlHalfChargeTo("VL");
+      setVlHalfCreditSnapshots(null);
       setVlHalfModalOpen(true);
       setVlHalfModalLoading(true);
 
       try {
         const token = localStorage.getItem("token");
+        const headers = { Authorization: `Bearer ${token}` };
+
+        const [snapshots, r0] = await Promise.all([
+          fetchDeductionCreditSnapshots(selectedEmployee.employeeNumber, token),
+          axios.post(
+            `${API_BASE_URL}/leaveRoute/leave_request/halfday-deduction-suggestion`,
+            {
+              employeeNumber: selectedEmployee.employeeNumber,
+              leave_date: targetDate,
+            },
+            { headers },
+          ),
+        ]);
+        setVlHalfCreditSnapshots(snapshots);
+        const hasForm = r0.data?.has_leave_form === true;
+        const optRes = await axios.get(`${API_BASE_URL}/api/deductions/options`, {
+          params: {
+            employeeNumber: selectedEmployee.employeeNumber,
+            context: "HALF_DAY",
+            hasLeaveForm: hasForm ? "true" : "false",
+          },
+          headers,
+        });
+        const opts = Array.isArray(optRes.data?.options) ? optRes.data.options : [];
+        setVlHalfDeductionOptions(opts);
+
+        const rec = String(r0.data?.recommended_charge_to || "").toUpperCase();
+        const pick = opts.some((o) => o.value === rec) ? rec : opts[0]?.value || "SALARY_DEDUCTION";
+        setVlHalfChargeTo(pick);
+
         const r = await axios.post(
           `${API_BASE_URL}/leaveRoute/leave_request/halfday-deduction-suggestion`,
           {
             employeeNumber: selectedEmployee.employeeNumber,
             leave_date: targetDate,
-            preferred_charge_to: "VL",
+            preferred_charge_to: pick,
           },
-          { headers: { Authorization: `Bearer ${token}` } },
+          { headers },
         );
         const suggestion = r.data || null;
         setVlHalfSuggestion(suggestion);
@@ -2397,13 +2593,45 @@ const EarningsManagement = () => {
         setVlHalfError(
           e.response?.data?.error ||
             e.message ||
-            "Failed to load VL deduction suggestion.",
+            "Failed to load half-day deduction options.",
         );
       } finally {
         setVlHalfModalLoading(false);
       }
     },
     [selectedEmployee],
+  );
+
+  const handleVlHalfChargeChange = useCallback(
+    async (code) => {
+      if (!selectedEmployee?.employeeNumber || !vlHalfSelectedDate) return;
+      const next = String(code || "").trim().toUpperCase();
+      setVlHalfChargeTo(next);
+      const token = localStorage.getItem("token");
+      try {
+        const r = await axios.post(
+          `${API_BASE_URL}/leaveRoute/leave_request/halfday-deduction-suggestion`,
+          {
+            employeeNumber: selectedEmployee.employeeNumber,
+            leave_date: vlHalfSelectedDate,
+            preferred_charge_to: next,
+          },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        setVlHalfSuggestion(r.data || null);
+        const recRate = parseFloat(r.data?.recommended_rate_decimal);
+        setVlHalfRateDecimal(
+          Number.isFinite(recRate) && recRate > 0 ? String(recRate) : "0.5",
+        );
+      } catch (e) {
+        setVlHalfError(
+          e.response?.data?.error ||
+            e.message ||
+            "Failed to refresh deduction policy for the selected source.",
+        );
+      }
+    },
+    [selectedEmployee, vlHalfSelectedDate],
   );
 
   const applyVlHalfDeduction = useCallback(
@@ -2439,7 +2667,7 @@ const EarningsManagement = () => {
           {
             employeeNumber: selectedEmployee.employeeNumber,
             leave_date: vlHalfSelectedDate,
-            chosen_charge_to: "VL",
+            chosen_charge_to: String(vlHalfChargeTo || "VL").trim().toUpperCase(),
             rate_decimal: rateDecimalNum,
             deduction_hours: deductHours,
             decision_context: {
@@ -2458,6 +2686,7 @@ const EarningsManagement = () => {
         setVlHalfModalOpen(false);
         setVlHalfCertify(false);
         setVlHalfSuggestion(null);
+        setVlHalfCreditSnapshots(null);
         setVlHalfError("");
 
         // Keep AttendanceSummary in sync with updated official metrics/balances.
@@ -2481,6 +2710,7 @@ const EarningsManagement = () => {
       selectedEmployee,
       vlHalfSelectedDate,
       vlHalfSuggestion,
+      vlHalfChargeTo,
       deductedVlHalfDates,
       fetchAttendance,
       handleBalanceChanged,
@@ -2498,6 +2728,7 @@ const EarningsManagement = () => {
     setDeductedVlHalfDates([]);
     setVlHalfModalOpen(false);
     setVlHalfSuggestion(null);
+    setVlHalfCreditSnapshots(null);
     setVlHalfError("");
     setVlHalfCertify(false);
     fetchDeductedVlHalfDates();
@@ -2628,6 +2859,17 @@ const EarningsManagement = () => {
       : [first, mid].filter(Boolean).join(" ");
   };
 
+  /** Resolve employee numbers in earning records (approved_by, audit actor) to display names. */
+  const approverNameLookup = useMemo(() => {
+    const m = {};
+    (employees || []).forEach((e) => {
+      const num = String(e?.employeeNumber ?? "").trim();
+      if (!num) return;
+      m[num] = buildDisplayName(e);
+    });
+    return m;
+  }, [employees]);
+
   const selectedEmployeeDisplay = useMemo(() => {
     if (!selectedEmployee) return null;
     const initials =
@@ -2689,8 +2931,6 @@ if (pageLoading) return <EarningsWireframe />;
 
   const rawHoursPerDay = toNum(vlHalfSuggestion?.hours_per_day) || 8;
   const hoursPerDay = rawHoursPerDay > 12 ? rawHoursPerDay / 4 : rawHoursPerDay;
-  // VL balance display uses 8-hr-equivalent days (same conversion as VLDeductionReceipt).
-  const availableVlDays = toNum(vlHalfSuggestion?.available_hours) / 8;
 
   const deptCode = selectedEmployee
     ? deptMap[String(selectedEmployee.employeeNumber)]
@@ -3354,58 +3594,81 @@ if (pageLoading) return <EarningsWireframe />;
                 onDeductHalfDayVLRequested={openVlHalfModalForDate}
 />
               </Box>
-              {/* Column 2: Input Earnings */}
-              <Box
-                sx={{
-                  overflowY: "auto",
-                  overflowX: "hidden",
-                  display: "flex",
-                  flexDirection: "column",
-                  borderRight: { xs: "none", md: `1px solid ${T.divider}` },
-                }}
-              >
-                {activeTab === 0 && (
-                  <LeaveInputColumn
-                    {...sharedTabProps}
-                    onBalanceChanged={handleBalanceChanged}
-                    refreshKey={balanceKey}
-                    onRecordsRefresh={handleRecordsRefresh}
+              {activeTab !== 3 && (
+                <>
+                  {/* Column 2: Input Earnings */}
+                  <Box
+                    sx={{
+                      overflowY: "auto",
+                      overflowX: "hidden",
+                      display: "flex",
+                      flexDirection: "column",
+                      borderRight: { xs: "none", md: `1px solid ${T.divider}` },
+                    }}
+                  >
+                    {activeTab === 0 && (
+                      <LeaveInputColumn
+                        {...sharedTabProps}
+                        onBalanceChanged={handleBalanceChanged}
+                        refreshKey={balanceKey}
+                        onRecordsRefresh={handleRecordsRefresh}
+                      />
+                    )}
+                    {activeTab === 1 && (
+                      <SCInputColumn
+                        {...sharedTabProps}
+                        onRecordsRefresh={handleRecordsRefresh}
+                      />
+                    )}
+                    {activeTab === 2 && (
+                      <CTOInputColumn
+                        {...sharedTabProps}
+                        onRecordsRefresh={handleRecordsRefresh}
+                      />
+                    )}
+                  </Box>
+                  {/* Column 3: Records Earnings*/}
+                  <Box
+                    sx={{
+                      overflowY: "auto",
+                      overflowX: "hidden",
+                      display: "flex",
+                      flexDirection: "column",
+                    }}
+                  >
+                    <RecordsList
+                      employeeNumber={selectedEmployee?.employeeNumber}
+                      type={TABS[activeTab].id}
+                      unit={unit}
+                      refreshKey={recordsRefreshKey}
+                      year={periodYear}
+                      month={periodMonth}
+                      onApproved={handleBalanceChanged}
+                      standalone
+                      onStatusChange={() => setVlReceiptRefreshKey((k) => k + 1)}
+                      approverNameLookup={approverNameLookup}
+                    />
+                  </Box>
+                </>
+              )}
+              {activeTab === 3 && (
+                <Box
+                  sx={{
+                    gridColumn: { xs: "1", md: "2 / span 2" },
+                    overflowY: "auto",
+                    overflowX: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                    borderLeft: { md: `1px solid ${T.divider}` },
+                  }}
+                >
+                  <SalaryShortfallRegistry
+                    employee={selectedEmployee}
+                    year={periodYear}
+                    month={periodMonth}
                   />
-                )}
-                {activeTab === 1 && (
-                  <SCInputColumn
-                    {...sharedTabProps}
-                    onRecordsRefresh={handleRecordsRefresh}
-                  />
-                )}
-                {activeTab === 2 && (
-                  <CTOInputColumn
-                    {...sharedTabProps}
-                    onRecordsRefresh={handleRecordsRefresh}
-                  />
-                )}
-              </Box>
-              {/* Column 3: Records Earnings*/}
-              <Box
-                sx={{
-                  overflowY: "auto",
-                  overflowX: "hidden",
-                  display: "flex",
-                  flexDirection: "column",
-                }}
-              >
-                <RecordsList
-                  employeeNumber={selectedEmployee?.employeeNumber}
-                  type={TABS[activeTab].id}
-                  unit={unit}
-                  refreshKey={recordsRefreshKey}
-                  year={periodYear}
-                  month={periodMonth}
-                  onApproved={handleBalanceChanged}
-                  standalone
-                  onStatusChange={() => setVlReceiptRefreshKey((k) => k + 1)}
-                />
-              </Box>
+                </Box>
+              )}
             </Box>
           </Fade>
         </SectionCard>
@@ -3413,7 +3676,13 @@ if (pageLoading) return <EarningsWireframe />;
 
       <DeductHalfDayVLModal
         open={vlHalfModalOpen}
-        onClose={() => setVlHalfModalOpen(false)}
+        onClose={() => {
+          setVlHalfModalOpen(false);
+          setVlHalfDeductionOptions([]);
+          setVlHalfChargeTo("VL");
+          setVlHalfSuggestion(null);
+          setVlHalfCreditSnapshots(null);
+        }}
         onConfirm={applyVlHalfDeduction}
         employee={
           selectedEmployee
@@ -3429,9 +3698,13 @@ if (pageLoading) return <EarningsWireframe />;
             : null
         }
         date={vlHalfSelectedDate}
-        vlBalance={availableVlDays}
+        creditSnapshots={vlHalfCreditSnapshots}
+        creditsLoading={vlHalfModalLoading}
         suggestedRateDecimal={vlHalfRateDecimal}
         hoursPerDay={hoursPerDay}
+        deductionOptions={vlHalfDeductionOptions}
+        chargeTo={vlHalfChargeTo}
+        onChargeToChange={handleVlHalfChargeChange}
       />
 
       <FloatingConversionWidget />

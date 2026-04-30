@@ -1931,23 +1931,29 @@ router.get('/api/suspensions', authenticateToken, (req, res) => {
   });
 });
 
-// Get approved leaves within date range
+// Get approved leaves within date range (optionally scoped to one employee for attendance UI)
 router.get('/api/leaves', authenticateToken, (req, res) => {
-  const { startDate, endDate } = req.query;
+  const { startDate, endDate, personId, employeeNumber } = req.query;
+  const employeeKey = String(personId || employeeNumber || '').trim();
 
   if (!startDate || !endDate) {
     return res.status(400).json({ error: 'startDate and endDate are required' });
   }
 
-  const leaveQuery = `
+  let leaveQuery = `
     SELECT lr.id, lr.leave_date, lt.leave_description
     FROM leave_request lr
     JOIN leave_table lt ON lr.leave_code = lt.leave_code
     WHERE lr.status = 2
     AND lr.leave_date BETWEEN ? AND ?
   `;
+  const leaveParams = [startDate, endDate];
+  if (employeeKey) {
+    leaveQuery += ' AND lr.employeeNumber = ?';
+    leaveParams.push(employeeKey);
+  }
 
-  db.query(leaveQuery, [startDate, endDate], (err, rows) => {
+  db.query(leaveQuery, leaveParams, (err, rows) => {
     if (err) {
       console.error('Error fetching leaves:', err);
       return res.status(500).json({ error: err.message });
@@ -1967,8 +1973,9 @@ router.get('/api/leaves', authenticateToken, (req, res) => {
     });
 
     const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';
-    logAudit(req.user, 'view', 'LEAVES', `range ${startDate} to ${endDate}`, requestedBy);
-    notifyAttendanceChanged('leaves-fetched', { scope: 'leaves', startDate, endDate, requestedBy });
+    const scopeNote = employeeKey ? ` employee ${employeeKey}` : '';
+    logAudit(req.user, 'view', 'LEAVES', `range ${startDate} to ${endDate}${scopeNote}`, requestedBy);
+    notifyAttendanceChanged('leaves-fetched', { scope: 'leaves', startDate, endDate, personId: employeeKey || undefined, requestedBy });
 
     return res.json({ success: true, count: Object.keys(byDate).length, byDate });
   });

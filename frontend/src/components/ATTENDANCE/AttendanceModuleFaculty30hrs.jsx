@@ -1818,6 +1818,7 @@ const AttendanceModuleFaculty = () => {
           getAuthHeaders,
           startDate,
           endDate,
+          personId: employeeNumber,
         }),
       ]);
       if (deviceRows.length === 0) {

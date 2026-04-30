@@ -53,6 +53,21 @@ function hasAfternoonPunch(row) {
   return !empty(row?.breaktimeOUT) || !empty(row?.timeOUT);
 }
 
+/** Dates where daily row is treated as a half-day (same rules as metrics). */
+export function listHalfDayDatesFromDailyRows(rows) {
+  const dates = [];
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    if (!isScheduledByOfficialTime(row)) return;
+    if (hasNoPunches(row)) return;
+    const hasMorning = hasMorningPunch(row);
+    const hasAfternoon = hasAfternoonPunch(row);
+    if (hasMorning === hasAfternoon) return;
+    const d = String(row?.date ?? "").trim().slice(0, 10);
+    if (d && d.length >= 8) dates.push(d);
+  });
+  return [...new Set(dates)].sort();
+}
+
 function computeMetricsFromDailyRows(rows) {
   let absentDays = 0;
   let halfDays = 0;

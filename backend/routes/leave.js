@@ -4,6 +4,16 @@ const db = require("../db");
 const jwt = require("jsonwebtoken");
 const { logAudit } = require("../middleware/auth");
 const { notifyAttendanceChanged } = require("../socket/socketService");
+const {
+  SALARY_VALUE: DEDUCTION_SALARY,
+  buildHalfDayPolicySuggestionCore,
+} = require("../services/deductionPolicyService");
+const {
+  getPromiseConnection,
+  insertCreditUsageLine,
+  refreshLeaveAssignmentCacheFromLedger,
+  fetchLedgerSumForAssignment,
+} = require("../services/leaveCreditUsageService");
 
 let io;
 router.setSocketIO = (socketIO) => {
@@ -258,6 +268,27 @@ const nearlyEqual = (a, b, tolerance = 0.0001) => {
   return Math.abs(x - y) <= tolerance;
 };
 
+const getActorEmployeeNumber = (req, fallback = null) => {
+  if (req.user?.employeeNumber) return String(req.user.employeeNumber);
+
+  const authHeader = req.headers?.authorization || "";
+  const token = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : null;
+
+  if (token) {
+    try {
+      const decoded = jwt.decode(token);
+      if (decoded?.employeeNumber) return String(decoded.employeeNumber);
+      if (decoded?.username) return String(decoded.username);
+    } catch (err) {
+      console.warn("[leave] Failed to decode auth token:", err.message);
+    }
+  }
+
+  return fallback ? String(fallback) : "unknown";
+};
+
 const buildDeductionSuggestion = async ({
   employeeNumber,
   leave_code,
@@ -268,6 +299,7 @@ const buildDeductionSuggestion = async ({
 }) => {
   const hasLeaveForm = has_leave_form !== false;
   const isHalfDayAbsence = Boolean(is_half_day_absence);
+
   const suggestedLeaveCode = hasLeaveForm
     ? leave_code
     : isHalfDayAbsence
@@ -291,7 +323,7 @@ const buildDeductionSuggestion = async ({
   const hasSufficientBalance = availableHours >= recommendedHours;
   const recommendedChargeTo = hasSufficientBalance
     ? suggestedLeaveCode
-    : "UNPAID";
+    : DEDUCTION_SALARY;
 
   return {
     employeeNumber: String(employeeNumber || ""),
@@ -397,63 +429,13 @@ const buildHalfDayPolicySuggestion = async ({
   leave_date,
   preferred_charge_to = null,
 }) => {
-  const filedLeave = await getFiledLeaveRequestForDate({ employeeNumber, leave_date });
-  const hasLeaveForm = Boolean(filedLeave);
-
-  const filedCode = String(filedLeave?.leave_code || "").trim().toUpperCase();
-  const filedDesc = String(filedLeave?.leave_description || "").toLowerCase();
-  const filedLooksSL = filedCode.includes("SL") || filedDesc.includes("sick");
-  const defaultCharge = hasLeaveForm
-    ? filedLooksSL
-      ? "SL"
-      : "CTO"
-    : "VL";
-
-  const preferred = String(preferred_charge_to || "").trim().toUpperCase();
-  const chosen = preferred || defaultCharge;
-  const allowed = hasLeaveForm ? ["SL", "CTO"] : ["VL"];
-  const normalizedChoice = allowed.includes(chosen) ? chosen : defaultCharge;
-
-  let hoursPerDay = 8;
-  let availableHours = 0;
-  let hasSufficientBalance = false;
-
-  if (normalizedChoice === "CTO") {
-    availableHours = await getCtoRemainingHours(employeeNumber);
-  } else {
-    const meta = await fetchLeaveDeductionMeta(employeeNumber, normalizedChoice);
-    const resolved = resolveHoursPerDayFromMeta(meta);
-    hoursPerDay = resolved.hoursPerDay;
-    availableHours = await getTotalRemainingHours(employeeNumber, normalizedChoice);
-  }
-
-  const recommendedHours = Number((hoursPerDay / 2).toFixed(4));
-  hasSufficientBalance = availableHours >= recommendedHours;
-
-  return {
-    employeeNumber: String(employeeNumber || ""),
+  const core = await buildHalfDayPolicySuggestionCore({
+    employeeNumber,
     leave_date: toMysqlDateOnly(leave_date),
-    is_half_day_absence: true,
-    has_leave_form: hasLeaveForm,
-    filed_leave_request: filedLeave
-      ? {
-          id: filedLeave.id,
-          leave_code: filedLeave.leave_code,
-          leave_description: filedLeave.leave_description || null,
-          status: Number(filedLeave.status),
-        }
-      : null,
-    allowed_charge_to: allowed,
-    recommended_charge_to: normalizedChoice,
-    recommended_rate_decimal: 0.5,
-    recommended_hours: recommendedHours,
-    hours_per_day: Number(hoursPerDay.toFixed(4)),
-    available_hours: Number((availableHours || 0).toFixed(4)),
-    has_sufficient_balance: hasSufficientBalance,
-    recommendation_reason: hasLeaveForm
-      ? "Half-day with leave form filed: charge may be SL or CTO."
-      : "Half-day without leave form: charge to VL.",
-  };
+    preferred_charge_to,
+    getFiledLeaveRequestForDate,
+  });
+  return core;
 };
 
 const insertDeductionDecisionLog = ({
@@ -497,9 +479,125 @@ const insertDeductionDecisionLog = ({
         safeJsonStringify(finalApplied),
         overrideReason || null,
       ],
-      (err) => {
+      (err, result) => {
         if (err) {
           console.error("[leave] Failed to insert deduction decision log:", err.message);
+          return resolve(null);
+        }
+        resolve(result && result.insertId != null ? result.insertId : null);
+      },
+    );
+  });
+
+/** Dedicated earnings audit row for half-day policy applies (links to deduction_decision_log id). */
+const insertEarningsAuditLogHalfDay = ({
+  decisionLogId,
+  actorEmployeeNumber,
+  employeeNumber,
+  chargeTo,
+  hours,
+  leaveDate,
+  salaryDeduction,
+  decision,
+  payloadExtra = null,
+}) =>
+  new Promise((resolve) => {
+    const eid = parseInt(decisionLogId, 10);
+    if (!Number.isFinite(eid) || eid <= 0) return resolve();
+
+    const payload = {
+      employeeNumber: String(employeeNumber || ""),
+      charge_to: chargeTo,
+      deducted_hours: hours,
+      leave_date: leaveDate,
+      salary_deduction: Boolean(salaryDeduction),
+      decision_source: "half_day_policy_manual_apply",
+      decision: decision || "accepted",
+      ...(payloadExtra && typeof payloadExtra === "object" ? payloadExtra : {}),
+    };
+    let safePayload;
+    try {
+      safePayload = JSON.stringify(payload);
+    } catch (e) {
+      safePayload = null;
+    }
+
+    db.query(
+      `INSERT INTO earnings_audit_log
+        (earning_type, earning_id, action, old_status, new_status, actor, notes, payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        "half_day_policy",
+        eid,
+        "half_day_deduction_apply",
+        null,
+        decision || "accepted",
+        actorEmployeeNumber != null ? String(actorEmployeeNumber) : null,
+        `Half-day deduction → ${chargeTo} (${hours} hrs) on ${leaveDate}`,
+        safePayload,
+      ],
+      (err) => {
+        if (err) {
+          console.error("[leave] Failed to insert earnings_audit_log (half-day):", err.message);
+        }
+        resolve();
+      },
+    );
+  });
+
+/** Mirrors POST /api/leave-salary-shortfall so SalaryShortfallRegistry lists half-day salary applies. */
+const insertLeaveSalaryShortfallForHalfDaySalary = ({
+  employeeNumber,
+  leaveDateOnly,
+  shortfallDaysDecimal,
+  shortfallHours,
+  decisionLogId,
+}) =>
+  new Promise((resolve) => {
+    const s = String(leaveDateOnly || "").slice(0, 10);
+    const parts = s.split("-");
+    const py = parseInt(parts[0], 10);
+    const pm = parseInt(parts[1], 10);
+    if (!Number.isFinite(py) || !Number.isFinite(pm) || pm < 1 || pm > 12) {
+      return resolve();
+    }
+    const daysFromPolicy = Math.abs(Number(shortfallDaysDecimal));
+    const hrsIn = Number(shortfallHours);
+    const posDays =
+      daysFromPolicy > 0
+        ? Number(daysFromPolicy.toFixed(6))
+        : Number.isFinite(hrsIn) && hrsIn > 0
+          ? Number((hrsIn / 8).toFixed(6))
+          : 0;
+    if (!(posDays > 0)) return resolve();
+    const posHrs =
+      Number.isFinite(hrsIn) && hrsIn > 0
+        ? Number(hrsIn.toFixed(6))
+        : Number((posDays * 8).toFixed(6));
+    const negDays = Number((-posDays).toFixed(6));
+    const remarks = `Half-day attendance charged to salary — date ${s}${
+      decisionLogId != null ? ` (policy ref #${decisionLogId})` : ""
+    }`;
+    db.query(
+      `INSERT INTO leave_salary_shortfall (
+        employee_number, period_year, period_month,
+        negative_balance_days, shortfall_days, shortfall_hours,
+        leave_code, entry_type, leave_earning_id, remarks
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+      [
+        String(employeeNumber || ""),
+        py,
+        pm,
+        negDays,
+        posDays,
+        posHrs,
+        "HALF_DAY",
+        "HALF_DAY_POLICY_SALARY",
+        remarks.slice(0, 4000),
+      ],
+      (err) => {
+        if (err) {
+          console.error("[leave] leave_salary_shortfall insert (half-day salary):", err.message);
         }
         resolve();
       },
@@ -549,25 +647,37 @@ const getHalfDayDeductionAppliedDates = ({
   decisionSource = "half_day_policy_manual_apply",
 }) =>
   new Promise((resolve) => {
+    const allCodes =
+      !leave_code ||
+      String(leave_code).trim() === "*" ||
+      String(leave_code).trim().toUpperCase() === "__ALL__";
     const sql = `
       SELECT DISTINCT DATE_FORMAT(leave_date, '%Y-%m-%d') AS leave_date
       FROM deduction_decision_log
       WHERE employeeNumber = ?
-        AND leave_code = ?
+        ${allCodes ? "" : "AND leave_code = ?"}
         AND decision_source = ?
         AND decision IN ('accepted','overridden')
         AND leave_date BETWEEN ? AND ?
       ORDER BY leave_date ASC
     `;
+    const params = allCodes
+      ? [
+          String(employeeNumber || ""),
+          decisionSource,
+          toMysqlDateOnly(startDate),
+          toMysqlDateOnly(endDate),
+        ]
+      : [
+          String(employeeNumber || ""),
+          String(leave_code || ""),
+          decisionSource,
+          toMysqlDateOnly(startDate),
+          toMysqlDateOnly(endDate),
+        ];
     db.query(
       sql,
-      [
-        String(employeeNumber || ""),
-        String(leave_code || ""),
-        decisionSource,
-        toMysqlDateOnly(startDate),
-        toMysqlDateOnly(endDate),
-      ],
+      params,
       (err, rows) => {
         if (err) {
           console.error("[leave] Failed to fetch half-day applied dates:", err.message);
@@ -585,6 +695,7 @@ const getHalfDayDeductionAppliedDates = ({
 // Deduct or restore hours across multiple rows (newest-first).
 // deltaHours > 0: deduct from remaining, add to used
 // deltaHours < 0: restore to remaining, subtract from used
+// Persists each slice as a row in leave_credit_usage and refreshes assignment caches from the ledger.
 const applyHoursDeltaAcrossAssignments = async ({
   req,
   actorEmployeeNumber,
@@ -593,6 +704,7 @@ const applyHoursDeltaAcrossAssignments = async ({
   deltaHours,
   requestId = null,
   reason,
+  sourceType = null,
 }) => {
   const abs = Math.abs(Number(deltaHours) || 0);
   if (!employeeNumber || !leave_code || !abs) return;
@@ -600,26 +712,92 @@ const applyHoursDeltaAcrossAssignments = async ({
   const rows = await getLeaveAssignmentsForCode(employeeNumber, leave_code);
   if (!rows.length) return;
 
-  let remaining = abs;
-  for (const row of rows) {
-    if (remaining <= 0) break;
+  const resolvedSourceType =
+    sourceType ||
+    (requestId != null ? "LEAVE_REQUEST" : "LEAVE_BALANCE_ADJUSTMENT");
 
-    const curRem = parseDbHours(row.remaining_hours) || 0;
-    const curUsed = parseDbHours(row.used_hours) || 0;
+  const conn = await getPromiseConnection();
+  const createdBy = String(actorEmployeeNumber || getActorEmployeeNumber(req));
+  try {
+    await conn.beginTransaction();
 
-    // Deduct
-    if (deltaHours > 0) {
-      if (curRem <= 0) continue;
-      const take = Math.min(curRem, remaining);
-      const newRem = Math.max(0, curRem - take);
-      const newUsed = Math.max(0, curUsed + take);
-      await new Promise((resolve) => {
-        db.query(
-          "UPDATE leave_assignment SET remaining_hours = ?, used_hours = ? WHERE id = ?",
-          [newRem, newUsed, row.id],
-          () => resolve(),
-        );
+    let remaining = abs;
+    for (const row of rows) {
+      if (remaining <= 0) break;
+
+      const [freshRows] = await conn.execute(
+        `SELECT remaining_hours, used_hours, period_year, period_semester
+         FROM leave_assignment WHERE id = ? FOR UPDATE`,
+        [row.id],
+      );
+      const fr = freshRows?.[0];
+      if (!fr) continue;
+      const curRem = parseDbHours(fr.remaining_hours) || 0;
+      const curUsed = parseDbHours(fr.used_hours) || 0;
+
+      const periodMonthRaw = fr.period_semester;
+      let periodMonth = null;
+      if (periodMonthRaw != null && String(periodMonthRaw).trim() !== "") {
+        const n = parseInt(String(periodMonthRaw).replace(/\D/g, "") || "0", 10);
+        periodMonth = Number.isFinite(n) && n > 0 ? n : null;
+      }
+      const periodYear =
+        fr.period_year != null ? parseInt(fr.period_year, 10) : null;
+
+      if (deltaHours > 0) {
+        if (curRem <= 0) continue;
+        const take = Math.min(curRem, remaining);
+        const newRem = Math.max(0, curRem - take);
+        const newUsed = Math.max(0, curUsed + take);
+        await insertCreditUsageLine(conn, {
+          leave_assignment_id: row.id,
+          employee_number: employeeNumber,
+          leave_code,
+          period_year: Number.isFinite(periodYear) ? periodYear : null,
+          period_month: periodMonth,
+          hours_delta: -take,
+          source_type: resolvedSourceType,
+          source_id: requestId,
+          remarks: reason || null,
+          created_by: createdBy,
+        });
+        await refreshLeaveAssignmentCacheFromLedger(conn, row.id);
+        auditLeaveBalanceAdjustment({
+          req,
+          actorEmployeeNumber,
+          employeeNumber,
+          leave_code,
+          requestId,
+          reason,
+          oldRemaining: curRem,
+          newRemaining: newRem,
+          oldUsed: curUsed,
+          newUsed,
+          deltaHours: -take,
+          assignmentRowId: row.id,
+        });
+        remaining -= take;
+        continue;
+      }
+
+      const canRestore = curUsed > 0;
+      if (!canRestore) continue;
+      const putBack = Math.min(curUsed, remaining);
+      const newRem = curRem + putBack;
+      const newUsed = Math.max(0, curUsed - putBack);
+      await insertCreditUsageLine(conn, {
+        leave_assignment_id: row.id,
+        employee_number: employeeNumber,
+        leave_code,
+        period_year: Number.isFinite(periodYear) ? periodYear : null,
+        period_month: periodMonth,
+        hours_delta: putBack,
+        source_type: resolvedSourceType,
+        source_id: requestId,
+        remarks: reason || null,
+        created_by: createdBy,
       });
+      await refreshLeaveAssignmentCacheFromLedger(conn, row.id);
       auditLeaveBalanceAdjustment({
         req,
         actorEmployeeNumber,
@@ -631,66 +809,27 @@ const applyHoursDeltaAcrossAssignments = async ({
         newRemaining: newRem,
         oldUsed: curUsed,
         newUsed,
-        deltaHours: -take,
+        deltaHours: +putBack,
         assignmentRowId: row.id,
       });
-      remaining -= take;
-      continue;
+      remaining -= putBack;
     }
 
-    // Restore
-    const canRestore = curUsed > 0;
-    if (!canRestore) continue;
-    const putBack = Math.min(curUsed, remaining);
-    const newRem = curRem + putBack;
-    const newUsed = Math.max(0, curUsed - putBack);
-    await new Promise((resolve) => {
-      db.query(
-        "UPDATE leave_assignment SET remaining_hours = ?, used_hours = ? WHERE id = ?",
-        [newRem, newUsed, row.id],
-        () => resolve(),
-      );
-    });
-    auditLeaveBalanceAdjustment({
-      req,
-      actorEmployeeNumber,
-      employeeNumber,
-      leave_code,
-      requestId,
-      reason,
-      oldRemaining: curRem,
-      newRemaining: newRem,
-      oldUsed: curUsed,
-      newUsed,
-      deltaHours: +putBack,
-      assignmentRowId: row.id,
-    });
-    remaining -= putBack;
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
   }
 };
 
-const getActorEmployeeNumber = (req, fallback = null) => {
-  if (req.user?.employeeNumber) return String(req.user.employeeNumber);
-
-  const authHeader = req.headers?.authorization || "";
-  const token = authHeader.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : null;
-
-  if (token) {
-    try {
-      const decoded = jwt.decode(token);
-      if (decoded?.employeeNumber) return String(decoded.employeeNumber);
-      if (decoded?.username) return String(decoded.username);
-    } catch (err) {
-      console.warn("[leave] Failed to decode auth token:", err.message);
-    }
-  }
-
-  return fallback ? String(fallback) : "unknown";
-};
-
-const insertTransactionLog = (employeeId, message, actorEmployeeNumber = null) =>
+const insertTransactionLog = (
+  employeeId,
+  message,
+  actorEmployeeNumber = null,
+  auditDetailsPayload = null,
+) =>
   new Promise((resolve) => {
     if (!employeeId || !message) return resolve();
 
@@ -704,12 +843,29 @@ const insertTransactionLog = (employeeId, message, actorEmployeeNumber = null) =
         }
         // Mirror to audit_log so it appears in the Audit Trail in real-time
         try {
+          let detailsJson = null;
+          if (auditDetailsPayload != null) {
+            try {
+              detailsJson =
+                typeof auditDetailsPayload === "string"
+                  ? auditDetailsPayload
+                  : JSON.stringify({
+                      message,
+                      ...auditDetailsPayload,
+                    });
+            } catch (e) {
+              detailsJson = JSON.stringify({ message });
+            }
+          }
           logAudit(
             { employeeNumber: actorEmployeeNumber || employeeId },
-            message,
-            'leave_transaction',
+            auditDetailsPayload != null
+              ? "Half-day deduction applied"
+              : message,
+            "leave_transaction",
             result.insertId,
             employeeId,
+            detailsJson,
           );
         } catch (e) {
           console.error("[leave] Failed to mirror to audit_log:", e.message);
@@ -1565,7 +1721,7 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
         });
       }
 
-      if (!suggestion.has_sufficient_balance) {
+      if (chargeTo !== DEDUCTION_SALARY && !suggestion.has_sufficient_balance) {
         return res.status(400).json({
           error: `Insufficient ${chargeTo} balance for half-day deduction`,
           suggestion,
@@ -1587,13 +1743,90 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
       }
       const appliedRate = Number((hours / (effectiveHoursPerDay || 8)).toFixed(3));
       const availableBefore = Number(suggestion.available_hours || 0);
-      if (availableBefore < hours) {
+      if (chargeTo !== DEDUCTION_SALARY && availableBefore < hours) {
         return res.status(400).json({
           error: `Insufficient ${chargeTo} balance for ${hours} hours deduction`,
           suggestion,
         });
       }
       let availableAfter = availableBefore;
+      const leaveDateOnly = toMysqlDateOnly(leave_date);
+
+      if (chargeTo === DEDUCTION_SALARY) {
+        const overrideReason = String(decision_context?.override_reason || "").trim() || null;
+        const systemRecommendation = decision_context?.system_recommendation || suggestion;
+        const decision =
+          overrideReason ||
+          String(systemRecommendation?.recommended_charge_to || "").toUpperCase() !== chargeTo
+            ? "overridden"
+            : "accepted";
+
+        const decisionLogId = await insertDeductionDecisionLog({
+          leaveRequestId: suggestion?.filed_leave_request?.id || null,
+          employeeNumber,
+          leave_code: chargeTo,
+          leave_date,
+          decision,
+          decisionSource: "half_day_policy_manual_apply",
+          actorEmployeeNumber,
+          systemRecommendation,
+          finalApplied: {
+            charge_to: chargeTo,
+            applied_rate_decimal: appliedRate,
+            applied_hours: hours,
+            requested_rate_decimal: rate_decimal,
+            requested_deduction_hours: deduction_hours,
+            effective_hours_per_day: effectiveHoursPerDay,
+            available_hours_before: availableBefore,
+            available_hours_after: availableBefore,
+            has_leave_form: suggestion.has_leave_form,
+            salary_deduction: true,
+          },
+          overrideReason,
+        });
+
+        await insertEarningsAuditLogHalfDay({
+          decisionLogId,
+          actorEmployeeNumber,
+          employeeNumber,
+          chargeTo,
+          hours,
+          leaveDate: leaveDateOnly,
+          salaryDeduction: true,
+          decision,
+        });
+
+        const [empName, actorName] = await Promise.all([
+          getEmployeeFullName(String(employeeNumber)),
+          getEmployeeFullName(actorEmployeeNumber),
+        ]);
+        const actorDisplay = formatUserDisplayName(actorEmployeeNumber, actorName);
+        const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
+        const txMsg = `${actorDisplay} recorded half-day as salary deduction (${hours} hrs policy equivalent) for ${empDisplay} (${leaveDateOnly}).`;
+        await insertTransactionLog(String(employeeNumber), txMsg, actorEmployeeNumber, {
+          deduction_decision_log_id: decisionLogId,
+          charge_to: chargeTo,
+          deducted_hours: hours,
+          leave_date: leaveDateOnly,
+          salary_deduction: true,
+        });
+
+        await insertLeaveSalaryShortfallForHalfDaySalary({
+          employeeNumber,
+          leaveDateOnly,
+          shortfallDaysDecimal: appliedRate,
+          shortfallHours: hours,
+          decisionLogId,
+        });
+
+        return res.json({
+          message: "Half-day recorded as salary deduction (no leave credits posted).",
+          employeeNumber,
+          leave_date: leaveDateOnly,
+          charge_to: chargeTo,
+          deducted_hours: hours,
+        });
+      }
 
       if (chargeTo === "CTO") {
         const result = await deductCtoHoursAcrossCredits({
@@ -1615,6 +1848,7 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
           deltaHours: hours,
           requestId: null,
           reason: `Half-day policy deduction (${chargeTo}) — deducted ${hours} hours`,
+          sourceType: "HALF_DAY_POLICY",
         });
         availableAfter = await getTotalRemainingHours(employeeNumber, chargeTo);
       }
@@ -1627,7 +1861,7 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
           ? "overridden"
           : "accepted";
 
-      await insertDeductionDecisionLog({
+      const decisionLogId = await insertDeductionDecisionLog({
         leaveRequestId: suggestion?.filed_leave_request?.id || null,
         employeeNumber,
         leave_code: chargeTo,
@@ -1650,23 +1884,41 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
         overrideReason,
       });
 
+      await insertEarningsAuditLogHalfDay({
+        decisionLogId,
+        actorEmployeeNumber,
+        employeeNumber,
+        chargeTo,
+        hours,
+        leaveDate: leaveDateOnly,
+        salaryDeduction: false,
+        decision,
+        payloadExtra: {
+          available_hours_after: Number((availableAfter || 0).toFixed(4)),
+        },
+      });
+
       const [empName, actorName] = await Promise.all([
         getEmployeeFullName(String(employeeNumber)),
         getEmployeeFullName(actorEmployeeNumber),
       ]);
       const actorDisplay = formatUserDisplayName(actorEmployeeNumber, actorName);
       const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
-      await insertTransactionLog(
-        String(employeeNumber),
-        `${actorDisplay} applied half-day deduction of ${hours} hrs to ${chargeTo} for ${empDisplay} (${toMysqlDateOnly(leave_date)}).`,
-        actorEmployeeNumber,
-      );
+      const txMsg = `${actorDisplay} applied half-day deduction of ${hours} hrs to ${chargeTo} for ${empDisplay} (${leaveDateOnly}).`;
+      await insertTransactionLog(String(employeeNumber), txMsg, actorEmployeeNumber, {
+        deduction_decision_log_id: decisionLogId,
+        charge_to: chargeTo,
+        deducted_hours: hours,
+        leave_date: leaveDateOnly,
+        salary_deduction: false,
+        available_hours_after: Number((availableAfter || 0).toFixed(4)),
+      });
 
       emitLeaveChange("leaveAssignmentChanged");
       res.json({
         message: "Half-day deduction applied successfully",
         employeeNumber,
-        leave_date: toMysqlDateOnly(leave_date),
+        leave_date: leaveDateOnly,
         charge_to: chargeTo,
         deducted_hours: hours,
       });
@@ -2434,6 +2686,78 @@ router.put("/leave_request/:id", (req, res) => {
       updateStatus();
     },
   );
+});
+
+// ─── Leave credit usage ledger (transaction history + reconcile) ─────────────
+router.get("/leave_credit_usage", (req, res) => {
+  const { employeeNumber, leave_code, leave_assignment_id } = req.query;
+  let sql = `
+    SELECT lcu.*
+    FROM leave_credit_usage lcu
+    WHERE 1 = 1
+  `;
+  const params = [];
+  if (employeeNumber) {
+    sql += ` AND lcu.employee_number = ?`;
+    params.push(String(employeeNumber));
+  }
+  if (leave_code) {
+    sql += ` AND TRIM(lcu.leave_code) = TRIM(?)`;
+    params.push(String(leave_code));
+  }
+  if (leave_assignment_id) {
+    sql += ` AND lcu.leave_assignment_id = ?`;
+    params.push(parseInt(leave_assignment_id, 10));
+  }
+  sql += ` ORDER BY lcu.created_at DESC, lcu.id DESC LIMIT 1000`;
+  db.query(sql, params, (err, rows) => {
+    if (err) {
+      console.error("[leave_credit_usage]", err.message);
+      return res.status(500).json({ error: "Failed to fetch leave credit usage" });
+    }
+    res.json(rows || []);
+  });
+});
+
+router.post("/leave_credit_usage/reconcile", async (req, res) => {
+  const applyFix = req.body?.fix === true;
+  const conn = await getPromiseConnection();
+  try {
+    const [assignments] = await conn.execute(
+      `SELECT id, used_hours, total_hours, remaining_hours FROM leave_assignment`,
+    );
+    const mismatches = [];
+    for (const r of assignments) {
+      const { activeLines, usedFromLedger } = await fetchLedgerSumForAssignment(
+        conn,
+        r.id,
+      );
+      if (activeLines === 0) continue;
+      const stored = parseDbHours(r.used_hours);
+      if (Math.abs(stored - usedFromLedger) > 0.02) {
+        mismatches.push({
+          leave_assignment_id: r.id,
+          stored_used_hours: stored,
+          ledger_used_hours: usedFromLedger,
+          diff: Number((stored - usedFromLedger).toFixed(4)),
+        });
+        if (applyFix) {
+          await refreshLeaveAssignmentCacheFromLedger(conn, r.id);
+        }
+      }
+    }
+    res.json({
+      checked: assignments.length,
+      mismatchCount: mismatches.length,
+      mismatches,
+      fixed: applyFix,
+    });
+  } catch (e) {
+    console.error("[leave_credit_usage/reconcile]", e.message);
+    res.status(500).json({ error: e.message || "reconcile failed" });
+  } finally {
+    conn.release();
+  }
 });
 
 // DELETE leave request

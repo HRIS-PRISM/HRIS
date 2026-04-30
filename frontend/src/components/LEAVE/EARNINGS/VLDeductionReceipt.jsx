@@ -446,7 +446,8 @@ const VLDeductionReceipt = ({
     setDeductError("");
     const token = localStorage.getItem("token");
     try {
-      await axios.post(
+      const headers = { Authorization: `Bearer ${token}` };
+      const { data } = await axios.post(
         `${API_BASE_URL}/api/earnings/leave`,
         {
           employeeNumber: employee.employeeNumber,
@@ -457,13 +458,21 @@ const VLDeductionReceipt = ({
           entry_type: "TARDINESS_DEDUCTION",
           remarks: `Auto-deduction: tardiness ${remainingToDeductDec.toFixed(3)}d (${(remainingToDeductDec * 8).toFixed(3)}h / ${hrsToHMS(remainingToDeductDec * 8)}) for ${monthName(month)} ${year}`,
         },
-        { headers: { Authorization: `Bearer ${token}` } },
+        { headers },
       );
-      const newVL = Number(
-        Math.max(0, vlBal - remainingToDeductDec).toFixed(3),
-      );
+      const earningId = data?.id;
+      if (earningId != null) {
+        await axios.patch(
+          `${API_BASE_URL}/api/earnings/leave/${earningId}/approve`,
+          {},
+          { headers },
+        );
+      }
+      const newVL = Number((vlBal - remainingToDeductDec).toFixed(3));
       setDeductSuccess(
-        `Deducted ${remainingToDeductDec.toFixed(3)}d from VL. New balance ≈ ${newVL.toFixed(3)}d.`,
+        newVL < 0
+          ? `Applied ${remainingToDeductDec.toFixed(3)}d tardiness to VL. Balance is ${newVL.toFixed(3)}d — salary shortfall was recorded for the overdraw.`
+          : `Deducted ${remainingToDeductDec.toFixed(3)}d from VL. New balance ≈ ${newVL.toFixed(3)}d.`,
       );
       setConfirmOpen(false);
       setChecked(false);

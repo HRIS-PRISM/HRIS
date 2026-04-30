@@ -30,14 +30,17 @@ export async function fetchAttendanceCalendarMaps({
   getAuthHeaders,
   startDate,
   endDate,
+  /** Employee number / person id — required so leave overlay matches the viewed employee */
+  personId,
 }) {
+  const personKey = String(personId ?? '').trim();
   const [suspRes, leaveRes, holidayRes] = await Promise.all([
     axios.get(`${apiBaseUrl}/attendance/api/suspensions`, {
       params: { startDate, endDate },
       ...getAuthHeaders(),
     }),
     axios.get(`${apiBaseUrl}/attendance/api/leaves`, {
-      params: { startDate, endDate },
+      params: { startDate, endDate, ...(personKey ? { personId: personKey } : {}) },
       ...getAuthHeaders(),
     }),
     axios.get(`${apiBaseUrl}/attendance/api/holiday`, {

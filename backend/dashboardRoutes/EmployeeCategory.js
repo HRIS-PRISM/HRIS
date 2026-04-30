@@ -554,4 +554,166 @@ router.delete('/employment-category/:id', authenticateToken, (req, res) => {
   });
 });
 
+// ============================================================
+// ATTENDANCE DEDUCTION POLICY (per employment_type_config.id)
+// Table: employment_category_deduction_types
+// ============================================================
+
+const DEDUCTION_CONTEXTS = ['ABSENCE', 'HALF_DAY', 'TARDINESS'];
+
+router.get(
+  '/employment-category-deduction-types/:employmentCategoryId',
+  authenticateToken,
+  (req, res) => {
+    const id = parseInt(req.params.employmentCategoryId, 10);
+    if (!Number.isFinite(id) || id < 1)
+      return res.status(400).json({ error: 'Invalid employment category id' });
+
+    db.query(
+      'SELECT id FROM employment_type_config WHERE id = ? LIMIT 1',
+      [id],
+      (e1, etcRows) => {
+        if (e1) {
+          console.error('employment-category-deduction-types type check:', e1);
+          return res.status(500).json({ message: 'Database error' });
+        }
+        if (!etcRows.length)
+          return res.status(404).json({ error: 'Employment type not found' });
+
+        const sql = `
+          SELECT ecdt.id,
+                 ecdt.leave_type_id,
+                 ecdt.deduction_context,
+                 lt.leave_code,
+                 lt.leave_description
+          FROM employment_category_deduction_types ecdt
+          INNER JOIN leave_table lt ON lt.id = ecdt.leave_type_id
+          WHERE ecdt.employment_category_id = ?
+          ORDER BY ecdt.deduction_context ASC, lt.leave_code ASC
+        `;
+        db.query(sql, [id], (err, rows) => {
+          if (err) {
+            console.error('employment-category-deduction-types:', err);
+            if (err.code === 'ER_NO_SUCH_TABLE')
+              return res.status(503).json({
+                error:
+                  'Table employment_category_deduction_types is missing. Run the migration SQL to create it.',
+              });
+            return res.status(500).json({ message: 'Error fetching deduction policy' });
+          }
+          const byContext = { ABSENCE: [], HALF_DAY: [], TARDINESS: [] };
+          for (const r of rows || []) {
+            const c = String(r.deduction_context || '').toUpperCase();
+            if (byContext[c] && !byContext[c].includes(r.leave_type_id))
+              byContext[c].push(r.leave_type_id);
+          }
+          res.json({
+            employment_category_id: id,
+            rows: rows || [],
+            byContext,
+          });
+        });
+      },
+    );
+  },
+);
+
+router.put(
+  '/employment-category-deduction-types/:employmentCategoryId',
+  authenticateToken,
+  (req, res) => {
+    const id = parseInt(req.params.employmentCategoryId, 10);
+    if (!Number.isFinite(id) || id < 1)
+      return res.status(400).json({ error: 'Invalid employment category id' });
+
+    const body = req.body || {};
+    const seen = new Set();
+    const tuples = [];
+    for (const ctx of DEDUCTION_CONTEXTS) {
+      const arr = Array.isArray(body[ctx]) ? body[ctx] : [];
+      for (const raw of arr) {
+        const tid = parseInt(raw, 10);
+        if (!Number.isFinite(tid) || tid < 1) continue;
+        const k = `${ctx}:${tid}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        tuples.push([id, tid, ctx]);
+      }
+    }
+
+    db.query(
+      'SELECT id FROM employment_type_config WHERE id = ? LIMIT 1',
+      [id],
+      (e1, etcRows) => {
+        if (e1) {
+          console.error('employment-category-deduction-types put type check:', e1);
+          return res.status(500).json({ message: 'Database error' });
+        }
+        if (!etcRows.length)
+          return res.status(404).json({ error: 'Employment type not found' });
+
+        db.query(
+          'DELETE FROM employment_category_deduction_types WHERE employment_category_id = ?',
+          [id],
+          (delErr) => {
+            if (delErr) {
+              console.error('employment-category-deduction-types delete:', delErr);
+              if (delErr.code === 'ER_NO_SUCH_TABLE')
+                return res.status(503).json({
+                  error:
+                    'Table employment_category_deduction_types is missing. Run the migration SQL to create it.',
+                });
+              return res.status(500).json({ message: 'Error clearing policy' });
+            }
+
+            if (tuples.length === 0) {
+              logAudit(
+                req.user,
+                'update',
+                'employment_category_deduction_types',
+                id,
+                null,
+              );
+              return res.json({
+                message: 'Policy saved (no leave types selected)',
+                employment_category_id: id,
+                inserted: 0,
+              });
+            }
+
+            const placeholders = tuples.map(() => '(?,?,?)').join(',');
+            const flat = tuples.flat();
+            const ins = `INSERT INTO employment_category_deduction_types (employment_category_id, leave_type_id, deduction_context) VALUES ${placeholders}`;
+            db.query(ins, flat, (insErr) => {
+              if (insErr) {
+                console.error('employment-category-deduction-types insert:', insErr);
+                if (
+                  insErr.code === 'ER_NO_REFERENCED_ROW_2' ||
+                  insErr.code === 'ER_NO_REFERENCED_ROW'
+                )
+                  return res.status(400).json({
+                    error: 'Invalid leave_type_id — use ids from the Leave Types table.',
+                  });
+                return res.status(500).json({ message: 'Error saving policy' });
+              }
+              logAudit(
+                req.user,
+                'update',
+                'employment_category_deduction_types',
+                id,
+                null,
+              );
+              res.json({
+                message: 'Deduction policy saved',
+                employment_category_id: id,
+                inserted: tuples.length,
+              });
+            });
+          },
+        );
+      },
+    );
+  },
+);
+
 module.exports = router;

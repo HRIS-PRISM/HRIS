@@ -841,7 +841,7 @@ const LeaveRequestUser = () => {
     });
     return Object.values(map).map((b) => ({
       ...b,
-      totalDays: (b.totalHours / 8).toFixed(1),
+      totalDays: (b.totalHours / 8).toFixed(3),
     }));
   }, [assignments, leaveTypes]);
 
@@ -1096,7 +1096,7 @@ const LeaveRequestUser = () => {
           ?.leave_description || newLeaveRequest.leave_code;
       showError(
         "Insufficient Balance",
-        `You are requesting ${selectedDates.length} day(s) of "${typeName}" but only have ${remainingDays.toFixed(1)} allocated day(s) remaining.`,
+        `You are requesting ${selectedDates.length} day(s) of "${typeName}" but only have ${remainingDays.toFixed(3)} allocated day(s) remaining.`,
       );
       return;
     }
@@ -1550,9 +1550,13 @@ const LeaveRequestUser = () => {
                       const days = parseFloat(a.allocated_hours || 0) / 8;
                       return days > max ? days : max;
                     }, 0);
+                  const daysRemaining = balance.totalHours / 8;
                   const pct =
                     maxAssignment > 0
-                      ? Math.min(100, (balance.totalDays / maxAssignment) * 100)
+                      ? Math.min(
+                          100,
+                          (daysRemaining / maxAssignment) * 100,
+                        )
                       : 0;
                   const barColor =
                     pct > 60 ? "#2E7D32" : pct > 30 ? "#F57C00" : "#C62828";
@@ -1612,7 +1616,7 @@ const LeaveRequestUser = () => {
                             ml: 0.3,
                           }}
                         >
-                          / {maxAssignment.toFixed(1)}
+                          / {maxAssignment.toFixed(3)}
                         </Box>
                       </Typography>
                       <Box
@@ -1875,7 +1879,7 @@ const LeaveRequestUser = () => {
                           color: "#C62828",
                         }}
                       >
-                        {`Insufficient — ${remainingDays.toFixed(1)} day(s) available, ${selectedDates.length} selected.`}
+                        {`Insufficient — ${remainingDays.toFixed(3)} day(s) available, ${selectedDates.length} selected.`}
                       </Typography>
                     </Box>
                   )}

@@ -1883,6 +1883,7 @@ const AttendanceModuleFacultyDesignated = () => {
           getAuthHeaders,
           startDate,
           endDate,
+          personId: employeeNumber,
         }),
       ]);
 
