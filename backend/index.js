@@ -63,6 +63,8 @@ const workingHoursRoutes = require('./routes/workingHoursRoutes');
 const serviceCreditRoutes = require('./routes/serviceCredit');
 const ctoRoutes = require('./routes/ctoRoutes');
 const earningsRoutes = require('./routes/earningsRoutes');
+const deductionsRoutes = require('./routes/deductions');
+const leaveSalaryShortfallRoutes = require('./routes/leaveSalaryShortfallRoutes');
 
 
 
@@ -405,6 +407,35 @@ app.use('/api/working-hours', workingHoursRoutes);
 app.use('/api/service-credits', serviceCreditRoutes);
 app.use('/api/cto', ctoRoutes);
 app.use('/api/earnings', earningsRoutes);
+app.use('/api/deductions', deductionsRoutes);
+app.use('/api/leave-salary-shortfall', leaveSalaryShortfallRoutes);
+
+const ensureLeaveSalaryShortfallSQL = `
+  CREATE TABLE IF NOT EXISTS leave_salary_shortfall (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    employee_number VARCHAR(64) NOT NULL,
+    period_year INT NOT NULL,
+    period_month INT NOT NULL,
+    negative_balance_days DECIMAL(14, 6) NOT NULL COMMENT 'Balance after deduction in days (often negative)',
+    shortfall_days DECIMAL(14, 6) NOT NULL,
+    shortfall_hours DECIMAL(14, 6) NOT NULL,
+    leave_code VARCHAR(32) NOT NULL,
+    entry_type VARCHAR(64) NULL,
+    leave_earning_id INT NULL,
+    remarks TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_lss_emp_period (employee_number, period_year, period_month),
+    INDEX idx_lss_created (created_at),
+    UNIQUE KEY uq_lss_leave_earning (leave_earning_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+db.query(ensureLeaveSalaryShortfallSQL, (err) => {
+  if (err) {
+    console.error('Failed to ensure leave_salary_shortfall table:', err.message);
+  } else {
+    console.log('leave_salary_shortfall table ready');
+  }
+});
 
 // Server startup with Socket.IO
 const PORT = process.env.WEB_PORT || 5000;

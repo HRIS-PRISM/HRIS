@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import API_BASE_URL from '../../apiConfig';
 import { getAuthHeaders } from '../../utils/auth';
-import { useSocket } from '../../contexts/SocketContext';
 import logo from './logo.png';
 // Ensure this path matches where you saved the LoadingOverlay component above
 import LoadingOverlay from '../LoadingOverlay';
@@ -23,8 +22,6 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
 const AssessmentClearance = () => {
-  const { socket, connected } = useSocket();
-  
   // Initial state is EMPTY for a standard layout (Blank Form)
   const [formData, setFormData] = useState({
     date: '',

@@ -14,6 +14,7 @@
 import API_BASE_URL from "../../apiConfig";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "axios";
+import useLeaveRealtimeRefresh from "../../hooks/useLeaveRealtimeRefresh";
 import {
   Typography, TextField, Button, Box, Grid, Chip, Modal, IconButton,
   Select, MenuItem, FormControl, Alert, InputAdornment, Card, Avatar,
@@ -667,6 +668,13 @@ const CompensatoryTimeOff = () => {
       console.error("fetchEmpCatMap error:", err);
     }
   };
+
+  useLeaveRealtimeRefresh(() => {
+    fetchCTORecords();
+    fetchEmployees();
+    fetchDeptMap();
+    fetchEmpCatMap();
+  });
 
   const allDeptCodes = useMemo(() => [...new Set(Object.values(deptMap).filter(Boolean))].sort(), [deptMap]);
 

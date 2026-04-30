@@ -7,6 +7,7 @@ import React, {
   useMemo,
   memo,
 } from 'react';
+import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
 import axios from 'axios';
 import {
   Box,
@@ -2030,6 +2031,33 @@ const AttendanceSearch = () => {
     }, 180);
     return () => clearTimeout(timer);
   }, [personID, startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fetchRecordsRef = useRef(fetchRecords);
+  const fetchFullRecordsRef = useRef(fetchFullRecords);
+  const activeTabRef = useRef(activeTab);
+  useEffect(() => {
+    fetchRecordsRef.current = fetchRecords;
+    fetchFullRecordsRef.current = fetchFullRecords;
+    activeTabRef.current = activeTab;
+  });
+
+  useAttendanceRealtimeRefresh(
+    useCallback(() => {
+      if (!personID || !startDate || !endDate) return;
+      if (activeTabRef.current === 'records') {
+        fetchRecordsRef.current(false, { force: true });
+      } else {
+        fetchFullRecordsRef.current(false, { force: true });
+      }
+    }, [personID, startDate, endDate]),
+    {
+      personId: personID,
+      startDate,
+      endDate,
+      requireDateRange: true,
+      matchMode: 'strict',
+    },
+  );
 
   useEffect(() => {
     return () => {

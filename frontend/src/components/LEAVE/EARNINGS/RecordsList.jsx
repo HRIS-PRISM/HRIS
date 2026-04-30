@@ -177,6 +177,37 @@ const hrsToHMS = (h) => {
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 };
 
+/** Avoid long timezone text (e.g. GMT+0800, Taipei…) in the UI. */
+const formatRecordDate = (val) => {
+  if (val == null || val === "") return "";
+  const d = val instanceof Date ? val : new Date(val);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-PH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+};
+
+const formatRecordTime = (val) => {
+  if (val == null || val === "") return "";
+  const d = val instanceof Date ? val : new Date(val);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-PH", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
+
+const formatApproverDisplay = (employeeNum, lookup) => {
+  if (employeeNum == null || employeeNum === "") return "";
+  const raw = String(employeeNum).trim();
+  if (!raw) return "";
+  const name = lookup && lookup[raw];
+  return name ? `${name} (${raw})` : raw;
+};
+
 const globalCss = `
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
 @keyframes emFadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
@@ -475,10 +506,26 @@ const EarningRow = ({
   onReject,
   showTypeBadge,
   onViewAudit,
+  approverNameLookup = {},
 }) => {
   const earnH = toNum(record.earned_hours ?? record.total_hours);
   const status = record.earn_status || "pending";
   const isTardinessDeduction = record.entry_type === "TARDINESS_DEDUCTION";
+  const isAttendanceAbsenceDeduction = (() => {
+    if (!(earnH < 0)) return false;
+    if (isTardinessDeduction) return false;
+    if (record.entry_type !== "DEDUCTION") return false;
+    const rmk = String(record.remarks || "").toLowerCase();
+    // Only tag attendance-driven absence offsets (not generic/manual deductions).
+    return (
+      rmk.includes("absence offset") ||
+      rmk.includes("sc-first policy") ||
+      rmk.includes("cto override") ||
+      rmk.includes("attendance absence")
+    );
+  })();
+  const isHalfDayPolicy =
+    record.entry_type === "HALF_DAY_POLICY" || record._halfDayPolicyRecord;
   const isCrossMonthAdjustment =
     type === "leave" &&
     record._covers_month != null &&
@@ -489,9 +536,19 @@ const EarningRow = ({
       sx={{
         px: 1.5,
         py: 1.25,
-        border: `1px solid ${isTardinessDeduction ? "rgba(198,40,40,0.15)" : "rgba(0,0,0,0.08)"}`,
+        border: `1px solid ${
+          isHalfDayPolicy
+            ? "rgba(46,125,50,0.35)"
+            : isTardinessDeduction
+              ? "rgba(198,40,40,0.15)"
+              : "rgba(0,0,0,0.08)"
+        }`,
         borderRadius: 2,
-        bgcolor: isTardinessDeduction ? "rgba(198,40,40,0.02)" : "#fff",
+        bgcolor: isHalfDayPolicy
+          ? "rgba(46,125,50,0.04)"
+          : isTardinessDeduction
+            ? "rgba(198,40,40,0.02)"
+            : "#fff",
         mb: 0.75,
         animation: "emFadeUp 0.25s ease",
       }}
@@ -530,6 +587,21 @@ const EarningRow = ({
               {type === "cto" && !record.sc_type && ` · CTO`}
             </Typography>
             <StatusBadge status={status} />
+            {isHalfDayPolicy && (
+              <Chip
+                size="small"
+                icon={<DeductIcon style={{ fontSize: 9, color: "#2e7d32" }} />}
+                label="Half-day deduction"
+                sx={{
+                  height: 16,
+                  fontSize: "0.56rem",
+                  fontWeight: 700,
+                  bgcolor: "rgba(46,125,50,0.1)",
+                  color: "#1b5e20",
+                  border: "1px solid rgba(46,125,50,0.28)",
+                }}
+              />
+            )}
             {isTardinessDeduction && (
               <Chip
                 size="small"
@@ -542,6 +614,21 @@ const EarningRow = ({
                   bgcolor: "rgba(198,40,40,0.08)",
                   color: "#c62828",
                   border: "1px solid rgba(198,40,40,0.2)",
+                }}
+              />
+            )}
+            {isAttendanceAbsenceDeduction && (
+              <Chip
+                size="small"
+                icon={<DeductIcon style={{ fontSize: 9, color: "#6a1b9a" }} />}
+                label="Absence Deduction"
+                sx={{
+                  height: 16,
+                  fontSize: "0.56rem",
+                  fontWeight: 700,
+                  bgcolor: "rgba(106,27,154,0.08)",
+                  color: "#6a1b9a",
+                  border: "1px solid rgba(106,27,154,0.2)",
                 }}
               />
             )}
@@ -597,17 +684,10 @@ const EarningRow = ({
                 mt: 0.15,
               }}
             >
-              Added{" "}
-              {new Date(record.created_at).toLocaleDateString("en-PH", {
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-              })}
-              {" · "}
-              {new Date(record.created_at).toLocaleTimeString("en-PH", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+              Added {formatRecordDate(record.created_at)}
+              {formatRecordTime(record.created_at)
+                ? ` · ${formatRecordTime(record.created_at)}`
+                : ""}
             </Typography>
           )}
           {record.remarks && (
@@ -631,7 +711,7 @@ const EarningRow = ({
               }}
             >
               {status === "approved" ? "Approved" : "Rejected"} by{" "}
-              {record.approved_by}
+              {formatApproverDisplay(record.approved_by, approverNameLookup)}
               {record.rejected_reason ? ` — "${record.rejected_reason}"` : ""}
             </Typography>
           )}
@@ -667,7 +747,11 @@ const EarningRow = ({
                 transform: "translateY(-1px)",
               },
             }}
-            title="View earnings audit trail"
+            title={
+              record._halfDayPolicyRecord
+                ? "View half-day policy audit trail"
+                : "View earnings audit trail"
+            }
           >
             <HistoryIcon sx={{ fontSize: 12, color: T.faint }} />
             <Typography
@@ -1197,6 +1281,7 @@ const RecordsList = ({
   onApproved,
   standalone,
   onStatusChange,
+  approverNameLookup = {},
 }) => {
   const [data, setData] = useState({ earnings: [], balances: [] });
   const [loading, setLoading] = useState(false);
@@ -1317,6 +1402,9 @@ const RecordsList = ({
  
   // ── approve / reject ──────────────────────────────────────────────────────
   const handleApprove = async (record) => {
+    if (record._halfDayPolicyRecord || record.entry_type === "HALF_DAY_POLICY") {
+      return;
+    }
     setActionLoading(true);
     try {
       const token = localStorage.getItem("token");
@@ -1334,6 +1422,13 @@ const RecordsList = ({
   };
  
   const handleReject = async (reason) => {
+    if (
+      rejectDialog.record?._halfDayPolicyRecord ||
+      rejectDialog.record?.entry_type === "HALF_DAY_POLICY"
+    ) {
+      setRejectDialog({ open: false, record: null });
+      return;
+    }
     setActionLoading(true);
     try {
       const token = localStorage.getItem("token");
@@ -1352,13 +1447,16 @@ const RecordsList = ({
   };
 
   const openAudit = async (record) => {
-    if (!record?.id) return;
-    const recordType = record._earningType || type;
+    const recordType = record._halfDayPolicyRecord
+      ? "half_day_policy"
+      : record._earningType || type;
+    const auditId = record._halfDayPolicyRecord ? record._decisionLogId : record.id;
+    if (auditId == null || auditId === "") return;
     setAuditDialog({ open: true, record, rows: [], loading: true, error: "" });
     try {
       const token = localStorage.getItem("token");
       const res = await axios.get(
-        `${API_BASE_URL}/api/earnings/audit/${recordType}/${record.id}`,
+        `${API_BASE_URL}/api/earnings/audit/${recordType}/${auditId}`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       setAuditDialog((p) => ({
@@ -1425,6 +1523,7 @@ const RecordsList = ({
             onApprove={handleApprove}
             onReject={(r) => setRejectDialog({ open: true, record: r })}
             onViewAudit={openAudit}
+            approverNameLookup={approverNameLookup}
           />
         ))
       )}
@@ -1502,18 +1601,10 @@ const RecordsList = ({
           ) : (
             <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
               {auditDialog.rows.map((r) => {
-                const ts = r.created_at ? new Date(r.created_at) : null;
+                const dPart = formatRecordDate(r.created_at);
+                const tPart = formatRecordTime(r.created_at);
                 const timeLabel =
-                  ts && !isNaN(ts)
-                    ? `${ts.toLocaleDateString("en-PH", {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                      })} • ${ts.toLocaleTimeString("en-PH", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}`
-                    : "—";
+                  dPart && tPart ? `${dPart} • ${tPart}` : dPart || tPart || "—";
                 return (
                   <Box
                     key={r.id}
@@ -1550,7 +1641,8 @@ const RecordsList = ({
                     <Typography
                       sx={{ fontSize: "0.7rem", color: T.muted, mt: 0.4 }}
                     >
-                      Actor: {r.actor || "—"}
+                      Actor:{" "}
+                      {formatApproverDisplay(r.actor, approverNameLookup) || "—"}
                     </Typography>
                     <Typography sx={{ fontSize: "0.7rem", color: T.muted }}>
                       Status: {(r.old_status || "—")} → {(r.new_status || "—")}

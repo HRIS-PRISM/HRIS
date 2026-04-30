@@ -34,6 +34,8 @@ import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
+import LoadingOverlay from '../LoadingOverlay';
+import SuccessfulOverlay from '../SuccessfulOverlay';
 
 // ─── Theme tokens (mirrors EmploymentCategoryManagement) ──────────────────────
 const T = {
@@ -204,6 +206,8 @@ const SalaryGradeTable = () => {
   const [templateYear, setTemplateYear] = useState(new Date().getFullYear().toString());
 
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [successOpen, setSuccessOpen] = useState(false);
+  const [successAction, setSuccessAction] = useState('create');
 
   const navigate = useNavigate();
   const { settings } = useSystemSettings();
@@ -269,7 +273,8 @@ const SalaryGradeTable = () => {
         step5: '', step6: '', step7: '', step8: '',
       });
       await fetchSalaryGrades();
-      showSnackbar('Salary grade added successfully.', 'success');
+      setSuccessAction('create');
+      setSuccessOpen(true);
     } catch (err) {
       showSnackbar('Failed to add salary grade.', 'error');
     } finally { setLoading(false); }
@@ -281,7 +286,8 @@ const SalaryGradeTable = () => {
       await axios.put(`${API_BASE_URL}/SalaryGradeTable/salary-grade/${editRecord.id}`, editRecord, getAuthHeaders());
       setEditRecord(null); setOriginalRecord(null); setIsEditing(false);
       await fetchSalaryGrades();
-      showSnackbar('Salary grade updated successfully.', 'success');
+      setSuccessAction('edit');
+      setSuccessOpen(true);
     } catch (err) {
       showSnackbar('Failed to update salary grade.', 'error');
     }
@@ -292,7 +298,8 @@ const SalaryGradeTable = () => {
       await axios.delete(`${API_BASE_URL}/SalaryGradeTable/salary-grade/${id}`, getAuthHeaders());
       setEditRecord(null); setOriginalRecord(null); setIsEditing(false); setDeleteConfirmId(null);
       await fetchSalaryGrades();
-      showSnackbar('Salary grade deleted successfully.', 'success');
+      setSuccessAction('delete');
+      setSuccessOpen(true);
     } catch (err) {
       showSnackbar('Failed to delete salary grade.', 'error');
     }
@@ -1130,6 +1137,16 @@ const SalaryGradeTable = () => {
               </AccentButton>
             </DialogActions>
           </Dialog>
+
+          <LoadingOverlay
+            open={loading || importing}
+            message={importing ? 'Importing salary grades…' : 'Processing…'}
+          />
+          <SuccessfulOverlay
+            open={successOpen}
+            action={successAction}
+            onClose={() => setSuccessOpen(false)}
+          />
 
           {/* ── Snackbar ── */}
           <Snackbar

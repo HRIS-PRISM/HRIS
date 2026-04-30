@@ -44,6 +44,9 @@ import {
   Badge,
   Collapse,
   InputAdornment,
+  Checkbox,
+  FormControlLabel,
+  FormGroup,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -70,6 +73,7 @@ import {
   WarningAmber as WarningIcon,
   CheckCircle as CheckCircleIcon,
   DragIndicator as DragIcon,
+  FactCheck as DeductionPolicyIcon,
 } from "@mui/icons-material";
 import ReorderIcon from "@mui/icons-material/Reorder";
 import LoadingOverlay from "./LoadingOverlay";
@@ -893,6 +897,328 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
   );
 };
 
+const DEDUCTION_CONTEXT_BLOCKS = [
+  {
+    key: "ABSENCE",
+    title: "Absence (leave form filed)",
+    hint: "Used when a full-day absence has an approved/pending leave request. Absence with no leave form is salary-only (system rule).",
+  },
+  {
+    key: "HALF_DAY",
+    title: "Half-day (leave form filed)",
+    hint: "Used when a half-day has a filed leave form. Half-day without a leave form defaults to VL only (system rule).",
+  },
+  {
+    key: "TARDINESS",
+    title: "Tardiness",
+    hint: "Leave types that may be charged for tardiness offsets in Earnings / policy-driven flows.",
+  },
+];
+
+// ─── Deduction policy tab (employment_type_config ↔ leave types) ────────────
+const DeductionPolicyTab = ({ typeConfigs, showSnackbar }) => {
+  const [selectedTypeId, setSelectedTypeId] = useState("");
+  const [leaveTypes, setLeaveTypes] = useState([]);
+  const [checked, setChecked] = useState(() => ({
+    ABSENCE: new Set(),
+    HALF_DAY: new Set(),
+    TARDINESS: new Set(),
+  }));
+  const [loadingTypes, setLoadingTypes] = useState(false);
+  const [loadingPolicy, setLoadingPolicy] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoadingTypes(true);
+      try {
+        const r = await axios.get(`${API_BASE_URL}/leaveRoute/leave_table`, getAuthHeaders());
+        const rows = Array.isArray(r.data) ? r.data : [];
+        if (alive) setLeaveTypes(rows);
+      } catch {
+        if (alive) {
+          setLeaveTypes([]);
+          showSnackbar("Could not load leave types.", "error");
+        }
+      } finally {
+        if (alive) setLoadingTypes(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const loadPolicy = async (typeId) => {
+    if (!typeId) {
+      setChecked({
+        ABSENCE: new Set(),
+        HALF_DAY: new Set(),
+        TARDINESS: new Set(),
+      });
+      return;
+    }
+    setLoadingPolicy(true);
+    try {
+      const r = await axios.get(
+        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category-deduction-types/${typeId}`,
+        getAuthHeaders(),
+      );
+      const by = r.data?.byContext || {};
+      setChecked({
+        ABSENCE: new Set((by.ABSENCE || []).map(Number)),
+        HALF_DAY: new Set((by.HALF_DAY || []).map(Number)),
+        TARDINESS: new Set((by.TARDINESS || []).map(Number)),
+      });
+    } catch (err) {
+      showSnackbar(
+        err.response?.data?.error || err.response?.data?.message || "Failed to load deduction policy.",
+        "error",
+      );
+      setChecked({
+        ABSENCE: new Set(),
+        HALF_DAY: new Set(),
+        TARDINESS: new Set(),
+      });
+    } finally {
+      setLoadingPolicy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedTypeId) {
+      setChecked({
+        ABSENCE: new Set(),
+        HALF_DAY: new Set(),
+        TARDINESS: new Set(),
+      });
+      return;
+    }
+    loadPolicy(selectedTypeId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTypeId]);
+
+  const toggleLeave = (contextKey, leaveTypeId, on) => {
+    setChecked((prev) => {
+      const next = {
+        ABSENCE: new Set(prev.ABSENCE),
+        HALF_DAY: new Set(prev.HALF_DAY),
+        TARDINESS: new Set(prev.TARDINESS),
+      };
+      const s = next[contextKey];
+      if (on) s.add(leaveTypeId);
+      else s.delete(leaveTypeId);
+      return next;
+    });
+  };
+
+  const allLeaveTypeIds = useMemo(
+    () =>
+      leaveTypes
+        .map((lt) => Number(lt.id))
+        .filter((id) => Number.isFinite(id)),
+    [leaveTypes],
+  );
+
+  const setContextIds = (contextKey, ids) => {
+    setChecked((prev) => ({
+      ABSENCE: new Set(prev.ABSENCE),
+      HALF_DAY: new Set(prev.HALF_DAY),
+      TARDINESS: new Set(prev.TARDINESS),
+      [contextKey]: new Set(ids),
+    }));
+  };
+
+  const selectAllInContext = (contextKey) => {
+    setContextIds(contextKey, allLeaveTypeIds);
+  };
+
+  const clearAllInContext = (contextKey) => {
+    setContextIds(contextKey, []);
+  };
+
+  const handleSave = async () => {
+    if (!selectedTypeId) {
+      showSnackbar("Select an employment category (type) first.", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      await axios.put(
+        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category-deduction-types/${selectedTypeId}`,
+        {
+          ABSENCE: [...checked.ABSENCE],
+          HALF_DAY: [...checked.HALF_DAY],
+          TARDINESS: [...checked.TARDINESS],
+        },
+        getAuthHeaders(),
+      );
+      showSnackbar("Deduction policy saved.", "success");
+      await loadPolicy(selectedTypeId);
+    } catch (err) {
+      showSnackbar(
+        err.response?.data?.error || err.response?.data?.message || "Failed to save policy.",
+        "error",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const selectedCfg = typeConfigs.find((t) => String(t.id) === String(selectedTypeId));
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
+        <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.accent, mb: 1 }}>
+          1. Select employment category (type)
+        </Typography>
+        <DynamicCategorySelect
+          value={selectedTypeId}
+          onChange={(v) => setSelectedTypeId(String(v))}
+          typeConfigs={typeConfigs}
+          disabled={loadingTypes}
+        />
+        {selectedCfg && (
+          <Typography sx={{ fontSize: "0.72rem", color: T.muted, mt: 1 }}>
+            Editing policy for <strong>{selectedCfg.parentGroup}</strong> · <strong>{selectedCfg.typeName}</strong>{" "}
+            <Box component="span" sx={{ fontFamily: "monospace", color: T.faint }}>
+              (id {selectedCfg.id})
+            </Box>
+          </Typography>
+        )}
+      </Box>
+
+      <Box sx={{ flexGrow: 1, overflowY: "auto", p: 2, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+        {!selectedTypeId ? (
+          <Box sx={{ py: 6, textAlign: "center" }}>
+            <DeductionPolicyIcon sx={{ fontSize: 40, color: alpha(T.accent, 0.25), mb: 1 }} />
+            <Typography sx={{ fontSize: "0.85rem", color: T.muted }}>Choose an employment type above to configure allowed deduction leave types.</Typography>
+          </Box>
+        ) : loadingPolicy || loadingTypes ? (
+          <Box sx={{ py: 8, display: "flex", justifyContent: "center" }}>
+            <CircularProgress size={28} sx={{ color: T.accent }} />
+          </Box>
+        ) : leaveTypes.length === 0 ? (
+          <Typography sx={{ fontSize: "0.82rem", color: T.muted }}>No leave types found. Configure the Leave Types module first.</Typography>
+        ) : (
+          <>
+            <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.accent, mb: 1.5 }}>
+              2. Allowed deduction sources (from Leave Types)
+            </Typography>
+            {DEDUCTION_CONTEXT_BLOCKS.map((block) => (
+              <Box
+                key={block.key}
+                sx={{
+                  mb: 2,
+                  p: 2,
+                  borderRadius: 2,
+                  border: `1px solid ${T.accentBorder}`,
+                  bgcolor: "#fff",
+                }}
+              >
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: 1,
+                    flexWrap: "wrap",
+                    mb: 0.5,
+                  }}
+                >
+                  <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: T.text }}>
+                    {block.title}
+                  </Typography>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, flexShrink: 0 }}>
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => selectAllInContext(block.key)}
+                      disabled={!allLeaveTypeIds.length}
+                      sx={{
+                        minWidth: 0,
+                        px: 0.75,
+                        py: 0.125,
+                        fontSize: "0.7rem",
+                        fontWeight: 700,
+                        color: T.accent,
+                        textTransform: "none",
+                      }}
+                    >
+                      Select all
+                    </Button>
+                    <Typography component="span" sx={{ fontSize: "0.65rem", color: T.faint, userSelect: "none" }}>
+                      ·
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => clearAllInContext(block.key)}
+                      disabled={checked[block.key].size === 0}
+                      sx={{
+                        minWidth: 0,
+                        px: 0.75,
+                        py: 0.125,
+                        fontSize: "0.7rem",
+                        fontWeight: 700,
+                        color: T.muted,
+                        textTransform: "none",
+                      }}
+                    >
+                      Clear all
+                    </Button>
+                  </Box>
+                </Box>
+                <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 1.25, lineHeight: 1.5 }}>
+                  {block.hint}
+                </Typography>
+                <FormGroup row sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                  {leaveTypes.map((lt) => {
+                    const id = Number(lt.id);
+                    const isOn = checked[block.key].has(id);
+                    const code = String(lt.leave_code || "").trim();
+                    const desc = String(lt.leave_description || "").trim();
+                    const label = desc && code ? `${desc} (${code})` : code || desc || `id ${id}`;
+                    return (
+                      <FormControlLabel
+                        key={`${block.key}-${id}`}
+                        control={
+                          <Checkbox
+                            size="small"
+                            checked={isOn}
+                            onChange={(e) => toggleLeave(block.key, id, e.target.checked)}
+                            sx={{ py: 0.25, color: T.accent, "&.Mui-checked": { color: T.accent } }}
+                          />
+                        }
+                        label={<Typography sx={{ fontSize: "0.78rem" }}>{label}</Typography>}
+                        sx={{ mr: 1.5, ml: 0 }}
+                      />
+                    );
+                  })}
+                </FormGroup>
+              </Box>
+            ))}
+          </>
+        )}
+      </Box>
+
+      <Box sx={{ px: 2, py: 1.5, borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", flexShrink: 0, display: "flex", justifyContent: "flex-end", gap: 1 }}>
+        <AccentButton
+          variant="contained"
+          disabled={!selectedTypeId || saving || loadingPolicy}
+          onClick={handleSave}
+          startIcon={saving ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <SaveIcon sx={{ fontSize: "15px !important" }} />}
+          sx={{ bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark }, "&:disabled": { bgcolor: "#ccc" } }}
+        >
+          {saving ? "Saving…" : "Save deduction policy"}
+        </AccentButton>
+      </Box>
+    </Box>
+  );
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 const EmploymentCategoryManagement = () => {
   // ── State ──
@@ -1180,6 +1506,14 @@ const EmploymentCategoryManagement = () => {
                         size="small"
                         sx={{ height: 16, fontSize: "0.62rem", bgcolor: alpha(T.accent, 0.1), color: T.accent, fontWeight: 700 }}
                       />
+                    </Box>
+                  }
+                />
+                <Tab
+                  label={
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                      <DeductionPolicyIcon sx={{ fontSize: 15 }} />
+                      Deduction policy
                     </Box>
                   }
                 />
@@ -1615,6 +1949,21 @@ const EmploymentCategoryManagement = () => {
                 onRefresh={handleRefreshAll}
                 showSnackbar={showSnackbar}
               />
+            </SectionCard>
+          )}
+
+          {/* ── Tab 2: Deduction policy (per employment type) ── */}
+          {activeTab === 2 && (
+            <SectionCard sx={{ height: "calc(100vh - 320px)", display: "flex", flexDirection: "column" }}>
+              <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.5, bgcolor: T.accentFaint, flexShrink: 0 }}>
+                <DeductionPolicyIcon sx={{ fontSize: 15, color: T.accent }} />
+                <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Attendance deduction policy</Typography>
+                <Box sx={{ flex: 1 }} />
+                <Typography sx={{ fontSize: "0.72rem", color: T.muted, maxWidth: 420, textAlign: "right", display: { xs: "none", md: "block" } }}>
+                  Maps each employment type to leave types allowed in Earnings (absence / half-day / tardiness).
+                </Typography>
+              </Box>
+              <DeductionPolicyTab typeConfigs={typeConfigs} showSnackbar={showSnackbar} />
             </SectionCard>
           )}
 

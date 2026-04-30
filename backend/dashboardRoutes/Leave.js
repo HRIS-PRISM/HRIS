@@ -340,49 +340,9 @@ router.put('/leave_request/:id', (req, res) => {
         },
       );
 
-      // If status is HR Approved (2), recalculate leave_assignment
-      if (numStatus === 2) {
-        // 1. Count all HR Approved requests for this employee/leave_code
-        const countQuery =
-          'SELECT COUNT(*) as approved_days FROM leave_request WHERE employeeNumber = ? AND leave_code = ? AND status = 2';
-        db.query(
-          countQuery,
-          [employeeNumber, leave_code],
-          (err3, countResults) => {
-            if (err3) return res.status(500).json({ error: err3.message });
-            // 2. Get leave_hours for this leave_code
-            const getHoursQuery =
-              'SELECT leave_hours FROM leave_table WHERE leave_code = ?';
-            db.query(getHoursQuery, [leave_code], (err4, hoursResults) => {
-              if (err4) return res.status(500).json({ error: err4.message });
-              const leaveHours = hoursResults[0]?.leave_hours || 8;
-              const usedHours =
-                (countResults[0].approved_days || 0) * leaveHours;
-              // 3. Update leave_assignment
-              const updateAssignmentQuery = `
-              UPDATE leave_assignment la
-              JOIN leave_table lt ON la.leave_code = lt.leave_code
-              SET la.used_hours = ?, la.remaining_hours = la.allocated_hours - ?, la.total_hours = la.allocated_hours
-              WHERE la.employeeNumber = ? AND la.leave_code = ?
-            `;
-              db.query(
-                updateAssignmentQuery,
-                [usedHours, usedHours, employeeNumber, leave_code],
-                (err5) => {
-                  if (err5)
-                    return res.status(500).json({ error: err5.message });
-                  res.json({
-                    message:
-                      'Leave request updated and leave credits deducted successfully',
-                  });
-                },
-              );
-            });
-          },
-        );
-      } else {
-        res.json({ message: 'Leave request updated successfully' });
-      }
+      // Leave balances are driven by leave_credit_usage + /api/leave HR approval.
+      // This legacy dashboard route must not overwrite leave_assignment totals.
+      res.json({ message: 'Leave request updated successfully' });
     },
   );
 });
@@ -420,18 +380,6 @@ router.put('/leave_request/:id/admin-cancel', (req, res) => {
       if (err2) return res.status(500).json({ error: err2.message });
       if (updateResult.affectedRows === 0) {
         return res.status(404).json({ error: 'Leave request not found' });
-      }
-
-      // If the request was HR approved (status 2), recalculate leave_assignment
-      if (status === 2) {
-        updateLeaveAssignment(employeeNumber, leave_code, (err) => {
-          if (err) {
-            console.error(
-              'Error updating leave assignment after admin cancellation:',
-              err,
-            );
-          }
-        });
       }
 
       // Add notification to employee
@@ -474,40 +422,12 @@ router.delete('/leave_request/:id', (req, res) => {
       db.query('DELETE FROM leave_request WHERE id = ?', [id], (err2) => {
         if (err2) return res.status(500).json({ error: err2.message });
 
-        // Recalculate leave_assignment if approved
-        if (status === 2) {
-          const countQuery =
-            'SELECT COUNT(*) as approved_days FROM leave_request WHERE employeeNumber = ? AND leave_code = ? AND status = 2';
-          db.query(
-            countQuery,
-            [employeeNumber, leave_code],
-            (err3, countResults) => {
-              if (err3) return res.status(500).json({ error: err3.message });
-
-              const usedHours = (countResults[0].approved_days || 0) * 8;
-              const updateAssignmentQuery = `
-            UPDATE leave_assignment la
-            JOIN leave_table lt ON la.leave_code = lt.leave_code
-            SET la.used_hours = ?, la.remaining_hours = lt.leave_hours - ?, la.total_hours = lt.leave_hours
-            WHERE la.employeeNumber = ? AND la.leave_code = ?
-          `;
-              db.query(
-                updateAssignmentQuery,
-                [usedHours, usedHours, employeeNumber, leave_code],
-                (err4) => {
-                  if (err4)
-                    return res.status(500).json({ error: err4.message });
-                  res.json({
-                    message:
-                      'Leave request deleted and leave assignments recalculated',
-                  });
-                },
-              );
-            },
-          );
-        } else {
-          res.json({ message: 'Leave request deleted successfully' });
-        }
+        res.json({
+          message:
+            status === 2
+              ? 'Leave request deleted. If this request had deducted credits via /api/leave, reverse that in the main Leave module if needed.'
+              : 'Leave request deleted successfully',
+        });
       });
     },
   );

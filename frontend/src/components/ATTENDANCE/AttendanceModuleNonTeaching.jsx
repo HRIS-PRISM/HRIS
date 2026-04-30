@@ -29,6 +29,9 @@ import {
   Paper,
   Fab,
   Zoom,
+  TextField,
+  List,
+  ListItemButton,
 } from '@mui/material';
 import {
   WorkHistory,
@@ -51,14 +54,28 @@ import {
   FilterList,
   KeyboardArrowUp,
   Search,
+  SearchOutlined,
   Assignment,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
+import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
 import AccessDenied from '../AccessDenied';
 import LoadingOverlay from '../LoadingOverlay';
+import SuccessfulOverlay from '../SuccessfulOverlay';
 import { computeAbsentDays } from './attendanceMetrics';
+import {
+  postAttendanceDevicePreflightNoSync,
+  fetchAttendanceCalendarMaps,
+  getLeaveStatusLabelForDate,
+} from './attendanceLeaveIntegration';
+import OverallAttendanceCompareModal from './OverallAttendanceCompareModal';
+import {
+  mergeOverallPayload,
+  overallRecordsDiffer,
+  OVERALL_COMPARE_FIELD_META,
+} from './overallAttendanceMerge';
 
 // ─── Theme tokens (unified with AttendanceModuleFaculty) ──────────────────
 const T = {
@@ -206,6 +223,255 @@ const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, ic
     />
   </Box>
 );
+
+const FieldInput = styled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+  },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
+
+const formatFullNameForSearch = (fullName) => {
+  if (!fullName) return '';
+  const cleaned = String(fullName).trim().replace(/\s+/g, ' ');
+  if (!cleaned) return '';
+  const parts = cleaned.split(' ');
+  const suffixes = new Set(['JR', 'JR.', 'SR', 'SR.', 'II', 'III', 'IV', 'V']);
+  let suffix = '';
+  if (suffixes.has(parts[parts.length - 1]?.toUpperCase())) suffix = parts.pop();
+  if (parts.length === 1) return suffix ? `${parts[0]} ${suffix}` : parts[0];
+  const firstName = parts[0];
+  const lastName = parts[parts.length - 1];
+  const middleFormatted = parts
+    .slice(1, parts.length - 1)
+    .map((m) => {
+      const mm = String(m).replace(/\./g, '');
+      return mm.length === 1 ? `${mm.toUpperCase()}.` : m;
+    })
+    .join(' ');
+  const base = `${lastName}, ${firstName}${middleFormatted ? ` ${middleFormatted}` : ''}`;
+  return suffix ? `${base} ${suffix}` : base;
+};
+
+const EmployeeSearchField = ({
+  value,
+  onSelectEmployeeNumber,
+  disabled = false,
+}) => {
+  const [query, setQuery] = useState(value || '');
+  const [debouncedQuery, setDebouncedQuery] = useState(value || '');
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const debounceRef = useRef(null);
+  const containerRef = useRef(null);
+  const abortRef = useRef(null);
+
+  useEffect(() => {
+    setQuery(value || '');
+    setDebouncedQuery(value || '');
+  }, [value]);
+
+  useEffect(() => {
+    const handleOutside = (event) => {
+      if (!containerRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    if (abortRef.current) abortRef.current.abort();
+    const q = debouncedQuery.trim();
+    if (q.length < 2) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    axios
+      .get(`${API_BASE_URL}/users/search`, {
+        params: { q },
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+      })
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : [];
+        setResults(list.slice(0, 20));
+      })
+      .catch((err) => {
+        if (err?.code === 'ERR_CANCELED') return;
+        setResults([]);
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, [debouncedQuery, open]);
+
+  const queueSearch = (nextValue) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedQuery(nextValue);
+      setOpen(true);
+    }, 220);
+  };
+
+  const handleInputChange = (e) => {
+    const next = e.target.value;
+    onSelectEmployeeNumber(next);
+    setQuery(next);
+    queueSearch(next);
+  };
+  const handleSelect = (emp) => {
+    const num = emp?.employeeNumber ? String(emp.employeeNumber) : '';
+    onSelectEmployeeNumber(num);
+    setQuery(num);
+    setDebouncedQuery(num);
+    setOpen(false);
+  };
+  const handleClear = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
+    setQuery('');
+    setDebouncedQuery('');
+    setResults([]);
+    setOpen(false);
+    onSelectEmployeeNumber('');
+  };
+
+  return (
+    <Box sx={{ position: 'relative', width: '100%' }} ref={containerRef}>
+      <FieldInput
+        fullWidth
+        size="small"
+        value={query}
+        onChange={handleInputChange}
+        onFocus={() => setOpen(true)}
+        placeholder="Type name or employee number..."
+        disabled={disabled}
+        autoComplete="off"
+        inputProps={{ autoComplete: 'new-password' }}
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <SearchOutlined sx={{ color: T.muted, fontSize: 16 }} />
+            </InputAdornment>
+          ),
+          endAdornment: (
+            <InputAdornment position="end">
+              {loading ? (
+                <CircularProgress size={14} sx={{ color: T.accent }} />
+              ) : query ? (
+                <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}>
+                  <CloseIcon sx={{ fontSize: 14, color: T.faint }} />
+                </IconButton>
+              ) : null}
+            </InputAdornment>
+          ),
+        }}
+      />
+      {open && (
+        <Paper
+          elevation={6}
+          sx={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            zIndex: 1300,
+            mt: 0.5,
+            maxHeight: 280,
+            overflow: 'auto',
+            borderRadius: '10px',
+            border: `1px solid ${T.accentBorder}`,
+          }}
+        >
+          {loading ? (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 1,
+                py: 2.5,
+              }}
+            >
+              <CircularProgress size={16} sx={{ color: T.accent }} />
+              <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>
+                Searching...
+              </Typography>
+            </Box>
+          ) : results.length > 0 ? (
+            <List dense disablePadding>
+              {results.map((emp) => (
+                <ListItemButton
+                  key={emp.employeeNumber}
+                  onClick={() => handleSelect(emp)}
+                  sx={{
+                    py: 1,
+                    px: 1.5,
+                    borderBottom: `1px solid ${T.divider}`,
+                    '&:hover': { bgcolor: T.accentFaint },
+                    '&:last-child': { borderBottom: 'none' },
+                  }}
+                >
+                  <Box
+                    sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}
+                  >
+                    <Typography
+                      sx={{
+                        fontSize: '0.83rem',
+                        fontWeight: 700,
+                        color: T.text,
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      {formatFullNameForSearch(emp.fullName)}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                      #{emp.employeeNumber}
+                    </Typography>
+                  </Box>
+                </ListItemButton>
+              ))}
+            </List>
+          ) : (
+            <Box sx={{ py: 2.5, textAlign: 'center' }}>
+              <Typography
+                sx={{
+                  fontSize: '0.78rem',
+                  color: T.faint,
+                  fontStyle: 'italic',
+                }}
+              >
+                {query.trim().length >= 2
+                  ? `No registered user found for "${query.trim()}"`
+                  : 'Type at least 2 characters to search users'}
+              </Typography>
+            </Box>
+          )}
+        </Paper>
+      )}
+    </Box>
+  );
+};
 
 // ─── Row action button ────────────────────────────────────────────────────
 const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
@@ -376,6 +642,22 @@ const getCellValue = (row, colKey, isFurlough = false) => {
   }
 };
 
+// ─── Half day (one AM or PM session has punches, not both; excludes calendar status) ──
+const HALF_DAY_ORANGE = '#ff9800';
+const attendanceEmptyPunch = (v) => v == null || String(v).trim() === '' || String(v).trim() === '—' || String(v).trim().toUpperCase() === 'N/A';
+const isHalfDayAttendanceRow = (row, getStatusLabelForDateFn) => {
+  if (!row || getStatusLabelForDateFn(row.date)) return false;
+  const morning = !attendanceEmptyPunch(row.timeIN) || !attendanceEmptyPunch(row.breaktimeIN);
+  const afternoon = !attendanceEmptyPunch(row.breaktimeOUT) || !attendanceEmptyPunch(row.timeOUT);
+  return morning !== afternoon;
+};
+const halfDayRowBg = (isEven) => (isEven ? alpha(HALF_DAY_ORANGE, 0.14) : alpha(HALF_DAY_ORANGE, 0.22));
+const halfDayChipSx = {
+  bgcolor: alpha(HALF_DAY_ORANGE, 0.16),
+  color: '#e65100',
+  border: `1px solid ${alpha(HALF_DAY_ORANGE, 0.45)}`,
+};
+
 // ─── Status helpers ───────────────────────────────────────────────────────
 const getStatusStyle = (label) => {
   if (label === 'WORK SUSPENDED') return { bgcolor: alpha('#d32f2f', 0.12), color: '#d32f2f', border: `1px solid ${alpha('#d32f2f', 0.4)}` };
@@ -391,6 +673,7 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
 
   const items = [
     { label: 'Absent Days',   value: totals.absentDays,         group: 'regular' },
+    { label: 'Half Days',     value: totals.halfDays,           group: 'regular' },
     { label: 'AM Rendered',   value: totals.morningRendered,    group: 'regular' },
     { label: 'AM Tardiness',  value: totals.morningTardiness,   group: 'regular' },
     { label: 'PM Rendered',   value: totals.afternoonRendered,  group: 'regular' },
@@ -502,6 +785,7 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
           {items.map(({ label, value, group }) => {
             const isActive = group === activeTab;
             const isTard = label.includes('Tardiness') || label.includes('Tard.');
+            const isHalf = label === 'Half Days';
             return (
               <Box key={label} sx={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -511,28 +795,28 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
                 py: 1.1,
                 borderRadius: '8px',
                 bgcolor: isActive
-                  ? (isTard ? 'rgba(153,27,27,0.12)' : T.accentFaint)
-                  : (isTard ? 'rgba(153,27,27,0.05)' : T.accentFaint),
-                border: `1px solid ${isActive ? T.accent : T.accentBorder}`,
-                boxShadow: isActive ? `0 0 10px ${alpha(T.accent, 0.22)}` : 'none',
+                  ? (isHalf ? alpha(HALF_DAY_ORANGE, 0.2) : isTard ? 'rgba(153,27,27,0.12)' : T.accentFaint)
+                  : (isHalf ? alpha(HALF_DAY_ORANGE, 0.08) : isTard ? 'rgba(153,27,27,0.05)' : T.accentFaint),
+                border: `1px solid ${isActive ? (isHalf ? HALF_DAY_ORANGE : T.accent) : T.accentBorder}`,
+                boxShadow: isActive ? `0 0 10px ${alpha(isHalf ? HALF_DAY_ORANGE : T.accent, 0.22)}` : 'none',
                 transform: isActive ? 'translateY(-2px) scale(1.03)' : 'none',
                 transition: 'all 0.2s ease',
               }}>
                 <Typography sx={{
                   fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
                   letterSpacing: '0.05em', mb: 0.25, textAlign: 'center', lineHeight: 1.2,
-                  color: isActive ? T.accent : T.faint,
+                  color: isActive ? (isHalf ? '#e65100' : T.accent) : T.faint,
                 }}>
                   {label}
                 </Typography>
                 <Typography sx={{
                   fontSize: isActive ? '1.1rem' : '1.02rem', fontWeight: 800,
-                  color: isTard ? '#991b1b' : '#166534',
+                  color: isHalf ? '#e65100' : isTard ? '#991b1b' : '#166534',
                   fontFamily: 'monospace', letterSpacing: '0.04em',
                   transition: 'all 0.2s',
                   whiteSpace: 'nowrap',
                 }}>
-                  {label === 'Absent Days'
+                  {label === 'Absent Days' || label === 'Half Days'
                     ? String(Number.isFinite(Number(value)) ? Number(value) : 0)
                     : value || '00:00:00'}
                 </Typography>
@@ -673,6 +957,9 @@ const AttendanceModuleNonTeachingStaff = () => {
   const [attendanceData, setAttendanceData] = useState([]);
   const [loading, setLoading]               = useState(false);
   const [saving, setSaving]                 = useState(false);
+  const [saveLoadingOverlayOpen, setSaveLoadingOverlayOpen] = useState(false);
+  const [saveSuccessOverlayOpen, setSaveSuccessOverlayOpen] = useState(false);
+  const [pendingSaveRedirect, setPendingSaveRedirect] = useState(false);
   const [error, setError]                   = useState('');
   const [pageLoading, setPageLoading]       = useState(true);
   const [activeTab, setActiveTab]           = useState('regular');
@@ -728,6 +1015,10 @@ const AttendanceModuleNonTeachingStaff = () => {
     setModal({ open: true, title, message, type, onConfirm, showCancel });
   const closeModal = () => setModal((p) => ({ ...p, open: false }));
 
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [pendingSavedOverall, setPendingSavedOverall] = useState(null);
+  const [pendingProposedOverall, setPendingProposedOverall] = useState(null);
+
   useEffect(() => {
     let timer;
     if (snackbar.open && snackbarCountdown > 0)
@@ -765,12 +1056,15 @@ const AttendanceModuleNonTeachingStaff = () => {
     return { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } };
   };
 
-  const getStatusLabelForDate = useCallback((date) => {
-    if (suspensionByDate?.[date]) return 'WORK SUSPENDED';
-    if (holidayByDate?.[date])    return 'HOLIDAY';
-    if (leaveByDate?.[date])      return 'ON LEAVE';
-    return '';
-  }, [suspensionByDate, holidayByDate, leaveByDate]);
+  const getStatusLabelForDate = useCallback(
+    (date) =>
+      getLeaveStatusLabelForDate(date, {
+        suspensionByDate,
+        holidayByDate,
+        leaveByDate,
+      }),
+    [suspensionByDate, holidayByDate, leaveByDate],
+  );
 
   // ── Segment calculator ─────────────────────────────────────────────────
   const calcSegment = (startStr, endStr, officialStartStr, officialEndStr) => {
@@ -824,12 +1118,22 @@ const AttendanceModuleNonTeachingStaff = () => {
     localStorage.setItem('attendanceNonTeachingEndDate', endDate);
     setLoading(true); setError('');
     try {
-      const deviceCheck = await axios.post(
-        `${API_BASE_URL}/attendance/api/all-attendance`,
-        { personID: employeeNumber, startDate, endDate },
-        getAuthHeaders(),
-      );
-      const deviceRows = Array.isArray(deviceCheck.data) ? deviceCheck.data : [];
+      const [deviceRows, maps] = await Promise.all([
+        postAttendanceDevicePreflightNoSync({
+          apiBaseUrl: API_BASE_URL,
+          getAuthHeaders,
+          personID: employeeNumber,
+          startDate,
+          endDate,
+        }),
+        fetchAttendanceCalendarMaps({
+          apiBaseUrl: API_BASE_URL,
+          getAuthHeaders,
+          startDate,
+          endDate,
+          personId: employeeNumber,
+        }),
+      ]);
       if (deviceRows.length === 0) {
         setAttendanceData([]); setSuspensionByDate({}); setLeaveByDate({}); setHolidayByDate({});
         showModal('No Device Records Found', 'No biometric device records were found for this employee within the selected date range.\n\nPlease verify the employee number and date range, or check if the attendance device has synced.\n\nPress OK to open Attendance Device.', 'warning', () => { closeModal(); navigate('/view_attendance'); });
@@ -861,14 +1165,9 @@ const AttendanceModuleNonTeachingStaff = () => {
           formattedFacultyRenderedTimeOT: ot.rendered, formattedFacultyMaxRenderedTimeOT: ot.maxRendered, formattedfinalcalcFacultyOT: ot.tardiness,
         };
       });
-      const [suspRes, leaveRes, holidayRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/attendance/api/suspensions`, { params: { startDate, endDate }, ...getAuthHeaders() }),
-        axios.get(`${API_BASE_URL}/attendance/api/leaves`,      { params: { startDate, endDate }, ...getAuthHeaders() }),
-        axios.get(`${API_BASE_URL}/attendance/api/holiday`,     { params: { startDate, endDate }, ...getAuthHeaders() }),
-      ]);
-      setSuspensionByDate(suspRes.data?.byDate  || {});
-      setLeaveByDate(leaveRes.data?.byDate       || {});
-      setHolidayByDate(holidayRes.data?.byDate   || {});
+      setSuspensionByDate(maps.suspensionByDate);
+      setLeaveByDate(maps.leaveByDate);
+      setHolidayByDate(maps.holidayByDate);
       setAttendanceData(processedData);
     } catch (err) {
       console.error('Error fetching attendance data:', err);
@@ -899,7 +1198,11 @@ const AttendanceModuleNonTeachingStaff = () => {
 
   const totals = React.useMemo(() => {
     if (!attendanceData.length) return {};
-    const absentDays = computeAbsentDays(attendanceData);
+    const halfDays = attendanceData.reduce(
+      (sum, r) => (isHalfDayAttendanceRow(r, getStatusLabelForDate) ? sum + 1 : sum),
+      0,
+    );
+    const absentDays = computeAbsentDays(attendanceData, leaveByDate);
     const morningRendered    = sumTime(attendanceData.map(r => getCellValue(r, '_morningRendered',   Boolean(getStatusLabelForDate(r.date)))));
     const morningTardiness   = sumTime(attendanceData.map(r => getCellValue(r, '_morningTardiness',  Boolean(getStatusLabelForDate(r.date)))));
     const afternoonRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_afternoonRendered', Boolean(getStatusLabelForDate(r.date)))));
@@ -912,50 +1215,155 @@ const AttendanceModuleNonTeachingStaff = () => {
     const scTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_scTardiness', Boolean(getStatusLabelForDate(r.date)))));
     const otRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_otRendered',  Boolean(getStatusLabelForDate(r.date)))));
     const otTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_otTardiness', Boolean(getStatusLabelForDate(r.date)))));
-    return { absentDays, morningRendered, morningTardiness, afternoonRendered, afternoonTardiness, overallRendered, overallTardiness, hnRendered, hnTardiness, scRendered, scTardiness, otRendered, otTardiness };
-  }, [attendanceData, sumTime, addTimes, getStatusLabelForDate]);
+    return { absentDays, halfDays, morningRendered, morningTardiness, afternoonRendered, afternoonTardiness, overallRendered, overallTardiness, hnRendered, hnTardiness, scRendered, scTardiness, otRendered, otTardiness };
+  }, [attendanceData, sumTime, addTimes, getStatusLabelForDate, leaveByDate]);
 
   // ── Save ───────────────────────────────────────────────────────────────
+  const navigateToOverallAttendanceSummary = useCallback(() => {
+    const en = String(employeeNumber ?? '').trim();
+    if (en) localStorage.setItem('employeeNumber', en);
+    if (startDate) localStorage.setItem('startDate', startDate);
+    if (endDate) localStorage.setItem('endDate', endDate);
+    navigate('/attendance_summary', {
+      state: { employeeNumber: en, startDate, endDate },
+    });
+  }, [employeeNumber, startDate, endDate, navigate]);
+
+  const finishSaveFlowWithRedirect = useCallback(() => {
+    setSaveLoadingOverlayOpen(false);
+    setPendingSaveRedirect(true);
+    setSaveSuccessOverlayOpen(true);
+  }, []);
+
+  const handleSaveSuccessOverlayClose = useCallback(() => {
+    setSaveSuccessOverlayOpen(false);
+    if (!pendingSaveRedirect) return;
+    setPendingSaveRedirect(false);
+    navigateToOverallAttendanceSummary();
+  }, [pendingSaveRedirect, navigateToOverallAttendanceSummary]);
+
+  const buildOverallRecordPayload = () => ({
+    personID: employeeNumber, startDate, endDate,
+    totalRenderedTimeMorning:             totals.morningRendered,
+    totalRenderedTimeMorningTardiness:    totals.morningTardiness,
+    totalRenderedTimeAfternoon:           totals.afternoonRendered,
+    totalRenderedTimeAfternoonTardiness:  totals.afternoonTardiness,
+    totalRenderedHonorarium:              totals.hnRendered,
+    totalRenderedHonorariumTardiness:     totals.hnTardiness,
+    totalRenderedServiceCredit:           totals.scRendered,
+    totalRenderedServiceCreditTardiness:  totals.scTardiness,
+    totalRenderedOvertime:                totals.otRendered,
+    totalRenderedOvertimeTardiness:       totals.otTardiness,
+    overallRenderedOfficialTime:          totals.overallRendered,
+    overallRenderedOfficialTimeTardiness: totals.overallTardiness,
+  });
+
+  const putMergedOverall = async (mergedPayload, recordId) => {
+    await axios.put(
+      `${API_BASE_URL}/attendance/api/overall_attendance_record/${recordId}`,
+      mergedPayload,
+      getAuthHeaders(),
+    );
+    showSnackbar('Attendance summary updated from your choices.', 'success');
+    finishSaveFlowWithRedirect();
+  };
+
   const saveOverallAttendance = async () => {
+    const record = buildOverallRecordPayload();
+    setSaveLoadingOverlayOpen(true);
     setSaving(true);
     try {
       const dup = await axios.get(`${API_BASE_URL}/attendance/api/overall_attendance_record`, { params: { personID: employeeNumber, startDate, endDate }, ...getAuthHeaders() });
-      if (dup.data?.data?.length) {
-        setSaving(false);
-        showModal('Duplicate Attendance Record', `The system has detected an existing attendance record for the specified period.\n\n• Employee ${employeeNumber}: ${startDate} → ${endDate}\n\nNote: This record has already been submitted and saved. To make changes, please locate and edit the existing record in the Overall Attendance Summary.`, 'warning', () => { closeModal(); navigate('/attendance_summary'); });
+      const existingList = dup.data?.data || [];
+      if (existingList.length) {
+        const existing = existingList[0];
+        if (!overallRecordsDiffer(existing, record)) {
+          showSnackbar('Summary already matches these totals. No changes to save.', 'info');
+          setSaveLoadingOverlayOpen(false);
+          return;
+        }
+        setPendingSavedOverall(existing);
+        setPendingProposedOverall(record);
+        setCompareOpen(true);
+        setSaveLoadingOverlayOpen(false);
         return;
       }
     } catch (e) {
       console.error('Duplicate-check failed:', e);
-      setSaving(false);
       showModal('Verification Failed', 'Could not verify existing records. Saving has been aborted.\n\nPlease try again or contact your administrator.', 'error');
+      setSaveLoadingOverlayOpen(false);
       return;
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
 
+    setSaveLoadingOverlayOpen(true);
     setSaving(true);
-    const record = {
-      personID: employeeNumber, startDate, endDate,
-      totalRenderedTimeMorning:             totals.morningRendered,
-      totalRenderedTimeMorningTardiness:    totals.morningTardiness,
-      totalRenderedTimeAfternoon:           totals.afternoonRendered,
-      totalRenderedTimeAfternoonTardiness:  totals.afternoonTardiness,
-      totalRenderedHonorarium:              totals.hnRendered,
-      totalRenderedHonorariumTardiness:     totals.hnTardiness,
-      totalRenderedServiceCredit:           totals.scRendered,
-      totalRenderedServiceCreditTardiness:  totals.scTardiness,
-      totalRenderedOvertime:                totals.otRendered,
-      totalRenderedOvertimeTardiness:       totals.otTardiness,
-      overallRenderedOfficialTime:          totals.overallRendered,
-      overallRenderedOfficialTimeTardiness: totals.overallTardiness,
-    };
     try {
       const response = await axios.post(`${API_BASE_URL}/attendance/api/overall_attendance`, record, getAuthHeaders());
       showSnackbar(response.data.message || 'Attendance record saved successfully!', 'success');
-      setTimeout(() => navigate('/attendance_summary'), 1500);
+      finishSaveFlowWithRedirect();
     } catch (err) {
       console.error('Error saving overall attendance:', err);
       showSnackbar('Failed to save attendance record.', 'error');
-    } finally { setSaving(false); }
+      setSaveLoadingOverlayOpen(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSubmitRef = useRef(handleSubmit);
+  useEffect(() => {
+    handleSubmitRef.current = handleSubmit;
+  });
+
+  useAttendanceRealtimeRefresh(
+    useCallback(() => {
+      if (!employeeNumber || !startDate || !endDate) return;
+      handleSubmitRef.current();
+    }, [employeeNumber, startDate, endDate]),
+    {
+      personId: employeeNumber,
+      startDate,
+      endDate,
+      requireDateRange: true,
+      matchMode: 'strict',
+    },
+  );
+
+  const handleCompareClose = () => {
+    setCompareOpen(false);
+    setPendingSavedOverall(null);
+    setPendingProposedOverall(null);
+  };
+
+  const handleCompareConfirm = async (choices) => {
+    if (!pendingSavedOverall?.id || !pendingProposedOverall) {
+      handleCompareClose();
+      return;
+    }
+    setCompareOpen(false);
+    setSaveLoadingOverlayOpen(true);
+    setSaving(true);
+    try {
+      const merged = mergeOverallPayload({
+        savedRow: pendingSavedOverall,
+        proposed: pendingProposedOverall,
+        choices,
+        personID: employeeNumber,
+        startDate,
+        endDate,
+      });
+      await putMergedOverall(merged, pendingSavedOverall.id);
+    } catch (err) {
+      console.error('Error updating overall attendance:', err);
+      showSnackbar(err.response?.data?.message || 'Failed to update attendance record.', 'error');
+      setSaveLoadingOverlayOpen(false);
+    } finally {
+      setSaving(false);
+      setPendingSavedOverall(null);
+      setPendingProposedOverall(null);
+    }
   };
 
   const handleMonthClick = (monthIndex) => {
@@ -983,7 +1391,7 @@ const AttendanceModuleNonTeachingStaff = () => {
   const columns = TAB_COLUMNS[activeTab];
 
   // ─── Table cell builder ───────────────────────────────────────────────
-  const buildCell = (content, group, isEven, dividerBefore = false) => (
+  const buildCell = (content, group, isEven, dividerBefore = false, isHalfDay = false) => (
     <TableCell sx={{
       fontSize: '0.8rem', fontFamily: 'monospace',
       borderBottom: `1px solid ${T.divider}`,
@@ -993,11 +1401,14 @@ const AttendanceModuleNonTeachingStaff = () => {
       px: 1.75, py: 1, whiteSpace: 'nowrap', textAlign: 'center',
       fontWeight: group === 'calc' || group === 'tard' || group === 'actual' ? 700 : 400,
       color: group === 'calc' ? '#166534' : group === 'tard' ? '#991b1b' : group === 'official' ? '#374151' : '#111827',
-      bgcolor:
-        group === 'actual'   ? (isEven ? alpha(T.accent,0.07) : alpha(T.accent,0.12)) :
-        group === 'calc'     ? (isEven ? 'rgba(21,128,61,0.05)'  : 'rgba(21,128,61,0.09)') :
-        group === 'tard'     ? (isEven ? 'rgba(153,27,27,0.04)'  : 'rgba(153,27,27,0.08)') :
-        isEven ? '#fff' : T.rowOdd,
+      bgcolor: isHalfDay
+        ? halfDayRowBg(isEven)
+        : (
+            group === 'actual'   ? (isEven ? alpha(T.accent,0.07) : alpha(T.accent,0.12)) :
+            group === 'calc'     ? (isEven ? 'rgba(21,128,61,0.05)'  : 'rgba(21,128,61,0.09)') :
+            group === 'tard'     ? (isEven ? 'rgba(153,27,27,0.04)'  : 'rgba(153,27,27,0.08)') :
+            isEven ? '#fff' : T.rowOdd
+          ),
       transition: 'background-color 0.12s',
       'tr:hover &': { bgcolor: T.rowHover + ' !important' },
     }}>{content}</TableCell>
@@ -1102,7 +1513,7 @@ const AttendanceModuleNonTeachingStaff = () => {
         <style>{shimmerKf}</style>
 
         {/* ── Snackbar ── */}
-        <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
+        <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
           <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled"
             sx={{ width: '100%', fontWeight: 600, backgroundColor: snackbar.severity === 'success' ? '#4caf50' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, '& .MuiAlert-icon': { color: snackbar.severity === 'success' ? '#ffffff' : undefined } }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1115,7 +1526,15 @@ const AttendanceModuleNonTeachingStaff = () => {
           </Alert>
         </Snackbar>
 
-        <LoadingOverlay open={loading} message="Fetching attendance records…" />
+        <LoadingOverlay
+          open={loading || saveLoadingOverlayOpen}
+          message={saveLoadingOverlayOpen ? 'Saving attendance summary…' : 'Fetching attendance records…'}
+        />
+        <SuccessfulOverlay
+          open={saveSuccessOverlayOpen}
+          action="create"
+          onClose={handleSaveSuccessOverlayClose}
+        />
 
         {/* ── Page Header ── */}
         <SectionCard sx={{ mb: 2 }}>
@@ -1184,11 +1603,9 @@ const AttendanceModuleNonTeachingStaff = () => {
                 <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                   Employee Number
                 </Typography>
-                <NativeInput
+                <EmployeeSearchField
                   value={employeeNumber}
-                  onChange={(e) => setEmployeeNumber(e.target.value)}
-                  placeholder="Employee number"
-                  icon={<Person sx={{ fontSize: 16 }} />}
+                  onSelectEmployeeNumber={setEmployeeNumber}
                 />
               </Box>
               <Box sx={{ flex: 1, minWidth: 160 }}>
@@ -1380,29 +1797,33 @@ const AttendanceModuleNonTeachingStaff = () => {
                                 const statusLabel = getStatusLabelForDate(row.date);
                                 const isFurlough  = Boolean(statusLabel);
                                 const isEven      = index % 2 === 0;
+                                const isHalfDay   = isHalfDayAttendanceRow(row, getStatusLabelForDate);
                                 return (
                                   <TableRow key={row.date || index} sx={{ '&:hover td': { bgcolor: `${T.rowHover} !important` } }}>
                                     {columns.map(({ key, group, dividerBefore: db }) => {
                                       if (key === 'date') {
                                         return (
-                                          <TableCell key={key} sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text, bgcolor: isEven ? '#fff' : T.rowOdd, borderBottom: `1px solid ${T.divider}`, px: 1.75, py: 1, whiteSpace: 'nowrap', textAlign: 'center', transition: 'background-color 0.12s' }}>
+                                          <TableCell key={key} sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text, bgcolor: isHalfDay ? halfDayRowBg(isEven) : (isEven ? '#fff' : T.rowOdd), borderBottom: `1px solid ${T.divider}`, px: 1.75, py: 1, whiteSpace: 'nowrap', textAlign: 'center', transition: 'background-color 0.12s' }}>
                                             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.3 }}>
                                               <span>{row.date}</span>
                                               {statusLabel && <Chip size="small" label={statusLabel} sx={{ fontWeight: 700, fontSize: '0.62rem', height: 16, ...getStatusStyle(statusLabel) }} />}
+                                              {!statusLabel && isHalfDay && (
+                                                <Chip size="small" label="Half day" sx={{ fontWeight: 700, fontSize: '0.62rem', height: 16, ...halfDayChipSx }} />
+                                              )}
                                             </Box>
                                           </TableCell>
                                         );
                                       }
                                       if (key === 'day') {
                                         return (
-                                          <TableCell key={key} sx={{ fontSize: '0.8rem', color: T.muted, bgcolor: isEven ? '#fff' : T.rowOdd, borderBottom: `1px solid ${T.divider}`, px: 1.75, py: 1, textAlign: 'center', transition: 'background-color 0.12s' }}>
+                                          <TableCell key={key} sx={{ fontSize: '0.8rem', color: T.muted, bgcolor: isHalfDay ? halfDayRowBg(isEven) : (isEven ? '#fff' : T.rowOdd), borderBottom: `1px solid ${T.divider}`, px: 1.75, py: 1, textAlign: 'center', transition: 'background-color 0.12s' }}>
                                             {row.day}
                                           </TableCell>
                                         );
                                       }
                                       return (
                                         <React.Fragment key={key}>
-                                          {buildCell(getCellValue(row, key, isFurlough), group, isEven, db)}
+                                          {buildCell(getCellValue(row, key, isFurlough), group, isEven, db, isHalfDay)}
                                         </React.Fragment>
                                       );
                                     })}
@@ -1450,6 +1871,7 @@ const AttendanceModuleNonTeachingStaff = () => {
                 {/* Footer legend */}
                 <Box sx={{ pt: 1.5, display: 'flex', gap: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
                   {[
+                    { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: alpha(HALF_DAY_ORANGE, 0.18), border: `1px solid ${alpha(HALF_DAY_ORANGE, 0.45)}` }} />, label: 'Half day (only AM or only PM punched)' },
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: alpha(T.accent, 0.12), border: `1px solid ${alpha(T.accent, 0.3)}` }} />, label: 'Employee device punch-in/out' },
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(21,128,61,0.1)', border: '1px solid rgba(21,128,61,0.3)' }} />, label: 'Computed rendered time' },
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(153,27,27,0.08)', border: '1px solid rgba(153,27,27,0.3)' }} />, label: 'Computed tardiness' },
@@ -1485,6 +1907,16 @@ const AttendanceModuleNonTeachingStaff = () => {
           type={modal.type}
           onConfirm={modal.onConfirm}
           showCancel={modal.showCancel}
+        />
+
+        <OverallAttendanceCompareModal
+          open={compareOpen}
+          onClose={handleCompareClose}
+          onConfirm={handleCompareConfirm}
+          savedRow={pendingSavedOverall}
+          proposedRecord={pendingProposedOverall}
+          fields={OVERALL_COMPARE_FIELD_META}
+          title="Compare saved summary vs new totals"
         />
 
         {/* ── Scroll to Top FAB ── */}

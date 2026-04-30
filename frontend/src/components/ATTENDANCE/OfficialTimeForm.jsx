@@ -81,6 +81,7 @@ import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
+import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
 import AccessDenied from '../AccessDenied';
 import CircularProgress from '@mui/material/CircularProgress';
 
@@ -1163,6 +1164,22 @@ const OfficialTimeForm = () => {
   }, [showToast]);
 
   useEffect(() => { if (showAllUsers) { fetchAllUsers(); setSelectedUsers(new Set()); } }, [showAllUsers, fetchAllUsers]);
+
+  const socketRefresh = useCallback(() => {
+    if (showAllUsers) {
+      fetchAllUsers();
+      return;
+    }
+    if (employeeID && hasSearched) {
+      handleRestoreFromServer();
+    }
+  }, [showAllUsers, employeeID, hasSearched, fetchAllUsers, handleRestoreFromServer]);
+
+  useAttendanceRealtimeRefresh(socketRefresh, {
+    personId: employeeID,
+    requireDateRange: false,
+    matchMode: 'loose',
+  });
 
   const filteredAllUsers = useMemo(() => {
     if (!searchQuery.trim()) return allUsers;

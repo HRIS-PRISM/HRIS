@@ -18,6 +18,7 @@ import {
 import LoadingOverlay from "../LoadingOverlay";
 import SuccessfulOverlay from "../SuccessfulOverlay";
 import usePageAccess from "../../hooks/usePageAccess";
+import useLeaveRealtimeRefresh from "../../hooks/useLeaveRealtimeRefresh";
 import AccessDenied from "../AccessDenied";
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────────
@@ -190,6 +191,8 @@ const LeaveTable = () => {
     catch (e) { console.error(e); }
     finally { setPageLoading(false); }
   };
+
+  useLeaveRealtimeRefresh(() => { fetchLeaveTypes(); });
 
   const handleAdd = async () => {
     if (!newLeaveType.leave_code || !newLeaveType.leave_description) return;

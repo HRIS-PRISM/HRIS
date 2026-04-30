@@ -20,15 +20,10 @@ import {
   Alert,
   Fade,
   IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Collapse,
   Paper,
   Tabs,
   Tab,
-  Checkbox,
 } from "@mui/material";
 import { alpha, styled } from "@mui/material/styles";
 import {
@@ -46,30 +41,46 @@ import {
   Pending as PendingIcon,
   Domain as DeptIcon,
   Work as WorkIcon,
-  Today as DayIcon,
-  Schedule as HourIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   History as HistoryIcon,
   Refresh as RefreshIcon,
   CheckCircleOutline as ApproveIcon,
   CancelOutlined as RejectIcon,
-  AccessTimeFilled as LateIcon,
   NavigateBefore as PrevIcon,
   NavigateNext as NextIcon,
-  PersonOff as AbsentIcon,
   FilterList as FilterIcon,
   Edit as EditIcon,
   Save as SaveIcon,
   DateRange as DateRangeIcon,
-  EventAvailable as PresentIcon,
   Calculate as CalculateIcon,
   SwapHoriz as ConvertIcon,
   OpenInNew as OpenInNewIcon,
   RemoveCircleOutline as DeductIcon,
   Receipt as ReceiptIcon,
 } from "@mui/icons-material";
-import { useOfficialAttendanceMetrics } from "./useOfficialAttendanceMetrics";
+import {
+  useOfficialAttendanceMetrics,
+  listHalfDayDatesFromDailyRows,
+} from "./useOfficialAttendanceMetrics";
+import OverallAttendanceCompareModal from "../../ATTENDANCE/OverallAttendanceCompareModal";
+import {
+  buildOverallPutPayloadFromRow,
+  mergeEarningsSummaryChoices,
+  overallRecordsDiffer,
+} from "../../ATTENDANCE/overallAttendanceMerge";
+
+/** Align half-day row dates with API `deductedVlHalfDates` (handles YYYY-M-D vs YYYY-MM-DD). */
+const normalizeHalfDayDateKey = (d) => {
+  const s = String(d ?? "").trim().split("T")[0];
+  const parts = s.split("-").filter(Boolean);
+  if (parts.length !== 3) return s;
+  const y = parseInt(parts[0], 10);
+  const mo = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+  if (![y, mo, day].every((n) => Number.isFinite(n))) return s;
+  return `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
 
 const T = {
   accent: "#6d2323",
@@ -136,8 +147,23 @@ const STATUS_FILTER_OPTIONS = [
 
 const monthName = (m) =>
   MONTHS.find((x) => x.value === String(m))?.label || `Month ${m}`;
-const monthShort = (m) =>
-  MONTHS.find((x) => x.value === String(m))?.short || `M${m}`;
+/** ISO date string (YYYY-MM-DD) → "January 01, 2026" (local calendar, no UTC shift). */
+const formatPeriodDate = (iso) => {
+  const s = String(iso ?? "")
+    .trim()
+    .split("T")[0];
+  const parts = s.split("-").map(Number);
+  const y = parts[0];
+  const mo = parts[1];
+  const day = parts[2];
+  if (!y || !mo || !day) return s || "—";
+  const d = new Date(y, mo - 1, day);
+  return d.toLocaleDateString("en-US", {
+    month: "long",
+    day: "2-digit",
+    year: "numeric",
+  });
+};
 const toNum = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -177,6 +203,12 @@ const hrsToHMS = (h) => {
   const ss = totalSec % 60;
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 };
+
+const EARNINGS_OVERALL_COMPARE_FIELDS = [
+  { key: "overallRenderedOfficialTime", label: "Overall — rendered" },
+  { key: "overallRenderedOfficialTimeTardiness", label: "Overall — tardiness" },
+];
+const EARNINGS_COMPARE_KEYS = EARNINGS_OVERALL_COMPARE_FIELDS.map((f) => f.key);
 
 const globalCss = `
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
@@ -279,7 +311,6 @@ const ColHeader = ({ icon: Icon, label, color = T.accent, children }) => (
       py: 1,
       flexWrap: "nowrap",
       borderBottom: `1px solid ${T.divider}`,
-      bgcolor: "rgba(0,0,0,0.02)",
       flexShrink: 0,
     }}
   >
@@ -458,6 +489,8 @@ const AttendanceFieldCell = ({ f, valueHrs, onChange }) => {
 const AttendanceSummary = ({
   employee, year, month, attendanceData, attendanceLoading,
   onRefresh, onRecordsRefresh, empCat, vlReceiptRefreshKey, balanceRefreshKey,
+  deductedVlHalfDates = [],
+  onDeductHalfDayVLRequested,
 }) => {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -467,6 +500,11 @@ const AttendanceSummary = ({
 
   const [liveBalances, setLiveBalances] = useState({ vl: null, sc: null, cto: null });
 const [balLoading, setBalLoading] = useState(false);
+
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareFormProposal, setCompareFormProposal] = useState(null);
+  const [compareTertiary, setCompareTertiary] = useState(null);
+  const [summaryUpdateNote, setSummaryUpdateNote] = useState("");
 
 const fetchLiveBalances = useCallback(async () => {
   if (!employee) return;
@@ -496,12 +534,18 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
   const calDays = getCalendarDays(year, month);
   const officialStart = raw?.startDate;
   const officialEnd = raw?.endDate;
-  const { absentDays: absentDaysOfficial, lateHrs: lateHrsOfficial } =
-    useOfficialAttendanceMetrics({
-      employeeNumber: employee?.employeeNumber,
-      startDate: officialStart,
-      endDate: officialEnd,
-    });
+  const {
+    absentDays: absentDaysOfficial,
+    halfDays: halfDaysOfficial,
+    rows: officialRows,
+    lateHrs: lateHrsOfficial,
+    renderedHrs: renderedHrsOfficial,
+    loading: officialMetricsLoading,
+  } = useOfficialAttendanceMetrics({
+    employeeNumber: employee?.employeeNumber,
+    startDate: officialStart,
+    endDate: officialEnd,
+  });
 
   const ATTEND_FIELDS = [
     { key: "overallRenderedOfficialTime", label: "Overall Rendered" },
@@ -524,6 +568,20 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
   const handleChange = (key, val) =>
     setFields((p) => ({ ...p, [key]: toNum(val) }));
 
+  const putSummaryPayload = async (payload) => {
+    const token = localStorage.getItem("token");
+    await axios.put(
+      `${API_BASE_URL}/attendance/api/overall_attendance_record/${raw.id}`,
+      payload,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    setSuccess("Saved!");
+    setEditing(false);
+    setSummaryUpdateNote(`Summary updated · ${new Date().toLocaleString()}`);
+    if (onRefresh) onRefresh();
+    setTimeout(() => setSuccess(""), 3000);
+  };
+
   const handleSave = async () => {
     if (!raw?.id) {
       setError("No record to update.");
@@ -531,64 +589,84 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     }
     setSaving(true);
     setError("");
-    const token = localStorage.getItem("token");
-    const payload = {
-      personID: employee.employeeNumber,
-      startDate: raw.startDate,
-      endDate: raw.endDate,
+    const formProposal = {
+      overallRenderedOfficialTime: hoursToHHMM(
+        toNum(fields.overallRenderedOfficialTime),
+      ),
+      overallRenderedOfficialTimeTardiness: hoursToHHMM(
+        toNum(fields.overallRenderedOfficialTimeTardiness),
+      ),
     };
-    ATTEND_FIELDS.forEach(({ key }) => {
-      payload[key] = hoursToHHMM(toNum(fields[key]));
-    });
+    const tertiaryProposal = !officialMetricsLoading
+      ? {
+          overallRenderedOfficialTime: hoursToHHMM(toNum(renderedHrsOfficial)),
+          overallRenderedOfficialTimeTardiness: hoursToHHMM(
+            toNum(lateHrsOfficial),
+          ),
+        }
+      : null;
+    const diffSavedForm = overallRecordsDiffer(
+      raw,
+      formProposal,
+      EARNINGS_COMPARE_KEYS,
+    );
+    const diffSavedTert =
+      tertiaryProposal &&
+      overallRecordsDiffer(raw, tertiaryProposal, EARNINGS_COMPARE_KEYS);
+
     try {
-      await axios.put(
-        `${API_BASE_URL}/attendance/api/overall_attendance_record/${raw.id}`,
-        payload,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      setSuccess("Saved!");
-      setEditing(false);
-      if (onRefresh) onRefresh();
-      setTimeout(() => setSuccess(""), 3000);
+      if (diffSavedForm || diffSavedTert) {
+        setCompareFormProposal(formProposal);
+        setCompareTertiary(tertiaryProposal);
+        setCompareOpen(true);
+        return;
+      }
+      const payload = buildOverallPutPayloadFromRow(raw, formProposal);
+      await putSummaryPayload(payload);
     } catch (err) {
       setError("Save failed: " + (err.response?.data?.message || err.message));
+    } finally {
+      setSaving(false);
     }
+  };
+
+  const handleCompareClose = () => {
+    setCompareOpen(false);
+    setCompareFormProposal(null);
+    setCompareTertiary(null);
     setSaving(false);
   };
 
-  if (!employee)
-    return (
-      <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-        <ColHeader
-          icon={DateRangeIcon}
-          label="Attendance Summary"
-          color={T.muted}
-        />
-      </Box>
-    );
+  const handleCompareConfirm = async (choices) => {
+    if (!raw?.id || !compareFormProposal) {
+      handleCompareClose();
+      return;
+    }
+    setCompareOpen(false);
+    setSaving(true);
+    setError("");
+    try {
+      const payload = mergeEarningsSummaryChoices(
+        raw,
+        compareFormProposal,
+        compareTertiary || {},
+        choices,
+      );
+      await putSummaryPayload(payload);
+    } catch (err) {
+      setError("Save failed: " + (err.response?.data?.message || err.message));
+    } finally {
+      setSaving(false);
+      setCompareFormProposal(null);
+      setCompareTertiary(null);
+    }
+  };
+
+  const showEmployeePlaceholder = !employee;
 
     
 
-  if (attendanceLoading)
-    return (
-      <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-        <ColHeader
-          icon={DateRangeIcon}
-          label="Attendance Summary"
-          color={T.muted}
-        />
-        <Box
-          sx={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <CircularProgress size={20} sx={{ color: T.accent }} />
-        </Box>
-      </Box>
-    );
+  const showAttendanceLoading = attendanceLoading;
 
   const overallHrs = raw ? parseHHMM(raw.overallRenderedOfficialTime) : 0;
 
@@ -597,6 +675,45 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     : (raw ? parseHHMM(raw.overallRenderedOfficialTimeTardiness) : 0);
   const stats = attendanceData?.stats || {};
   const lateDays = toNum(stats.late_days);
+  const halfDays = halfDaysOfficial > 0
+    ? halfDaysOfficial
+    : toNum(stats.half_days ?? stats.halfDays);
+  const halfDayHrs = halfDays * 4;
+  const halfDayDates = useMemo(() => {
+    let dates = listHalfDayDatesFromDailyRows(officialRows);
+    if (!dates.length) {
+      dates = listHalfDayDatesFromDailyRows(
+        Array.isArray(attendanceData?.dailyRecords) ? attendanceData.dailyRecords : [],
+      );
+    }
+    const statsHalf = toNum(attendanceData?.stats?.half_days ?? attendanceData?.stats?.halfDays);
+    if (!dates.length && (halfDaysOfficial > 0.0001 || statsHalf > 0.0001)) {
+      const fallback =
+        (officialStart && String(officialStart).slice(0, 10)) ||
+        `${year}-${String(month).padStart(2, "0")}-01`;
+      if (fallback) dates = [fallback];
+    }
+    return [...new Set(dates)].sort();
+  }, [
+    officialRows,
+    attendanceData?.dailyRecords,
+    attendanceData?.stats,
+    halfDaysOfficial,
+    officialStart,
+    year,
+    month,
+  ]);
+
+  const deductedNormSet = useMemo(
+    () =>
+      new Set(
+        (deductedVlHalfDates || []).map(normalizeHalfDayDateKey).filter(Boolean),
+      ),
+    [deductedVlHalfDates],
+  );
+  const nextUndeductedVlHalfDate =
+    halfDayDates.find((d) => !deductedNormSet.has(normalizeHalfDayDateKey(d))) ||
+    null;
   const absentDays = absentDaysOfficial > 0
     ? absentDaysOfficial
     : toNum(stats.absent_days);
@@ -614,11 +731,48 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
   // While editing, show the edited values in the summary cards immediately.
   const renderedHrsDisplay = editing ? editOverallHrs : overallHrs;
   const tardHrsDisplay = editing ? editTardHrs : tardHrs;
-  const hasWarning = absentDays > 0 || tardHrsDisplay > 0;
-
   const half = Math.ceil(ATTEND_FIELDS.length / 2);
   const col1 = ATTEND_FIELDS.slice(0, half);
   const col2 = ATTEND_FIELDS.slice(half);
+
+  // Safe early returns AFTER all hooks are declared (prevents hook order mismatch).
+  if (showEmployeePlaceholder) {
+    return (
+      <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+        <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.accent} />
+      </Box>
+    );
+  }
+  if (showAttendanceLoading) {
+    return (
+      <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+        <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.accent} />
+        <Box
+          sx={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <CircularProgress size={20} sx={{ color: T.accent }} />
+        </Box>
+      </Box>
+    );
+  }
+
+  const btnOutlineSx = {
+    textTransform: "none",
+    fontFamily: T.poppins,
+    fontSize: "0.75rem",
+    fontWeight: 600,
+    py: 0.4,
+    px: 1.1,
+    borderRadius: 1,
+    borderColor: "rgba(0,0,0,0.18)",
+    color: T.muted,
+    minWidth: 0,
+  };
 
   return (
     <Box
@@ -629,96 +783,16 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
         overflow: "hidden",
       }}
     >
-      <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.muted}>
-  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "nowrap" }}>
-    {!editing ? (
-      <Button
-        variant="contained"
-        size="small"
-        onClick={() => setEditing(true)}
-        sx={{
-          height: 20,
-          fontSize: "0.6rem",
-          fontWeight: 700,
-          color: "#fff",
-          textTransform: "none", fontFamily: T.poppins,
-          px: 1,
-          py: 0,
-          minWidth: 0,
-          borderRadius: 1,
-          bgcolor: T.accent,
-          boxShadow: "none",
-          lineHeight: 1,
-          "&:hover": { bgcolor: T.accentDark, boxShadow: "none" },
-        }}
-      >
-        Edit
-      </Button>
-    ) : (
-      <>
-        <Button
-          size="small"
-          onClick={() => setEditing(false)}
-          sx={{
-            height: 20,
-            fontSize: "0.6rem",
-            fontWeight: 600,
-            color: T.muted,
-            textTransform: "none", fontFamily: T.poppins,
-            px: 1,
-            py: 0,
-            minWidth: 0,
-            borderRadius: 1,
-            lineHeight: 1,
-          }}
-        >
-          Cancel
-        </Button>
-        <Button
-          size="small"
-          onClick={handleSave}
-          disabled={saving}
-          startIcon={saving ? <CircularProgress size={10} /> : <SaveIcon sx={{ fontSize: "12px !important" }} />}
-          sx={{
-            height: 20,
-            fontSize: "0.6rem",
-            fontWeight: 700,
-            color: "#fff",
-            textTransform: "none", fontFamily: T.poppins,
-            px: 1.2,
-            py: 0,
-            minWidth: 0,
-            borderRadius: 1,
-            lineHeight: 1,
-            bgcolor: T.accent,
-            "&:hover": { bgcolor: T.accentDark },
-          }}
-        >
-          {saving ? "…" : "Save"}
-        </Button>
-      </>
-    )}
-    <IconButton
-      size="small"
-      onClick={onRefresh}
-      sx={{ p: 0.2, color: T.muted }}
-    >
-      <RefreshIcon sx={{ fontSize: 12 }} />
-    </IconButton>
-  </Box>
-</ColHeader>
-
       {/* ── Scrollable content area ── */}
       <Box
         sx={{
           flex: 1,
           overflowY: "auto",
-          px: 1.25,
-          pt: 0.75,
-          pb: 0.75,
+          px: 1,
+          pt: 0.5,
+          pb: 1,
           display: "flex",
           flexDirection: "column",
-          gap: 0.55,
           "&::-webkit-scrollbar": { width: 3 },
           "&::-webkit-scrollbar-thumb": {
             bgcolor: "rgba(0,0,0,0.12)",
@@ -732,6 +806,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
             sx={{
               py: 0,
               px: 1,
+              mb: 1,
               fontSize: "0.65rem",
               borderRadius: 1.25,
               "& .MuiAlert-icon": { mr: 0.75 },
@@ -741,19 +816,21 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
           </Alert>
         )}
         {!raw ? (
-          <Box
-            sx={{
-              px: 1.5,
-              py: 2,
-              borderRadius: 2,
-              bgcolor: "rgba(0,0,0,0.03)",
-              border: "1px dashed rgba(0,0,0,0.15)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 0.5,
-            }}
-          >
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.accent} />
+            <Box
+              sx={{
+                px: 1.5,
+                py: 2,
+                borderRadius: 2,
+                bgcolor: "rgba(0,0,0,0.03)",
+                border: "1px dashed rgba(0,0,0,0.15)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 0.5,
+              }}
+            >
             <DateRangeIcon
               sx={{ fontSize: 20, color: T.faint, opacity: 0.5 }}
             />
@@ -777,267 +854,330 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
             >
               {calDays} cal. days · No attendance record found
             </Typography>
+            </Box>
           </Box>
         ) : (
-          <>
-           {/* Date range + cal days + Edit button in one row */}
-<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-  <CalIcon sx={{ fontSize: 10, color: T.faint }} />
-  <Typography
-    sx={{ fontSize: "0.58rem", color: T.faint, fontFamily: T.poppins, flex: 1 }}
-  >
-    {raw.startDate} → {raw.endDate} · <strong>{calDays} cal. days</strong>
-  </Typography>
-</Box>
-
-          {/* ── Summary strip (month + rendered + totals aligned) ── */}
           <Box
             sx={{
-              borderRadius: 1.5,
-              border: `1px solid rgba(0,0,0,0.1)`,
-              overflow: "hidden",
-              boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-              bgcolor: "#fff",
-              display: "grid",
-              gridTemplateColumns: "56px 1fr 1fr 1fr 1fr",
-              alignItems: "stretch",
+              display: "flex",
+              flexDirection: "column",
+              gap: 1.25,
             }}
           >
-            {/* Month pill */}
+            <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.accent}>
+              <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexShrink: 0 }}>
+                {!editing ? (
+                  <Button variant="outlined" size="small" onClick={() => setEditing(true)} sx={btnOutlineSx}>
+                    Edit
+                  </Button>
+                ) : (
+                  <>
+                    <Button variant="outlined" size="small" onClick={() => setEditing(false)} sx={btnOutlineSx}>
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      onClick={handleSave}
+                      disabled={saving}
+                      startIcon={saving ? <CircularProgress size={12} color="inherit" /> : <SaveIcon sx={{ fontSize: "14px !important" }} />}
+                      sx={{
+                        ...btnOutlineSx,
+                        bgcolor: T.accent,
+                        color: "#fff",
+                        border: "none",
+                        "&:hover": { bgcolor: T.accentDark, border: "none" },
+                      }}
+                    >
+                      {saving ? "…" : "Save"}
+                    </Button>
+                  </>
+                )}
+                <IconButton size="small" onClick={onRefresh} sx={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 1, p: 0.35 }}>
+                  <RefreshIcon sx={{ fontSize: 16, color: T.muted }} />
+                </IconButton>
+              </Box>
+            </ColHeader>
+            <Box sx={{ px: 0.5, display: "flex", flexDirection: "column", gap: 1.25 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 1.5,
+                  flexWrap: "wrap",
+                  rowGap: 0.5,
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: "0.6875rem",
+                    color: T.muted,
+                    fontFamily: T.poppins,
+                    flex: "1 1 auto",
+                    minWidth: 0,
+                  }}
+                >
+                  {monthName(month)} {year} | {formatPeriodDate(raw.startDate)} -&gt;{" "}
+                  {formatPeriodDate(raw.endDate)}
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.6875rem",
+                    color: T.muted,
+                    fontFamily: T.poppins,
+                    fontWeight: 600,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {calDays} Calendar Days
+                </Typography>
+              </Box>
+
             <Box
               sx={{
-                px: 1,
-                py: 0.6,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                borderRight: "1px solid rgba(0,0,0,0.07)",
-                bgcolor: hasWarning ? "#fdf6f6" : "#f7faf7",
+                bgcolor: "#fff",
+                border: "1px solid rgba(0,0,0,0.09)",
+                borderRadius: 1.5,
+                overflow: "hidden",
               }}
             >
-              <Typography
-                sx={{
-                  fontSize: "0.72rem",
-                  fontWeight: 800,
-                  color: hasWarning ? T.accent : "#2e7d32",
-                  fontFamily: T.poppins,
-                  letterSpacing: "0.06em",
-                  lineHeight: 1,
-                }}
-              >
-                {monthShort(month)}
-              </Typography>
-              <Typography
-                sx={{
-                  fontSize: "0.54rem",
-                  color: T.faint,
-                  fontFamily: T.poppins,
-                  mt: 0.2,
-                  fontWeight: 500,
-                }}
-              >
-                {year}
-              </Typography>
-            </Box>
-
-            {[
-              {
-                label: "Rendered",
-                Icon: DayIcon,
-                color: "#111",
-                primary: `${(renderedHrsDisplay / 8).toFixed(3)} d`,
-                secondary: hrsToHMS(renderedHrsDisplay),
-              },
-              {
-                label: "Total Tardiness",
-                Icon: LateIcon,
-                color: "#c62828",
-                primary: `${(tardHrsDisplay / 8).toFixed(3)} d`,
-                secondary: tardHrsDisplay > 0 ? hrsToHMS(tardHrsDisplay) : "—",
-              },
-              {
-                label: "Total Absent",
-                Icon: AbsentIcon,
-                color: "#6a1b9a",
-                primary: `${totalAbsentDays.toFixed(3)} d`,
-                secondary:
-                  totalAbsentDays > 0 ? `${totalAbsentHrs.toFixed(3)} hrs` : "—",
-              },
-              {
-                label: "Total Present",
-                Icon: PresentIcon,
-                color: "#2e7d32",
-                primary: `${presentDays.toFixed(0)} d`,
-                secondary: presentDays > 0 ? hrsToHMS(presentDays * 8) : "—",
-              },
-            ].map(({ label, Icon, color, primary, secondary }, idx) => (
               <Box
-                key={label}
                 sx={{
-                  px: 1,
-                  py: 0.7,
-                  borderRight:
-                    idx < 3 ? "1px solid rgba(0,0,0,0.08)" : "none",
-                  bgcolor: "rgba(0,0,0,0.01)",
-                  minWidth: 0,
+                  px: 1.6,
+                  py: 1,
+                  bgcolor: "rgba(0,0,0,0.03)",
+                  borderBottom: "1px solid rgba(0,0,0,0.08)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
                 }}
               >
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                  <Icon sx={{ fontSize: 12, color, opacity: 0.75 }} />
-                  <Typography
-                    sx={{
-                      fontSize: "0.56rem",
-                      fontWeight: 900,
-                      color,
-                      fontFamily: T.poppins,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.07em",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {label}
-                  </Typography>
+                <CalIcon sx={{ fontSize: 16, color: T.muted }} />
+                <Typography sx={{ fontSize: "0.75rem", fontWeight: 500, color: T.text, fontFamily: T.poppins }}>
+                  Metrics
+                </Typography>
+              </Box>
+              <Box sx={{ p: 1.6, display: "flex", flexDirection: "column", gap: 1.25 }}>
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+                    gap: 0.75,
+                  }}
+                >
+                  {[
+                    {
+                      label: "Days rendered",
+                      primary: `${(renderedHrsDisplay / 8).toFixed(3)} d`,
+                      hint: hrsToHMS(renderedHrsDisplay),
+                      bad: false,
+                      good: false,
+                    },
+                    {
+                      label: "Tardiness",
+                      primary: `${(tardHrsDisplay / 8).toFixed(3)} d`,
+                      hint: tardHrsDisplay > 0 ? hrsToHMS(tardHrsDisplay) : "—",
+                      bad: tardHrsDisplay > 0,
+                      good: false,
+                    },
+                    {
+                      label: "Absences",
+                      primary: `${totalAbsentDays.toFixed(3)} d`,
+                      hint: totalAbsentDays > 0 ? `${totalAbsentHrs.toFixed(3)} hrs` : "—",
+                      bad: totalAbsentDays > 0,
+                      good: false,
+                    },
+                    {
+                      label: "Half days",
+                      primary: `${halfDays.toFixed(3)} d`,
+                      hint: halfDays > 0 ? hrsToHMS(halfDayHrs) : "—",
+                      bad: false,
+                      good: false,
+                    },
+                    {
+                      label: "Days present",
+                      primary: `${presentDays.toFixed(0)} d`,
+                      hint: presentDays > 0 ? hrsToHMS(presentDays * 8) : "—",
+                      bad: false,
+                      good: presentDays > 0,
+                    },
+                  ].map(({ label, primary, hint, bad, good }) => (
+                    <Box
+                      key={label}
+                      sx={{
+                        bgcolor: "rgba(0,0,0,0.03)",
+                        borderRadius: 1,
+                        p: "8px 9px",
+                        minWidth: 0,
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontSize: "0.6875rem",
+                          color: T.muted,
+                          fontFamily: T.poppins,
+                          mb: "3px",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {label}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontSize: "0.875rem",
+                          fontWeight: 500,
+                          color: bad ? "#A32D2D" : good ? "#3B6D11" : T.text,
+                          fontFamily: T.poppins,
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        {primary}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontSize: "0.6875rem",
+                          color: T.muted,
+                          fontFamily: T.poppins,
+                          mt: "1px",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {hint}
+                      </Typography>
+                    </Box>
+                  ))}
                 </Box>
-                <Typography
-                  sx={{
-                    mt: 0.3,
-                    fontSize: "0.92rem",
-                    fontWeight: 900,
-                    color: primary.includes("0.000") ? T.faint : color,
-                    fontFamily: T.poppins,
-                    lineHeight: 1,
-                  }}
-                >
-                  {primary}
-                </Typography>
-                <Typography
-                  sx={{
-                    fontSize: "0.58rem",
-                    color: "#1565c0",
-                    fontFamily: T.poppins,
-                    fontWeight: 700,
-                    mt: 0.15,
-                    letterSpacing: "0.02em",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {secondary}
-                </Typography>
+
+                {editing && (
+                  <>
+                    <Box sx={{ height: "0.5px", bgcolor: T.divider, my: 0.25 }} />
+                    <Typography sx={{ fontSize: "0.69rem", color: T.muted, fontFamily: T.poppins, mb: 0.5 }}>
+                      Edit raw values — input in days
+                    </Typography>
+                    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1 }}>
+                      <Box>
+                        {col1.map((f) => (
+                          <AttendanceFieldCell key={f.key} f={f} valueHrs={toNum(fields[f.key])} onChange={handleChange} />
+                        ))}
+                      </Box>
+                      <Box>
+                        {col2.map((f) => (
+                          <AttendanceFieldCell key={f.key} f={f} valueHrs={toNum(fields[f.key])} onChange={handleChange} />
+                        ))}
+                      </Box>
+                    </Box>
+                    {error && (
+                      <Alert severity="error" sx={{ mt: 0.5, fontSize: "0.65rem", py: 0, borderRadius: 1 }}>
+                        {error}
+                      </Alert>
+                    )}
+                    <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 0.75, mt: 0.5 }}>
+                      <Button variant="outlined" size="small" onClick={() => setEditing(false)} sx={btnOutlineSx}>
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="contained"
+                        size="small"
+                        onClick={handleSave}
+                        disabled={saving}
+                        sx={{
+                          textTransform: "none",
+                          fontFamily: T.poppins,
+                          fontWeight: 600,
+                          fontSize: "0.75rem",
+                          bgcolor: T.accent,
+                          borderRadius: 1,
+                          "&:hover": { bgcolor: T.accentDark },
+                        }}
+                      >
+                        {saving ? "…" : "Save"}
+                      </Button>
+                    </Box>
+                  </>
+                )}
+
+                {!editing && (
+                  <Box>
+                    <Typography sx={{ fontSize: "0.6875rem", color: T.muted, fontFamily: T.poppins, mb: "6px" }}>
+                      Leave balances
+                    </Typography>
+                    <Box
+                      sx={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                        gap: 0.875,
+                      }}
+                    >
+                      {[
+                        {
+                          title: "Vacation leave (VL)",
+                          val: liveBalances.vl,
+                          nameColor: "#185FA5",
+                          valColor: "#0C447C",
+                          subColor: "#185FA5",
+                          bg: "#E6F1FB",
+                          border: "#B5D4F4",
+                        },
+                        {
+                          title: "Service credit (SC)",
+                          val: liveBalances.sc,
+                          nameColor: "#3B6D11",
+                          valColor: "#27500A",
+                          subColor: "#3B6D11",
+                          bg: "#EAF3DE",
+                          border: "#C0DD97",
+                        },
+                        {
+                          title: "Comp. time off (CTO)",
+                          val: liveBalances.cto,
+                          nameColor: "#534AB7",
+                          valColor: "#3C3489",
+                          subColor: "#534AB7",
+                          bg: "#EEEDFE",
+                          border: "#AFA9EC",
+                        },
+                      ].map((b) => {
+                        const num = parseFloat(b.val);
+                        const isNeg = Number.isFinite(num) && num < 0;
+                        const displayColor = isNeg ? "#c62828" : b.valColor;
+                        return (
+                          <Box
+                            key={b.title}
+                            sx={{
+                              textAlign: "center",
+                              p: "9px 10px",
+                              borderRadius: 1,
+                              border: `0.5px solid ${b.border}`,
+                              bgcolor: b.bg,
+                            }}
+                          >
+                            <Typography sx={{ fontSize: "0.6875rem", color: b.nameColor, fontFamily: T.poppins, mb: "3px" }}>
+                              {b.title}
+                            </Typography>
+                            {balLoading ? (
+                              <CircularProgress size={16} sx={{ color: b.valColor }} />
+                            ) : (
+                              <Typography sx={{ fontSize: "1.1875rem", fontWeight: 500, color: displayColor, fontFamily: T.poppins, lineHeight: 1.2 }}>
+                                {b.val ?? "—"}
+                              </Typography>
+                            )}
+                            <Typography sx={{ fontSize: "0.6875rem", color: b.subColor, fontFamily: T.poppins, mt: "2px" }}>
+                              days remaining
+                            </Typography>
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  </Box>
+                )}
               </Box>
-            ))}
-          </Box>
-
-{/* ── Edit fields (shown only when editing) ── */}
-{editing && (
-  <Box
-    sx={{
-      borderRadius: 1.5,
-      border: "1px solid rgba(0,0,0,0.1)",
-      bgcolor: "#fafafa",
-      overflow: "hidden",
-      flexShrink: 0,
-    }}
-  >
-    <Box sx={{ px: 1.25, py: 0.5, bgcolor: "rgba(0,0,0,0.03)", borderBottom: "1px solid rgba(0,0,0,0.1)" }}>
-      <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: T.muted, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-        Edit Record
-      </Typography>
-    </Box>
-    <Box sx={{ px: 0.85, pb: 0.85 }}>
-      {error && (
-        <Alert severity="error" sx={{ mt: 0.5, mb: 0.5, fontSize: "0.65rem", py: 0, borderRadius: 1 }}>
-          {error}
-        </Alert>
-      )}
-      <Typography sx={{ fontSize: "0.54rem", fontWeight: 700, color: "#1565c0", fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.06em", mt: 0.6, mb: 0.4 }}>
-        Input in days · {calDays} calendar days
-      </Typography>
-      <Box sx={{ display: "grid", gridTemplateColumns: "2fr 2fr", gap: "0 8px" }}>
-        <Box>
-          {col1.map((f) => (
-            <AttendanceFieldCell key={f.key} f={f} valueHrs={toNum(fields[f.key])} onChange={handleChange} />
-          ))}
-        </Box>
-        <Box>
-          {col2.map((f) => (
-            <AttendanceFieldCell key={f.key} f={f} valueHrs={toNum(fields[f.key])} onChange={handleChange} />
-          ))}
-        </Box>
-      </Box>
-    </Box>
-  </Box>
-)}
-
-{/* ── Leave Balances (shown when NOT editing) ── */}
-{!editing && (
-  <Box
-    sx={{
-      borderRadius: 1.5,
-      border: "1px solid rgba(0,0,0,0.1)",
-      overflow: "hidden",
-      flexShrink: 0,
-    }}
-  >
-    <Box
-      sx={{
-        px: 1, py: 0.35,
-        bgcolor: "rgba(0,0,0,0.03)",
-        borderBottom: "1px solid rgba(0,0,0,0.08)",
-        display: "flex", alignItems: "center", gap: 0.5,
-      }}
-    >
-      <EarnIcon sx={{ fontSize: 10, color: T.muted }} />
-      <Typography sx={{ fontSize: "0.58rem", fontWeight: 800, color: T.muted, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.06em", flex: 1 }}>
-        Leave Balances
-      </Typography>
-      {balLoading && <CircularProgress size={8} sx={{ color: T.muted }} />}
-    </Box>
-    <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 0 }}>
-      {[
-        { label: "VL",  icon: LeaveIcon, color: "#1565c0", bg: "rgba(21,101,192,0.05)",  border: "rgba(21,101,192,0.15)",  val: liveBalances.vl },
-        { label: "SC",  icon: SCIcon,    color: "#2e7d32", bg: "rgba(46,125,50,0.05)",   border: "rgba(46,125,50,0.15)",   val: liveBalances.sc },
-        { label: "CTO", icon: CTOIcon,   color: "#6a1b9a", bg: "rgba(106,27,154,0.05)", border: "rgba(106,27,154,0.15)",  val: liveBalances.cto },
-      ].map(({ label, icon: Icon, color, bg, border, val }, idx, arr) => {
-        const num = parseFloat(val);
-        const isNeg = Number.isFinite(num) && num < 0;
-        const displayColor = isNeg ? "#c62828" : color;
-        return (
-          <Box
-            key={label}
-            sx={{
-              py: 0.4, px: 0.75,
-              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-              bgcolor: bg,
-              borderRight: idx < arr.length - 1 ? `1px solid ${border}` : "none",
-            }}
-          >
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, mb: 0.15 }}>
-              <Icon sx={{ fontSize: 8.5, color, opacity: 0.75 }} />
-              <Typography sx={{ fontSize: "0.48rem", fontWeight: 800, color, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.09em", opacity: 0.85 }}>
-                {label}
-              </Typography>
             </Box>
-            {balLoading ? (
-              <Box sx={{ height: 16, display: "flex", alignItems: "center" }}>
-                <CircularProgress size={9} sx={{ color }} />
-              </Box>
-            ) : (
-              <Typography sx={{ fontSize: "0.86rem", fontWeight: 900, color: displayColor, fontFamily: T.poppins, lineHeight: 1 }}>
-                {val ?? "—"}
-              </Typography>
-            )}
-          </Box>
-        );
-      })}
-    </Box>
-  </Box>
-)}
-            {/* ── Deduction Receipt ── */}
+
             <DeductionReceiptSwitcher
               employee={employee}
               attendanceData={attendanceData}
@@ -1049,10 +1189,40 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
               }}
               refreshKey={vlReceiptRefreshKey}
               empCat={empCat}
+              onDeductHalfDayVLRequested={onDeductHalfDayVLRequested}
+              halfDayDeductDate={nextUndeductedVlHalfDate || null}
+              halfDayPendingDates={halfDayDates}
+              deductedVlHalfDates={deductedVlHalfDates}
             />
-          </>
+            {summaryUpdateNote ? (
+              <Typography
+                sx={{
+                  fontSize: "0.58rem",
+                  color: T.muted,
+                  fontFamily: T.poppins,
+                  textAlign: "center",
+                  pt: 0.75,
+                  pb: 0.25,
+                }}
+              >
+                {summaryUpdateNote}
+              </Typography>
+            ) : null}
+            </Box>
+          </Box>
         )}
       </Box>
+
+      <OverallAttendanceCompareModal
+        open={compareOpen}
+        onClose={handleCompareClose}
+        onConfirm={handleCompareConfirm}
+        savedRow={raw}
+        proposedRecord={compareFormProposal}
+        tertiaryRecord={compareTertiary}
+        fields={EARNINGS_OVERALL_COMPARE_FIELDS}
+        title="Compare summary vs your edit"
+      />
     </Box>
   );
 };

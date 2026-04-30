@@ -17,6 +17,7 @@
 import API_BASE_URL from "../../apiConfig";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "axios";
+import useLeaveRealtimeRefresh from "../../hooks/useLeaveRealtimeRefresh";
 import {
   Typography, TextField, Button, Box, Grid, Chip, Modal, IconButton,
   Select, MenuItem, FormControl, Alert, InputAdornment, Card, Avatar,
@@ -711,6 +712,14 @@ const ServiceCredit = () => {
       { id: "night_diff", name: "Night Differential OT",  description: "Night differential overtime",   multiplier: 1 },
     ]);
   };
+
+  useLeaveRealtimeRefresh(() => {
+    fetchSCRecords();
+    fetchEmployees();
+    fetchDeptMap();
+    fetchEmpCatMap();
+    fetchOtTypes();
+  });
 
   // ── Name formatter — LASTNAME, Firstname Middlename Ext ──────────────────
   const buildDisplayName = useCallback((e) => {

@@ -17,6 +17,8 @@ import {
 import axios from 'axios';
 import API_BASE_URL from '../../apiConfig';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
+import LoadingOverlay from '../LoadingOverlay';
+import SuccessfulOverlay from '../SuccessfulOverlay';
 
 const T = {
   accent:       '#6d2323',
@@ -212,6 +214,8 @@ const PayrollFormulas = () => {
   const [selectedCategory,    setSelectedCategory]    = useState('All');
   const [originalFormula,     setOriginalFormula]     = useState('');
   const [originalDescription, setOriginalDescription] = useState('');
+  const [successOpen, setSuccessOpen] = useState(false);
+  const [successAction, setSuccessAction] = useState('create');
 
   const getAuthHeaders = () => ({
     headers: {
@@ -283,6 +287,8 @@ const PayrollFormulas = () => {
       }
       await fetchFormulas();
       setShowModal(false);
+      setSuccessAction(editingFormula ? 'edit' : 'create');
+      setSuccessOpen(true);
     } catch (e) {
       alert(e.response?.data?.error || 'Error saving formula');
     } finally {
@@ -296,6 +302,8 @@ const PayrollFormulas = () => {
       setLoading(true);
       await axios.delete(`${API_BASE_URL}/api/payroll-formulas/${key}`, getAuthHeaders());
       await fetchFormulas();
+      setSuccessAction('delete');
+      setSuccessOpen(true);
     } catch {
       alert('Error deleting formula');
     } finally {
@@ -815,6 +823,13 @@ const PayrollFormulas = () => {
             </AccentButton>
           </Box>
         </Dialog>
+
+        <LoadingOverlay open={loading} message="Processing…" />
+        <SuccessfulOverlay
+          open={successOpen}
+          action={successAction}
+          onClose={() => setSuccessOpen(false)}
+        />
       </Box>
     </Fade>
   );

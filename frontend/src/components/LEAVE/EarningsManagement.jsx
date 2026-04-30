@@ -25,6 +25,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  InputLabel,
   Collapse,
   Paper,
   Tabs,
@@ -69,13 +70,20 @@ import {
   OpenInNew as OpenInNewIcon,
   RemoveCircleOutline as DeductIcon,
   Receipt as ReceiptIcon,
+  MoneyOff as SalaryShortfallIcon,
 } from "@mui/icons-material";
 import { LeaveInputColumn } from './EARNINGS/LeaveEarnings';
 import { SCInputColumn } from './EARNINGS/SCEarnings';
 import { CTOInputColumn } from './EARNINGS/CTOEarnings';
 import { AttendanceSummary } from './EARNINGS/AttendanceSummary';
 import { RecordsList, DeptBadge, EmpCatBadge } from './EARNINGS/RecordsList';
+import { SalaryShortfallRegistry } from './EARNINGS/SalaryShortfallRegistry';
 import { useRef } from "react";
+import {
+  getDeductionSourceBalanceDays,
+  isDeductionSourceSufficient,
+  fetchDeductionCreditSnapshots,
+} from "../../utils/deductionSourceBalances";
 
 const T = {
   accent: "#6d2323",
@@ -1648,7 +1656,768 @@ const TABS = [
     shortLabel: "CTO",
     icon: CTOIcon,
   },
+  {
+    id: "salary_shortfall",
+    label: "Salary Shortfall",
+    shortLabel: "Salary",
+    icon: SalaryShortfallIcon,
+  },
 ];
+
+/**
+ * DeductHalfDayModal (half-day attendance deduction)
+ *
+ * Props:
+ *   open      {boolean}  – controls dialog visibility
+ *   onClose   {function}  – called when user cancels / closes
+ *   onConfirm {function}  – async ({ remark: string, rateDecimal: number }) => void
+ *   employee  {object}    – { employeeNumber, fullName, category/empCat }
+ *   date      {string}    – ISO date string "YYYY-MM-DD"
+ *   creditSnapshots – from assignment-balances + SC + CTO APIs (remaining_hours / totalRemaining)
+ *   creditsLoading – while true, balance chips are indeterminate and confirm stays disabled
+ *   suggestedRateDecimal {string|number} – suggested half-day rate decimal (relative to `hoursPerDay`)
+ *   hoursPerDay {number}               – normalized clock-hours per day for this policy row
+ *   deductionOptions {Array<{value:string,label:string}>} – from GET /api/deductions/options
+ *   chargeTo {string} – selected deduction source code (e.g. VL, CTO, SALARY_DEDUCTION)
+ *   onChargeToChange {(code: string) => void} – refetch policy suggestion when source changes
+ */
+const DeductHalfDayVLModal = ({
+  open,
+  onClose,
+  onConfirm,
+  employee,
+  date,
+  creditSnapshots = null,
+  creditsLoading = false,
+  suggestedRateDecimal,
+  hoursPerDay = 8,
+  deductionOptions = [],
+  chargeTo = "VL",
+  onChargeToChange,
+}) => {
+  const [remark, setRemark] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const BASE_HOURS_PER_DAY = 8;
+  const effectiveHoursPerDay =
+    Number.isFinite(hoursPerDay) && hoursPerDay > 0 ? hoursPerDay : BASE_HOURS_PER_DAY;
+  const initPolicyRate = toNum(suggestedRateDecimal) > 0 ? toNum(suggestedRateDecimal) : 0.5;
+  const initDisplayDays = (initPolicyRate * effectiveHoursPerDay) / BASE_HOURS_PER_DAY;
+
+  // Display + editing are always in "8-hr-equivalent days" to match the VL balance elsewhere in UI.
+  const [deductDaysRaw, setDeductDaysRaw] = useState(String(initDisplayDays));
+
+  const MODAL_T = {
+    accent: "#6d2323",
+    accentDark: "#5a1d1d",
+    accentFaint: "rgba(109,35,35,0.05)",
+    accentBorder: "rgba(109,35,35,0.12)",
+    divider: "rgba(0,0,0,0.08)",
+    surface: "#ffffff",
+    text: "#1a1a1a",
+    muted: "#555555",
+    faint: "#888888",
+    poppins: "'Poppins', sans-serif",
+    balOk: "#2e7d32",
+    balBad: "#c62828",
+  };
+
+  const fmtDate = (dateStr) => {
+    if (!dateStr) return "—";
+    try {
+      return new Date(dateStr + "T00:00:00").toLocaleDateString("en-PH", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const getInitials = (name = "") =>
+    name
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((n) => n[0].toUpperCase())
+      .join("");
+
+  const creditCtx = useMemo(
+    () => ({
+      assignmentMap: creditSnapshots?.assignmentMap ?? {},
+      scRemainingHours: creditSnapshots?.scRemainingHours ?? 0,
+      ctoRemainingHours: creditSnapshots?.ctoRemainingHours ?? 0,
+      salaryFallbackDays: null,
+    }),
+    [creditSnapshots],
+  );
+
+  const chargeU = String(chargeTo || "").toUpperCase();
+  const balanceBefore =
+    chargeU === "SALARY_DEDUCTION"
+      ? null
+      : getDeductionSourceBalanceDays(chargeTo, creditCtx);
+  const deductDaysNum = toNum(deductDaysRaw); // display days (8-hr-equivalent)
+  const deductionHours = deductDaysNum * BASE_HOURS_PER_DAY;
+  const balanceAfter =
+    balanceBefore == null ? null : balanceBefore - deductDaysNum;
+  const chargeLabel =
+    deductionOptions.find((o) => o.value === chargeTo)?.label || chargeTo;
+  const showCreditLedgerPreview = chargeU !== "SALARY_DEDUCTION" && balanceBefore != null;
+  const selectedSufficient =
+    creditsLoading ||
+    chargeU === "SALARY_DEDUCTION" ||
+    isDeductionSourceSufficient(balanceBefore, deductDaysNum, chargeTo);
+  const selectedHasBalance =
+    chargeU !== "SALARY_DEDUCTION" && (balanceBefore ?? 0) > 1e-6;
+  const selectedBalancePositive =
+    chargeU === "SALARY_DEDUCTION" ||
+    selectedSufficient ||
+    selectedHasBalance;
+
+  useEffect(() => {
+    if (!open) return;
+    const initPolicyRate = toNum(suggestedRateDecimal) > 0 ? toNum(suggestedRateDecimal) : 0.5;
+    const initDisplayDays = (initPolicyRate * effectiveHoursPerDay) / BASE_HOURS_PER_DAY;
+    setDeductDaysRaw(String(initDisplayDays));
+    setRemark("");
+    setError("");
+  }, [open, suggestedRateDecimal, effectiveHoursPerDay]);
+
+  const handleConfirm = async () => {
+    try {
+      const displayDaysNum = toNum(deductDaysRaw);
+      if (!(displayDaysNum > 0)) {
+        setError("Enter a valid deduction amount (days).");
+        return;
+      }
+      // Backend half-day policy expects rate_decimal relative to `hours_per_day`.
+      // We convert the user's "8-hr-equivalent days" back into that rate.
+      const deductionHours = displayDaysNum * BASE_HOURS_PER_DAY;
+      const rateDecimalNum =
+        effectiveHoursPerDay > 0 ? deductionHours / effectiveHoursPerDay : 0;
+      if (!(rateDecimalNum > 0)) {
+        setError("Deduction amount could not be converted for policy apply.");
+        return;
+      }
+      setSaving(true);
+      setError("");
+
+      await onConfirm({ remark: remark.trim(), rateDecimal: rateDecimalNum });
+      setRemark("");
+      onClose();
+    } catch (err) {
+      setError(
+        "Deduction failed: " +
+          (err?.response?.data?.message ||
+            err?.message ||
+            "Unknown error"),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClose = () => {
+    if (saving) return;
+    setRemark("");
+    setError("");
+    onClose();
+  };
+
+  const empName = employee?.fullName || employee?.full_name || "—";
+  const empNum = employee?.employeeNumber || employee?.employee_number || "—";
+  const empCat = employee?.category || employee?.empCat || "";
+
+  return (
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="xs"
+      fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: 2.5,
+          overflow: "hidden",
+          fontFamily: MODAL_T.poppins,
+          boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+        },
+      }}
+    >
+      {/* ── Header ── */}
+      <Box
+        sx={{
+          background: MODAL_T.accent,
+          px: 2,
+          py: 1.5,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+          <Box
+            sx={{
+              width: 30,
+              height: 30,
+              borderRadius: "50%",
+              bgcolor: "rgba(255,255,255,0.15)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <DeductIcon sx={{ fontSize: 15, color: "#fff" }} />
+          </Box>
+          <Box>
+            <Typography
+              sx={{
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                color: "#fff",
+                fontFamily: MODAL_T.poppins,
+                lineHeight: 1.2,
+              }}
+            >
+              Half-day attendance deduction
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: "0.62rem",
+                color: "rgba(255,255,255,0.65)",
+                fontFamily: MODAL_T.poppins,
+              }}
+            >
+              {chargeLabel}
+            </Typography>
+          </Box>
+        </Box>
+        <IconButton
+          size="small"
+          onClick={handleClose}
+          disabled={saving}
+          sx={{
+            color: "#fff",
+            bgcolor: "rgba(255,255,255,0.12)",
+            borderRadius: 1,
+            p: 0.5,
+            "&:hover": { bgcolor: "rgba(255,255,255,0.22)" },
+          }}
+        >
+          <Close sx={{ fontSize: 14 }} />
+        </IconButton>
+      </Box>
+
+      <DialogContent sx={{ p: 0 }}>
+        <Box sx={{ px: 2, py: 1.75, display: "flex", flexDirection: "column", gap: 1.25 }}>
+          {/* ── Employee strip ── */}
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1.25,
+              bgcolor: "rgba(0,0,0,0.03)",
+              borderRadius: 1.75,
+              border: "0.5px solid rgba(0,0,0,0.09)",
+              px: 1.5,
+              py: 1,
+            }}
+          >
+            <Avatar
+              sx={{
+                width: 36,
+                height: 36,
+                bgcolor: MODAL_T.accent,
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                fontFamily: MODAL_T.poppins,
+                flexShrink: 0,
+              }}
+            >
+              {getInitials(empName)}
+            </Avatar>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography
+                sx={{
+                  fontSize: "0.8rem",
+                  fontWeight: 700,
+                  color: MODAL_T.text,
+                  fontFamily: MODAL_T.poppins,
+                  lineHeight: 1.2,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {empName}
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: "0.62rem",
+                  color: MODAL_T.faint,
+                  fontFamily: MODAL_T.poppins,
+                }}
+              >
+                {empNum}
+                {empCat ? ` · ${empCat}` : ""}
+              </Typography>
+            </Box>
+            {showCreditLedgerPreview && (
+              <Box sx={{ textAlign: "right", flexShrink: 0 }}>
+                <Typography
+                  sx={{
+                    fontSize: "0.58rem",
+                    color: MODAL_T.faint,
+                    fontFamily: MODAL_T.poppins,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  {chargeU} balance
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.95rem",
+                    fontWeight: 800,
+                    color: creditsLoading
+                      ? MODAL_T.muted
+                      : selectedBalancePositive
+                        ? MODAL_T.balOk
+                        : MODAL_T.balBad,
+                    fontFamily: MODAL_T.poppins,
+                    lineHeight: 1.1,
+                  }}
+                >
+                  {creditsLoading ? "…" : `${balanceBefore.toFixed(3)} d`}
+                </Typography>
+              </Box>
+            )}
+          </Box>
+
+          {deductionOptions.length > 0 && (
+            <Box>
+              <FormControl fullWidth size="small" disabled={deductionOptions.length <= 1}>
+                <InputLabel id="halfday-deduction-source-label">Deduction Source for Half-Day</InputLabel>
+                <Select
+                  labelId="halfday-deduction-source-label"
+                  label="Deduction Source for Half-Day"
+                  value={chargeTo}
+                  onChange={(e) => onChargeToChange?.(e.target.value)}
+                  disabled={saving || deductionOptions.length <= 1}
+                  sx={{ borderRadius: 1.25, fontFamily: MODAL_T.poppins, fontSize: "0.8rem" }}
+                >
+                  {deductionOptions.map((o) => {
+                    const oCode = String(o.value || "").toUpperCase();
+                    const bal = getDeductionSourceBalanceDays(o.value, creditCtx);
+                    const rowOk = isDeductionSourceSufficient(bal, deductDaysNum, o.value);
+                    const hasBalance = oCode !== "SALARY_DEDUCTION" && (bal ?? 0) > 1e-6;
+                    const balColor =
+                      oCode === "SALARY_DEDUCTION"
+                        ? MODAL_T.balOk
+                        : creditsLoading
+                          ? MODAL_T.muted
+                          : rowOk || hasBalance
+                            ? MODAL_T.balOk
+                            : MODAL_T.balBad;
+                    return (
+                      <MenuItem key={o.value} value={o.value}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 1,
+                            width: "100%",
+                            pr: 0.5,
+                          }}
+                        >
+                          <Typography sx={{ fontSize: "0.78rem", fontFamily: MODAL_T.poppins, flex: 1, minWidth: 0 }}>
+                            {o.label}
+                          </Typography>
+                          <Typography
+                            sx={{
+                              fontSize: "0.65rem",
+                              fontWeight: 700,
+                              color: balColor,
+                              fontFamily: MODAL_T.poppins,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {oCode === "SALARY_DEDUCTION"
+                              ? "—"
+                              : creditsLoading
+                                ? "…"
+                                : `${(bal ?? 0).toFixed(3)} d`}
+                          </Typography>
+                        </Box>
+                      </MenuItem>
+                    );
+                  })}
+                </Select>
+              </FormControl>
+            </Box>
+          )}
+
+          {/* ── Date being deducted ── */}
+          <Box>
+            <Typography
+              sx={{
+                fontSize: "0.58rem",
+                fontWeight: 700,
+                color: MODAL_T.muted,
+                fontFamily: MODAL_T.poppins,
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                mb: 0.5,
+              }}
+            >
+              Half day date to deduct
+            </Typography>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                bgcolor: "rgba(0,0,0,0.03)",
+                borderRadius: 1.5,
+                border: "0.5px solid rgba(0,0,0,0.12)",
+                px: 1.25,
+                py: 0.85,
+              }}
+            >
+              <CalIcon sx={{ fontSize: 14, color: MODAL_T.accent, flexShrink: 0 }} />
+              <Typography
+                sx={{
+                  fontSize: "0.8rem",
+                  fontWeight: 700,
+                  color: MODAL_T.text,
+                  fontFamily: MODAL_T.poppins,
+                  flex: 1,
+                }}
+              >
+                {fmtDate(date)}
+              </Typography>
+              <Box
+                sx={{
+                  bgcolor: "rgba(139,94,0,0.1)",
+                  color: "#8B5E00",
+                  border: "0.5px solid rgba(139,94,0,0.25)",
+                  borderRadius: 1,
+                  px: 0.75,
+                  py: 0.2,
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: "0.58rem",
+                    fontWeight: 700,
+                    fontFamily: MODAL_T.poppins,
+                  }}
+                >
+                  Half day detected
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+
+          {/* ── Deduction breakdown ── */}
+          <Box
+            sx={{
+              borderRadius: 1.5,
+              border: "0.5px solid rgba(0,0,0,0.09)",
+              overflow: "hidden",
+            }}
+          >
+            <Box
+              sx={{
+                px: 1.25,
+                py: 0.6,
+                bgcolor: "rgba(0,0,0,0.03)",
+                borderBottom: "0.5px solid rgba(0,0,0,0.08)",
+                display: "flex",
+                alignItems: "center",
+                gap: 0.5,
+              }}
+            >
+              <LeaveIcon sx={{ fontSize: 10, color: MODAL_T.muted }} />
+              <Typography
+                sx={{
+                  fontSize: "0.58rem",
+                  fontWeight: 800,
+                  color: MODAL_T.muted,
+                  fontFamily: MODAL_T.poppins,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.07em",
+                }}
+              >
+                Deduction breakdown
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                px: 1.25,
+                py: 0.85,
+                display: "flex",
+                flexDirection: "column",
+                gap: 0.6,
+              }}
+            >
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1 }}>
+                <Typography
+                  sx={{
+                    fontSize: "0.7rem",
+                    color: MODAL_T.muted,
+                    fontFamily: MODAL_T.poppins,
+                    pr: 1,
+                  }}
+                >
+                  Deduction amount
+                </Typography>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <TextField
+                    size="small"
+                    type="number"
+                    inputProps={{ min: 0.001, step: 0.001 }}
+                    value={deductDaysRaw}
+                    onChange={(e) => setDeductDaysRaw(e.target.value)}
+                    disabled={saving}
+                    sx={{
+                      width: 110,
+                      "& .MuiOutlinedInput-root": {
+                        borderRadius: 1.25,
+                        bgcolor: "#fff",
+                        "& fieldset": { borderColor: "rgba(0,0,0,0.12)" },
+                        "&:hover fieldset": { borderColor: MODAL_T.accent },
+                        "&.Mui-focused fieldset": { borderColor: MODAL_T.accent, borderWidth: 1.5 },
+                      },
+                      "& input": {
+                        textAlign: "right",
+                        fontFamily: MODAL_T.poppins,
+                        fontSize: "0.78rem",
+                        fontWeight: 700,
+                        pr: 0.5,
+                      },
+                    }}
+                  />
+                  <Typography
+                    sx={{
+                      fontSize: "0.72rem",
+                      color: MODAL_T.text,
+                      fontFamily: MODAL_T.poppins,
+                      fontWeight: 800,
+                    }}
+                  >
+                    d
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography sx={{ fontSize: "0.7rem", color: MODAL_T.muted, fontFamily: MODAL_T.poppins }}>
+                  Equivalent hours
+                </Typography>
+                <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: MODAL_T.text, fontFamily: MODAL_T.poppins }}>
+                  {deductionHours.toFixed(3)} hrs
+                </Typography>
+              </Box>
+
+              <Box sx={{ height: "0.5px", bgcolor: "rgba(0,0,0,0.07)", my: 0.25 }} />
+
+              {showCreditLedgerPreview && (
+                <>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography sx={{ fontSize: "0.7rem", color: MODAL_T.muted, fontFamily: MODAL_T.poppins }}>
+                      {chargeU} balance before
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                        color: creditsLoading
+                          ? MODAL_T.muted
+                          : selectedBalancePositive
+                            ? MODAL_T.balOk
+                            : MODAL_T.balBad,
+                        fontFamily: MODAL_T.poppins,
+                      }}
+                    >
+                      {creditsLoading ? "…" : `${balanceBefore.toFixed(3)} d`}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography sx={{ fontSize: "0.7rem", color: MODAL_T.muted, fontFamily: MODAL_T.poppins }}>
+                      {chargeU} balance after
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: "0.82rem",
+                        fontWeight: 800,
+                        color: creditsLoading
+                          ? MODAL_T.muted
+                          : balanceAfter < 0
+                            ? MODAL_T.balBad
+                            : MODAL_T.balOk,
+                        fontFamily: MODAL_T.poppins,
+                      }}
+                    >
+                      {creditsLoading ? "…" : `${balanceAfter.toFixed(3)} d`}
+                    </Typography>
+                  </Box>
+                </>
+              )}
+            </Box>
+          </Box>
+
+          {/* ── Remark ── */}
+          <Box>
+            <Typography
+              sx={{
+                fontSize: "0.58rem",
+                fontWeight: 700,
+                color: MODAL_T.muted,
+                fontFamily: MODAL_T.poppins,
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                mb: 0.5,
+              }}
+            >
+              Remark{" "}
+              <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span>
+            </Typography>
+            <TextField
+              multiline
+              rows={2}
+              fullWidth
+              placeholder="Add a note for this deduction…"
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+              disabled={saving}
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: 1.5,
+                  fontSize: "0.78rem",
+                  fontFamily: MODAL_T.poppins,
+                  bgcolor: "#fff",
+                  "& fieldset": { borderColor: "rgba(0,0,0,0.12)" },
+                  "&:hover fieldset": { borderColor: MODAL_T.accent },
+                  "&.Mui-focused fieldset": { borderColor: MODAL_T.accent, borderWidth: 1.5 },
+                },
+              }}
+            />
+          </Box>
+
+          {/* ── Warning ── */}
+          <Box
+            sx={{
+              bgcolor: "rgba(198,40,40,0.05)",
+              border: "0.5px solid rgba(198,40,40,0.2)",
+              borderRadius: 1.5,
+              px: 1.25,
+              py: 0.85,
+              display: "flex",
+              gap: 0.75,
+              alignItems: "flex-start",
+            }}
+          >
+            <WarnIcon sx={{ fontSize: 13, color: "#c62828", flexShrink: 0, mt: 0.15 }} />
+            <Typography sx={{ fontSize: "0.65rem", color: "#7b1a1a", fontFamily: MODAL_T.poppins, lineHeight: 1.55 }}>
+              {String(chargeTo).toUpperCase() === "SALARY_DEDUCTION" ? (
+                <>
+                  This records a <strong>salary deduction</strong> for this half-day (policy equivalent{" "}
+                  <strong>{(deductDaysNum > 0 ? deductDaysNum : 0).toFixed(3)}</strong> display days). No leave credits
+                  are posted from this action.
+                </>
+              ) : String(chargeTo).toUpperCase() === "VL" ? (
+                <>
+                  This will permanently deduct{" "}
+                  <strong>{(deductDaysNum > 0 ? deductDaysNum : 0).toFixed(3)} days</strong> from the employee's VL
+                  balance. This action cannot be undone without manual adjustment.
+                </>
+              ) : (
+                <>
+                  This will post <strong>{(deductDaysNum > 0 ? deductDaysNum : 0).toFixed(3)}</strong> display days
+                  against <strong>{chargeLabel}</strong> (hours computed from policy). Verify balances in records after
+                  apply.
+                </>
+              )}
+            </Typography>
+          </Box>
+
+          {/* ── Error ── */}
+          {error && (
+            <Alert severity="error" sx={{ py: 0.25, px: 1, fontSize: "0.65rem", borderRadius: 1.25 }}>
+              {error}
+            </Alert>
+          )}
+        </Box>
+
+        {/* ── Footer ── */}
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 1,
+            px: 2,
+            py: 1.25,
+            borderTop: `1px solid ${MODAL_T.divider}`,
+            bgcolor: "rgba(0,0,0,0.02)",
+          }}
+        >
+          <Button
+            size="small"
+            onClick={handleClose}
+            disabled={saving}
+            sx={{
+              fontSize: "0.72rem",
+              fontWeight: 600,
+              textTransform: "none",
+              fontFamily: MODAL_T.poppins,
+              color: MODAL_T.muted,
+              borderRadius: 1.25,
+              px: 1.5,
+              border: "0.5px solid rgba(0,0,0,0.15)",
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="small"
+            variant="contained"
+            onClick={handleConfirm}
+            disabled={
+              saving ||
+              creditsLoading ||
+              (!selectedSufficient && chargeU !== "SALARY_DEDUCTION")
+            }
+            startIcon={
+              saving ? (
+                <CircularProgress size={11} sx={{ color: "#fff" }} />
+              ) : (
+                <SaveIcon sx={{ fontSize: "13px !important" }} />
+              )
+            }
+            sx={{
+              fontSize: "0.72rem",
+              fontWeight: 700,
+              textTransform: "none",
+              fontFamily: MODAL_T.poppins,
+              bgcolor: MODAL_T.accent,
+              borderRadius: 1.25,
+              px: 1.75,
+              boxShadow: "none",
+              "&:hover": { bgcolor: MODAL_T.accentDark, boxShadow: "none" },
+              "&.Mui-disabled": { bgcolor: "rgba(109,35,35,0.4)", color: "#fff" },
+            }}
+          >
+            {saving ? "Saving…" : "Confirm deduction"}
+          </Button>
+        </Box>
+      </DialogContent>
+    </Dialog>
+  );
+};
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 const EarningsManagement = () => {
@@ -1673,6 +2442,19 @@ const EarningsManagement = () => {
   const [attendanceData, setAttendanceData] = useState(null);
   const [attendanceLoading, setAttLoading] = useState(false);
   const [vlReceiptRefreshKey, setVlReceiptRefreshKey] = useState(0);
+
+  // ── VL Half-Day Deduction (parent-owned to control placement) ─────────────────
+  const [deductedVlHalfDates, setDeductedVlHalfDates] = useState([]);
+  const [vlHalfModalOpen, setVlHalfModalOpen] = useState(false);
+  const [vlHalfModalLoading, setVlHalfModalLoading] = useState(false);
+  const [vlHalfCertify, setVlHalfCertify] = useState(false);
+  const [vlHalfRateDecimal, setVlHalfRateDecimal] = useState("0.5");
+  const [vlHalfSuggestion, setVlHalfSuggestion] = useState(null);
+  const [vlHalfSelectedDate, setVlHalfSelectedDate] = useState("");
+  const [vlHalfError, setVlHalfError] = useState("");
+  const [vlHalfDeductionOptions, setVlHalfDeductionOptions] = useState([]);
+  const [vlHalfChargeTo, setVlHalfChargeTo] = useState("VL");
+  const [vlHalfCreditSnapshots, setVlHalfCreditSnapshots] = useState(null);
 
   const handleMonthChange = useCallback((y, m) => {
     setPeriodYear(y);
@@ -1705,9 +2487,252 @@ const EarningsManagement = () => {
     setAttLoading(false);
   }, [selectedEmployee, periodYear, periodMonth]);
 
+  const fetchDeductedVlHalfDates = useCallback(async () => {
+    if (!selectedEmployee?.employeeNumber) {
+      setDeductedVlHalfDates([]);
+      return;
+    }
+
+    const y = parseInt(periodYear, 10);
+    const m = parseInt(periodMonth, 10);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+      setDeductedVlHalfDates([]);
+      return;
+    }
+
+    const startDate = `${y}-${String(m).padStart(2, "0")}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const endDate = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+
+    setDeductedVlHalfDates([]);
+    const token = localStorage.getItem("token");
+
+    try {
+      const r = await axios.post(
+        `${API_BASE_URL}/leaveRoute/leave_request/halfday-deduction-applied-dates`,
+        {
+          employeeNumber: selectedEmployee.employeeNumber,
+          leave_code: "*",
+          startDate,
+          endDate,
+        },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const dates = Array.isArray(r.data?.dates) ? r.data.dates : [];
+      setDeductedVlHalfDates(dates);
+    } catch (e) {
+      setDeductedVlHalfDates([]);
+    }
+  }, [selectedEmployee, periodYear, periodMonth]);
+
+  const openVlHalfModalForDate = useCallback(
+    async (dateVal) => {
+      const targetDate = String(dateVal || "");
+      if (!selectedEmployee?.employeeNumber || !targetDate) return;
+
+      setVlHalfSelectedDate(targetDate);
+      setVlHalfCertify(false);
+      setVlHalfRateDecimal("0.5");
+      setVlHalfSuggestion(null);
+      setVlHalfError("");
+      setVlHalfDeductionOptions([]);
+      setVlHalfChargeTo("VL");
+      setVlHalfCreditSnapshots(null);
+      setVlHalfModalOpen(true);
+      setVlHalfModalLoading(true);
+
+      try {
+        const token = localStorage.getItem("token");
+        const headers = { Authorization: `Bearer ${token}` };
+
+        const [snapshots, r0] = await Promise.all([
+          fetchDeductionCreditSnapshots(selectedEmployee.employeeNumber, token),
+          axios.post(
+            `${API_BASE_URL}/leaveRoute/leave_request/halfday-deduction-suggestion`,
+            {
+              employeeNumber: selectedEmployee.employeeNumber,
+              leave_date: targetDate,
+            },
+            { headers },
+          ),
+        ]);
+        setVlHalfCreditSnapshots(snapshots);
+        const hasForm = r0.data?.has_leave_form === true;
+        const optRes = await axios.get(`${API_BASE_URL}/api/deductions/options`, {
+          params: {
+            employeeNumber: selectedEmployee.employeeNumber,
+            context: "HALF_DAY",
+            hasLeaveForm: hasForm ? "true" : "false",
+          },
+          headers,
+        });
+        const opts = Array.isArray(optRes.data?.options) ? optRes.data.options : [];
+        setVlHalfDeductionOptions(opts);
+
+        const rec = String(r0.data?.recommended_charge_to || "").toUpperCase();
+        const pick = opts.some((o) => o.value === rec) ? rec : opts[0]?.value || "SALARY_DEDUCTION";
+        setVlHalfChargeTo(pick);
+
+        const r = await axios.post(
+          `${API_BASE_URL}/leaveRoute/leave_request/halfday-deduction-suggestion`,
+          {
+            employeeNumber: selectedEmployee.employeeNumber,
+            leave_date: targetDate,
+            preferred_charge_to: pick,
+          },
+          { headers },
+        );
+        const suggestion = r.data || null;
+        setVlHalfSuggestion(suggestion);
+
+        const recRate = parseFloat(suggestion?.recommended_rate_decimal);
+        setVlHalfRateDecimal(
+          Number.isFinite(recRate) && recRate > 0 ? String(recRate) : "0.5",
+        );
+      } catch (e) {
+        setVlHalfError(
+          e.response?.data?.error ||
+            e.message ||
+            "Failed to load half-day deduction options.",
+        );
+      } finally {
+        setVlHalfModalLoading(false);
+      }
+    },
+    [selectedEmployee],
+  );
+
+  const handleVlHalfChargeChange = useCallback(
+    async (code) => {
+      if (!selectedEmployee?.employeeNumber || !vlHalfSelectedDate) return;
+      const next = String(code || "").trim().toUpperCase();
+      setVlHalfChargeTo(next);
+      const token = localStorage.getItem("token");
+      try {
+        const r = await axios.post(
+          `${API_BASE_URL}/leaveRoute/leave_request/halfday-deduction-suggestion`,
+          {
+            employeeNumber: selectedEmployee.employeeNumber,
+            leave_date: vlHalfSelectedDate,
+            preferred_charge_to: next,
+          },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        setVlHalfSuggestion(r.data || null);
+        const recRate = parseFloat(r.data?.recommended_rate_decimal);
+        setVlHalfRateDecimal(
+          Number.isFinite(recRate) && recRate > 0 ? String(recRate) : "0.5",
+        );
+      } catch (e) {
+        setVlHalfError(
+          e.response?.data?.error ||
+            e.message ||
+            "Failed to refresh deduction policy for the selected source.",
+        );
+      }
+    },
+    [selectedEmployee, vlHalfSelectedDate],
+  );
+
+  const applyVlHalfDeduction = useCallback(
+    async ({ remark = "", rateDecimal } = {}) => {
+      if (!selectedEmployee?.employeeNumber || !vlHalfSelectedDate) return;
+
+      const rateDecimalNum = toNum(rateDecimal);
+      if (!(rateDecimalNum > 0)) {
+        const msg = "Enter a valid deduction amount (days).";
+        setVlHalfError(msg);
+        throw new Error(msg);
+      }
+
+      const rawHoursPerDayForPolicy =
+        toNum(vlHalfSuggestion?.hours_per_day) || 8;
+      // Some leave_table.leave_hours values come back as "policy hours" (e.g. weekly totals).
+      // Normalize into clock-hours-per-day so deduction_hours matches how VL balances are stored (hours).
+      const clockHoursPerDay =
+        rawHoursPerDayForPolicy > 12 ? rawHoursPerDayForPolicy / 4 : rawHoursPerDayForPolicy;
+      const deductHours = rateDecimalNum * clockHoursPerDay;
+
+      if (deductedVlHalfDates.includes(vlHalfSelectedDate)) {
+        throw new Error("This half-day is already deducted.");
+      }
+
+      setVlHalfModalLoading(true);
+      setVlHalfError("");
+
+      try {
+        const token = localStorage.getItem("token");
+        await axios.post(
+          `${API_BASE_URL}/leaveRoute/leave_request/halfday-deduction-apply`,
+          {
+            employeeNumber: selectedEmployee.employeeNumber,
+            leave_date: vlHalfSelectedDate,
+            chosen_charge_to: String(vlHalfChargeTo || "VL").trim().toUpperCase(),
+            rate_decimal: rateDecimalNum,
+            deduction_hours: deductHours,
+            decision_context: {
+              override_reason: String(remark || "").trim() || null,
+              system_recommendation: vlHalfSuggestion,
+            },
+          },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+
+        // Prevent duplicates in the UI.
+        setDeductedVlHalfDates((prev) =>
+          Array.from(new Set([...prev, vlHalfSelectedDate])),
+        );
+
+        setVlHalfModalOpen(false);
+        setVlHalfCertify(false);
+        setVlHalfSuggestion(null);
+        setVlHalfCreditSnapshots(null);
+        setVlHalfError("");
+
+        // Keep AttendanceSummary in sync with updated official metrics/balances.
+        await fetchAttendance();
+        handleBalanceChanged();
+        handleRecordsRefresh();
+        await fetchDeductedVlHalfDates();
+      } catch (e) {
+        const msg =
+          e.response?.data?.error ||
+          e.response?.data?.message ||
+          e.message ||
+          "Failed to deduct half-day to VL.";
+        setVlHalfError(msg);
+        throw new Error(msg);
+      } finally {
+        setVlHalfModalLoading(false);
+      }
+    },
+    [
+      selectedEmployee,
+      vlHalfSelectedDate,
+      vlHalfSuggestion,
+      vlHalfChargeTo,
+      deductedVlHalfDates,
+      fetchAttendance,
+      handleBalanceChanged,
+      handleRecordsRefresh,
+      fetchDeductedVlHalfDates,
+    ],
+  );
+
   useEffect(() => {
     fetchAttendance();
   }, [fetchAttendance]);
+
+  // Clear local "already deducted" tracking when switching employee/period.
+  useEffect(() => {
+    setDeductedVlHalfDates([]);
+    setVlHalfModalOpen(false);
+    setVlHalfSuggestion(null);
+    setVlHalfCreditSnapshots(null);
+    setVlHalfError("");
+    setVlHalfCertify(false);
+    fetchDeductedVlHalfDates();
+  }, [selectedEmployee?.employeeNumber, periodYear, periodMonth, fetchDeductedVlHalfDates]);
 
   // Realtime refresh for leave changes affecting balances/earnings
   useEffect(() => {
@@ -1834,6 +2859,17 @@ const EarningsManagement = () => {
       : [first, mid].filter(Boolean).join(" ");
   };
 
+  /** Resolve employee numbers in earning records (approved_by, audit actor) to display names. */
+  const approverNameLookup = useMemo(() => {
+    const m = {};
+    (employees || []).forEach((e) => {
+      const num = String(e?.employeeNumber ?? "").trim();
+      if (!num) return;
+      m[num] = buildDisplayName(e);
+    });
+    return m;
+  }, [employees]);
+
   const selectedEmployeeDisplay = useMemo(() => {
     if (!selectedEmployee) return null;
     const initials =
@@ -1892,6 +2928,9 @@ const EarningsManagement = () => {
   }, [employees, empCatMap, catFilter]);
 
 if (pageLoading) return <EarningsWireframe />;
+
+  const rawHoursPerDay = toNum(vlHalfSuggestion?.hours_per_day) || 8;
+  const hoursPerDay = rawHoursPerDay > 12 ? rawHoursPerDay / 4 : rawHoursPerDay;
 
   const deptCode = selectedEmployee
     ? deptMap[String(selectedEmployee.employeeNumber)]
@@ -2551,64 +3590,122 @@ if (pageLoading) return <EarningsWireframe />;
   empCat={empCat}
   vlReceiptRefreshKey={vlReceiptRefreshKey}
   balanceRefreshKey={balanceKey}   // ← add this
+                deductedVlHalfDates={deductedVlHalfDates}
+                onDeductHalfDayVLRequested={openVlHalfModalForDate}
 />
               </Box>
-              {/* Column 2: Input Earnings */}
-              <Box
-                sx={{
-                  overflowY: "auto",
-                  overflowX: "hidden",
-                  display: "flex",
-                  flexDirection: "column",
-                  borderRight: { xs: "none", md: `1px solid ${T.divider}` },
-                }}
-              >
-                {activeTab === 0 && (
-                  <LeaveInputColumn
-                    {...sharedTabProps}
-                    onBalanceChanged={handleBalanceChanged}
-                    refreshKey={balanceKey}
-                    onRecordsRefresh={handleRecordsRefresh}
+              {activeTab !== 3 && (
+                <>
+                  {/* Column 2: Input Earnings */}
+                  <Box
+                    sx={{
+                      overflowY: "auto",
+                      overflowX: "hidden",
+                      display: "flex",
+                      flexDirection: "column",
+                      borderRight: { xs: "none", md: `1px solid ${T.divider}` },
+                    }}
+                  >
+                    {activeTab === 0 && (
+                      <LeaveInputColumn
+                        {...sharedTabProps}
+                        onBalanceChanged={handleBalanceChanged}
+                        refreshKey={balanceKey}
+                        onRecordsRefresh={handleRecordsRefresh}
+                      />
+                    )}
+                    {activeTab === 1 && (
+                      <SCInputColumn
+                        {...sharedTabProps}
+                        onRecordsRefresh={handleRecordsRefresh}
+                      />
+                    )}
+                    {activeTab === 2 && (
+                      <CTOInputColumn
+                        {...sharedTabProps}
+                        onRecordsRefresh={handleRecordsRefresh}
+                      />
+                    )}
+                  </Box>
+                  {/* Column 3: Records Earnings*/}
+                  <Box
+                    sx={{
+                      overflowY: "auto",
+                      overflowX: "hidden",
+                      display: "flex",
+                      flexDirection: "column",
+                    }}
+                  >
+                    <RecordsList
+                      employeeNumber={selectedEmployee?.employeeNumber}
+                      type={TABS[activeTab].id}
+                      unit={unit}
+                      refreshKey={recordsRefreshKey}
+                      year={periodYear}
+                      month={periodMonth}
+                      onApproved={handleBalanceChanged}
+                      standalone
+                      onStatusChange={() => setVlReceiptRefreshKey((k) => k + 1)}
+                      approverNameLookup={approverNameLookup}
+                    />
+                  </Box>
+                </>
+              )}
+              {activeTab === 3 && (
+                <Box
+                  sx={{
+                    gridColumn: { xs: "1", md: "2 / span 2" },
+                    overflowY: "auto",
+                    overflowX: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                    borderLeft: { md: `1px solid ${T.divider}` },
+                  }}
+                >
+                  <SalaryShortfallRegistry
+                    employee={selectedEmployee}
+                    year={periodYear}
+                    month={periodMonth}
                   />
-                )}
-                {activeTab === 1 && (
-                  <SCInputColumn
-                    {...sharedTabProps}
-                    onRecordsRefresh={handleRecordsRefresh}
-                  />
-                )}
-                {activeTab === 2 && (
-                  <CTOInputColumn
-                    {...sharedTabProps}
-                    onRecordsRefresh={handleRecordsRefresh}
-                  />
-                )}
-              </Box>
-              {/* Column 3: Records Earnings*/}
-              <Box
-                sx={{
-                  overflowY: "auto",
-                  overflowX: "hidden",
-                  display: "flex",
-                  flexDirection: "column",
-                }}
-              >
-                <RecordsList
-                  employeeNumber={selectedEmployee?.employeeNumber}
-                  type={TABS[activeTab].id}
-                  unit={unit}
-                  refreshKey={recordsRefreshKey}
-                  year={periodYear}
-                  month={periodMonth}
-                  onApproved={handleBalanceChanged}
-                  standalone
-                  onStatusChange={() => setVlReceiptRefreshKey((k) => k + 1)}
-                />
-              </Box>
+                </Box>
+              )}
             </Box>
           </Fade>
         </SectionCard>
       </Box>
+
+      <DeductHalfDayVLModal
+        open={vlHalfModalOpen}
+        onClose={() => {
+          setVlHalfModalOpen(false);
+          setVlHalfDeductionOptions([]);
+          setVlHalfChargeTo("VL");
+          setVlHalfSuggestion(null);
+          setVlHalfCreditSnapshots(null);
+        }}
+        onConfirm={applyVlHalfDeduction}
+        employee={
+          selectedEmployee
+            ? {
+                ...selectedEmployee,
+                fullName: buildDisplayName(selectedEmployee),
+                category:
+                  empCat?.typeName ||
+                  empCat?.category ||
+                  empCat?.empCat ||
+                  "",
+              }
+            : null
+        }
+        date={vlHalfSelectedDate}
+        creditSnapshots={vlHalfCreditSnapshots}
+        creditsLoading={vlHalfModalLoading}
+        suggestedRateDecimal={vlHalfRateDecimal}
+        hoursPerDay={hoursPerDay}
+        deductionOptions={vlHalfDeductionOptions}
+        chargeTo={vlHalfChargeTo}
+        onChargeToChange={handleVlHalfChargeChange}
+      />
 
       <FloatingConversionWidget />
     </Box>

@@ -3,8 +3,164 @@ const express = require("express");
   const db = require("../db");
   const { authenticateToken, requireAdmin, logAudit } = require("../middleware/auth");
   const jwt = require("jsonwebtoken");
+  const {
+    getPromiseConnection,
+    insertCreditUsageLine,
+    refreshLeaveAssignmentCacheFromLedger,
+    voidCreditUsageBySource,
+  } = require("../services/leaveCreditUsageService");
 
   const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+
+  const parseJsonSafe = (raw) => {
+    if (raw == null) return {};
+    if (typeof raw === "object") return raw;
+    try {
+      return JSON.parse(String(raw));
+    } catch {
+      return {};
+    }
+  };
+
+  /** Merge half-day policy deductions (deduction_decision_log) into leave earnings list for the UI. */
+  const mergeHalfDayPolicyLeaveRows = (employeeNumber, yNum, mNum, statusFilter, baseRows, callback) => {
+    if (statusFilter === "pending" || statusFilter === "rejected") {
+      return callback(Array.isArray(baseRows) ? baseRows : []);
+    }
+    const start = `${yNum}-${String(mNum).padStart(2, "0")}-01`;
+    const lastDay = new Date(yNum, mNum, 0).getDate();
+    const end = `${yNum}-${String(mNum).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+    db.query(
+      `SELECT id, employeeNumber, leave_code, leave_date, decision, created_at,
+              final_applied_json, actor_employeeNumber, override_reason
+       FROM deduction_decision_log
+       WHERE employeeNumber = ?
+         AND decision_source = 'half_day_policy_manual_apply'
+         AND decision IN ('accepted','overridden')
+         AND leave_date >= ?
+         AND leave_date <= ?
+       ORDER BY created_at DESC`,
+      [String(employeeNumber || ""), start, end],
+      (err, rows) => {
+        const base = Array.isArray(baseRows) ? [...baseRows] : [];
+        if (err || !Array.isArray(rows) || !rows.length) {
+          return callback(base);
+        }
+        const synthetic = rows
+          .map((r) => {
+            const hid = parseInt(r.id, 10);
+            if (!Number.isFinite(hid) || hid <= 0) return null;
+            const fin = parseJsonSafe(r.final_applied_json);
+            let hrs = Number(fin.applied_hours);
+            if (!Number.isFinite(hrs) || hrs <= 0) {
+              hrs = Number(fin.requested_deduction_hours);
+            }
+            if (!Number.isFinite(hrs) || hrs <= 0) hrs = 0;
+            const negHrs = hrs > 0 ? -hrs : 0;
+            const ld = r.leave_date;
+            let py = yNum;
+            let pm = mNum;
+            if (ld) {
+              const s = String(ld).slice(0, 10);
+              const parts = s.split("-");
+              if (parts.length >= 2) {
+                const y = parseInt(parts[0], 10);
+                const mo = parseInt(parts[1], 10);
+                if (Number.isFinite(y) && Number.isFinite(mo)) {
+                  py = y;
+                  pm = mo;
+                }
+              }
+            }
+            const charge = String(fin.charge_to || r.leave_code || "").trim() || "—";
+            const salaryNote = fin.salary_deduction ? " (salary)" : "";
+            return {
+              id: -Math.abs(hid),
+              _decisionLogId: r.id,
+              _halfDayPolicyRecord: true,
+              employee_number: r.employeeNumber,
+              leave_code: r.leave_code,
+              earned_hours: negHrs,
+              period_year: py,
+              period_month: pm,
+              entry_type: "HALF_DAY_POLICY",
+              earn_status: "approved",
+              remarks: `Half-day policy deduction — ${Math.abs(hrs)} hrs charged to ${charge}${salaryNote} on ${ld}`,
+              created_at: r.created_at,
+              created_by: r.actor_employeeNumber,
+              approved_by: r.actor_employeeNumber,
+              leave_description: "Half-day attendance (policy)",
+            };
+          })
+          .filter(Boolean);
+        const combined = [...synthetic, ...base].sort((a, b) => {
+          const tb = new Date(b.created_at || b.approved_at || 0).getTime();
+          const ta = new Date(a.created_at || a.approved_at || 0).getTime();
+          if (tb !== ta) return tb - ta;
+          return Number(b.id) - Number(a.id);
+        });
+        callback(combined);
+      },
+    );
+  };
+
+  const { mirrorAttendanceSalaryShortfallToAuditTrail } = require("../services/leaveSalaryShortfallMirror");
+
+  /** When a leave deduction exceeds remaining_hours, log the excess for payroll (salary recovery). */
+  const recordLeaveSalaryShortfall = (req, row) =>
+    new Promise((resolve, reject) => {
+      const sh = toNum(row.shortfall_hours);
+      if (sh <= 0) return resolve();
+      const pm = parseInt(row.period_month, 10);
+      if (!Number.isFinite(pm) || pm < 1 || pm > 12) {
+        return reject(new Error("leave_salary_shortfall: invalid period_month"));
+      }
+      const py = parseInt(row.period_year, 10);
+      const sd = sh / 8;
+      const neg = toNum(row.negative_balance_days);
+      const leaveCode = String(row.leave_code || "");
+      const entryType = row.entry_type ? String(row.entry_type) : null;
+      const remarks = row.remarks || null;
+      db.query(
+        `INSERT INTO leave_salary_shortfall (
+          employee_number, period_year, period_month,
+          negative_balance_days, shortfall_days, shortfall_hours,
+          leave_code, entry_type, leave_earning_id, remarks
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          String(row.employee_number),
+          py,
+          pm,
+          neg,
+          sd,
+          sh,
+          leaveCode,
+          entryType,
+          row.leave_earning_id != null ? parseInt(row.leave_earning_id, 10) : null,
+          remarks,
+        ],
+        (err, result) => {
+          if (err) return reject(err);
+          const insertId = result?.insertId;
+          if (req && insertId != null) {
+            mirrorAttendanceSalaryShortfallToAuditTrail({
+              req,
+              targetEmployeeNumber: String(row.employee_number),
+              insertId,
+              y: py,
+              m: pm,
+              shortfallDays: sd,
+              shortfallHours: sh,
+              leaveCode,
+              entryType: entryType || "LEAVE_DEDUCTION_SHORTFALL",
+              remarks,
+            }).finally(() => resolve());
+          } else {
+            resolve();
+          }
+        },
+      );
+    });
 
   const getIo = (req) => {
     // Primary wiring in backend/index.js: app.locals.io = io
@@ -29,6 +185,53 @@ const express = require("express");
       } catch (err) {}
     }
     return fallback ? String(fallback) : "unknown";
+  };
+
+  /** Insert leave_credit_usage + refresh assignment; used/remaining follow ledger. */
+  const commitLeaveDeductionLedger = async ({
+    req,
+    rec,
+    assignmentId,
+    deductionHours,
+    earningId,
+  }) => {
+    const conn = await getPromiseConnection();
+    const createdBy = getActorEmployeeNumber(req);
+    try {
+      await conn.beginTransaction();
+      const [fr] = await conn.execute(
+        `SELECT id, remaining_hours FROM leave_assignment WHERE id = ? FOR UPDATE`,
+        [assignmentId],
+      );
+      const row = fr?.[0];
+      if (!row) throw new Error("leave_assignment row not found");
+      const remBefore = toNum(row.remaining_hours);
+      const dh = Math.abs(toNum(deductionHours));
+      const shortfallHours = Math.max(0, dh - remBefore);
+      const negativeBalanceDays = (remBefore - dh) / 8;
+      await insertCreditUsageLine(conn, {
+        leave_assignment_id: assignmentId,
+        employee_number: rec.employee_number,
+        leave_code: rec.leave_code,
+        period_year: rec.period_year != null ? parseInt(rec.period_year, 10) : null,
+        period_month: rec.period_month != null ? parseInt(rec.period_month, 10) : null,
+        hours_delta: -dh,
+        source_type: "LEAVE_EARNING",
+        source_id: parseInt(earningId, 10),
+        remarks: rec.remarks || null,
+        created_by: createdBy,
+      });
+      await refreshLeaveAssignmentCacheFromLedger(conn, assignmentId);
+      await conn.commit();
+      return { shortfallHours, negativeBalanceDays };
+    } catch (e) {
+      try {
+        await conn.rollback();
+      } catch (_r) {}
+      throw e;
+    } finally {
+      conn.release();
+    }
   };
 
   const semRank = (s) => {
@@ -210,21 +413,40 @@ const express = require("express");
     const hrs = toNum(earnedHours);
     if (!employeeNumber || !leaveCode || !Number.isFinite(y) || !Number.isFinite(m) || !hrs) return;
 
+    const isDeduction = hrs < 0;
+
     await new Promise((resolve) => {
-      db.query(
-        `UPDATE leave_assignment
-         SET
-           carried_forward_hours = GREATEST(0, carried_forward_hours + ?),
-           total_hours           = GREATEST(0, total_hours + ?),
-           remaining_hours       = GREATEST(0, remaining_hours + ?)
-         WHERE employeeNumber = ?
-           AND TRIM(leave_code) = TRIM(?)
-           AND period_year = ?
-           AND period_semester IS NOT NULL
-           AND CAST(period_semester AS UNSIGNED) > ?`,
-        [hrs, hrs, hrs, employeeNumber, leaveCode, y, m],
-        () => resolve(),
-      );
+      if (isDeduction) {
+        db.query(
+          `UPDATE leave_assignment
+           SET
+             carried_forward_hours = GREATEST(0, carried_forward_hours + ?),
+             total_hours           = GREATEST(0, total_hours + ?),
+             remaining_hours       = GREATEST(0, remaining_hours + ?)
+           WHERE employeeNumber = ?
+             AND TRIM(leave_code) = TRIM(?)
+             AND period_year = ?
+             AND period_semester IS NOT NULL
+             AND CAST(period_semester AS UNSIGNED) > ?`,
+          [hrs, hrs, hrs, employeeNumber, leaveCode, y, m],
+          () => resolve(),
+        );
+      } else {
+        db.query(
+          `UPDATE leave_assignment
+           SET
+             carried_forward_hours = GREATEST(0, carried_forward_hours + ?),
+             total_hours           = GREATEST(0, total_hours + ?),
+             remaining_hours       = GREATEST(0, remaining_hours + ?)
+           WHERE employeeNumber = ?
+             AND TRIM(leave_code) = TRIM(?)
+             AND period_year = ?
+             AND period_semester IS NOT NULL
+             AND CAST(period_semester AS UNSIGNED) > ?`,
+          [hrs, hrs, hrs, employeeNumber, leaveCode, y, m],
+          () => resolve(),
+        );
+      }
     });
   };
 
@@ -826,7 +1048,23 @@ const stats = {
         mNum >= 1 &&
         mNum <= 12;
       if (!shouldMerge) {
-        return respond(Array.isArray(earnings) ? earnings : []);
+        const baseEarly = Array.isArray(earnings) ? earnings : [];
+        if (all === "true") {
+          return respond(baseEarly);
+        }
+        const yE = parseInt(year, 10);
+        const mE = parseInt(month, 10);
+        if (!Number.isFinite(yE) || !Number.isFinite(mE) || mE < 1 || mE > 12) {
+          return respond(baseEarly);
+        }
+        return mergeHalfDayPolicyLeaveRows(
+          employeeNumber,
+          yE,
+          mE,
+          status,
+          baseEarly,
+          respond,
+        );
       }
 
       const missedToken = `ADJUSTMENT (missed ${monthNames[mNum - 1]})`;
@@ -852,7 +1090,19 @@ const stats = {
       db.query(q2, p2, (e2, extra) => {
         const base = Array.isArray(earnings) ? earnings : [];
         const add = Array.isArray(extra) ? extra : [];
-        if (e2 || !add.length) return respond(base);
+        const finishAdjustments = (mergedRows) => {
+          mergeHalfDayPolicyLeaveRows(
+            employeeNumber,
+            yNum,
+            mNum,
+            status,
+            mergedRows,
+            respond,
+          );
+        };
+        if (e2 || !add.length) {
+          return finishAdjustments(base);
+        }
 
         const byId = new Map();
         base.forEach((r) => {
@@ -874,7 +1124,7 @@ const stats = {
           if (tb !== ta) return tb - ta;
           return Number(b.id) - Number(a.id);
         });
-        respond(merged);
+        finishAdjustments(merged);
       });
     });
   });
@@ -1101,7 +1351,7 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
             const afterUpdate = async () => {
               // If a later period (e.g. April) already exists, make it reflect this newly-approved earlier month.
               // This is what prevents "separate 10 hours record" from looking like it didn't add to the later running balance.
-              if (periodMonth) {
+              if (periodMonth && !(earnedHrs < 0 && !matched)) {
                 await propagateEarnedHoursToLaterPeriods({
                   employeeNumber: rec.employee_number,
                   leaveCode: rec.leave_code,
@@ -1155,31 +1405,143 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
             };
 
             if (matched) {
-              db.query(
-                `UPDATE leave_assignment
+              if (earnedHrs >= 0) {
+                // Earnings (SL/SC/VL earned hours): increase allocation + remaining.
+                db.query(
+                  `UPDATE leave_assignment
 SET
   total_hours     = GREATEST(0, total_hours + ?),
   remaining_hours = GREATEST(0, remaining_hours + ?),
   allocated_hours = GREATEST(0, allocated_hours + ?)
 WHERE id = ?`,
-                [earnedHrs, earnedHrs, earnedHrs, matched.id],
-                () => { afterUpdate(); },
-              );
+                  [earnedHrs, earnedHrs, earnedHrs, matched.id],
+                  () => { afterUpdate(); },
+                );
+              } else {
+                const deductionHours = Math.abs(earnedHrs);
+                try {
+                  const { shortfallHours, negativeBalanceDays } =
+                    await commitLeaveDeductionLedger({
+                      req,
+                      rec,
+                      assignmentId: matched.id,
+                      deductionHours,
+                      earningId: id,
+                    });
+                  try {
+                    await recordLeaveSalaryShortfall(req, {
+                      employee_number: rec.employee_number,
+                      period_year: rec.period_year,
+                      period_month: periodMonth || parseInt(rec.period_month, 10),
+                      negative_balance_days: negativeBalanceDays,
+                      shortfall_hours: shortfallHours,
+                      leave_code: rec.leave_code,
+                      entry_type: rec.entry_type,
+                      leave_earning_id: parseInt(id, 10),
+                      remarks: rec.remarks,
+                    });
+                  } catch (e) {
+                    console.error("[earnings] leave_salary_shortfall insert:", e.message);
+                  }
+                  await afterUpdate();
+                } catch (e) {
+                  console.error("[earnings] leave deduction ledger:", e.message);
+                  throw e;
+                }
+              }
             } else {
-              db.query(
-                `INSERT INTO leave_assignment (employeeNumber, leave_code, total_hours, remaining_hours, used_hours, carried_forward_hours, allocated_hours, period_year, period_semester)
-                 VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?)`,
-                [
-                  rec.employee_number,
-                  rec.leave_code,
-                  earnedHrs,
-                  earnedHrs,
-                  earnedHrs,
-                  rec.period_year,
-                  periodMonth ? String(periodMonth) : null,
-                ],
-                () => { afterUpdate(); },
-              );
+              if (earnedHrs >= 0) {
+                // If no allocation row exists (unlikely for earnings), create it.
+                db.query(
+                  `INSERT INTO leave_assignment (employeeNumber, leave_code, total_hours, remaining_hours, used_hours, carried_forward_hours, allocated_hours, period_year, period_semester)
+                   VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?)`,
+                  [
+                    rec.employee_number,
+                    rec.leave_code,
+                    earnedHrs,
+                    earnedHrs,
+                    earnedHrs,
+                    rec.period_year,
+                    periodMonth ? String(periodMonth) : null,
+                  ],
+                  () => { afterUpdate(); },
+                );
+              } else {
+                // Deductions with no matched allocation row for this period:
+                // deduct from the latest available allocation row instead of inserting a 0/0 "ledger" row.
+                // This prevents new conflicting allocation records while keeping used_hours consistent.
+                const deductionHours = Math.abs(earnedHrs);
+                const donor = await new Promise((resolve) => {
+                  db.query(
+                    `SELECT *
+                     FROM leave_assignment
+                     WHERE employeeNumber = ?
+                       AND TRIM(leave_code) = TRIM(?)
+                       AND CAST(remaining_hours AS DECIMAL(12,4)) > 0
+                     ORDER BY period_year DESC, id DESC
+                     LIMIT 1`,
+                    [rec.employee_number, rec.leave_code],
+                    (e4, laRows) => {
+                      if (e4) return resolve(null);
+                      resolve((laRows && laRows[0]) ? laRows[0] : null);
+                    },
+                  );
+                });
+
+                if (!donor) {
+                  const shortfallHours = deductionHours;
+                  const negativeBalanceDays = -deductionHours / 8;
+                  (async () => {
+                    try {
+                      await recordLeaveSalaryShortfall(req, {
+                        employee_number: rec.employee_number,
+                        period_year: rec.period_year,
+                        period_month: periodMonth || parseInt(rec.period_month, 10),
+                        negative_balance_days: negativeBalanceDays,
+                        shortfall_hours: shortfallHours,
+                        leave_code: rec.leave_code,
+                        entry_type: rec.entry_type,
+                        leave_earning_id: parseInt(id, 10),
+                        remarks: rec.remarks,
+                      });
+                    } catch (e) {
+                      console.error("[earnings] leave_salary_shortfall insert (no allocation):", e.message);
+                    }
+                    afterUpdate();
+                  })();
+                  return;
+                }
+
+                try {
+                  const { shortfallHours: shortfallDonor, negativeBalanceDays: negativeBalanceDonor } =
+                    await commitLeaveDeductionLedger({
+                      req,
+                      rec,
+                      assignmentId: donor.id,
+                      deductionHours,
+                      earningId: id,
+                    });
+                  try {
+                    await recordLeaveSalaryShortfall(req, {
+                      employee_number: rec.employee_number,
+                      period_year: rec.period_year,
+                      period_month: periodMonth || parseInt(rec.period_month, 10),
+                      negative_balance_days: negativeBalanceDonor,
+                      shortfall_hours: shortfallDonor,
+                      leave_code: rec.leave_code,
+                      entry_type: rec.entry_type,
+                      leave_earning_id: parseInt(id, 10),
+                      remarks: rec.remarks,
+                    });
+                  } catch (e) {
+                    console.error("[earnings] leave_salary_shortfall insert (donor):", e.message);
+                  }
+                  await afterUpdate();
+                } catch (e) {
+                  console.error("[earnings] leave deduction ledger (donor):", e.message);
+                  throw e;
+                }
+              }
             }
           })().catch((e) => {
             console.error("[earnings] roll-forward/approve error:", e.message);
@@ -1279,17 +1641,120 @@ WHERE id = ?`,
         db.query(findQuery, findParams, (err2, laRows) => {
           const matched = (!err2 && laRows && laRows[0]) ? laRows[0] : null;
           if (matched) {
-            db.query(
-              `UPDATE leave_assignment SET
-                total_hours      = GREATEST(0, total_hours - ?),
-                remaining_hours  = GREATEST(0, remaining_hours - ?),
-                allocated_hours  = GREATEST(0, allocated_hours - ?)
-              WHERE id = ?`,
-              [earnedHrs, earnedHrs, earnedHrs, matched.id],
-              doDelete
-            );
+            if (earnedHrs >= 0) {
+              // Reversing an earned approval: subtract earned hours from allocation + remaining.
+              db.query(
+                `UPDATE leave_assignment SET
+                  total_hours      = GREATEST(0, total_hours - ?),
+                  remaining_hours  = GREATEST(0, remaining_hours - ?),
+                  allocated_hours  = GREATEST(0, allocated_hours - ?)
+                WHERE id = ?`,
+                [earnedHrs, earnedHrs, earnedHrs, matched.id],
+                doDelete
+              );
+            } else {
+              (async () => {
+                const conn = await getPromiseConnection();
+                let assignmentIds = [];
+                try {
+                  await conn.beginTransaction();
+                  assignmentIds = await voidCreditUsageBySource(
+                    conn,
+                    "LEAVE_EARNING",
+                    parseInt(id, 10),
+                  );
+                  for (const aid of assignmentIds) {
+                    await refreshLeaveAssignmentCacheFromLedger(conn, aid);
+                  }
+                  await conn.commit();
+                } catch (e) {
+                  try {
+                    await conn.rollback();
+                  } catch (_r) {}
+                  conn.release();
+                  console.error("[earnings] void leave credit usage:", e.message);
+                  return res.status(500).json({
+                    error: "Failed to reverse deduction",
+                    detail: e.message,
+                  });
+                }
+                conn.release();
+
+                if (assignmentIds.length > 0) {
+                  return doDelete();
+                }
+
+                const deductionHours = Math.abs(earnedHrs);
+                db.query(
+                  `UPDATE leave_assignment SET
+                    remaining_hours  = GREATEST(0, remaining_hours + ?),
+                    used_hours       = GREATEST(0, used_hours - ?)
+                  WHERE id = ?`,
+                  [deductionHours, deductionHours, matched.id],
+                  doDelete,
+                );
+              })();
+            }
           } else {
-            doDelete();
+            if (earnedHrs < 0) {
+              (async () => {
+                const conn = await getPromiseConnection();
+                let assignmentIds = [];
+                try {
+                  await conn.beginTransaction();
+                  assignmentIds = await voidCreditUsageBySource(
+                    conn,
+                    "LEAVE_EARNING",
+                    parseInt(id, 10),
+                  );
+                  for (const aid of assignmentIds) {
+                    await refreshLeaveAssignmentCacheFromLedger(conn, aid);
+                  }
+                  await conn.commit();
+                } catch (e) {
+                  try {
+                    await conn.rollback();
+                  } catch (_r) {}
+                  conn.release();
+                  console.error("[earnings] void leave credit usage:", e.message);
+                  return res.status(500).json({
+                    error: "Failed to reverse deduction",
+                    detail: e.message,
+                  });
+                }
+                conn.release();
+
+                if (assignmentIds.length > 0) {
+                  return doDelete();
+                }
+
+                const deductionHours = Math.abs(earnedHrs);
+                db.query(
+                  `SELECT id
+                   FROM leave_assignment
+                   WHERE employeeNumber = ?
+                     AND TRIM(leave_code) = TRIM(?)
+                     AND CAST(used_hours AS DECIMAL(12,4)) >= ?
+                   ORDER BY period_year DESC, id DESC
+                   LIMIT 1`,
+                  [rec.employee_number, rec.leave_code, deductionHours],
+                  (err3, donorRows) => {
+                    const donor = !err3 && donorRows && donorRows[0] ? donorRows[0] : null;
+                    if (!donor) return doDelete();
+                    db.query(
+                      `UPDATE leave_assignment SET
+                        remaining_hours = GREATEST(0, remaining_hours + ?),
+                        used_hours       = GREATEST(0, used_hours - ?)
+                      WHERE id = ?`,
+                      [deductionHours, deductionHours, donor.id],
+                      doDelete,
+                    );
+                  },
+                );
+              })();
+            } else {
+              doDelete();
+            }
           }
         });
       } else {
@@ -1405,9 +1870,34 @@ WHERE id = ?`,
           db.query(findQuery, findParams, (err3, scRows) => {
             const matched = (!err3 && scRows && scRows[0]) ? scRows[0] : null;
 
+            const entryTypeUpper = String(rec.entry_type || "").toUpperCase();
+            const isScDeduction = entryTypeUpper === "DEDUCTION" && earnedHrs < 0;
+            const needScHrs = isScDeduction ? Math.abs(earnedHrs) : 0;
+            const remBeforeSc = matched ? toNum(matched.remaining_hours) : 0;
+            const scShortfallHrs = isScDeduction ? Math.max(0, needScHrs - remBeforeSc) : 0;
+            const scNegBalDays = isScDeduction ? (remBeforeSc - needScHrs) / 8 : 0;
+            const scShortfallPm = periodMonth != null ? periodMonth : parseInt(rec.period_month, 10);
+
             const afterUpdate = () => {
-              auditEarning(req, "approved service credit earnings", "sc", parseInt(id), rec.earn_status, "approved", rec);
               (async () => {
+                try {
+                  if (scShortfallHrs > 0 && Number.isFinite(scShortfallPm) && scShortfallPm >= 1 && scShortfallPm <= 12) {
+                    await recordLeaveSalaryShortfall(req, {
+                      employee_number: rec.employee_number,
+                      period_year: rec.period_year,
+                      period_month: scShortfallPm,
+                      negative_balance_days: scNegBalDays,
+                      shortfall_hours: scShortfallHrs,
+                      leave_code: "SC",
+                      entry_type: "ATTENDANCE_SC_SALARY_SHORTFALL",
+                      leave_earning_id: null,
+                      remarks: rec.remarks,
+                    });
+                  }
+                } catch (e) {
+                  console.error("[earnings] leave_salary_shortfall (SC approve):", e.message);
+                }
+                auditEarning(req, "approved service credit earnings", "sc", parseInt(id), rec.earn_status, "approved", rec);
                 const actorEmpNum = getActorEmployeeNumber(req);
                 const [actorName, targetName] = await Promise.all([
                   getEmployeeFullName(actorEmpNum),
@@ -1423,8 +1913,11 @@ WHERE id = ?`,
                   periodMonth: rec.period_month,
                 });
                 await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
-              })();
-              db.query("SELECT * FROM sc_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
+                db.query("SELECT * FROM sc_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
+              })().catch((e) => {
+                console.error("[earnings] SC approve finalize:", e.message);
+                res.status(500).json({ error: e.message || "Failed to finalize SC approval" });
+              });
             };
 
             if (matched) {
@@ -1663,9 +2156,34 @@ const earnedHrs = toNum(earned_hours || ot_hours);
           db.query(findQuery, findParams, (err3, ctoRows) => {
             const matched = (!err3 && ctoRows && ctoRows[0]) ? ctoRows[0] : null;
 
+            const entryTypeUpperCto = String(rec.entry_type || "").toUpperCase();
+            const isCtoDeduction = entryTypeUpperCto === "DEDUCTION" && earnedHrs < 0;
+            const needCtoHrs = isCtoDeduction ? Math.abs(earnedHrs) : 0;
+            const remBeforeCto = matched ? toNum(matched.remaining_hours) : 0;
+            const ctoShortfallHrs = isCtoDeduction ? Math.max(0, needCtoHrs - remBeforeCto) : 0;
+            const ctoNegBalDays = isCtoDeduction ? (remBeforeCto - needCtoHrs) / 8 : 0;
+            const ctoShortfallPm = periodMonth != null ? periodMonth : parseInt(rec.period_month, 10);
+
             const afterUpdate = () => {
-              auditEarning(req, "approved cto earnings", "cto", parseInt(id), rec.earn_status, "approved", rec);
               (async () => {
+                try {
+                  if (ctoShortfallHrs > 0 && Number.isFinite(ctoShortfallPm) && ctoShortfallPm >= 1 && ctoShortfallPm <= 12) {
+                    await recordLeaveSalaryShortfall(req, {
+                      employee_number: rec.employee_number,
+                      period_year: rec.period_year,
+                      period_month: ctoShortfallPm,
+                      negative_balance_days: ctoNegBalDays,
+                      shortfall_hours: ctoShortfallHrs,
+                      leave_code: "CTO",
+                      entry_type: "ATTENDANCE_CTO_SALARY_SHORTFALL",
+                      leave_earning_id: null,
+                      remarks: rec.remarks,
+                    });
+                  }
+                } catch (e) {
+                  console.error("[earnings] leave_salary_shortfall (CTO approve):", e.message);
+                }
+                auditEarning(req, "approved cto earnings", "cto", parseInt(id), rec.earn_status, "approved", rec);
                 const actorEmpNum = getActorEmployeeNumber(req);
                 const [actorName, targetName] = await Promise.all([
                   getEmployeeFullName(actorEmpNum),
@@ -1681,8 +2199,11 @@ const earnedHrs = toNum(earned_hours || ot_hours);
                   periodMonth: rec.period_month,
                 });
                 await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
-              })();
-              db.query("SELECT * FROM cto_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
+                db.query("SELECT * FROM cto_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
+              })().catch((e) => {
+                console.error("[earnings] CTO approve finalize:", e.message);
+                res.status(500).json({ error: e.message || "Failed to finalize CTO approval" });
+              });
             };
 
             if (matched) {

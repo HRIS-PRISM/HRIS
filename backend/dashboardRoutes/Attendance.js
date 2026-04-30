@@ -167,14 +167,124 @@ router.get('/api/attendance', authenticateToken, (req, res) => {
       res.status(500).json({ error: 'Error fetching data' });
       return;
     }
-    logAudit(
-      req.user,
-      `Viewed Attendance Records`,
-      'Attendance Module (Non-Teaching/30hrs/40hrs)',
-      `${startDate} to ${endDate}`,
-      personId,
-    );
-    res.json(results);
+
+    // HR-approved leave days with no attendancerecord yet (no device row / sync not run):
+    // expose one row per date using official time so attendance modules can display the day.
+    const leaveGapSql = `
+      SELECT
+        lr.id AS leave_request_id,
+        lr.employeeNumber,
+        DATE_FORMAT(lr.leave_date, '%Y-%m-%d') AS leave_day,
+        DAYNAME(lr.leave_date) AS dow,
+        u.username,
+        u.employmentCategory,
+        ot.id AS ot_row_id,
+        ot.employeeID,
+        ot.day AS ot_day,
+        ot.startDate AS ot_startDate,
+        ot.endDate AS ot_endDate,
+        ot.officialTimeIN,
+        ot.officialTimeOUT,
+        ot.officialBreaktimeIN,
+        ot.officialBreaktimeOUT,
+        ot.officialHonorariumTimeIN,
+        ot.officialHonorariumTimeOUT,
+        ot.officialServiceCreditTimeIN,
+        ot.officialServiceCreditTimeOUT,
+        ot.officialOverTimeIN,
+        ot.officialOverTimeOUT
+      FROM leave_request lr
+      INNER JOIN users u
+        ON CAST(u.employeeNumber AS CHAR) = CAST(lr.employeeNumber AS CHAR)
+      INNER JOIN officialtime ot
+        ON CAST(ot.employeeID AS CHAR) = CAST(lr.employeeNumber AS CHAR)
+        AND ot.day = DAYNAME(lr.leave_date)
+        AND lr.leave_date BETWEEN ot.startDate AND ot.endDate
+        AND ot.id = (
+          SELECT MAX(ot2.id)
+          FROM officialtime ot2
+          WHERE CAST(ot2.employeeID AS CHAR) = CAST(lr.employeeNumber AS CHAR)
+            AND ot2.day = DAYNAME(lr.leave_date)
+            AND lr.leave_date BETWEEN ot2.startDate AND ot2.endDate
+        )
+      WHERE lr.status = 2
+        AND CAST(lr.employeeNumber AS CHAR) = CAST(? AS CHAR)
+        AND lr.leave_date BETWEEN ? AND ?
+        AND NOT EXISTS (
+          SELECT 1 FROM attendancerecord ar
+          WHERE CAST(ar.personID AS CHAR) = CAST(lr.employeeNumber AS CHAR)
+            AND ar.date = DATE_FORMAT(lr.leave_date, '%Y-%m-%d')
+        )
+    `;
+
+    db.query(leaveGapSql, [personId, startDate, endDate], (err2, leaveRows) => {
+      if (err2) {
+        console.error('Error fetching leave-only attendance rows:', err2);
+        logAudit(
+          req.user,
+          `Viewed Attendance Records`,
+          'Attendance Module (Non-Teaching/30hrs/40hrs)',
+          `${startDate} to ${endDate}`,
+          personId,
+        );
+        return res.json(results || []);
+      }
+
+      const normDate = (d) => {
+        if (!d) return '';
+        const s = String(d);
+        return s.length >= 10 ? s.slice(0, 10) : s;
+      };
+      const seenDates = new Set((results || []).map((r) => normDate(r.date)));
+      const extras = [];
+
+      for (const r of leaveRows || []) {
+        const d = r.leave_day;
+        if (!d || seenDates.has(d)) continue;
+        seenDates.add(d);
+        extras.push({
+          id: null,
+          personID: String(r.employeeNumber),
+          date: d,
+          Day: r.dow,
+          day: r.dow,
+          timeIN: r.officialTimeIN,
+          breaktimeIN: r.officialBreaktimeIN,
+          breaktimeOUT: r.officialBreaktimeOUT,
+          timeOUT: r.officialTimeOUT,
+          specialType: null,
+          specialTimeIN: null,
+          specialTimeOUT: null,
+          employeeNumber: r.employeeNumber,
+          username: r.username,
+          employmentCategory: r.employmentCategory,
+          officialTimeIN: r.officialTimeIN,
+          officialTimeOUT: r.officialTimeOUT,
+          officialBreaktimeIN: r.officialBreaktimeIN,
+          officialBreaktimeOUT: r.officialBreaktimeOUT,
+          officialHonorariumTimeIN: r.officialHonorariumTimeIN,
+          officialHonorariumTimeOUT: r.officialHonorariumTimeOUT,
+          officialServiceCreditTimeIN: r.officialServiceCreditTimeIN,
+          officialServiceCreditTimeOUT: r.officialServiceCreditTimeOUT,
+          officialOverTimeIN: r.officialOverTimeIN,
+          officialOverTimeOUT: r.officialOverTimeOUT,
+          _syntheticLeaveDay: true,
+        });
+      }
+
+      const merged = [...(results || []), ...extras].sort((a, b) =>
+        normDate(a.date).localeCompare(normDate(b.date)),
+      );
+
+      logAudit(
+        req.user,
+        `Viewed Attendance Records`,
+        'Attendance Module (Non-Teaching/30hrs/40hrs)',
+        `${startDate} to ${endDate}`,
+        personId,
+      );
+      res.json(merged);
+    });
   });
 });
 
@@ -1233,8 +1343,11 @@ router.get('/api/all-device-users', authenticateToken, (req, res) => {
 });
 
 // Auto-save and fetch attendance records
+// When syncDeviceToRecords is false, only returns device-derived rows + DB special fields
+// without INSERT/UPDATE on attendancerecord (avoids overwriting manual edits from Attendance Modification).
 router.post('/api/all-attendance', authenticateToken, async (req, res) => {
   const { personID, startDate, endDate } = req.body;
+  const syncDeviceToRecords = req.body.syncDeviceToRecords !== false;
 
   const startTimestamp = new Date(startDate + 'T00:00:00Z').getTime();
   const endTimestamp = new Date(endDate + 'T23:59:59Z').getTime();
@@ -1300,8 +1413,9 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
       let updatedCount = 0;
 
       try {
-        for (const record of records) {
-          const officialTimeQuery = `
+        if (syncDeviceToRecords) {
+          for (const record of records) {
+            const officialTimeQuery = `
             SELECT 
               officialTimeIN, officialTimeOUT,
               officialBreaktimeIN, officialBreaktimeOUT,
@@ -1314,74 +1428,74 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
               AND ? BETWEEN startDate AND endDate
           `;
 
-          const officialTimeData = await new Promise((resolve, reject) => {
-            db.query(
-              officialTimeQuery,
-              [record.PersonID, record.Date, record.Date],
-              (err, result) => {
-                if (err) reject(err);
-                else resolve(result[0] || null);
-              },
-            );
-          });
+            const officialTimeData = await new Promise((resolve, reject) => {
+              db.query(
+                officialTimeQuery,
+                [record.PersonID, record.Date, record.Date],
+                (err, result) => {
+                  if (err) reject(err);
+                  else resolve(result[0] || null);
+                },
+              );
+            });
 
-          const checkSql = `SELECT id, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT, day FROM attendancerecord WHERE personID = ? AND date = ?`;
-          const existingRecord = await new Promise((resolve, reject) => {
-            db.query(
-              checkSql,
-              [record.PersonID, record.Date],
-              (err, result) => {
-                if (err) reject(err);
-                else resolve(result);
-              },
-            );
-          });
+            const checkSql = `SELECT id, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT, day FROM attendancerecord WHERE personID = ? AND date = ?`;
+            const existingRecord = await new Promise((resolve, reject) => {
+              db.query(
+                checkSql,
+                [record.PersonID, record.Date],
+                (err, result) => {
+                  if (err) reject(err);
+                  else resolve(result);
+                },
+              );
+            });
 
-          const newTimeIN = formatTime(record.Time1);
-          const newBreaktimeIN = formatTime(record.Time3);
-          const newBreaktimeOUT = formatTime(record.Time2);
-          const newTimeOUT = formatTime(record.Time4);
-          const newDay = getDayOfWeek(record.Date);
+            const newTimeIN = formatTime(record.Time1);
+            const newBreaktimeIN = formatTime(record.Time3);
+            const newBreaktimeOUT = formatTime(record.Time2);
+            const newTimeOUT = formatTime(record.Time4);
+            const newDay = getDayOfWeek(record.Date);
 
-          let specialType = null;
-          let specialTimeIN = null;
-          let specialTimeOUT = null;
+            let specialType = null;
+            let specialTimeIN = null;
+            let specialTimeOUT = null;
 
-          if (record.Time5 || record.Time6) {
-            const specialTime = record.Time5 || record.Time6;
-            const specialResult = determineSpecialType(specialTime, officialTimeData);
-            specialType = specialResult.type;
-            specialTimeIN = record.Time5 ? formatTime(record.Time5) : null;
-            specialTimeOUT = record.Time6 ? formatTime(record.Time6) : null;
-          }
+            if (record.Time5 || record.Time6) {
+              const specialTime = record.Time5 || record.Time6;
+              const specialResult = determineSpecialType(specialTime, officialTimeData);
+              specialType = specialResult.type;
+              specialTimeIN = record.Time5 ? formatTime(record.Time5) : null;
+              specialTimeOUT = record.Time6 ? formatTime(record.Time6) : null;
+            }
 
-          if (existingRecord.length === 0) {
-            const insertSql = `
+            if (existingRecord.length === 0) {
+              const insertSql = `
               INSERT INTO attendancerecord 
               (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
-            await new Promise((resolve, reject) => {
-              db.query(
-                insertSql,
-                [
-                  record.PersonID, record.Date, newDay,
-                  newTimeIN, newBreaktimeIN, newBreaktimeOUT, newTimeOUT,
-                  specialType, specialTimeIN, specialTimeOUT,
-                ],
-                (err) => {
-                  if (err) { console.error('Error auto-saving record:', err); reject(err); }
-                  else {
-                    logAudit(req.user, `Auto-Saved New Attendance Record`, 'Attendance Device', record.Date, record.PersonID);
-                    savedCount++;
-                    resolve();
-                  }
-                },
-              );
-            });
-          } else {
-            const existing = existingRecord[0];
-            const hasChanges =
+              await new Promise((resolve, reject) => {
+                db.query(
+                  insertSql,
+                  [
+                    record.PersonID, record.Date, newDay,
+                    newTimeIN, newBreaktimeIN, newBreaktimeOUT, newTimeOUT,
+                    specialType, specialTimeIN, specialTimeOUT,
+                  ],
+                  (err) => {
+                    if (err) { console.error('Error auto-saving record:', err); reject(err); }
+                    else {
+                      logAudit(req.user, `Auto-Saved New Attendance Record`, 'Attendance Device', record.Date, record.PersonID);
+                      savedCount++;
+                      resolve();
+                    }
+                  },
+                );
+              });
+            } else {
+              const existing = existingRecord[0];
+              const hasChanges =
               (existing.timeIN || 'N/A') !== (newTimeIN || 'N/A') ||
               (existing.breaktimeIN || 'N/A') !== (newBreaktimeIN || 'N/A') ||
               (existing.breaktimeOUT || 'N/A') !== (newBreaktimeOUT || 'N/A') ||
@@ -1391,68 +1505,100 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
               (existing.specialTimeOUT || null) !== (specialTimeOUT || null) ||
               (existing.day || '') !== newDay;
 
-            if (hasChanges) {
-              const updateSql = `
+              if (hasChanges) {
+                const updateSql = `
                 UPDATE attendancerecord
                 SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?, 
                     specialType = ?, specialTimeIN = ?, specialTimeOUT = ?, day = ?
                 WHERE personID = ? AND date = ?
               `;
-              await new Promise((resolve, reject) => {
-                db.query(
-                  updateSql,
-                  [
-                    newTimeIN, newBreaktimeIN, newBreaktimeOUT, newTimeOUT,
-                    specialType, specialTimeIN, specialTimeOUT, newDay,
-                    record.PersonID, record.Date,
-                  ],
-                  (err) => {
-                    if (err) { console.error('Error updating record:', err); reject(err); }
-                    else {
-                      logAudit(req.user, `Auto-Updated Existing Attendance Record`, 'Attendance Device', record.Date, record.PersonID);
-                      updatedCount++;
-                      resolve();
-                    }
-                  },
-                );
-              });
+                await new Promise((resolve, reject) => {
+                  db.query(
+                    updateSql,
+                    [
+                      newTimeIN, newBreaktimeIN, newBreaktimeOUT, newTimeOUT,
+                      specialType, specialTimeIN, specialTimeOUT, newDay,
+                      record.PersonID, record.Date,
+                    ],
+                    (err) => {
+                      if (err) { console.error('Error updating record:', err); reject(err); }
+                      else {
+                        logAudit(req.user, `Auto-Updated Existing Attendance Record`, 'Attendance Device', record.Date, record.PersonID);
+                        updatedCount++;
+                        resolve();
+                      }
+                    },
+                  );
+                });
+              }
             }
           }
-        }
 
-        if (savedCount > 0 || updatedCount > 0) {
-          notifyAttendanceChanged('auto-sync', {
-            scope: 'device-auto-save',
-            personID, startDate, endDate,
-            saved: savedCount, updated: updatedCount,
-          });
+          if (savedCount > 0 || updatedCount > 0) {
+            notifyAttendanceChanged('auto-sync', {
+              scope: 'device-auto-save',
+              personID, startDate, endDate,
+              saved: savedCount, updated: updatedCount,
+            });
+          }
         }
       } catch (saveError) {
         console.error('Error auto-saving records:', saveError);
       }
 
-      const enrichedRecords = await Promise.all(
-        records.map(async (record) => {
-          const specialTypeQuery = `
-            SELECT specialType, specialTimeIN, specialTimeOUT 
-            FROM attendancerecord 
-            WHERE personID = ? AND date = ?
-          `;
-          const specialData = await new Promise((resolve, reject) => {
-            db.query(specialTypeQuery, [record.PersonID, record.Date], (err, result) => {
-              if (err) reject(err);
-              else resolve(result[0] || null);
-            });
-          });
+      const normYmd = (d) => {
+        if (!d) return '';
+        if (d instanceof Date && !Number.isNaN(d.getTime())) {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}-${m}-${day}`;
+        }
+        const s = String(d);
+        return s.length >= 10 ? s.slice(0, 10) : s;
+      };
 
+      let enrichedRecords = records;
+      if (records.length > 0) {
+        const uniqueDates = [
+          ...new Set(
+            records.map((r) => normYmd(r.Date)).filter(Boolean),
+          ),
+        ];
+        const specialByDate = {};
+        if (uniqueDates.length > 0) {
+          await new Promise((resolve, reject) => {
+            const placeholders = uniqueDates.map(() => '?').join(',');
+            const batchSql = `
+              SELECT date, specialType, specialTimeIN, specialTimeOUT
+              FROM attendancerecord
+              WHERE personID = ? AND date IN (${placeholders})
+            `;
+            db.query(
+              batchSql,
+              [personID, ...uniqueDates],
+              (err, rows) => {
+                if (err) return reject(err);
+                for (const row of rows || []) {
+                  const key = normYmd(row.date);
+                  if (key) specialByDate[key] = row;
+                }
+                resolve();
+              },
+            );
+          });
+        }
+        enrichedRecords = records.map((record) => {
+          const key = normYmd(record.Date);
+          const specialData = key ? specialByDate[key] : null;
           return {
             ...record,
             specialType: specialData?.specialType || null,
             savedSpecialTimeIN: specialData?.specialTimeIN || null,
             savedSpecialTimeOUT: specialData?.specialTimeOUT || null,
           };
-        }),
-      );
+        });
+      }
 
       res.json(enrichedRecords);
     },
@@ -1785,23 +1931,29 @@ router.get('/api/suspensions', authenticateToken, (req, res) => {
   });
 });
 
-// Get approved leaves within date range
+// Get approved leaves within date range (optionally scoped to one employee for attendance UI)
 router.get('/api/leaves', authenticateToken, (req, res) => {
-  const { startDate, endDate } = req.query;
+  const { startDate, endDate, personId, employeeNumber } = req.query;
+  const employeeKey = String(personId || employeeNumber || '').trim();
 
   if (!startDate || !endDate) {
     return res.status(400).json({ error: 'startDate and endDate are required' });
   }
 
-  const leaveQuery = `
+  let leaveQuery = `
     SELECT lr.id, lr.leave_date, lt.leave_description
     FROM leave_request lr
     JOIN leave_table lt ON lr.leave_code = lt.leave_code
     WHERE lr.status = 2
     AND lr.leave_date BETWEEN ? AND ?
   `;
+  const leaveParams = [startDate, endDate];
+  if (employeeKey) {
+    leaveQuery += ' AND lr.employeeNumber = ?';
+    leaveParams.push(employeeKey);
+  }
 
-  db.query(leaveQuery, [startDate, endDate], (err, rows) => {
+  db.query(leaveQuery, leaveParams, (err, rows) => {
     if (err) {
       console.error('Error fetching leaves:', err);
       return res.status(500).json({ error: err.message });
@@ -1821,8 +1973,9 @@ router.get('/api/leaves', authenticateToken, (req, res) => {
     });
 
     const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';
-    logAudit(req.user, 'view', 'LEAVES', `range ${startDate} to ${endDate}`, requestedBy);
-    notifyAttendanceChanged('leaves-fetched', { scope: 'leaves', startDate, endDate, requestedBy });
+    const scopeNote = employeeKey ? ` employee ${employeeKey}` : '';
+    logAudit(req.user, 'view', 'LEAVES', `range ${startDate} to ${endDate}${scopeNote}`, requestedBy);
+    notifyAttendanceChanged('leaves-fetched', { scope: 'leaves', startDate, endDate, personId: employeeKey || undefined, requestedBy });
 
     return res.json({ success: true, count: Object.keys(byDate).length, byDate });
   });

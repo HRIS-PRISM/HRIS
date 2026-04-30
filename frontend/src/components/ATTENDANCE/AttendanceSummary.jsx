@@ -46,7 +46,7 @@ import {
   FilterList,
   Assignment,
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import {
   useCRUDButtonStyles,
@@ -444,6 +444,7 @@ const OverallAttendance = () => {
   const deleteButtonStyles = useCRUDButtonStylesOutlined('delete');
   const fetchAttendanceDataRef = useRef(null);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [showJOConfirm, setShowJOConfirm] = useState(false);
   const [showRegularConfirm, setShowRegularConfirm] = useState(false);
@@ -538,8 +539,12 @@ const OverallAttendance = () => {
       const to = row?.timeOUT;
       return empty(ti) && empty(bi) && empty(bo) && empty(to);
     };
+    const hasMorningPunch = (row) => !empty(row?.timeIN) || !empty(row?.breaktimeIN);
+    const hasAfternoonPunch = (row) => !empty(row?.breaktimeOUT) || !empty(row?.timeOUT);
 
     let absentDays = 0;
+    let halfDays = 0;
+    let halfDaySecTotal = 0;
     let lateDeficitSecTotal = 0;
 
     (Array.isArray(rows) ? rows : []).forEach((row) => {
@@ -548,6 +553,10 @@ const OverallAttendance = () => {
         absentDays += 1;
         return;
       }
+
+      const morning = hasMorningPunch(row);
+      const afternoon = hasAfternoonPunch(row);
+      if (morning !== afternoon) halfDays += 1;
 
       // Late/Tardiness (late-only) as schedule deficit for days with punches
       const offInSec = parseTimeToSeconds(row?.officialTimeIN);
@@ -576,8 +585,14 @@ const OverallAttendance = () => {
           renderedSec = Math.max(0, outSec - inSec);
         }
       } else {
-        // partial punches -> treat as 0 rendered (still scheduled, but not absent)
-        renderedSec = 0;
+        // Half-day rule: if only one session has punches, treat rendered as half of schedule.
+        if (morning !== afternoon) {
+          renderedSec = Math.floor(schedWorkSec / 2);
+          halfDaySecTotal += Math.floor(schedWorkSec / 2);
+        } else {
+          // Other incomplete combinations remain 0 rendered.
+          renderedSec = 0;
+        }
       }
 
       lateDeficitSecTotal += Math.max(0, schedWorkSec - renderedSec);
@@ -585,19 +600,36 @@ const OverallAttendance = () => {
 
     return {
       absentDays,
+      halfDays,
+      halfDayTotal: formatSeconds(halfDaySecTotal),
       lateDeficit: formatSeconds(lateDeficitSecTotal),
     };
   };
 
-  // Restore persisted inputs
+  // Restore inputs: navigation state (from faculty / designated / non-teaching save) overrides generic localStorage
   useEffect(() => {
+    const st = location.state;
+    if (st?.employeeNumber != null && String(st.employeeNumber).trim() !== '') {
+      const en = String(st.employeeNumber).trim();
+      setEmployeeNumber(en);
+      localStorage.setItem('employeeNumber', en);
+      if (st.startDate) {
+        setStartDate(st.startDate);
+        localStorage.setItem('startDate', st.startDate);
+      }
+      if (st.endDate) {
+        setEndDate(st.endDate);
+        localStorage.setItem('endDate', st.endDate);
+      }
+      return;
+    }
     const en = localStorage.getItem('employeeNumber');
     const sd = localStorage.getItem('startDate');
     const ed = localStorage.getItem('endDate');
     if (en) setEmployeeNumber(en);
     if (sd) setStartDate(sd);
     if (ed) setEndDate(ed);
-  }, []);
+  }, [location.key]);
 
   // ── Month picker handler ───────────────────────────────────────────────
   const handleMonthClick = (monthIndex) => {
@@ -622,6 +654,7 @@ const OverallAttendance = () => {
 
         // Derive absent + late (official-time-aware) from daily rows
         let absent = null;
+        let halfDay = null;
         let lateDeficit = null;
         try {
           const d = await axios.get(`${API_BASE_URL}/attendance/api/attendance`, {
@@ -631,9 +664,11 @@ const OverallAttendance = () => {
           const dailyRows = Array.isArray(d.data) ? d.data : (d.data?.data || []);
           const computed = computeOfficialAwareAbsenceAndLate(dailyRows);
           absent = computed.absentDays;
+          halfDay = computed.halfDayTotal;
           lateDeficit = computed.lateDeficit;
         } catch {
           absent = null;
+          halfDay = null;
           lateDeficit = null;
         }
 
@@ -641,6 +676,7 @@ const OverallAttendance = () => {
           (Array.isArray(overallRows) ? overallRows : []).map((r) => ({
             ...r,
             _absentTotalDays: absent,
+            _halfTotalDays: halfDay,
             _lateTotal: lateDeficit,
           })),
         );
@@ -1013,12 +1049,14 @@ const OverallAttendance = () => {
     { label: 'Overall Rendered',     key: 'overallRenderedOfficialTime',         group: 'overall' },
     { label: 'Overall Tardiness',    key: 'overallRenderedOfficialTimeTardiness',group: 'overallTard' },
     { label: 'Late Total',          key: '_lateTotal',                           group: 'tardiness' },
+    { label: 'Half Day Total',       key: '_halfTotalDays',                       group: 'halfday' },
     { label: 'Absent Total',         key: '_absentTotalDays',                    group: 'absent' },
   ];
 
   const getCellColor = (group) => {
     if (group === 'rendered')     return '#166534';
     if (group === 'tardiness')    return '#991b1b';
+    if (group === 'halfday')      return '#8B5E00';
     if (group === 'absent')       return '#6a1b9a';
     if (group === 'overall')      return '#166534';
     if (group === 'overallTard')  return '#991b1b';
@@ -1028,6 +1066,7 @@ const OverallAttendance = () => {
   const getCellBg = (group, isEven) => {
     if (group === 'rendered')    return isEven ? 'rgba(21,128,61,0.05)' : 'rgba(21,128,61,0.09)';
     if (group === 'tardiness')   return isEven ? 'rgba(153,27,27,0.04)' : 'rgba(153,27,27,0.08)';
+    if (group === 'halfday')     return isEven ? 'rgba(139,94,0,0.05)' : 'rgba(139,94,0,0.09)';
     if (group === 'absent')      return isEven ? 'rgba(106,27,154,0.05)' : 'rgba(106,27,154,0.09)';
     if (group === 'overall')     return isEven ? 'rgba(21,128,61,0.09)' : 'rgba(21,128,61,0.14)';
     if (group === 'overallTard') return isEven ? 'rgba(153,27,27,0.09)' : 'rgba(153,27,27,0.14)';
@@ -1037,6 +1076,7 @@ const OverallAttendance = () => {
   const getHeaderBg = (group) => {
     if (group === 'rendered')    return '#166534';
     if (group === 'tardiness')   return '#991b1b';
+    if (group === 'halfday')     return '#8B5E00';
     if (group === 'absent')      return '#6a1b9a';
     if (group === 'overall')     return '#0f4a26';
     if (group === 'overallTard') return '#6b0f0f';
@@ -1391,6 +1431,7 @@ const OverallAttendance = () => {
                   {[
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(21,128,61,0.1)', border: '1px solid rgba(21,128,61,0.3)' }} />, label: 'Rendered time' },
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(153,27,27,0.08)', border: '1px solid rgba(153,27,27,0.3)' }} />, label: 'Tardiness' },
+                    { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(139,94,0,0.09)', border: '1px solid rgba(139,94,0,0.3)' }} />, label: 'Half day' },
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(106,27,154,0.10)', border: '1px solid rgba(106,27,154,0.30)' }} />, label: 'Absences' },
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(21,128,61,0.14)', border: '1px solid rgba(21,128,61,0.4)' }} />, label: 'Overall rendered' },
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(153,27,27,0.14)', border: '1px solid rgba(153,27,27,0.4)' }} />, label: 'Overall tardiness' },

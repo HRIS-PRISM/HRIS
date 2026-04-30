@@ -446,7 +446,8 @@ const VLDeductionReceipt = ({
     setDeductError("");
     const token = localStorage.getItem("token");
     try {
-      await axios.post(
+      const headers = { Authorization: `Bearer ${token}` };
+      const { data } = await axios.post(
         `${API_BASE_URL}/api/earnings/leave`,
         {
           employeeNumber: employee.employeeNumber,
@@ -457,13 +458,21 @@ const VLDeductionReceipt = ({
           entry_type: "TARDINESS_DEDUCTION",
           remarks: `Auto-deduction: tardiness ${remainingToDeductDec.toFixed(3)}d (${(remainingToDeductDec * 8).toFixed(3)}h / ${hrsToHMS(remainingToDeductDec * 8)}) for ${monthName(month)} ${year}`,
         },
-        { headers: { Authorization: `Bearer ${token}` } },
+        { headers },
       );
-      const newVL = Number(
-        Math.max(0, vlBal - remainingToDeductDec).toFixed(3),
-      );
+      const earningId = data?.id;
+      if (earningId != null) {
+        await axios.patch(
+          `${API_BASE_URL}/api/earnings/leave/${earningId}/approve`,
+          {},
+          { headers },
+        );
+      }
+      const newVL = Number((vlBal - remainingToDeductDec).toFixed(3));
       setDeductSuccess(
-        `Deducted ${remainingToDeductDec.toFixed(3)}d from VL. New balance ≈ ${newVL.toFixed(3)}d.`,
+        newVL < 0
+          ? `Applied ${remainingToDeductDec.toFixed(3)}d tardiness to VL. Balance is ${newVL.toFixed(3)}d — salary shortfall was recorded for the overdraw.`
+          : `Deducted ${remainingToDeductDec.toFixed(3)}d from VL. New balance ≈ ${newVL.toFixed(3)}d.`,
       );
       setConfirmOpen(false);
       setChecked(false);
@@ -918,22 +927,6 @@ const VLDeductionReceipt = ({
                   tardiness from VL balance
                 </Typography>
               </Box>
-              {deductError && (
-                <Alert
-                  severity="error"
-                  sx={{ mb: 0.5, py: 0, fontSize: "0.65rem", borderRadius: 1 }}
-                >
-                  {deductError}
-                </Alert>
-              )}
-              {deductSuccess && (
-                <Alert
-                  severity="success"
-                  sx={{ mb: 0.5, py: 0, fontSize: "0.65rem", borderRadius: 1 }}
-                >
-                  {deductSuccess}
-                </Alert>
-              )}
               <Button
                 fullWidth
                 variant="contained"
@@ -965,6 +958,35 @@ const VLDeductionReceipt = ({
               >
                 Deduct to VL
               </Button>
+
+              {deductError && (
+                <Alert
+                  severity="error"
+                  sx={{
+                    mt: 0.5,
+                    mb: 0.5,
+                    py: 0,
+                    fontSize: "0.65rem",
+                    borderRadius: 1,
+                  }}
+                >
+                  {deductError}
+                </Alert>
+              )}
+              {deductSuccess && (
+                <Alert
+                  severity="success"
+                  sx={{
+                    mt: 0.5,
+                    mb: 0.5,
+                    py: 0,
+                    fontSize: "0.65rem",
+                    borderRadius: 1,
+                  }}
+                >
+                  {deductSuccess}
+                </Alert>
+              )}
             </Box>
           )}
           {deductSuccess && hasFullyDeducted && (
@@ -995,7 +1017,7 @@ const VLDeductionReceipt = ({
             pb: 0.5,
           }}
         >
-          Confirm VL Deduction
+          Confirm deduct {remainingToDeductDec.toFixed(3)}d tardiness from VL
         </DialogTitle>
         <DialogContent>
           <Box sx={{ py: 0.5 }}>
@@ -1007,7 +1029,9 @@ const VLDeductionReceipt = ({
                 mb: 1,
               }}
             >
-              Deduct tardiness from VL for{" "}
+              You are about to deduct{" "}
+              <strong>{remainingToDeductDec.toFixed(3)}d</strong> tardiness
+              from the employee&apos;s <strong>VL</strong> balance for{" "}
               <strong>
                 {monthName(month)} {year}
               </strong>
@@ -1210,6 +1234,37 @@ const VLDeductionReceipt = ({
               This deduction is <strong>auto-approved</strong> — the balance
               will update immediately.
             </Typography>
+
+            {/* Certify checkbox + confirm action (same UX as "Deduct to VL") */}
+            <Box sx={{ mt: 1, display: "flex", flexDirection: "column", gap: 1 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Checkbox checked={checked} disabled size="small" />
+                <Typography sx={{ fontSize: "0.78rem", color: T.muted }}>
+                  I certify this is correct
+                </Typography>
+              </Box>
+              <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+                <AccentButton
+                  variant="contained"
+                  onClick={handleDeduct}
+                  disabled={deducting}
+                  sx={{
+                    bgcolor: T.accent,
+                    "&:hover": { bgcolor: T.accentDark },
+                  }}
+                >
+                  {deducting ? (
+                    <CircularProgress
+                      size={14}
+                      sx={{ color: "#fff" }}
+                    />
+                  ) : (
+                    "Confirm Deduction"
+                  )}
+                </AccentButton>
+              </Box>
+            </Box>
+
             {deductError && (
               <Alert
                 severity="error"
@@ -1232,18 +1287,6 @@ const VLDeductionReceipt = ({
           >
             Cancel
           </Button>
-          <AccentButton
-            variant="contained"
-            onClick={handleDeduct}
-            disabled={deducting}
-            sx={{ bgcolor: T.accent, "&:hover": { bgcolor: T.accentDark } }}
-          >
-            {deducting ? (
-              <CircularProgress size={14} sx={{ color: "#fff" }} />
-            ) : (
-              "Confirm Deduction"
-            )}
-          </AccentButton>
         </DialogActions>
       </Dialog>
     </>

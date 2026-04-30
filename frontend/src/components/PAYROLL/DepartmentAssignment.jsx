@@ -18,6 +18,8 @@ import {
 } from '@mui/icons-material';
 
 import AccessDenied from '../AccessDenied';
+import LoadingOverlay from '../LoadingOverlay';
+import SuccessfulOverlay from '../SuccessfulOverlay';
 import usePageAccess from '../../hooks/usePageAccess';
 import { styled, alpha } from '@mui/material/styles';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
@@ -291,6 +293,8 @@ const DepartmentAssignment = () => {
   const [loading, setLoading]       = useState(false);
   const [viewMode, setViewMode]     = useState('grid');
   const [snackbar, setSnackbar]     = useState({ open: false, message: '', severity: 'success' });
+  const [successOpen, setSuccessOpen] = useState(false);
+  const [successAction, setSuccessAction] = useState('create');
 
   // Modal state
   const [modalOpen, setModalOpen]                       = useState(false);
@@ -386,14 +390,17 @@ const DepartmentAssignment = () => {
     exitSelectMode();
     setSelectedCode('');
     fetchAssignments();
-    if (fail === 0) showSnackbar(`${ok} employee${ok !== 1 ? 's' : ''} assigned successfully!`);
-    else showSnackbar(`${ok} assigned, ${fail} failed.`, 'warning');
+    if (fail === 0) {
+      setSuccessAction(ok > 1 ? 'bulk' : 'create');
+      setSuccessOpen(true);
+    } else showSnackbar(`${ok} assigned, ${fail} failed.`, 'warning');
   };
 
   const handleUpdate = async () => {
     try {
       await axios.put(`${API_BASE_URL}/api/department-assignment/${editAssignment.id}`, editAssignment, getAuthHeaders());
-      showSnackbar('Assignment updated successfully!');
+      setSuccessAction('edit');
+      setSuccessOpen(true);
       await fetchAssignments();
       const res = await axios.get(`${API_BASE_URL}/api/department-assignment`, getAuthHeaders());
       const all = Array.isArray(res.data) ? res.data : [];
@@ -411,7 +418,8 @@ const DepartmentAssignment = () => {
   const handleDelete = async (id) => {
     try {
       await axios.delete(`${API_BASE_URL}/api/department-assignment/${id}`, getAuthHeaders());
-      showSnackbar('Assignment deleted successfully!');
+      setSuccessAction('delete');
+      setSuccessOpen(true);
       await fetchAssignments();
       if (selectedDepartment) {
         const updated = selectedDepartment.employees.filter((e) => e.id !== id);
@@ -1014,6 +1022,13 @@ const DepartmentAssignment = () => {
             </Box>
           </Fade>
         </Modal>
+
+        <LoadingOverlay open={loading} message="Processing assignment…" />
+        <SuccessfulOverlay
+          open={successOpen}
+          action={successAction}
+          onClose={() => setSuccessOpen(false)}
+        />
 
         <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar({ ...snackbar, open: false })} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
           <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity} sx={{ width: '100%', borderRadius: 2 }}>{snackbar.message}</Alert>

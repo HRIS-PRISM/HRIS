@@ -7,6 +7,7 @@ import {
   Divider, Autocomplete, Dialog, DialogTitle, DialogContent, DialogActions,
   TablePagination, LinearProgress, Tooltip, Fade, CircularProgress,
   ToggleButton, ToggleButtonGroup, Collapse, Paper, Tabs, Tab,
+  Table, TableBody, TableCell, TableHead, TableRow,
 } from "@mui/material";
 import { alpha, styled } from "@mui/material/styles";
 import {
@@ -1724,6 +1725,8 @@ const LeaveAssignment = () => {
   const [isEditing,           setIsEditing]           = useState(false);
   const [editCarriedHours,    setEditCarriedHours]    = useState(0);
   const [editAllocatedHours,  setEditAllocatedHours]  = useState(0);
+  const [creditUsageLog,      setCreditUsageLog]      = useState([]);
+  const [creditUsageLoading,  setCreditUsageLoading]  = useState(false);
 
   const [searchTerm,    setSearchTerm]    = useState("");
   const [loading,       setLoading]       = useState(false);
@@ -1872,6 +1875,29 @@ const LeaveAssignment = () => {
   useEffect(() => {
     setBulkCredits({}); setBulkResults(null); setError("");
   }, [selectedEmployee, periodYear, periodMonth]);
+
+  useEffect(() => {
+    const aid = editAssignment?.id;
+    if (!aid) {
+      setCreditUsageLog([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setCreditUsageLoading(true);
+      try {
+        const r = await axios.get(`${API_BASE_URL}/leaveRoute/leave_credit_usage`, {
+          params: { leave_assignment_id: aid },
+        });
+        if (!cancelled) setCreditUsageLog(Array.isArray(r.data) ? r.data : []);
+      } catch {
+        if (!cancelled) setCreditUsageLog([]);
+      } finally {
+        if (!cancelled) setCreditUsageLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [editAssignment?.id]);
 
   const fetchAssignments = async () => {
     try { const r = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`); setAssignments(Array.isArray(r.data) ? r.data : []); setError(""); }
@@ -2726,7 +2752,7 @@ if (accessLoading || pageLoading) {
           {/* Edit Assignment Modal */}
           <Modal open={!!editAssignment} onClose={handleCloseModal} sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2 }}>
             <Fade in={!!editAssignment}>
-              <Box sx={{ backgroundColor: "#fff", borderRadius: 3, width: "100%", maxWidth: "560px", maxHeight: "90vh", overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.22)", display: "flex", flexDirection: "column", fontFamily: T.poppins }}>
+              <Box sx={{ backgroundColor: "#fff", borderRadius: 3, width: "100%", maxWidth: "640px", maxHeight: "90vh", overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.22)", display: "flex", flexDirection: "column", fontFamily: T.poppins }}>
                 {editAssignment && (() => {
                   const isEditLocked = isCommutedLocked(editAssignment);
                   const editDept     = deptMap[editAssignment.employeeNumber?.toString()] || null;
@@ -2803,6 +2829,43 @@ if (accessLoading || pageLoading) {
                             />
                           </Box>
                         )}
+                        <Box sx={{ mb: 2.5 }}>
+                          <Typography sx={{ fontSize: "0.75rem", fontWeight: 800, color: T.accent, mb: 1, fontFamily: T.poppins }}>
+                            Credit usage log (this assignment)
+                          </Typography>
+                          {creditUsageLoading ? (
+                            <LinearProgress sx={{ borderRadius: 1 }} />
+                          ) : creditUsageLog.length === 0 ? (
+                            <Typography variant="body2" sx={{ color: T.muted, fontFamily: T.poppins }}>
+                              No ledger lines yet. Usage from HR-approved leave and approved earnings deductions will appear here after you run the DB migration for{" "}
+                              <Box component="span" sx={{ fontFamily: "monospace", fontSize: "0.75rem" }}>leave_credit_usage</Box>.
+                            </Typography>
+                          ) : (
+                            <Table size="small" sx={{ border: `1px solid ${T.divider}`, borderRadius: 1, "& .MuiTableCell-root": { fontFamily: T.poppins, fontSize: "0.72rem" } }}>
+                              <TableHead sx={{ bgcolor: T.accentFaint }}>
+                                <TableRow>
+                                  <TableCell>When</TableCell>
+                                  <TableCell>Source</TableCell>
+                                  <TableCell align="right">Δ hrs</TableCell>
+                                  <TableCell align="right">Ref</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {creditUsageLog.map((row) => (
+                                  <TableRow key={row.id} sx={{ opacity: row.voided_at ? 0.45 : 1 }}>
+                                    <TableCell>{row.created_at ? String(row.created_at).replace("T", " ").slice(0, 19) : "—"}</TableCell>
+                                    <TableCell>
+                                      {row.source_type || "—"}
+                                      {row.voided_at ? " (voided)" : ""}
+                                    </TableCell>
+                                    <TableCell align="right">{Number(row.hours_delta).toFixed(4)}</TableCell>
+                                    <TableCell align="right">{row.source_id != null ? row.source_id : "—"}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          )}
+                        </Box>
                         <Divider sx={{ mb: 2.5, borderColor: T.divider }}>
                           <Chip label="Edit Fields" size="small" sx={{ height: 18, fontSize: "0.68rem", bgcolor: T.accentFaint, color: T.accent, fontWeight: 700, border: `1px solid ${T.accentBorder}`, fontFamily: T.poppins }} />
                         </Divider>

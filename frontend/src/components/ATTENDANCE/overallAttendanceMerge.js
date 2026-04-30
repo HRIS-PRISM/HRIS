@@ -1,0 +1,140 @@
+/** Helpers for comparing and merging overall_attendance_record payloads. */
+
+export const OVERALL_TIME_FIELD_KEYS = [
+  'totalRenderedTimeMorning',
+  'totalRenderedTimeMorningTardiness',
+  'totalRenderedTimeAfternoon',
+  'totalRenderedTimeAfternoonTardiness',
+  'totalRenderedHonorarium',
+  'totalRenderedHonorariumTardiness',
+  'totalRenderedServiceCredit',
+  'totalRenderedServiceCreditTardiness',
+  'totalRenderedOvertime',
+  'totalRenderedOvertimeTardiness',
+  'overallRenderedOfficialTime',
+  'overallRenderedOfficialTimeTardiness',
+];
+
+export const OVERALL_COMPARE_FIELD_META = [
+  { key: 'totalRenderedTimeMorning', label: 'Morning — rendered' },
+  { key: 'totalRenderedTimeMorningTardiness', label: 'Morning — tardiness' },
+  { key: 'totalRenderedTimeAfternoon', label: 'Afternoon — rendered' },
+  { key: 'totalRenderedTimeAfternoonTardiness', label: 'Afternoon — tardiness' },
+  { key: 'totalRenderedHonorarium', label: 'Honorarium — rendered' },
+  { key: 'totalRenderedHonorariumTardiness', label: 'Honorarium — tardiness' },
+  { key: 'totalRenderedServiceCredit', label: 'Service credit — rendered' },
+  { key: 'totalRenderedServiceCreditTardiness', label: 'Service credit — tardiness' },
+  { key: 'totalRenderedOvertime', label: 'Overtime — rendered' },
+  { key: 'totalRenderedOvertimeTardiness', label: 'Overtime — tardiness' },
+  { key: 'overallRenderedOfficialTime', label: 'Overall — rendered' },
+  { key: 'overallRenderedOfficialTimeTardiness', label: 'Overall — tardiness' },
+];
+
+export function timeToSec(hms) {
+  if (hms == null || hms === '') return 0;
+  const str = String(hms).trim();
+  if (!str) return 0;
+  const parts = str.split(':').map((p) => Number(p));
+  if (parts.length < 2 || parts.some((n) => Number.isNaN(n))) return 0;
+  const h = parts[0] || 0;
+  const m = parts[1] || 0;
+  const s = parts[2] || 0;
+  return h * 3600 + m * 60 + s;
+}
+
+export function hmsRoughlyEqual(a, b, toleranceSec = 1) {
+  return Math.abs(timeToSec(a) - timeToSec(b)) <= toleranceSec;
+}
+
+export function overallRecordsDiffer(saved, proposed, keys = OVERALL_TIME_FIELD_KEYS) {
+  if (!saved || !proposed) return true;
+  return keys.some((key) => {
+    const sv = saved[key] ?? '00:00:00';
+    const pv = proposed[key] ?? '00:00:00';
+    return !hmsRoughlyEqual(sv, pv);
+  });
+}
+
+export function mergeOverallPayload({
+  savedRow,
+  proposed,
+  tertiaryRecord = null,
+  choices,
+  personID,
+  startDate,
+  endDate,
+  keys = OVERALL_TIME_FIELD_KEYS,
+}) {
+  const out = { personID, startDate, endDate };
+  for (const key of keys) {
+    const pick = choices[key] || 'proposed';
+    if (pick === 'saved') {
+      out[key] = savedRow[key] ?? '00:00:00';
+    } else if (pick === 'tertiary') {
+      out[key] = tertiaryRecord?.[key] ?? savedRow[key] ?? '00:00:00';
+    } else {
+      out[key] = proposed[key] ?? '00:00:00';
+    }
+  }
+  out.overallTotalOfficialSchedule =
+    savedRow?.overallTotalOfficialSchedule ??
+    proposed?.overallTotalOfficialSchedule ??
+    null;
+  return out;
+}
+
+/** Default per-field choice for compare modal (supports optional tertiary / recalculated). */
+/** Full PUT body: every time column from `raw`, with optional overrides (HH:MM:SS strings). */
+export function buildOverallPutPayloadFromRow(raw, overrides = {}) {
+  if (!raw) return null;
+  const out = {
+    personID: raw.personID,
+    startDate: raw.startDate,
+    endDate: raw.endDate,
+  };
+  for (const key of OVERALL_TIME_FIELD_KEYS) {
+    out[key] =
+      overrides[key] !== undefined && overrides[key] !== null
+        ? overrides[key]
+        : (raw[key] ?? '00:00:00');
+  }
+  out.overallTotalOfficialSchedule =
+    overrides.overallTotalOfficialSchedule !== undefined
+      ? overrides.overallTotalOfficialSchedule
+      : (raw.overallTotalOfficialSchedule ?? null);
+  return out;
+}
+
+const EARNINGS_SUMMARY_KEYS = [
+  'overallRenderedOfficialTime',
+  'overallRenderedOfficialTimeTardiness',
+];
+
+/** Merge only overall rendered/tardiness choices for earnings summary PUT (full row preserved). */
+export function mergeEarningsSummaryChoices(savedRow, formProposal, tertiaryRecord, choices) {
+  const base = buildOverallPutPayloadFromRow(savedRow, {});
+  EARNINGS_SUMMARY_KEYS.forEach((key) => {
+    const pick = choices[key] || 'proposed';
+    if (pick === 'saved') base[key] = savedRow[key] ?? '00:00:00';
+    else if (pick === 'tertiary') {
+      base[key] = tertiaryRecord?.[key] ?? savedRow[key] ?? '00:00:00';
+    } else {
+      base[key] = formProposal[key] ?? savedRow[key] ?? '00:00:00';
+    }
+  });
+  return base;
+}
+
+export function defaultMergeChoice(savedVal, proposedVal, tertiaryVal) {
+  const hasTertiary = tertiaryVal != null && tertiaryVal !== undefined;
+  if (
+    hasTertiary &&
+    !hmsRoughlyEqual(savedVal, tertiaryVal) &&
+    hmsRoughlyEqual(savedVal, proposedVal)
+  ) {
+    return 'tertiary';
+  }
+  if (!hmsRoughlyEqual(savedVal, proposedVal)) return 'proposed';
+  if (hasTertiary && !hmsRoughlyEqual(savedVal, tertiaryVal)) return 'tertiary';
+  return 'saved';
+}

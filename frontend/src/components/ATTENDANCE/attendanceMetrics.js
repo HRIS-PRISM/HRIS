@@ -21,11 +21,18 @@ function hasNoPunches(row) {
   return empty(ti) && empty(bi) && empty(bo) && empty(to);
 }
 
-export function computeAbsentDays(rows) {
+/**
+ * @param {object[]} rows - attendance rows from API
+ * @param {Record<string, unknown>} [leaveByDate] - keys YYYY-MM-DD for HR-approved leave (same as /api/leaves)
+ */
+export function computeAbsentDays(rows, leaveByDate = {}) {
   const list = Array.isArray(rows) ? rows : [];
+  const leave =
+    leaveByDate && typeof leaveByDate === "object" ? leaveByDate : {};
   let count = 0;
   for (const r of list) {
     if (!hasOfficialSchedule(r)) continue;
+    if (leave[r.date]) continue;
     if (hasNoPunches(r)) count += 1;
   }
   return count;

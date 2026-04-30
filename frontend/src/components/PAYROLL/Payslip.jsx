@@ -5,12 +5,12 @@ import React, {
   forwardRef,
   useState,
   useEffect,
+  useMemo,
 } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   Box,
   Typography,
-  CircularProgress,
   Alert,
   Collapse,
   Card,
@@ -21,6 +21,10 @@ import {
   Snackbar,
   Grid,
   Paper,
+  TextField,
+  MenuItem,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
 import WorkIcon from '@mui/icons-material/Work';
 import Refresh from '@mui/icons-material/Refresh';
@@ -31,11 +35,12 @@ import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import axios from 'axios';
-import SuccessfulOverlay from '../SuccessfulOverlay';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
+import LoadingOverlay from '../LoadingOverlay';
+import SuccessfulOverlay from '../SuccessfulOverlay';
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 const generateHash = (data) => {
@@ -92,6 +97,19 @@ const AccentButton = styled(Button)({
   transition: 'all 0.18s ease',
   '&:hover': { transform: 'translateY(-1px)' },
   '&:active': { transform: 'translateY(0)' },
+});
+
+const FieldInput = styled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+    '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: T.text },
+  },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
 });
 
 // ─── Section label ─────────────────────────────────────────────────────────────
@@ -191,6 +209,15 @@ const getAuthHeaders = () => ({
   headers: { Authorization: `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
 });
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const monthFromLocationState = (val) => {
+  if (val === undefined || val === null) return '';
+  if (typeof val === 'number' && val >= 0 && val <= 11) return MONTHS[val];
+  if (typeof val === 'string' && MONTHS.includes(val)) return val;
+  return '';
+};
+
 // ════════════════════════════════════════════════════════════════════════════
 const Payslip = forwardRef(({ employee }, ref) => {
   const payslipRef = ref || useRef();
@@ -201,16 +228,12 @@ const Payslip = forwardRef(({ employee }, ref) => {
   const [displayEmployee, setDisplayEmployee] = useState(employee || null);
   const [loading, setLoading] = useState(!employee);
   const [error, setError] = useState('');
-  const [sending, setSending] = useState(false);
-  const [modal, setModal] = useState({ open: false, type: 'success', message: '' });
+  const [modal, setModal] = useState({ open: false, type: 'error', message: '' });
 
-  const [selectedMonth, setSelectedMonth] = useState(
-    locationState.selectedMonth !== undefined ? locationState.selectedMonth : null,
-  );
+  const [selectedMonth, setSelectedMonth] = useState(() => monthFromLocationState(locationState.selectedMonth));
   const [selectedYear, setSelectedYear] = useState(
     locationState.selectedYear !== undefined ? locationState.selectedYear : new Date().getFullYear(),
   );
-  const [hasSearched, setHasSearched] = useState(false);
   const [personID, setPersonID] = useState('');
   const [pageLoading, setPageLoading] = useState(true);
 
@@ -219,9 +242,16 @@ const Payslip = forwardRef(({ employee }, ref) => {
   const [fetchedAt, setFetchedAt] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [alertState, setAlertState] = useState({ open: false, message: '', severity: 'success' });
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [successOpen, setSuccessOpen] = useState(false);
 
-  const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const years = Array.from({ length: 2060 - 1990 + 1 }, (_, i) => 1990 + i);
+  const currentYear = new Date().getFullYear();
+  const years = useMemo(() => {
+    const base = Array.from({ length: 6 }, (_, i) => currentYear - i);
+    const y = Number(selectedYear);
+    if (!Number.isNaN(y) && !base.includes(y)) return [...base, y].sort((a, b) => b - a);
+    return base;
+  }, [currentYear, selectedYear]);
 
   const { settings } = useSystemSettings();
   const institutionLogo = settings.institutionLogo || '';
@@ -271,42 +301,57 @@ const Payslip = forwardRef(({ employee }, ref) => {
   useEffect(() => { if (!employee) fetchPayrollData(); }, [employee, personID]); // eslint-disable-line
 
   useEffect(() => {
-    if (locationState.selectedMonth !== undefined && personID && allPayroll.length > 0 && !hasSearched) {
-      handleMonthSelect(locationState.selectedMonth);
+    if (!personID || allPayroll.length === 0) return;
+    if (!selectedMonth) {
+      setDisplayEmployee(null);
+      return;
     }
-  }, [allPayroll, personID]); // eslint-disable-line
+    const monthIndex = MONTHS.indexOf(selectedMonth);
+    if (monthIndex < 0) return;
+    const result = allPayroll.filter((emp) => {
+      if (!emp.startDate) return false;
+      const d = new Date(emp.startDate);
+      return emp.employeeNumber?.toString() === personID.toString() && d.getMonth() === monthIndex && d.getFullYear() === Number(selectedYear);
+    });
+    setDisplayEmployee(result.length > 0 ? result[0] : null);
+  }, [allPayroll, personID, selectedMonth, selectedYear]);
 
   useEffect(() => {
     if (!accessLoading && !loading) setTimeout(() => setPageLoading(false), 300);
   }, [accessLoading, loading]);
 
-  const handleMonthSelect = (idx) => {
-    setSelectedMonth(idx);
-    const result = allPayroll.filter((emp) => {
-      if (!emp.startDate) return false;
-      const d = new Date(emp.startDate);
-      return emp.employeeNumber?.toString() === personID.toString() && d.getMonth() === idx && d.getFullYear() === selectedYear;
-    });
-    setDisplayEmployee(result.length > 0 ? result[0] : null);
-    setHasSearched(true);
-  };
+  const myPayrollRows = allPayroll.filter((p) => p.employeeNumber?.toString() === personID.toString());
+  const filteredPayrollCount = selectedMonth
+    ? allPayroll.filter((emp) => {
+        if (!emp.startDate) return false;
+        const d = new Date(emp.startDate);
+        if (emp.employeeNumber?.toString() !== personID.toString()) return false;
+        return d.getMonth() === MONTHS.indexOf(selectedMonth) && d.getFullYear() === Number(selectedYear);
+      }).length
+    : 0;
 
   const handleYearChange = (year) => {
     setSelectedYear(year);
-    if (selectedMonth !== null) {
-      const result = allPayroll.filter((emp) => {
-        if (!emp.startDate) return false;
-        const d = new Date(emp.startDate);
-        return emp.employeeNumber?.toString() === personID.toString() && d.getMonth() === selectedMonth && d.getFullYear() === year;
-      });
-      setDisplayEmployee(result.length > 0 ? result[0] : null);
-    }
+    setSnackbar({ open: true, message: 'Year changed — payroll for the selected month updates automatically.', severity: 'info' });
   };
 
   const formatCurrency = (v) => { const n = parseFloat(v); return !isNaN(n) && n !== 0 ? `₱${n.toLocaleString()}` : ''; };
   const formatRenderedDays = (v) => { const h = Number(v); if (!isNaN(h) && h > 0) { const d = Math.floor(h / 8), r = h % 8; return `${d} days${r > 0 ? ` & ${r} hrs` : ''}`; } return ''; };
   const getSurname = (name) => { if (!name) return 'EARIST'; const p = name.trim().split(' '); return p[p.length - 1] || 'EARIST'; };
-  const formatPeriod = (startDate) => { if (!startDate) return 'Unknown'; const s = new Date(startDate); return `${s.toLocaleString('en-US', { month: 'long' })}_${s.getFullYear()}`; };
+  const sanitizeFilenamePart = (s) =>
+    String(s ?? '')
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
+      .replace(/\s+/g, '')
+      .toUpperCase();
+  const buildPayslipDownloadFilename = (emp) => {
+    const last = sanitizeFilenamePart(getSurname(emp?.name)) || 'UNKNOWN';
+    if (!emp?.startDate) return `${last}.pdf`;
+    const d = new Date(emp.startDate);
+    if (Number.isNaN(d.getTime())) return `${last}.pdf`;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}-${last}.pdf`;
+  };
   const formatAbs = (v) => formatCurrency(v) || 'Deducted from VL';
   const computeNetPay = (emp) => { const r = (parseFloat(emp.netSalary) || 0) - (parseFloat(emp.totalDeductions) || 0); return !isNaN(r) && r !== 0 ? `₱${r.toLocaleString()}` : '—'; };
 
@@ -371,18 +416,18 @@ const Payslip = forwardRef(({ employee }, ref) => {
 
   const downloadPDF = async () => {
     if (!displayEmployee || !verifyIntegrity()) return;
-    setSending(true);
     try {
+      setPdfBusy(true);
       const pdf = await generate3MonthPDF(displayEmployee);
-      pdf.save(`${getSurname(displayEmployee.name)}_${formatPeriod(displayEmployee.startDate)}.pdf`);
+      pdf.save(buildPayslipDownloadFilename(displayEmployee));
       try { await axios.post(`${API_BASE_URL}/PayrollReleasedRoute/log-print`, { employeeNumber: displayEmployee.employeeNumber }, getAuthHeaders()); }
       catch (e) { console.error('Print audit log error:', e); }
-      setModal({ open: true, type: 'success', message: '' });
+      setSuccessOpen(true);
     } catch (err) {
       console.error('PDF generation error:', err);
       setModal({ open: true, type: 'error', message: 'Failed to generate PDF.' });
     } finally {
-      setSending(false);
+      setPdfBusy(false);
     }
   };
 
@@ -497,10 +542,6 @@ const Payslip = forwardRef(({ employee }, ref) => {
       <Box sx={{ py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 }, width: '100vw', maxWidth: '100%', position: 'relative', left: '63%', transform: 'translateX(-61%)', px: { xs: 2, sm: 3, md: 6 } }}>
         <style>{shimmerKf}</style>
 
-        {modal.open && modal.type === 'success' && (
-          <SuccessfulOverlay open={modal.open} action={modal.action} onClose={() => setModal({ ...modal, open: false })} showOkButton />
-        )}
-
         {/* ── Page Header (matches PayslipDistribution) ── */}
         <SectionCard sx={{ mb: 2, overflow: 'hidden' }}>
           <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
@@ -516,17 +557,18 @@ const Payslip = forwardRef(({ employee }, ref) => {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
               <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
                 <Typography sx={{ fontSize: '0.8rem', color: T.accent, fontWeight: 700 }}>
-                  {allPayroll.filter((p) => p.employeeNumber?.toString() === personID.toString()).length} records
+                  {myPayrollRows.length} {myPayrollRows.length === 1 ? 'record' : 'records'}
                 </Typography>
               </Box>
-              <Box
-                component="button"
-                onClick={() => window.location.reload()}
-                title="Refresh"
-                sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, borderRadius: '8px', p: '7px 10px', cursor: 'pointer', color: T.accent, display: 'flex', alignItems: 'center', transition: 'all 0.15s', '&:hover': { bgcolor: alpha(T.accent, 0.15), transform: 'translateY(-1px)' } }}
-              >
-                <Refresh sx={{ fontSize: 17 }} />
-              </Box>
+              <Tooltip title="Refresh Data">
+                <IconButton
+                  onClick={() => fetchPayrollData()}
+                  size="small"
+                  sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, width: 34, height: 34, '&:hover': { bgcolor: alpha(T.accent, 0.15) } }}
+                >
+                  <Refresh sx={{ fontSize: 17 }} />
+                </IconButton>
+              </Tooltip>
             </Box>
           </Box>
         </SectionCard>
@@ -563,54 +605,87 @@ const Payslip = forwardRef(({ employee }, ref) => {
                 {/* Year */}
                 <FormSectionLabel icon={CalendarToday}>Year</FormSectionLabel>
                 <Box sx={{ mb: 2.5 }}>
-                  <select
+                  <FieldInput
+                    fullWidth
+                    size="small"
+                    select
                     value={selectedYear}
-                    onChange={(e) => handleYearChange(parseInt(e.target.value))}
-                    style={{ width: '100%', padding: '9px 13px', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, fontSize: '0.82rem', outline: 'none', fontFamily: 'inherit', background: '#fff', color: T.text, cursor: 'pointer' }}
+                    onChange={(e) => handleYearChange(Number(e.target.value))}
+                    sx={{ '& .MuiOutlinedInput-root': { fontSize: '0.82rem' } }}
                   >
-                    {years.map((y) => <option key={y} value={y}>{y}</option>)}
-                  </select>
+                    {years.map((y) => (
+                      <MenuItem key={y} value={y} sx={{ fontSize: '0.82rem' }}>{y}</MenuItem>
+                    ))}
+                  </FieldInput>
                 </Box>
 
-                {/* Month */}
+                {/* Month — grid matching PayslipDistribution */}
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                     <CalendarToday sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
                     <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.45) }}>Month</Typography>
                   </Box>
-                  {selectedMonth !== null && (
-                    <Box onClick={() => { setSelectedMonth(null); setDisplayEmployee(null); setHasSearched(false); }} sx={{ fontSize: '0.65rem', color: T.accent, cursor: 'pointer', fontWeight: 700, '&:hover': { textDecoration: 'underline' } }}>Clear</Box>
+                  {!!selectedMonth && (
+                    <Box
+                      onClick={() => setSelectedMonth('')}
+                      sx={{ fontSize: '0.65rem', color: T.accent, cursor: 'pointer', fontWeight: 700, '&:hover': { textDecoration: 'underline' } }}
+                    >
+                      Clear
+                    </Box>
                   )}
                 </Box>
-
-                {/* Professional month list */}
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  {monthsShort.map((m, idx) => {
-                    const isSelected = selectedMonth === idx;
-                    return (
-                      <Box
-                        key={m}
-                        onClick={() => handleMonthSelect(idx)}
-                        sx={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          px: 1.75, py: 0.9, borderRadius: '7px', cursor: 'pointer',
-                          border: `1px solid ${isSelected ? T.accent : 'transparent'}`,
-                          bgcolor: isSelected ? T.accent : 'transparent',
-                          transition: 'all 0.14s ease',
-                          '&:hover': isSelected ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` },
-                        }}
+                <Box sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                  gap: '8px',
+                  mb: 1.25,
+                }}
+                >
+                  {MONTHS.map((m) => (
+                    <Box
+                      key={m}
+                      onClick={() => setSelectedMonth(m === selectedMonth ? '' : m)}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: 42,
+                        px: 1,
+                        py: 0.65,
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        border: `1px solid ${selectedMonth === m ? T.accent : 'transparent'}`,
+                        bgcolor: selectedMonth === m ? T.accent : 'transparent',
+                        transition: 'all 0.14s ease',
+                        '&:hover': selectedMonth === m ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` },
+                      }}
+                    >
+                      <Typography sx={{
+                        fontSize: '0.78rem',
+                        fontWeight: selectedMonth === m ? 700 : 600,
+                        color: selectedMonth === m ? '#fff' : T.text,
+                        lineHeight: 1,
+                        letterSpacing: '0.03em',
+                        textAlign: 'center',
+                        width: '100%',
+                      }}
                       >
-                        <Typography sx={{ fontSize: '0.8rem', fontWeight: isSelected ? 700 : 500, color: isSelected ? '#fff' : T.text, lineHeight: 1 }}>{m}</Typography>
-                        {isSelected ? (
-                          <Box sx={{ px: 0.75, py: 0.2, borderRadius: '4px', bgcolor: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.25)' }}>
-                            <Typography sx={{ fontSize: '0.6rem', fontWeight: 700, color: '#fff', lineHeight: 1 }}>{selectedYear}</Typography>
-                          </Box>
-                        ) : (
-                          <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: T.accentBorder, flexShrink: 0 }} />
-                        )}
-                      </Box>
-                    );
-                  })}
+                        {m}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+
+                <Box sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                  <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: alpha(T.accent, 0.6), mb: 0.5 }}>
+                    Total Records
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.9rem', fontWeight: 800, color: T.text, lineHeight: 1.3 }}>
+                    {selectedMonth ? filteredPayrollCount : 0} {(selectedMonth ? filteredPayrollCount : 0) === 1 ? 'record' : 'records'} found
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.75rem', color: T.muted, mt: 0.4 }}>
+                    Counts loaded payroll entries for the selected month and year.
+                  </Typography>
                 </Box>
               </Box>
             </SectionCard>
@@ -625,14 +700,23 @@ const Payslip = forwardRef(({ employee }, ref) => {
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                     <WorkIcon sx={{ fontSize: 15, color: T.accent }} />
-                    <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>Payslip Preview</Typography>
+                    <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
+                      {selectedMonth ? `${selectedMonth} ${selectedYear}` : 'Payslip Preview'}
+                    </Typography>
                     {displayEmployee && (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                         <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: T.faint }} />
                         <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 500 }}>{displayEmployee.name}</Typography>
-                        {selectedMonth !== null && (
-                          <Box sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, borderRadius: '5px', px: '6px', py: '2px' }}>{monthsShort[selectedMonth]}</Box>
+                        {!!selectedMonth && (
+                          <Box sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, borderRadius: '5px', px: '6px', py: '2px' }}>{selectedMonth}</Box>
                         )}
+                      </Box>
+                    )}
+                    {selectedMonth && (
+                      <Box sx={{ px: 1, py: 0.2, borderRadius: '5px', bgcolor: alpha(T.accent, 0.1), border: `1px solid ${T.accentBorder}` }}>
+                        <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: T.accent }}>
+                          {filteredPayrollCount} {filteredPayrollCount === 1 ? 'record' : 'records'}
+                        </Typography>
                       </Box>
                     )}
                   </Box>
@@ -640,12 +724,11 @@ const Payslip = forwardRef(({ employee }, ref) => {
                     <AccentButton
                       variant="contained"
                       size="small"
-                      startIcon={sending ? <CircularProgress size={12} sx={{ color: '#fff' }} /> : <Download sx={{ fontSize: '13px !important' }} />}
+                      startIcon={<Download sx={{ fontSize: '13px !important' }} />}
                       onClick={downloadPDF}
-                      disabled={sending}
-                      sx={{ fontSize: '0.78rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`, '&:hover': { bgcolor: T.accentDark }, '&:disabled': { bgcolor: '#ddd !important' } }}
+                      sx={{ fontSize: '0.78rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`, '&:hover': { bgcolor: T.accentDark } }}
                     >
-                      {sending ? 'Processing…' : 'Download PDF'}
+                      Download PDF
                     </AccentButton>
                   )}
                 </Box>
@@ -653,12 +736,12 @@ const Payslip = forwardRef(({ employee }, ref) => {
 
               {/* Content */}
               <Box sx={{ flexGrow: 1, overflowY: 'auto', '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
-                {selectedMonth === null ? (
+                {!selectedMonth ? (
                   <Box sx={{ py: 10, textAlign: 'center' }}>
                     <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
                       <CalendarToday sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
                     </Box>
-                    <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>Select a Pay Period</Typography>
+                    <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>Select a Month</Typography>
                     <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>Choose a month from the left panel to view your payslip.</Typography>
                   </Box>
                 ) : !displayEmployee ? (
@@ -667,7 +750,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                       <CalendarToday sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
                     </Box>
                     <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>No Payslip Found</Typography>
-                    <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>No records for <strong>{monthsShort[selectedMonth]}</strong> {selectedYear}. Try a different period.</Typography>
+                    <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>No records for <strong>{selectedMonth}</strong> {selectedYear}. Try a different period.</Typography>
                   </Box>
                 ) : (
                   <Fade in timeout={250}>
@@ -705,6 +788,16 @@ const Payslip = forwardRef(({ employee }, ref) => {
             </Box>
           </Box>
         )}
+
+        <LoadingOverlay
+          open={loading || pdfBusy}
+          message={pdfBusy ? 'Generating PDF…' : 'Loading payroll…'}
+        />
+        <SuccessfulOverlay
+          open={successOpen}
+          action="download"
+          onClose={() => setSuccessOpen(false)}
+        />
 
         <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={() => setSnackbar({ ...snackbar, open: false })} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
           <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity} sx={{ width: '100%', borderRadius: 2, fontSize: '0.82rem' }}>{snackbar.message}</Alert>
