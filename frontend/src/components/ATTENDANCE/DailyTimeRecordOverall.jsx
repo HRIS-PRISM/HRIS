@@ -102,6 +102,22 @@ const selectSx = {
   '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent, borderWidth: '1.5px' },
 };
 
+// ─── FIX: Normalize a record's date to strip UTC offset so getDateDay is always accurate
+// When dates like "2025-04-01T00:00:00.000Z" are accessed from UTC+8 (PH),
+// new Date() would shift them to March 31. We neutralize this by replacing
+// the time portion with T00:00:00 (no Z), anchoring to local midnight.
+const normalizeDateField = (dateStr) => {
+  if (!dateStr) return dateStr;
+  // Extract just the YYYY-MM-DD part and re-attach a neutral local midnight time
+  const datePart = String(dateStr).split('T')[0];
+  return `${datePart}T00:00:00`;
+};
+
+const normalizeRecord = (record) => ({
+  ...record,
+  date: normalizeDateField(record.date),
+});
+
 const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }) => {
   const [query, setQuery] = useState(value || '');
   const [debouncedQuery, setDebouncedQuery] = useState(value || '');
@@ -687,7 +703,10 @@ const DailyTimeRecordFaculty = () => {
     setMonthLoading(true);
     try {
       const r    = await axios.post(`${API_BASE_URL}/attendance/api/view-attendance`, { personID, startDate, endDate }, getAuthHeaders());
-      const data = r.data;
+
+      // ── FIX: Normalize all date fields to strip UTC offset before processing ──
+      const data = r.data.map(normalizeRecord);
+
       const filtered = filterByDtrType(data, dtrType);
       setRecords(filtered);
       if (filtered.length > 0) {
@@ -840,11 +859,15 @@ const DailyTimeRecordFaculty = () => {
         .sort((a, b) => a.page - b.page)
         .forEach(({ data: pageData }) => {
           const pageMap = new Map();
+
+          // ── FIX: Normalize each record's date field when building the page map ──
           pageData.forEach((record) => {
-            const id = record.personID || record.agencyEmployeeNum;
+            const normalized = normalizeRecord(record);
+            const id = normalized.personID || normalized.agencyEmployeeNum;
             if (!pageMap.has(id)) pageMap.set(id, []);
-            pageMap.get(id).push(record);
+            pageMap.get(id).push(normalized);
           });
+
           mergedUsers = mergedUsers.map((user) => {
             if (!pageMap.has(user.employeeNumber)) return user;
             const rows     = pageMap.get(user.employeeNumber);
@@ -1314,10 +1337,12 @@ const DailyTimeRecordFaculty = () => {
       const day    = (i + 1).toString().padStart(2, '0');
 
       // ── FIX: use getDateDay() to avoid UTC→local timezone shift ──
+      // Records are already normalized via normalizeRecord() at fetch time,
+      // so getDateDay() will always return the correct local calendar day.
       const record = sourceRecords.find((r) => getDateDay(r.date) === day);
 
       let fullDate = null;
-      if (record?.date) fullDate = record.date.split('T')[0];  // ── FIX: split instead of raw string
+      if (record?.date) fullDate = record.date.split('T')[0];
       else if (startDate) { const [y, m] = startDate.split('-'); fullDate = `${y}-${m}-${day}`; }
       else if (selectedMonth !== null) { fullDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${day}`; }
 
